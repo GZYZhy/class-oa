@@ -72,6 +72,32 @@ export function isIos() {
 }
 
 /**
+ * 内嵌在别的 App 里的浏览器（微信、QQ、钉钉……）
+ *
+ * 它们同样是 WebKit 内核，UA 里也照样带着 "Safari" 字样，光看引擎分辨不出来。
+ * 但分享菜单里根本没有「添加到主屏幕」这一项 —— 而班级链接最常见的传播路径
+ * 恰恰就是微信群。所以这一条必须单独认出来，不然会给人一份他做不到的说明。
+ */
+export function isInAppBrowser() {
+  return /MicroMessenger|QQ\/|QQBrowser|DingTalk|Weibo|AlipayClient|UCBrowser|Quark|baiduboxapp/i.test(
+    navigator.userAgent
+  )
+}
+
+/**
+ * 是不是 iOS 上的 Safari —— 也就是唯一能「添加到主屏幕」的那种环境
+ *
+ * iOS 上所有浏览器都跑 WebKit，只能靠 UA 里的厂商标记区分：Chrome 是 CriOS、
+ * Edge 是 EdgiOS、Firefox 是 FxiOS、Opera 是 OPiOS。
+ * 这些浏览器在 iOS 16.4 之后其实也能装，但入口和步骤跟 Safari 不一样，
+ * 与其给一份可能对不上的说明，不如统一把人引到 Safari 去。
+ */
+export function isIosSafari() {
+  if (!isIos() || isInAppBrowser()) return false
+  return !/CriOS|EdgiOS|FxiOS|OPiOS/.test(navigator.userAgent)
+}
+
+/**
  * 注册 Service Worker（幂等，重复调用返回同一个 registration）
  *
  * 必须先 register 再等 ready：页面上从来没注册过 SW 时，

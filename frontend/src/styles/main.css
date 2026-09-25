@@ -141,3 +141,24 @@ body {
 .el-table .cell {
   word-break: break-all;
 }
+
+/* ============ iOS：输入框字号不小于 16px ============
+   iOS Safari 一旦聚焦字号小于 16px 的输入框，就会把整页放大，而且失焦后
+   不会缩回 —— 界面从此错位，只能手动捏回来。唯一可靠的解法就是把输入框
+   字号提到 16px（正好也是 iOS 系统正文的标准大小）。
+   别想着用 user-scalable=no / maximum-scale=1 挡：iOS 10 起 Safari 出于
+   无障碍考虑直接忽略这两个值，那招已经失效了。
+   @supports (-webkit-touch-callout: none) 是 iOS Safari 独有的特性探测，
+   桌面 Safari 和所有 Chrome 都不匹配，所以这段只在 iPhone / iPad 上生效，
+   桌面观感一点不变。
+   选择器多带一层 html 是为了在特异性上压过 Element Plus 的 .el-input__inner
+   —— 它是 font-size: inherit，从 .el-input 继承来的是 14px。 */
+@supports (-webkit-touch-callout: none) {
+  html input,
+  html textarea,
+  html select,
+  html .el-input__inner,
+  html .el-textarea__inner {
+    font-size: 16px;
+  }
+}

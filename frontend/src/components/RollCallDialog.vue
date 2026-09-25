@@ -105,9 +105,22 @@ const queue = ref([])    // 本次要点的人
 const answers = ref([])  // 与 queue 一一对应的结果，true=到，false=无应答
 const photoBroken = ref(false)
 
+/** 范围名 → 学生表 gender 字段里的实际取值。
+    按钮上和日志里都写「男生」，但库里存的是「男」，这两个必须对上。
+    单独拎出来是因为踩过坑：筛选逻辑原来在 counts 和 startCall 里各写了一份，
+    counts 用了单字、startCall 却拿按钮上的「男生」直接比，于是选男生/女生
+    永远是空名单，只有不筛选的「全班」正常。 */
+const GENDER_BY_SCOPE = { 男生: '男', 女生: '女' }
+
+/** 按范围取人。counts 和 startCall 共用它，就不会再各写一套比法 */
+function pickByScope(list, scopeName) {
+  if (scopeName === '全班') return [...list]
+  return list.filter((s) => s.gender === GENDER_BY_SCOPE[scopeName])
+}
+
 const counts = computed(() => ({
-  male: roster.value.filter((s) => s.gender === '男').length,
-  female: roster.value.filter((s) => s.gender === '女').length,
+  male: pickByScope(roster.value, '男生').length,
+  female: pickByScope(roster.value, '女生').length,
   all: roster.value.length
 }))
 
@@ -158,8 +171,7 @@ async function fetchRoster() {
 
 function startCall(picked) {
   scope.value = picked
-  queue.value =
-    picked === '全班' ? [...roster.value] : roster.value.filter((s) => s.gender === picked)
+  queue.value = pickByScope(roster.value, picked)
   answers.value = []
   photoBroken.value = false
   step.value = 'calling'

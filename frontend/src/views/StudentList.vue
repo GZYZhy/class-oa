@@ -104,7 +104,9 @@
           <el-popover :width="240" trigger="click" placement="bottom-end">
             <template #reference>
               <el-button :type="birthdayFilter ? 'warning' : ''">
-                <el-icon><Cake /></el-icon>
+                <!-- Element Plus 没有 Cake 这个图标，写了会渲染成未知元素、什么都不显示。
+                     最贴近「生日」的是 Present（礼物盒） -->
+                <el-icon><Present /></el-icon>
                 近期生日
               </el-button>
             </template>
