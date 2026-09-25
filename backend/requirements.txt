@@ -1,0 +1,12 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+sqlalchemy==2.0.35
+pydantic==2.9.2
+pydantic-settings==2.5.2
+openpyxl==3.1.5
+python-docx==1.1.2
+python-multipart==0.0.9
+itsdangerous==2.2.0
+# 浏览器推送（Web Push）。必须锁定 2.5.0：
+# 更低版本没有 WebPushException.status_code，清理失效订阅那一步会没法判断 404/410
+pywebpush==2.5.0

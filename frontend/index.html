@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>示例班信息管理系统</title>
+
+    <!-- PWA：让「添加到主屏」变成一个独立应用。
+         这不只是为了像原生应用 —— iPhone 上 Safari 只有在添加到主屏、并且
+         从主屏图标启动之后，才允许这个站点申请通知权限，普通标签页里连
+         权限弹窗都弹不出来。所以以下这几行是 iOS 收推送的前置条件。 -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- iOS 不认 manifest 里的 icons，主屏图标只认这一行 -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=1" />
+    <meta name="theme-color" content="#409EFF" />
+    <!-- 没有这一行，iOS 添加到主屏后点开还是带地址栏的浏览器视图 -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="示例班" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

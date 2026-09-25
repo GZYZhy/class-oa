@@ -1,0 +1,17 @@
+# Docker 构建时排除的文件（Dockerfile 里的 COPY . . 会读这份清单）
+
+# 宿主机装的 node_modules 是 macOS(arm64) 的二进制（@rollup/rollup-darwin-arm64、
+# @esbuild/darwin-arm64）。COPY . . 在 npm install 之后执行，会把它覆盖到容器里，
+# 导致 RUN npm run build 报平台不匹配（找不到 @rollup/rollup-linux-*）。
+node_modules/
+
+# 宿主机构建产物，容器里会重新生成
+dist/
+.vite/
+
+# 环境变量与系统垃圾
+.env
+.env.*
+.DS_Store
+Thumbs.db
+*.log
