@@ -80,155 +80,50 @@ oa/
 │   ├── setup_resources.py # 安装资料下载的文件
 │   ├── make_pwa_icons.py  # 从校徽生成 PWA 图标
 │   ├── reset_data.py      # 清空业务数据（⚠️ 不可逆）
-│   └── build_images.sh    # 构建 gzyzhy/class-oa-* 生产镜像
+│   └── build_images.sh    # 构建/推送 ghcr.io/gzyzhy/class-oa-* 镜像
 ├── docker-compose.yml     # Docker Compose 配置
 ├── .env.example          # 环境变量示例（复制为 .env 后使用）
 └── README.md
 ```
 
-## 快速开始
+## 部署
 
-### 方式一：Docker 部署（推荐）
+镜像发布在 GHCR 的 `ghcr.io/gzyzhy/class-oa-*`，**私有包**。部署机只要有 compose 文件和
+`.env` 就能跑，不需要源码，也不需要构建链。
 
-```bash
-# 1. 进入项目目录
-cd oa
-
-# 2. 先在宿主机导入数据：脚本与容器共用 data/backend/student.db，导入一次即可
-#    Excel 是校内隐私文件，不放在项目里，路径由命令行传入
-python3 scripts/import_excel.py "/path/to/学生信息整理.xlsx" "全部信息"
-
-# 3. 构建镜像（打成 gzyzhy/class-oa-backend / -frontend）
-./scripts/build_images.sh
-
-# 4. 启动服务（后端启动时会按学生名单自动创建登录账号）
-docker compose up -d
-
-# 5. 访问系统
-# 前端: http://localhost:8080
-# 后端 API: http://localhost:8000
-# API 文档: http://localhost:8000/docs
-```
-
-> **构建和启动是分开的两件事**：`scripts/build_images.sh` 负责造镜像，
-> `docker-compose.yml` 只引用 `image:`、不再 `build`。所以服务器上不需要源码里的构建链
-> （Node、pip 那一套），拿到镜像就能跑。
->
-> 数据库文件在宿主机的 `data/backend/`，与容器内 `/app/data` 是同一份（靠 `docker-compose.yml`
-> 的 bind mount），所以「宿主机导入 → 容器读取」这一套流程无需额外挂载 Excel。
-> 更新时重新跑一次构建脚本再 `docker compose up -d`，数据目录不动、不丢。
-
-#### 版本与回滚
-
-构建脚本给每个镜像打两个标签：**日期**（如 `2026-09-25`）和 `latest`。默认用 `latest`，
-想锁定版本或回滚就在 `.env` 里设 `IMAGE_TAG`：
+**开发机（这台 Mac）**——改完代码后构建并推送：
 
 ```bash
-./scripts/build_images.sh              # 默认版本号 = 今天日期
-./scripts/build_images.sh v1.2.0       # 也可以自己指定
-
-IMAGE_TAG=2026-09-25 docker compose up -d    # 临时锁版本
+./scripts/build_images.sh --push
 ```
 
-回滚就是把 `IMAGE_TAG` 改回上一个日期再 `up -d` —— 旧镜像还在本地，不用重新构建。
+> 推送时会同时构建 `linux/amd64` 和 `linux/arm64` 两个架构。这一步不能省：本机是
+> Apple Silicon，只推本机架构的话服务器（x86_64）拉下来会报 `no matching manifest`。
+> 如果服务器确定是 amd64，用 `PLATFORMS=linux/amd64 ./scripts/build_images.sh --push` 能快不少。
 
-> 镜像名里带 `gzyzhy/` 是 Docker Hub 的账号命名空间。目前只 build 到本地，
-> 不 push 也不依赖网络。要送到服务器就自己选一条路：`docker push`（需要服务器能连
-> Docker Hub，境内常超时）、或在构建机上 `docker save gzyzhy/class-oa-backend:latest -o x.tar`
-> 再 `scp` + `docker load`（不依赖外网）。
-
-### 搬到别的机器（或服务器）
-
-要带走的是**三样东西**：整个 `oa/` 目录、`data/`、`.env`，以及**镜像**。
-数据库、学生照片、资料文件在 `data/` 里，通开密码等配置在 `.env` 里，这两个都被
-`.gitignore` 排除了（这是刻意的，见下方警告），
-所以 **`git clone` 和镜像都带不走它们，必须手动复制**。
-镜像则因为 `docker-compose.yml` 只认 `image:`，服务器上没有构建链也能跑，但也因此
-**不会自己冒出来**，得显式搬过去。
-
-**旧机器**：先构建，再打包（排除能再生成的依赖和构建产物，省几百 MB）
+**服务器**——私有包要先登录（登录一次长期有效）：
 
 ```bash
-./scripts/build_images.sh                       # 造镜像
-docker save gzyzhy/class-oa-backend:latest gzyzhy/class-oa-frontend:latest \
-    -o class-oa-images.tar                      # 导出，约 500 MB
-
-tar czf oa.tar.gz \
-    --exclude='frontend/node_modules' \
-    --exclude='frontend/dist' \
-    --exclude='backend/__pycache__' \
-    oa/
-scp oa.tar.gz class-oa-images.tar user@server:~   # 走可信渠道，见下方警告
+gh auth token | docker login ghcr.io -u <GitHub用户名> --password-stdin
 ```
 
-**服务器**：装上 Docker 后起来
+之后更新：
 
 ```bash
-sudo apt install -y docker.io docker-compose-plugin   # 或按 Docker 官方文档安装
-docker load -i class-oa-images.tar
-tar xzf oa.tar.gz && cd oa
-docker compose up -d
+docker compose pull && docker compose up -d
 ```
 
-> 服务器能连外网时也可以省掉 `save`/`load`：旧机器 `docker push`、服务器 `docker pull`。
-> 但境内直连 Docker Hub 常超时，几百 MB 的层拉一半断掉很常见 —— 一个 `tar` 走 `scp`
-> 反而更稳，也不依赖外网。
+> `up -d` 单独执行**不会**去 registry 查有没有新版本（本地有镜像就一直用本地的），
+> 必须带上 `pull` 才会拿到新版镜像。
 
-迁移后**不需要**重新导入 Excel、不需要重跑资料安装脚本 —— 那些文件都已经在 `data/backend/` 里了。
-
-几点注意事项：
-
-- **`backend/.env` 一定要跟着走**。少了它，通开密码会静默失效（服务照常启动，只是那个功能没了）。
-  不想在服务器上保留通开密码，就把里面那一行清空。
-- **老库能直接用**：后端启动时会自动跑 `database_migrate.py` 给老表补列（`Base.metadata.create_all`
-  只建新表、不加列），不用手工改表结构。
-- **登录态**：`.session_secret` 跟着 `data/backend/` 一起走，迁移后所有人的会话依然有效；
-  想强制全体重新登录，删掉 `data/backend/.session_secret` 再重启后端即可（会自动生成新的）。
-- **端口**：默认前端 8080、后端 8000。云服务器记得在安全组放行 8080。
-  只要班里自己用，**不要额外把 8000 开到公网** —— 前端 nginx 已经把 `/api` 代理到后端了，
-  单独暴露 8000 只是多开一个入口。
-- **正式给同学用建议加 HTTPS**：在 8080 前面再挂一层 Nginx/Caddy 绑域名、签证书，只暴露 443。
-  登录 Cookie 里带的是会话签名，明文 HTTP 传输不安全。
-- 不想用 Docker 也行：服务器上 `pip install -r backend/requirements.txt` + `uvicorn` 起后端、
-  `npm run build` 的产物交给 Nginx，配置照抄 `frontend/nginx.conf`（把 `proxy_pass` 的
-  `backend:8000` 换成 `127.0.0.1:8000`）。
-
-> ⚠️ `data/backend/` 含全班隐私（身份证号、电话、家庭住址、高考照片），`.env` 含万能密码。
-> 它们已被 `.gitignore` 与 `backend/.dockerignore` 排除，**不会被提交、不会被构建进镜像**
-> （可以这样自查：`docker run --rm --entrypoint sh gzyzhy/class-oa-backend -c 'ls -A /app/data'` 应为空）。
-> 打包传输同样要走可信渠道，不要放到公网网盘。
-
-### 方式二：本地开发
-
-#### 后端
+想锁版本或回滚到某一天：
 
 ```bash
-cd backend
-
-# 安装依赖
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 导入数据
-python ../scripts/import_excel.py /path/to/your/excel.xlsx
-
-# 启动服务
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+IMAGE_TAG=2026-09-25 docker compose pull && IMAGE_TAG=2026-09-25 docker compose up -d
 ```
 
-#### 前端
-
-```bash
-cd frontend
-
-# 安装依赖
-npm install --registry=https://registry.npmmirror.com
-
-# 启动开发服务器
-npm run dev
-
-# 构建生产版本
-npm run build
-```
+`.env` 不进镜像，服务器上要单独放一份（从 `.env.example` 复制）。数据都在 `data/backend/`，
+换镜像不影响它。
 
 ## 数据导入
 
@@ -437,6 +332,12 @@ const watermarkText = useWatermark()  // 离开页面时计时器自动清理
   Service Worker 和通知能力，此时页面上会给出明确提示，不会静默失败。
 - **iPhone 要先「添加到主屏」**：在 Safari 里点分享 →「添加到主屏」，然后**从主屏图标打开**
   本应用，再回设置里开启。Safari 的普通标签页里连权限弹窗都弹不出来，这是 iOS 的限制。
+  这件事光靠用户自己发现不了，所以 **iPhone 登录后 3 秒会从底部升起一张指引卡片**
+  （`IosInstallGuide.vue`），三步图示教怎么装，带「我知道了」和「不再显示」两个退路。
+  在微信等 App 内置浏览器里打开时，卡片会换成一句「用 Safari 打开本页」——
+  那种环境根本没有「添加到主屏幕」这一项，给三步操作反而是错指引。桌面端和 Android 不显示这张卡片。
+  登录页也不会弹（组件挂在 `<el-container>` 里，那个容器在登录页整个不渲染）。
+  若登录时弹出强制改密框，引导会等它关掉再出现，不会撤销。
 - 一台浏览器一条订阅。共用电脑上换人登录会自动改绑到新账号，点「退出登录」会自动解除 ——
   否则 B 同学会收到推给 A 的隐私内容（请假驳回理由之类）。
 - 只开这一个渠道的话，iPhone 上的及时性不如 Bark（依赖系统对网页应用的后台策略）。
@@ -540,8 +441,8 @@ MASTER_PASSWORD=
 - 隐私数据**不进入 Docker 镜像**：`backend/.dockerignore` 排除了 `data/`（容器构建上下文里的 `data/`），
   容器里的 `/app/data` 完全来自 bind mount。可以这样自查：
   ```bash
-  docker compose build
-  docker run --rm --entrypoint sh gzyzhy/class-oa-backend -c 'ls -A /app/data'   # 应为空
+  ./scripts/build_images.sh
+  docker run --rm --entrypoint sh ghcr.io/gzyzhy/class-oa-backend:latest -c 'ls -A /app/data'   # 应为空
   ```
   这一点很关键 —— bind mount 只是在运行时"盖住"了镜像里的副本，
   真正排除掉才能保证镜像（及任何 registry 推送）里不含全班隐私。

@@ -121,6 +121,11 @@
 
     <!-- 通知设置：浏览器通知 + Bark 推送，两个渠道合并成一个入口 -->
     <NotifySettingDialog ref="notifyRef" />
+
+    <!-- iOS 装到主屏的引导：进站 3 秒后自己升起，不需要 ref。
+         ⚠️ 必须留在 el-container 内部：它 v-else 掉的就是登录页，
+         这样才有「登录之后才弹」。挪到外面登录页也会弹。 -->
+    <IosInstallGuide />
   </el-container>
 </template>
 
@@ -130,6 +135,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPublicSummary, setInitialPassword } from '@/api/auth'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
+import IosInstallGuide from '@/components/IosInstallGuide.vue'
 import NotifySettingDialog from '@/components/NotifySettingDialog.vue'
 import { useUserStore } from '@/store/user'
 import { rankOf } from '@/utils/roles'
