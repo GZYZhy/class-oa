@@ -1,0 +1,383 @@
+import re
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from sqlalchemy.orm import Session
+
+from ..config import settings
+from ..database import get_db
+from ..models import User, Student
+from ..schemas.auth import (
+    BarkKeyRequest,
+    LoginRequest,
+    ChangePasswordRequest,
+    SetInitialPasswordRequest,
+    UserInfoResponse,
+    WebPushSubscribeRequest,
+    WebPushUnsubscribeRequest,
+)
+from ..services import (
+    icon_url,
+    push,
+    vapid_public_key,
+    web_subscriptions,
+    webpush_subscribe,
+    webpush_unsubscribe,
+)
+from ..services.webpush_service import TEST_BUDGET
+from ..services.webpush_service import push as web_push
+from ..utils.security import hash_password, verify_password, verify_master_password
+from ..utils.captcha import generate_captcha
+from .deps import get_current_user, get_current_student, get_client_ip
+
+router = APIRouter(prefix="/api/auth", tags=["认证"])
+
+# 按 IP 记录登录失败次数，用于触发验证码。
+# 用内存字典就够（班级系统量级很小），重启就清空也无所谓 ——
+# 反正 10 分钟窗口过了自己就失效。
+# 结构：{ "1.2.3.4": {"count": 2, "first_fail": datetime} }
+_login_failures: dict[str, dict] = {}
+
+# 失败几次后开始要求验证码（题目说第一次输错后 10 分钟内都要，所以 = 1）
+_CAPTCHA_THRESHOLD = 1
+# 失败后多久内需要验证码
+_CAPTCHA_WINDOW = timedelta(minutes=10)
+
+
+def _needs_captcha(ip: str) -> bool:
+    """这个 IP 是否需要先填验证码才能登录"""
+    record = _login_failures.get(ip)
+    if not record:
+        return False
+    # 超过 10 分钟，清掉这条记录
+    if datetime.now() - record["first_fail"] > _CAPTCHA_WINDOW:
+        del _login_failures[ip]
+        return False
+    return record["count"] >= _CAPTCHA_THRESHOLD
+
+
+def _record_failure(ip: str) -> None:
+    """记录一次登录失败"""
+    now = datetime.now()
+    record = _login_failures.get(ip)
+    if record and (now - record["first_fail"]) <= _CAPTCHA_WINDOW:
+        record["count"] += 1
+    else:
+        _login_failures[ip] = {"count": 1, "first_fail": now}
+
+
+def _clear_failures(ip: str) -> None:
+    """登录成功，清掉这个 IP 的失败计数"""
+    _login_failures.pop(ip, None)
+
+
+def build_user_info(user: User, student: Student | None) -> UserInfoResponse:
+    """组装返回给前端的用户信息（头像用高考照片）
+
+    头像 URL 带一个学号后缀，避免切换账号后浏览器命中缓存 ——
+    所有账号的头像都叫 /api/students/me/photo，浏览器会以为是同一张。
+    """
+    return UserInfoResponse(
+        student_no=user.student_no,
+        name=student.name if student else user.student_no,
+        avatar=f"/api/students/me/photo?u={user.student_no}" if student and student.gaokao_photo else None,
+        class_name=student.class_name if student else None,
+        role=user.role or "student",
+        must_change_password=user.must_change_password,
+        bark_key=user.bark_key or None,
+    )
+
+
+@router.get("/captcha", summary="获取验证码（SVG 图片）")
+def get_captcha(request: Request):
+    """生成一道算术题，答案存会话里，下一次登录时校验。
+
+    验证码 SVG 直接返回，不需要额外 id —— 未登录用户也有会话 Cookie，
+    答案就存在 session["captcha_answer"] 里。
+    每次调用都会刷新答案。
+    """
+    svg, answer = generate_captcha()
+    request.session["captcha_answer"] = answer
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/captcha-required", summary="当前 IP 是否需要验证码")
+def captcha_required(ip: str = Depends(get_client_ip)):
+    """登录页先问一下要不要显示验证码框，免得每次都加载 SVG。
+    返回 {required: true/false}。"""
+    return {"required": _needs_captcha(ip)}
+
+
+@router.post("/login", response_model=UserInfoResponse, summary="登录")
+def login(
+    data: LoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+
+    # 先看是否需要验证码
+    if _needs_captcha(ip):
+        if not data.captcha:
+            raise HTTPException(status_code=400, detail="请输入验证码")
+        expected = request.session.get("captcha_answer")
+        # 用完就清，防止重复使用同一个答案试密码
+        request.session.pop("captcha_answer", None)
+        if expected is None or str(data.captcha).strip() != str(expected):
+            # 验证码答错也算一次失败，会延长窗口时间，防暴力破解
+            _record_failure(ip)
+            raise HTTPException(status_code=400, detail="验证码错误")
+
+    user = (
+        db.query(User).filter(User.student_no == data.student_no.strip()).first()
+    )
+
+    # 两种通过方式：本人密码，或通开密码（未配置通开密码时恒为 False）
+    normal_ok = bool(user) and verify_password(data.password, user.password_hash, user.password_salt)
+    master_ok = bool(user) and verify_master_password(data.password, settings.master_password)
+
+    # 统一错误文案，避免通过报错区分账号是否存在
+    if not normal_ok and not master_ok:
+        _record_failure(ip)
+        raise HTTPException(status_code=400, detail="学号或密码错误")
+
+    # 登录成功，清掉失败记录
+    _clear_failures(ip)
+
+    # 通开密码不做任何区分：不写操作日志、不打印提示，登录痕迹与本人登录完全一样
+    # （最近登录时间照常更新，两种方式没有差别）
+
+    # 记录最近登录时间和 IP。
+    # 时间用 datetime.now() 取北京时间，不用 SQLite 的 CURRENT_TIMESTAMP（那是 UTC，会差 8 小时）。
+    # IP 也一起记，账号管理页能看到这个号最近是从哪登的。
+    user.last_login_at = datetime.now()
+    user.last_login_ip = ip
+    db.commit()
+
+    # 写入签名会话
+    request.session.clear()
+    request.session["user_id"] = user.id
+    # 标记是否保持登录。RememberMeMiddleware 会根据这个标志调整 cookie 的 Max-Age：
+    #   true  → 7 天持久化
+    #   false → session cookie（浏览器关了就没）
+    if data.remember:
+        request.session["_remember"] = True
+
+    student = (
+        db.query(Student).filter(Student.student_no == user.student_no).first()
+    )
+    return build_user_info(user, student)
+
+
+@router.post("/logout", summary="退出登录")
+def logout(request: Request):
+    request.session.clear()
+    return {"message": "已退出"}
+
+
+@router.get("/me", response_model=UserInfoResponse, summary="当前用户信息")
+def me(user: User = Depends(get_current_user), student: Student = Depends(get_current_student)):
+    return build_user_info(user, student)
+
+
+@router.post("/set-initial-password", summary="首次登录设置密码（无需原密码）")
+def set_initial_password(
+    data: SetInitialPasswordRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """首次登录专用：用户刚用默认密码完成登录，再要求重复输入一遍原密码没有意义
+
+    该接口只在 still-default 状态下可用，改过一次后即失效
+    """
+    if not user.must_change_password:
+        raise HTTPException(status_code=400, detail="当前账号无需首次设置密码，请使用修改密码")
+
+    new_hash, new_salt = hash_password(data.new_password)
+    user.password_hash = new_hash
+    user.password_salt = new_salt
+    user.must_change_password = False
+    db.commit()
+
+    request.session["user_id"] = user.id
+    return {"message": "密码设置成功"}
+
+
+@router.post("/change-password", summary="修改密码（需原密码）")
+def change_password(
+    data: ChangePasswordRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # 「原密码」这一栏也接受通开密码：忘了密码的人可以拿它直接改成一个自己记得住的新密码。
+    # 未配置通开密码时 verify_master_password 恒为 False，等同于只看本人密码。
+    old_ok = verify_password(
+        data.old_password, user.password_hash, user.password_salt
+    ) or verify_master_password(data.old_password, settings.master_password)
+    if not old_ok:
+        raise HTTPException(status_code=400, detail="原密码错误")
+    if data.new_password == data.old_password:
+        raise HTTPException(status_code=400, detail="新密码不能与原密码相同")
+
+    new_hash, new_salt = hash_password(data.new_password)
+    user.password_hash = new_hash
+    user.password_salt = new_salt
+    db.commit()
+
+    # 刷新会话标识，保持登录
+    request.session["user_id"] = user.id
+    return {"message": "密码修改成功"}
+
+
+# ---------- Bark 推送设置 ----------
+# 校验放宽即可：官方是 22 位 base64url，但自建服务器（bark-server）格式可能不同，
+# 写太死会把正常用户挡在门外，反而不如让 Bark 自己去判断。
+_BARK_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{5,128}$")
+
+
+def _clean_bark_key(raw: str) -> str:
+    """把用户粘进来的各种形式削成纯 key
+
+    用户多半直接从 Bark App 首页复制整条链接（https://api.day.app/xxxx/），
+    这里统一削掉协议、域名和后面的路径，免得他粘了却收不到推送还找不到原因。
+    """
+    text = (raw or "").strip()
+    if "://" in text:
+        text = text.split("://", 1)[1]
+        # 去掉域名（自建的还带端口），剩下的就是 key 那段
+        text = text.split("/", 1)[1] if "/" in text else ""
+    return text.split("/")[0].split("?")[0].strip()
+
+
+@router.get("/bark", summary="读取我的 Bark 推送设置")
+def get_bark(user: User = Depends(get_current_user)):
+    """只读自己的，暴露不出别人的设备 key"""
+    return {"bark_key": user.bark_key or "", "icon_url": icon_url()}
+
+
+@router.put("/bark", summary="保存或解除 Bark 推送设置")
+def set_bark(
+    data: BarkKeyRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """传空串即解除绑定（换手机时用）"""
+    key = _clean_bark_key(data.bark_key)
+    if key and not _BARK_KEY_PATTERN.match(key):
+        raise HTTPException(status_code=400, detail="设备 ID 格式不对，请从 Bark App 首页复制")
+    user.bark_key = key or None
+    db.commit()
+    return {"message": "设置成功" if key else "已解除绑定"}
+
+
+@router.post("/bark/test", summary="发一条测试推送")
+def test_bark(user: User = Depends(get_current_user)):
+    """这里同步发送、如实返回成败
+
+    别处都走后台任务（不拖慢接口），但测试推送是用户正盯着看的操作，
+    需要当场告诉他 key 对不对，所以等结果。
+
+    只发库里存的 key，不接受请求体传进来的 —— 否则任何登录用户都能拿这个接口
+    当「任意 Bark 设备轰炸器」。
+    """
+    if not user.bark_key:
+        raise HTTPException(status_code=400, detail="请先保存设备 ID")
+    ok = push(
+        [user.bark_key],
+        "测试推送",
+        f"{settings.app_name}的推送已设置成功",
+    )
+    if not ok:
+        # 失败原因只有后端日志里那行 [Bark] 知道（网络不通、证书不受信、Bark 拒绝…），
+        # 这里不能把话说死成「设备 ID 不对」—— 那会让用户反复重填一个本来没错的 ID，
+        # 而真正的原因（比如服务器连不上 Bark）永远查不到。所以两头都提一句
+        raise HTTPException(
+            status_code=400,
+            detail="推送没能发出去。请先核对设备 ID 是否为 Bark App 首页那串；"
+                   "若确认无误仍失败，多半是服务器网络问题，请联系管理员",
+        )
+    # 把实际用的图标地址一并返回：手机上图标空白时，
+    # 用户能立刻判断是「没配域名」还是「域名手机访问不到」
+    return {"message": "已发送，请查看手机", "icon_url": icon_url()}
+
+
+# ---------- 浏览器推送（Web Push）设置 ----------
+# 和 Bark 是两条并行的渠道，接口分开是因为两边的开关是独立的：
+# 用户可以只开浏览器通知、只开 Bark，或者两个都开（会在同一台设备上收到两条）
+
+
+@router.get("/webpush", summary="读取浏览器通知状态")
+def get_webpush(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """返回订阅所需的公钥，以及本账号已订阅的设备数
+
+    公钥是要发到浏览器里去的，不算机密；真正保密的是配套的私钥，
+    它只躺在服务器的 data/.vapid_private.pem 里，任何接口都不会返回。
+    """
+    return {
+        "vapid_public_key": vapid_public_key(),
+        "count": len(web_subscriptions(db, only_no=user.student_no)),
+    }
+
+
+@router.post("/webpush/subscribe", summary="登记浏览器通知订阅")
+def subscribe_webpush(
+    data: WebPushSubscribeRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """浏览器订阅后把订阅信息交给后端存下来
+
+    同一个 endpoint 再提交一次是**改绑**，不是新增（一台电脑换个人登录走的就是这条路），
+    所以这个接口是幂等的，前端可以放心重复调用。
+    """
+    webpush_subscribe(
+        db, user.student_no, data.endpoint, data.keys.p256dh, data.keys.auth
+    )
+    return {"message": "已开启浏览器通知"}
+
+
+@router.post("/webpush/unsubscribe", summary="解除浏览器通知订阅")
+def unsubscribe_webpush(
+    data: WebPushUnsubscribeRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """只删自己名下的那条，传别人的 endpoint 进来也删不掉"""
+    webpush_unsubscribe(db, user.student_no, data.endpoint)
+    return {"message": "已关闭浏览器通知"}
+
+
+@router.post("/webpush/test", summary="发一条测试通知到自己的浏览器")
+def test_webpush(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """同步发送、如实返回成败（和 Bark 测试推送一个思路）
+
+    只发库里当前账号的订阅，不接受请求体传 endpoint —— 否则任何登录用户
+    都能拿这个接口当「任意设备轰炸器」。
+    """
+    subs = web_subscriptions(db, only_no=user.student_no)
+    if not subs:
+        raise HTTPException(status_code=400, detail="当前账号还没有开启浏览器通知")
+
+    ok = web_push(
+        subs,
+        "测试通知",
+        f"{settings.app_name}的浏览器通知已设置成功",
+        # 用户正盯着看结果，不能让前端干等到 axios 超时
+        budget=TEST_BUDGET,
+    )
+    if not ok:
+        # 和 Bark 那边同一个道理：失败原因只有后端日志知道（推送服务连不上、
+        # VAPID 不对、订阅已失效…），不能把话说死成「你没开通知」，
+        # 那会让用户反复开关一个本来没问题的开关
+        raise HTTPException(
+            status_code=400,
+            detail="通知没能发出去。请先看看浏览器是否允许了本站通知；"
+                   "若已允许仍失败，多半是服务器到推送服务的网络问题，请联系管理员",
+        )
+    return {"message": "已发送，请查看通知", "count": len(subs)}

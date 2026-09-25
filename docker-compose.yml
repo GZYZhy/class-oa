@@ -1,0 +1,79 @@
+# 固定项目名。不设的话会跟着目录名走，换个目录克隆就变成另一个 project，
+# 网络、容器前缀全跟着变，数据卷和排查都会乱。
+name: class-oa
+
+services:
+  # 后端服务
+  backend:
+    # 镜像由 scripts/build_images.sh 构建（不再走 compose 的 build）。
+    # IMAGE_TAG 可锁定版本：IMAGE_TAG=2026-09-25 docker compose up -d
+    image: gzyzhy/class-oa-backend:${IMAGE_TAG:-latest}
+    container_name: class-oa-backend
+    restart: unless-stopped
+    env_file:
+      # 所有环境变量统一放在项目根目录的 .env 里（通开密码、推送地址、VAPID 等）。
+      # 文件不提交、不进镜像（.gitignore 已排除）；required: false 保证没这个
+      # 文件时也能正常起（后端会走默认值）。
+      - path: ./.env
+        required: false
+    ports:
+      - "8000:8000"
+    volumes:
+      # 数据持久化：数据库、学生照片、资料文件、会话密钥、VAPID 私钥都在这里。
+      # 统一放在项目根的 data/ 目录，备份/迁移只要打包这一个目录。
+      # 更新镜像时数据目录不动，docker compose up -d 即可。
+      # 注意 .dockerignore 已把 data/ 排除在构建之外，隐私数据只从这里进容器。
+      - ./data/backend:/app/data
+    environment:
+      - TZ=Asia/Shanghai
+      # 会话签名密钥：留空会自动生成并保存到 data/.session_secret（推荐留空）
+      # 如需手动指定，取消下面一行的注释并改成长随机字符串
+      # - SESSION_SECRET_KEY=请改成随机字符串
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # 前端服务
+  frontend:
+    image: gzyzhy/class-oa-frontend:${IMAGE_TAG:-latest}
+    container_name: class-oa-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+      # 开启 HTTPS 时取消下面这行注释，并把证书挂进去（见下方 volumes）
+      # - "443:443"
+    depends_on:
+      # 等后端健康检查通过再起 nginx，否则首屏请求可能 502
+      backend:
+        condition: service_healthy
+    volumes:
+      # 自定义 nginx 配置：把 nginx.conf（或 nginx.conf.template）放进 data/frontend/
+      # 后重启即可生效（entrypoint 会检测到并用它替换默认模板，envsubst 的变量替换照常用）。
+      # 目录留空 = 用容器内置的默认配置，开箱即用。
+      - ./data/frontend:/app/custom
+    environment:
+      - TZ=Asia/Shanghai
+      # 监听的域名，默认 _（所有域名）
+      # - NGINX_SERVER_NAME=example.com
+      # 是否信任反向代理的 X-Forwarded-* 头（on/off），默认 on
+      # - NGINX_TRUST_PROXY=on
+      # 可信代理 IP 列表（空格分隔），默认 172.16.0.0/12（整个 Docker 网桥网段，
+      #   也就是 Docker 宿主机本身 —— 最外层 nginx 跑在宿主机上时，容器看到的
+      #   来源 IP 就在这个网段里；如果前面还有 CDN，再把 CDN 的网段加进来）
+      # - NGINX_TRUSTED_PROXIES=172.16.0.0/12
+      # 上传文件大小限制，默认 50M
+      # - NGINX_CLIENT_MAX_BODY_SIZE=50M
+      # SSL 证书路径（容器内路径），两个都配置了才开启 HTTPS
+      # - NGINX_SSL_CERT=/etc/nginx/ssl/cert.pem
+      # - NGINX_SSL_KEY=/etc/nginx/ssl/key.pem
+    healthcheck:
+      # 必须写 127.0.0.1 而不是 localhost：容器里 localhost 同时映射到 ::1，
+      # busybox wget 会先试 IPv6，而 nginx 只 listen 了 IPv4，于是永远"连接被拒"
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

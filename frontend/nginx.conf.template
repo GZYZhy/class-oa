@@ -1,0 +1,88 @@
+# nginx 配置模板
+# 容器启动时通过 envsubst 替换环境变量后生成 /etc/nginx/conf.d/default.conf
+#
+# 支持的环境变量（都有合理默认值，全留空也能跑）：
+#   NGINX_SERVER_NAME       监听的域名，默认 _（所有域名）
+#   NGINX_TRUST_PROXY       是否信任反向代理的 X-Forwarded-* 头：on/off，默认 on
+#   NGINX_TRUSTED_PROXIES   可信代理 IP 列表（空格分隔），默认 172.16.0.0/12（Docker 网桥网段）
+#                           前面挂了固定的反向代理时建议改成那个代理的 IP
+#   NGINX_SSL_CERT          SSL 证书在容器内的路径，留空=不开启 HTTPS
+#   NGINX_SSL_KEY           SSL 私钥在容器内的路径，留空=不开启 HTTPS
+#   NGINX_CLIENT_MAX_BODY   上传文件大小限制，默认 50M
+
+server {
+    listen       80;
+    server_name  ${NGINX_SERVER_NAME};
+
+    # 上传文件大小限制（默认 1MB 太小，公告 PDF 经常超）
+    client_max_body_size ${NGINX_CLIENT_MAX_BODY_SIZE};
+
+    # 信任反向代理：让后端能拿到真实的客户端 IP（而不是代理 IP）
+    # 默认信任整个 Docker 网桥网段（172.16.0.0/12），也就是 Docker 宿主机本身。
+    # 最外层 nginx 跑在宿主机上时，容器看到的来源 IP 就在这个网段里，
+    # 信任它才能让后端拿到客户端的真实 IP。
+    # 前面还有 CDN / 宝塔反代时，把 CDN 的网段也加到 NGINX_TRUSTED_PROXIES 里。
+    ${TRUST_PROXY_BLOCK}
+
+    # 前端静态文件
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    # API 代理到后端服务
+    # 必须用 ^~ 前缀：否则 /api/resources/file/校徽图片.png 这类带扩展名的地址
+    # 会被下面的静态资源正则 location 抢先匹配，导致绕过后端鉴权
+    location ^~ /api/ {
+        proxy_pass http://backend:8000/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket 支持
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # 超时设置
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+
+        # 含隐私数据的接口一律不缓存
+        add_header Cache-Control "no-store";
+    }
+
+    # SPA 路由：所有不存在的路径都返回 index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Service Worker 绝不能缓存：下面那条按扩展名的正则会给 .js 一律打上
+    # 1 年 immutable，用户就永远拿不到新版的 sw.js，PWA 更新直接废掉。
+    # 精确匹配（=）的优先级高于正则，所以不管写在文件哪一行都生效。
+    location = /sw.js {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+
+    # 首页同理：它引用的是带哈希的 js/css，重新部署后旧哈希文件会被删掉，
+    # 浏览器要是还拿缓存的旧 index.html，就会去请求一个 404 的 js —— 整页白屏。
+    # 装了 PWA 之后这个坑会被放大（主屏图标会长期持有旧的首页）。
+    # try_files 兜底回 /index.html 是内部重定向，会重新匹配到这里，所以 location / 也受这条管
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    # 前端静态资源缓存（js/css/图片字体等）
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # gzip 压缩
+    gzip on;
+    gzip_min_length 1k;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/javascript application/json application/javascript application/xml;
+}
+
+${SSL_SERVER_BLOCK}

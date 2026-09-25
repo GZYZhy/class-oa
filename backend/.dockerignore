@@ -1,0 +1,24 @@
+# Docker 构建时排除的文件（Dockerfile 里的 COPY . . 会读这份清单）
+#
+# 运行时数据一律不进镜像：
+#   student.db        全班学生信息（含身份证号、电话、家庭住址）
+#   photos/           学生高考照片与实地采集照片
+#   downloads/        资料下载的原始文件
+#   announcements/    上传的公告 PDF
+#   .session_secret   会话签名密钥
+# 它们由 docker-compose 的 ./data/backend:/app/data 在运行时挂载进来。
+# 注意：bind mount 只是"盖住"了镜像里的副本，得靠这里排除才能真正不进镜像层。
+data/
+
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# 系统与编辑器垃圾
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
