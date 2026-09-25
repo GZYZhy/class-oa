@@ -97,9 +97,13 @@ oa/
 ./scripts/build_images.sh --push
 ```
 
-> 推送时会同时构建 `linux/amd64` 和 `linux/arm64` 两个架构。这一步不能省：本机是
-> Apple Silicon，只推本机架构的话服务器（x86_64）拉下来会报 `no matching manifest`。
-> 如果服务器确定是 amd64，用 `PLATFORMS=linux/amd64 ./scripts/build_images.sh --push` 能快不少。
+> 推送时默认只构建 `linux/amd64`——服务器是 x86_64，本机虽是 Apple Silicon 但推的必须是
+> amd64，否则服务器拉下来会报 `no matching manifest`。需要 arm 机器上跑时才加 `--arm`
+> 多构建一份 `linux/arm64`（走 QEMU 模拟，会明显变慢）：
+>
+> ```bash
+> ./scripts/build_images.sh --push --arm
+> ```
 
 **服务器**——私有包要先登录（登录一次长期有效）：
 

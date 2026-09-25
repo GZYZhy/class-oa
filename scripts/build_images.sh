@@ -5,7 +5,8 @@
 # 用法：
 #   ./scripts/build_images.sh                    # 只构建本机架构，版本号用今天日期
 #   ./scripts/build_images.sh 2026-09-26         # 指定版本号
-#   ./scripts/build_images.sh --push             # 构建双架构并推送到 GHCR
+#   ./scripts/build_images.sh --push             # 构建 amd64 并推送到 GHCR（服务器用）
+#   ./scripts/build_images.sh --push --arm       # 额外带上 arm64（走 QEMU 模拟，慢）
 #   ./scripts/build_images.sh 2026-09-26 --push  # 指定版本号并推送
 #
 # 每个镜像打两个标签：版本号（可回溯、可回滚）和 latest（省事）。
@@ -17,28 +18,31 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_PREFIX="ghcr.io/gzyzhy/class-oa"
 
-# 推送时构建的架构。
-# 这台开发机是 Apple Silicon（arm64），只推本机架构的话，服务器（x86_64）拉下来
-# 会直接报 no matching manifest 跑不起来 —— 所以 amd64 必须带上。
-# 双架构 = arm64 走原生、amd64 走 QEMU 模拟，会比平时慢一些。
-# 只给 amd64 服务器用的话可以加速：
-#   PLATFORMS=linux/amd64 ./scripts/build_images.sh --push
-PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
-
 PUSH=0
+ARM=0
 VERSION=""
 for arg in "$@"; do
     case "$arg" in
         --push) PUSH=1 ;;
+        --arm) ARM=1 ;;
         -*)
             echo "错误：未知参数 ${arg}" >&2
-            echo "用法：$0 [版本号] [--push]" >&2
+            echo "用法：$0 [版本号] [--push] [--arm]" >&2
             exit 1
             ;;
         *) VERSION="$arg" ;;
     esac
 done
 VERSION="${VERSION:-$(date +%Y-%m-%d)}"
+
+# 推送时构建的架构。
+# 服务器是 x86_64，所以默认只出 linux/amd64。这台开发机是 Apple Silicon（arm64），
+# 想在 arm 机器上跑才加 --arm：那时 amd64 走原生、arm64 走 QEMU 模拟，
+# 整个构建会明显变慢，没有对应的 arm 机器要用就别加。
+PLATFORMS="linux/amd64"
+if [ "$ARM" = 1 ]; then
+    PLATFORMS="${PLATFORMS},linux/arm64"
+fi
 
 if ! docker info >/dev/null 2>&1; then
     echo "错误：连不上 Docker 守护进程，请先启动 Docker Desktop（或 dockerd）" >&2
@@ -62,7 +66,7 @@ echo "==> 版本：${VERSION}"
 if [ "$PUSH" = 1 ]; then
     echo "==> 模式：构建并推送（${PLATFORMS}）"
 else
-    echo "==> 模式：仅本地构建（本机架构，开发时最快）"
+    echo "==> 模式：仅本地构建（本机架构，开发时最快；--arm 只影响 --push 的构建）"
 fi
 echo
 
