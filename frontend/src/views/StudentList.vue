@@ -128,6 +128,17 @@
             点名
           </el-button>
 
+          <!-- 新增/删除学生都会连带处理登录账号，只给管理员 -->
+          <el-button
+            v-if="userStore.isAdmin"
+            type="primary"
+            style="margin-left: 8px;"
+            @click="handleCreate"
+          >
+            <el-icon><Plus /></el-icon>
+            添加学生
+          </el-button>
+
           <!-- 生日筛选生效时显示的标签 -->
           <el-tag
             v-if="birthdayFilter"
@@ -197,10 +208,18 @@
             <span v-else style="color: #c0c4cc;">-</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right" align="center">
+        <el-table-column label="操作" width="190" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link @click.stop="handleView(row)">查看</el-button>
             <el-button type="warning" link @click.stop="handleEdit(row)">编辑</el-button>
+            <el-button
+              v-if="userStore.isAdmin"
+              type="danger"
+              link
+              @click.stop="handleDelete(row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -366,25 +385,32 @@
       </template>
     </el-dialog>
 
-    <!-- 编辑弹窗 -->
+    <!-- 编辑 / 新增弹窗：同一个表单，靠 editForm.id 区分模式。
+         新增时只有学号、姓名必填，其余留空后补 -->
     <el-dialog
       v-model="editVisible"
-      title="编辑学生信息"
+      :title="editForm.id ? '编辑学生信息' : '添加学生'"
       width="700px"
       :close-on-click-modal="false"
-      @closed="editForm = {}"
+      @closed="resetEditForm"
     >
-      <el-form :model="editForm" label-width="100px" v-if="editForm.id">
+      <el-form :model="editForm" label-width="100px" v-if="editVisible">
         <el-tabs v-model="activeTab">
           <el-tab-pane label="基本信息" name="basic">
             <el-row :gutter="20">
               <el-col :xs="24" :sm="12">
-                <el-form-item label="学号">
-                  <el-input v-model="editForm.student_no" />
+                <el-form-item label="学号" required>
+                  <!-- 学号就是登录账号，建好之后不能改：改了这学生立刻登不上，
+                       请假/反馈里存的学号也对不上号。要换号只能删除后重新新增 -->
+                  <el-input
+                    v-model="editForm.student_no"
+                    :disabled="!!editForm.id"
+                    placeholder="登录账号，建好后不可修改"
+                  />
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :sm="12">
-                <el-form-item label="姓名">
+                <el-form-item label="姓名" required>
                   <el-input v-model="editForm.name" />
                 </el-form-item>
               </el-col>
@@ -434,6 +460,56 @@
               <el-col :xs="24" :sm="12">
                 <el-form-item label="在校状态">
                   <el-input v-model="editForm.school_status" />
+                </el-form-item>
+              </el-col>
+
+              <el-col :span="24">
+                <el-form-item label="照片">
+                  <div v-if="!editForm.id" style="color: #909399; font-size: 13px;">
+                    先保存学生信息，之后就能在这里上传照片
+                  </div>
+                  <div v-else class="edit-photos">
+                    <div v-for="p in PHOTO_TYPES" :key="p.type" class="edit-photo">
+                      <div class="edit-photo-box" @click="editForm[p.field] && openPhotoViewer(editForm, p.type)">
+                        <img
+                          v-if="editForm[p.field]"
+                          :src="getPhotoUrl(editForm, p.type)"
+                          class="edit-photo-img"
+                          @error="handleImgError($event)"
+                        />
+                        <div v-else class="edit-photo-empty">
+                          <el-icon style="font-size: 24px;"><Avatar /></el-icon>
+                        </div>
+                      </div>
+                      <div class="edit-photo-label">{{ p.label }}</div>
+                      <div>
+                        <el-button
+                          size="small"
+                          :loading="photoUploading === p.type"
+                          @click="pickPhoto(p.type)"
+                        >
+                          选择图片
+                        </el-button>
+                        <el-button
+                          v-if="editForm[p.field]"
+                          size="small"
+                          link
+                          type="danger"
+                          @click="handleDeletePhoto(p.type)"
+                        >
+                          删除
+                        </el-button>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 隐藏的原生文件选择框：选完即传，不需要额外的「上传」按钮 -->
+                  <input
+                    ref="photoInput"
+                    type="file"
+                    accept="image/*"
+                    style="display: none"
+                    @change="handlePhotoPicked"
+                  />
                 </el-form-item>
               </el-col>
             </el-row>
@@ -555,7 +631,9 @@
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSave" :loading="saving">保存</el-button>
+        <el-button type="primary" @click="handleSave" :loading="saving">
+          {{ editForm.id ? '保存' : '添加' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -603,7 +681,16 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getStudentList, getStudent, getFilterOptions, updateStudent } from '@/api/student'
+import {
+  getStudentList,
+  getStudent,
+  getFilterOptions,
+  createStudent,
+  updateStudent,
+  deleteStudent,
+  uploadStudentPhoto,
+  deleteStudentPhoto
+} from '@/api/student'
 import { useUserStore } from '@/store/user'
 import Watermark from '@/components/Watermark.vue'
 import RollCallDialog from '@/components/RollCallDialog.vue'
@@ -653,6 +740,15 @@ const editForm = reactive({})
 const saving = ref(false)
 const activeTab = ref('basic')
 
+// 弹窗里的两张照片。type 与后端 ?type= 的取值一致，field 是 students 表里对应的列
+const PHOTO_TYPES = [
+  { type: 'gaokao', field: 'gaokao_photo', label: '高考照片' },
+  { type: 'on_site', field: 'on_site_photo', label: '实地采集' }
+]
+const photoInput = ref(null)
+const photoUploading = ref('') // 正在上传的那张照片的 type，用来显示按钮 loading
+let photoPicking = '' // 这次点「选择图片」是想换哪一张
+
 // 备注单独一个弹窗：班委只能改备注，没必要给他们开全字段的表单
 const remarkVisible = ref(false)
 const remarkForm = reactive({ id: null, name: '', remark: '' })
@@ -664,12 +760,16 @@ const viewerIndex = ref(0)
 
 /**
  * 照片地址：走带鉴权的接口，不再直连静态目录
+ *
+ * v 参数是照片文件名，后端不用它 —— 纯粹当版本号：换了照片文件名就变，
+ * 地址跟着变，浏览器不会拿缓存里那张旧图接着显示
  * @param {object} student 学生对象（需要 id）
  * @param {string} type gaokao=高考照片，on_site=实地采集
  */
 function getPhotoUrl(student, type) {
   if (!student?.id) return ''
-  return `/api/students/${student.id}/photo?type=${type}`
+  const fileName = type === 'on_site' ? student.on_site_photo : student.gaokao_photo
+  return `/api/students/${student.id}/photo?type=${type}&v=${encodeURIComponent(fileName || '')}`
 }
 
 /** 组装某学生可用的照片列表 [{ type, url }] */
@@ -821,10 +921,30 @@ async function handleView(row) {
   }
 }
 
+/**
+ * 清空编辑表单
+ *
+ * 不能用 `editForm = {}` —— `<script setup>` 里的绑定是只读的，
+ * 那样写等于什么都没做（Vue 只会打一条警告），上一个学生的数据会漏进下一个表单。
+ * 新增和编辑每次打开弹窗都先调一次。
+ */
+function resetEditForm() {
+  Object.keys(editForm).forEach((key) => delete editForm[key])
+}
+
+// 新增：空表单，只预填两个默认值（与后端 schema 的默认值一致）
+function handleCreate() {
+  resetEditForm()
+  Object.assign(editForm, { school_status: '正常', is_poor: '否' })
+  activeTab.value = 'basic'
+  editVisible.value = true
+}
+
 // 编辑入口按角色分流：管理员开全字段弹窗，班委只开备注弹窗
 function handleEdit(row) {
   detailVisible.value = false
   if (userStore.isAdmin) {
+    resetEditForm()
     Object.assign(editForm, row)
     editVisible.value = true
     activeTab.value = 'basic'
@@ -843,15 +963,112 @@ async function handleSave() {
   }
   saving.value = true
   try {
-    await updateStudent(editForm.id, editForm)
-    ElMessage.success('保存成功')
+    if (editForm.id) {
+      await updateStudent(editForm.id, editForm)
+      ElMessage.success('保存成功')
+    } else {
+      const res = await createStudent(editForm)
+      showCreateResult(res)
+    }
     editVisible.value = false
     fetchData()
+    userStore.refreshTotal()
   } catch (e) {
-    ElMessage.error('保存失败')
-    console.error(e)
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+/** 新增成功后交代初始密码：没有身份证号的那批要管理员单独去说一声 */
+function showCreateResult(res) {
+  if (!res.fallback) {
+    // 有身份证号：密码是身份证后 6 位，属于隐私，不在界面上回显
+    ElMessage.success(`${res.message}，初始密码为身份证号后 6 位`)
+    return
+  }
+  ElMessageBox.alert(
+    `${res.message}。该生还没有身份证号，初始密码为【学号后 6 位】：${res.password}。` +
+      '学号本身不是秘密，请单独告知本人，并让他首次登录后立即改成自己的密码。',
+    '新增成功，请转告初始密码',
+    { confirmButtonText: '知道了' }
+  )
+}
+
+// 删除学生：账号和照片一起清掉，历史请假/反馈记录保留
+async function handleDelete(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除「${row.name}（${row.student_no}）」吗？他的登录账号和照片文件会一并删除，` +
+        '此操作不可恢复；已经审核过的请假、反馈记录会保留。',
+      '删除学生',
+      { type: 'warning', confirmButtonText: '删除' }
+    )
+  } catch (e) {
+    return // 取消
+  }
+  try {
+    await deleteStudent(row.id)
+    ElMessage.success('已删除')
+    fetchData()
+    userStore.refreshTotal()
+  } catch (e) {
+    // 后端会挡住「删自己」和「还有待审核记录」两种情况，理由要原样告诉管理员
+    ElMessageBox.alert(e?.response?.data?.detail || '删除失败', '无法删除', {
+      type: 'warning',
+      confirmButtonText: '知道了'
+    })
+  }
+}
+
+// ---------- 照片 ----------
+
+/** 点「选择图片」：记下要换的是哪一张，再转交给隐藏的 input */
+function pickPhoto(type) {
+  photoPicking = type
+  photoInput.value?.click()
+}
+
+async function handlePhotoPicked(e) {
+  const file = e.target.files?.[0]
+  // 一定要清空：不清的话连着选同一个文件不会再触发 change
+  e.target.value = ''
+  if (!file || !photoPicking) return
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.warning('照片不能超过 10MB')
+    return
+  }
+
+  const type = photoPicking
+  photoUploading.value = type
+  try {
+    const res = await uploadStudentPhoto(editForm.id, type, file)
+    const field = type === 'on_site' ? 'on_site_photo' : 'gaokao_photo'
+    editForm[field] = res.photo // 地址里的 v 参数跟着变，立刻显示新图
+    ElMessage.success('照片已更新')
+    fetchData()
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || '上传失败')
+  } finally {
+    photoUploading.value = ''
+  }
+}
+
+async function handleDeletePhoto(type) {
+  const label = PHOTO_TYPES.find((p) => p.type === type)?.label || '照片'
+  try {
+    await ElMessageBox.confirm(`确定删除这张${label}吗？`, '删除照片', { type: 'warning' })
+  } catch (e) {
+    return // 取消
+  }
+  try {
+    await deleteStudentPhoto(editForm.id, type)
+    const field = type === 'on_site' ? 'on_site_photo' : 'gaokao_photo'
+    editForm[field] = null
+    ElMessage.success('照片已删除')
+    fetchData()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
   }
 }
 
@@ -941,6 +1158,48 @@ onMounted(() => {
   border-radius: 8px;
   object-fit: cover;
   display: block;
+}
+
+/* 编辑弹窗里的照片：两张并排放，各自带上传/删除 */
+.edit-photos {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.edit-photo {
+  text-align: center;
+}
+
+.edit-photo-box {
+  width: 100px;
+  height: 130px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f5f7fa;
+  cursor: zoom-in;
+}
+
+.edit-photo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.edit-photo-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #c0c4cc;
+}
+
+.edit-photo-label {
+  font-size: 13px;
+  color: #606266;
+  margin: 6px 0 4px;
 }
 
 .photo-item-img {

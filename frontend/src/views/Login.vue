@@ -12,7 +12,7 @@
           <el-input
             v-model="form.student_no"
             size="large"
-            placeholder="学号"
+            placeholder="学号 / 账号"
             :prefix-icon="User"
             clearable
           />
@@ -29,9 +29,17 @@
           />
         </el-form-item>
 
-        <!-- 验证码：登录失败一次后才显示，默认隐藏 -->
+        <!-- 人机验证：登录失败一次后才显示，默认隐藏。
+             配了 Turnstile 就用它，加载不出来自动退回下面的算术题 -->
         <el-form-item v-if="showCaptcha">
-          <div class="captcha-row">
+          <TurnstileWidget
+            v-if="captchaMode === 'turnstile'"
+            ref="turnstileRef"
+            :site-key="turnstileSiteKey"
+            @success="onTurnstileToken"
+            @unavailable="fallbackToMath"
+          />
+          <div v-else class="captcha-row">
             <el-input
               v-model="form.captcha"
               size="large"
@@ -79,6 +87,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Key } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
+import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { getCaptcha, getCaptchaRequired } from '@/api/auth'
 
 const router = useRouter()
@@ -96,6 +105,11 @@ const form = reactive({
 // 验证码相关
 const showCaptcha = ref(false)
 const captchaSrc = ref('')
+// 'math' = 自带的算术题；'turnstile' = Cloudflare 人机验证（由后端 .env 决定）
+const captchaMode = ref('math')
+const turnstileSiteKey = ref('')
+const turnstileToken = ref('')
+const turnstileRef = ref(null)
 
 async function refreshCaptcha() {
   try {
@@ -106,14 +120,35 @@ async function refreshCaptcha() {
   }
 }
 
-// 进入页面时先问一下后端：这个 IP 现在要不要填验证码
+/** Turnstile 控件起不来（内地网络下会），退回算术题
+ *
+ * 单向降级：同一个页面里不再回头试 Turnstile，免得两种界面来回跳
+ * （每次 mount 失败都会重新走一遍脚本加载 + 8 秒超时）。
+ */
+function fallbackToMath() {
+  if (captchaMode.value === 'math') return
+  captchaMode.value = 'math'
+  turnstileToken.value = ''
+  refreshCaptcha()
+}
+
+function onTurnstileToken(token) {
+  turnstileToken.value = token || ''
+}
+
+// 进入页面时先问一下后端：这个 IP 现在要不要人机验证、用哪一种
 // （之前如果输错过，10 分钟内再进来就得显示验证码框）
 onMounted(async () => {
   try {
     const res = await getCaptchaRequired()
+    // mode / site_key 即使这次不用也得记下来：
+    // 等会儿万一输错了要显示验证码框，得知道该加载 Turnstile 还是拉算术题
+    captchaMode.value = res.mode === 'turnstile' ? 'turnstile' : 'math'
+    turnstileSiteKey.value = res.site_key || ''
     if (res.required) {
       showCaptcha.value = true
-      await refreshCaptcha()
+      // Turnstile 的控件由组件自己挂载时加载；算术题这里就得去拉 SVG
+      if (captchaMode.value === 'math') await refreshCaptcha()
     }
   } catch (e) {
     // 问不到就算了，默认不显示，输错一次后端会提示要验证码
@@ -121,16 +156,19 @@ onMounted(async () => {
 })
 
 async function handleLogin() {
-  if (!form.student_no.trim()) return ElMessage.warning('请输入学号')
+  if (!form.student_no.trim()) return ElMessage.warning('请输入学号或账号')
   if (!form.password) return ElMessage.warning('请输入密码')
 
   loading.value = true
+  // 两套人机验证只交一个字段，后端靠「哪个有值」判断走的哪条路
+  const useTurnstile = showCaptcha.value && captchaMode.value === 'turnstile'
   try {
     await userStore.login({
       student_no: form.student_no.trim(),
       password: form.password,
       remember: form.remember,
-      captcha: showCaptcha.value ? form.captcha : undefined
+      captcha: showCaptcha.value && !useTurnstile ? form.captcha : undefined,
+      turnstile_token: useTurnstile ? turnstileToken.value : undefined
     })
     ElMessage.success('登录成功')
     // 登录前想去的页面，登录后直接过去
@@ -139,13 +177,19 @@ async function handleLogin() {
     const msg = e?.response?.data?.detail || '登录失败，请稍后重试'
     ElMessage.error(msg)
 
-    // 登录失败后，显示验证码并刷新
+    // 登录失败后，显示人机验证并换一张
     // （后端已经开始计数了，下次登录必须带验证码）
     if (!showCaptcha.value) {
       showCaptcha.value = true
     }
-    await refreshCaptcha()
-    form.captcha = ''
+    if (captchaMode.value === 'turnstile') {
+      // token 是一次性的，刚才那个已经被后端用掉了，必须换一个新的
+      turnstileRef.value?.reset()
+      turnstileToken.value = ''
+    } else {
+      await refreshCaptcha()
+      form.captcha = ''
+    }
   } finally {
     loading.value = false
   }

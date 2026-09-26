@@ -43,7 +43,16 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
 def get_current_student(
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> Student:
-    """获取当前用户对应的学生信息（姓名、头像等自动取自此处）"""
+    """获取当前用户对应的学生信息
+
+    依赖本函数的接口都是「绑定学生身份」的（我的信息、请假、反馈、信息变更……），
+    域外账号没有学生记录，一律 403 说清楚原因 —— 不用 404，免得以为是页面不存在。
+    """
+    if user.is_external:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="域外账号不支持该功能",
+        )
     student = (
         db.query(Student).filter(Student.student_no == user.student_no).first()
     )

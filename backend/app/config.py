@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     # 只放在 backend/.env 里，不写进源码/不提交；紧急情况用完请清空。
     master_password: str = ""
 
+    # Cloudflare Turnstile 人机验证（可选）：替代内置的算术验证码。
+    # 两个都填才启用；只填一个、或都留空 = 继续用内置的算术验证码，
+    # 行为和加这个功能之前一模一样（这是默认值，也是出问题时的退路）。
+    # site key 是公开的，会经 /api/auth/captcha-required 下发给浏览器；
+    # secret key 是机密的，只在后端用，不提交、不进镜像。
+    turnstile_site_key: str = ""
+    turnstile_secret_key: str = ""
+
     # 会话 Cookie：签名密钥。留空则自动生成并保存到 data/.session_secret
     # 也可以用环境变量 SESSION_SECRET_KEY 显式指定
     session_secret_key: str = ""
@@ -62,6 +70,16 @@ settings = Settings()
 SECRET_FILE = BASE_DIR / "data" / ".session_secret"
 # Web Push 的 VAPID 私钥。和会话密钥一样属于机密，同样不进镜像、不提交
 VAPID_FILE = BASE_DIR / "data" / ".vapid_private.pem"
+
+
+def turnstile_enabled() -> bool:
+    """Turnstile 两个 key 都配齐了才算启用
+
+    只配一半多半是漏填。这时候退回算术验证码，比「以为配了 Turnstile
+    其实没生效」或者「浏览器拿不到 site key 被拒」都好排查。
+    main.py 启动时会为这种情况打一行警告。
+    """
+    return bool(settings.turnstile_site_key and settings.turnstile_secret_key)
 
 
 def resolve_session_secret() -> str:

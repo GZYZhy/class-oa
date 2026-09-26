@@ -3,9 +3,25 @@
 import hashlib
 import hmac
 import os
+import re
 
 # 迭代次数，提高暴力破解成本
 ITERATIONS = 100_000
+
+# 自定义密码规则：必须同时包含数字和字母（初始密码/重置密码不受这个限制）
+_PASSWORD_PATTERN = re.compile(r'^(?=.*[A-Za-z])(?=.*\d).+$')
+
+
+def validate_password(value: str, field_name: str = "新密码") -> str:
+    """校验密码是否符合规则，不符合则抛 ValueError（Pydantic 校验器直接抛就可以）
+
+    规则单点定义在这里：改密码、管理员给域外账号设密码都走这一份。
+    """
+    if len(value) < 6 or len(value) > 32:
+        raise ValueError(f"{field_name}长度需为 6-32 位")
+    if not _PASSWORD_PATTERN.match(value):
+        raise ValueError(f"{field_name}必须同时包含字母和数字")
+    return value
 
 
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:

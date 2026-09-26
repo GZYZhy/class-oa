@@ -15,8 +15,11 @@ from .services import ensure_default_users, seed_from_catalog
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 PHOTO_DIR = DATA_DIR / "photos"
+# 域外账号的头像单独一个目录，不和学生的照片混在一起
+AVATAR_DIR = DATA_DIR / "avatars"
 DATA_DIR.mkdir(exist_ok=True)
 PHOTO_DIR.mkdir(exist_ok=True)
+AVATAR_DIR.mkdir(exist_ok=True)
 
 # 创建数据库表（只建新表）
 Base.metadata.create_all(bind=engine)
@@ -64,6 +67,23 @@ def init_resources() -> None:
 
 
 init_resources()
+
+
+def warn_turnstile() -> None:
+    """TURNSTILE 只配了一个 key 时提示一句
+
+    这时 turnstile_enabled() 是 False，登录页走的还是内置算术验证码。
+    不提示的话，配了 site key 的人会一直以为 Turnstile 已经生效了。
+    """
+    if bool(settings.turnstile_site_key) != bool(settings.turnstile_secret_key):
+        print(
+            "[初始化] TURNSTILE 的 SITE_KEY / SECRET_KEY 只配了一个，"
+            "已退回内置算术验证码（两个都填齐才启用）",
+            flush=True,
+        )
+
+
+warn_turnstile()
 
 app = FastAPI(
     title=settings.app_name,

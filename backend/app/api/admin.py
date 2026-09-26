@@ -1,18 +1,25 @@
-"""系统管理：仅管理员可用（账号角色、重置密码、资料下载、操作日志）"""
+"""系统管理：仅管理员可用（账号角色、重置密码、域外账号、资料下载、操作日志）"""
+
+import os
+import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from ..config import BASE_DIR
 from ..database import get_db
-from ..models import OperationLog, Resource, Student, User
+from ..models import OperationLog, PushSubscription, Resource, Student, User
 from ..schemas import (
     AdminUserResponse,
     OperationLogListResponse,
+    ResetPasswordRequest,
     ResetPasswordResponse,
     RoleUpdateRequest,
 )
 from ..services import (
+    account_name,
     add_resource,
     default_password,
     delete_resource,
@@ -21,13 +28,100 @@ from ..services import (
     reorder_category,
     update_resource,
 )
-from ..utils.security import hash_password
+from ..utils.security import hash_password, validate_password
 from .deps import admin_required, get_client_ip
 
 router = APIRouter(prefix="/api/admin", tags=["系统管理"])
 
 ROLES = ("student", "committee", "admin")
 ROLE_LABELS = {"student": "普通学生", "committee": "班委", "admin": "管理员"}
+
+# 域外账号的头像存放目录（容器内 /app/data/avatars，启动时由 main.py 创建）
+AVATAR_DIR = BASE_DIR / "data" / "avatars"
+ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2MB，头像不需要更大
+# 域外账号登录名：不能有空白字符，否则登录时 strip 过就对不上了
+EXTERNAL_LOGIN_NAME_MAX = 20  # 与 users.student_no 的字段长度一致
+
+
+def _save_avatar(file: UploadFile) -> str:
+    """把上传的头像写到磁盘，返回裸文件名（库里只存文件名，不存路径）
+
+    后缀走白名单、文件名用 UUID —— 与请假证明、公告 PDF 的做法保持一致。
+    """
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_AVATAR_EXTENSIONS:
+        allowed = " / ".join(sorted(e.lstrip(".") for e in ALLOWED_AVATAR_EXTENSIONS))
+        raise HTTPException(status_code=400, detail=f"头像只支持 {allowed} 格式")
+
+    content = file.file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="头像文件不能为空")
+    if len(content) > MAX_AVATAR_SIZE:
+        raise HTTPException(status_code=400, detail="头像不能超过 2MB")
+
+    safe_name = f"{uuid.uuid4().hex}{ext}"
+    (AVATAR_DIR / safe_name).write_bytes(content)
+    return safe_name
+
+
+def _remove_avatar(file_name: str | None) -> None:
+    """删头像文件。文件已经不在了也不报错（手工清理过、换过盘都可能）"""
+    if not file_name:
+        return
+    try:
+        (AVATAR_DIR / os.path.basename(file_name)).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _clean_login_name(raw: str) -> str:
+    """规范并校验域外账号的登录名"""
+    login_name = (raw or "").strip()
+    if not login_name:
+        raise HTTPException(status_code=400, detail="登录名不能为空")
+    if len(login_name) > EXTERNAL_LOGIN_NAME_MAX:
+        raise HTTPException(status_code=400, detail=f"登录名不能超过 {EXTERNAL_LOGIN_NAME_MAX} 个字符")
+    if any(c.isspace() for c in login_name):
+        raise HTTPException(status_code=400, detail="登录名不能包含空格")
+    return login_name
+
+
+def _clean_display_name(raw: str) -> str:
+    """规范并校验展示用户名"""
+    name = (raw or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="展示用户名不能为空")
+    if len(name) > 50:
+        raise HTTPException(status_code=400, detail="展示用户名不能超过 50 个字符")
+    return name
+
+
+def _check_role(role: str) -> str:
+    if role not in ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail="角色只能是 " + " / ".join(f"{r}（{ROLE_LABELS[r]}）" for r in ROLES),
+        )
+    return role
+
+
+def _check_password(raw: str) -> str:
+    """域外账号的密码由管理员直接指定，规则与用户自己改密时一致"""
+    try:
+        return validate_password(raw, "密码")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _get_external_user(db: Session, login_name: str) -> User:
+    """按登录名取域外账号；不存在或不是域外账号都报错"""
+    target = db.query(User).filter(User.student_no == login_name).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="账号不存在")
+    if not target.is_external:
+        raise HTTPException(status_code=400, detail="这是学生账号，不能在域外账号里操作")
+    return target
 
 
 @router.get("/users", response_model=list[AdminUserResponse], summary="账号列表")
@@ -41,10 +135,13 @@ def list_users(_: User = Depends(admin_required), db: Session = Depends(get_db))
     return [
         AdminUserResponse(
             student_no=user.student_no,
-            name=student.name if student else user.student_no,
+            # 域外账号用自定义展示名，学生账号用学生姓名
+            name=account_name(db, user),
             role=user.role or "student",
             must_change_password=user.must_change_password,
+            is_external=bool(user.is_external),
             has_id_card=bool(student and (student.id_card or "").strip()),
+            has_avatar=bool(user.is_external and user.avatar),
             last_login_at=user.last_login_at,
             last_login_ip=user.last_login_ip,
         )
@@ -68,6 +165,9 @@ def set_role(
     target = db.query(User).filter(User.student_no == student_no).first()
     if not target:
         raise HTTPException(status_code=404, detail="账号不存在")
+    # 管理员把自己降权后就再也改不回来了，只能另找一位管理员
+    if target.student_no == user.student_no and payload.role != "admin":
+        raise HTTPException(status_code=400, detail="不能降低自己的权限，请让另一位管理员操作")
     if target.role == payload.role:
         return {"message": "角色未变化"}
 
@@ -85,22 +185,46 @@ def set_role(
 @router.post(
     "/users/{student_no}/reset-password",
     response_model=ResetPasswordResponse,
-    summary="重置为原始密码",
+    summary="重置密码",
 )
 def reset_password(
     student_no: str,
+    payload: ResetPasswordRequest | None = None,
     user: User = Depends(admin_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
-    """重置成「身份证号后 6 位」并重新要求首次登录改密
+    """两种账号，两种重置方式：
 
-    学生若没有身份证号，则退回学号后 6 位 —— 那种情况下接口会把密码回带给管理员，
-    好让管理员转告学生（学号后 6 位本来就不是秘密）。
+    - 学生账号：重置成「身份证号后 6 位」并重新要求首次登录改密。
+      没有身份证号的退回学号后 6 位，那种情况下接口会把密码回带给管理员，
+      好让管理员转告学生（学号后 6 位本来就不是秘密）。
+      这里会忽略请求体里的密码 —— 学生账号不允许管理员指定密码。
+    - 域外账号：没有身份证号可依据，由管理员在请求体里直接指定新密码，
+      设完即可用、不再要求首次登录改密。
     """
     target = db.query(User).filter(User.student_no == student_no).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="账号不存在")
+
+    if target.is_external:
+        if not payload or not payload.password:
+            raise HTTPException(status_code=400, detail="请为域外账号指定新密码")
+        password = payload.password
+        new_hash, new_salt = hash_password(password)
+        target.password_hash = new_hash
+        target.password_salt = new_salt
+        # 密码是管理员当场定的、能当面告知，再强迫改一次没有意义
+        target.must_change_password = False
+        log_operation(
+            db, user, "重置密码", target=f"{student_no} {account_name(db, target)}",
+            detail="域外账号，由管理员指定新密码", ip=ip,
+        )
+        db.commit()
+        return ResetPasswordResponse(message="密码已重置，新密码即刻可用")
+
     student = db.query(Student).filter(Student.student_no == student_no).first()
-    if not target or not student:
+    if not student:
         raise HTTPException(status_code=404, detail="账号不存在")
 
     password, is_fallback = default_password(student)
@@ -120,6 +244,144 @@ def reset_password(
         password=password if is_fallback else None,
         fallback=is_fallback,
     )
+
+
+# ---------- 域外账号 ----------
+# 不属于本班学生、也不在学生名单里的账号（老师、协助人员等）。
+# 它只是在 users 表里多一行，学生表完全不动，所以点名、筛选、统计都不受影响。
+
+
+@router.post("/external-users", summary="新建域外账号")
+def create_external_user(
+    login_name: str = Form(..., description="登录名（就是登录时填在学号那一栏的东西）"),
+    display_name: str = Form(..., description="展示用户名（姓名、水印都用它）"),
+    password: str = Form(..., description="初始密码"),
+    role: str = Form("student", description="等效权限"),
+    avatar: UploadFile | None = File(None, description="头像，可选"),
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    login_name = _clean_login_name(login_name)
+    display_name = _clean_display_name(display_name)
+    _check_role(role)
+    password = _check_password(password)
+
+    # 登录名必须唯一：学生学号也占着这个位置，撞上了那个学生就登不进自己的账号
+    if db.query(User).filter(User.student_no == login_name).first():
+        raise HTTPException(status_code=400, detail=f"登录名「{login_name}」已被占用，请换一个")
+
+    avatar_name = _save_avatar(avatar) if avatar and avatar.filename else None
+    new_hash, new_salt = hash_password(password)
+    db.add(
+        User(
+            student_no=login_name,
+            password_hash=new_hash,
+            password_salt=new_salt,
+            # 密码是管理员当场定的、能当面告知，再强迫改一次没有意义
+            must_change_password=False,
+            role=role,
+            display_name=display_name,
+            avatar=avatar_name,
+            is_external=True,
+        )
+    )
+    log_operation(
+        db, user, "新建域外账号", target=f"{login_name} {display_name}",
+        detail=f"角色：{ROLE_LABELS[role]}", ip=ip,
+    )
+    try:
+        db.commit()
+    except Exception:
+        # 写库没成功就别把头像文件留在磁盘上
+        db.rollback()
+        _remove_avatar(avatar_name)
+        raise
+    return {"message": "域外账号已创建"}
+
+
+@router.put("/external-users/{login_name}", summary="修改域外账号")
+def update_external_user(
+    login_name: str,
+    display_name: str = Form(...),
+    role: str = Form(...),
+    remove_avatar: bool = Form(False, description="是否删掉现有头像"),
+    avatar: UploadFile | None = File(None, description="新头像，可选；传了就换掉旧的"),
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    target = _get_external_user(db, login_name)
+    display_name = _clean_display_name(display_name)
+    _check_role(role)
+
+    if target.student_no == user.student_no and role != "admin":
+        raise HTTPException(status_code=400, detail="不能降低自己的权限，请让另一位管理员操作")
+
+    changes: list[str] = []
+    if target.display_name != display_name:
+        changes.append(f"展示名：{target.display_name or '（空）'} → {display_name}")
+        target.display_name = display_name
+    if target.role != role:
+        old_label = ROLE_LABELS.get(target.role or "student", target.role)
+        changes.append(f"角色：{old_label} → {ROLE_LABELS[role]}")
+        target.role = role
+
+    old_avatar = target.avatar
+    new_avatar = None
+    stale_avatar = None  # 落库成功之后要删掉的旧文件
+    if avatar and avatar.filename:
+        new_avatar = _save_avatar(avatar)
+        target.avatar = new_avatar
+        stale_avatar = old_avatar
+        changes.append("更换头像")
+    elif remove_avatar and old_avatar:
+        target.avatar = None
+        stale_avatar = old_avatar
+        changes.append("删除头像")
+
+    if not changes:
+        return {"message": "没有改动"}
+
+    log_operation(
+        db, user, "修改域外账号", target=f"{login_name} {target.display_name}",
+        detail="；".join(changes), ip=ip,
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        _remove_avatar(new_avatar)
+        raise
+    # 只有换了新头像、或者明确要求清空时才删旧文件。
+    # 改个名字那种「没动头像」的编辑绝不能删 —— 库里那一列还指着这个文件
+    _remove_avatar(stale_avatar)
+    return {"message": "已保存"}
+
+
+@router.delete("/external-users/{login_name}", summary="删除域外账号")
+def delete_external_user(
+    login_name: str,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    target = _get_external_user(db, login_name)
+    if target.student_no == user.student_no:
+        raise HTTPException(status_code=400, detail="不能删除当前登录的账号")
+
+    log_operation(
+        db, user, "删除域外账号",
+        target=f"{login_name} {account_name(db, target)}", ip=ip,
+    )
+    # 推送订阅跟着账号走，账号没了就别再往下推
+    db.query(PushSubscription).filter(PushSubscription.student_no == login_name).delete()
+    avatar_name = target.avatar
+    db.delete(target)
+    db.commit()
+    # 提交成功后再删头像文件
+    _remove_avatar(avatar_name)
+    return {"message": "已删除"}
 
 
 @router.get("/logs", response_model=OperationLogListResponse, summary="操作日志")

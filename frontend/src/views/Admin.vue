@@ -14,12 +14,23 @@
               style="width: 200px"
             />
           </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="openCreateExternal">
+              <el-icon><Plus /></el-icon>新建域外账号
+            </el-button>
+          </el-form-item>
         </el-form>
 
         <el-table :data="filteredUsers" v-loading="loadingUsers" stripe border style="width: 100%;">
-          <el-table-column prop="student_no" label="学号" width="140" align="center" />
+          <el-table-column prop="student_no" label="学号" width="130" align="center" />
           <el-table-column prop="name" label="姓名" width="110" align="center" />
-          <el-table-column label="角色" width="180" align="center">
+          <el-table-column label="类型" width="90" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.is_external" type="warning" size="small">域外</el-tag>
+              <el-tag v-else type="info" size="small">学生</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="角色" width="160" align="center">
             <template #default="{ row }">
               <el-select
                 :model-value="row.role"
@@ -57,15 +68,28 @@
               <span v-else style="color: #c0c4cc;">-</span>
             </template>
           </el-table-column>
-          <el-table-column label="身份证号" width="120" align="center">
+          <el-table-column label="身份证号" width="100" align="center">
             <template #default="{ row }">
-              <el-tag v-if="row.has_id_card" type="info" size="small">已录入</el-tag>
+              <!-- 域外账号没有身份证号这一说 -->
+              <span v-if="row.is_external" style="color: #c0c4cc;">-</span>
+              <el-tag v-else-if="row.has_id_card" type="info" size="small">已录入</el-tag>
               <el-tag v-else type="danger" size="small">缺失</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="200" align="center">
+            <template #default="{ row }">
+              <template v-if="row.is_external">
+                <el-button link type="primary" size="small" @click="openEditExternal(row)">编辑</el-button>
+                <el-button link type="primary" size="small" @click="handleExtResetPassword(row)">重置密码</el-button>
+                <el-button link type="danger" size="small" @click="handleExtDelete(row)">删除</el-button>
+              </template>
+              <span v-else style="color: #c0c4cc;">-</span>
             </template>
           </el-table-column>
         </el-table>
         <div class="tip">
           共 {{ filteredUsers.length }} 个账号，改角色会对该账号立即生效并记入日志。
+          域外账号不与学生关联，不会出现在学生名单、点名和各类统计里。
         </div>
       </el-tab-pane>
 
@@ -80,6 +104,7 @@
         />
         <el-form :inline="true">
           <el-form-item label="选择账号">
+            <!-- 只列学生账号：域外账号没有身份证号，重置方式不同，在「账号角色管理」里操作 -->
             <el-select
               v-model="resetTarget"
               filterable
@@ -87,7 +112,7 @@
               style="width: 280px"
             >
               <el-option
-                v-for="u in users"
+                v-for="u in studentUsers"
                 :key="u.student_no"
                 :label="`${u.name}（${u.student_no}）`"
                 :value="u.student_no"
@@ -207,6 +232,75 @@
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- ============ 新建 / 编辑域外账号 ============ -->
+    <el-dialog
+      v-model="extDialogVisible"
+      :title="extForm.editing ? '编辑域外账号' : '新建域外账号'"
+      width="520px"
+    >
+      <el-form :model="extForm" label-width="110px">
+        <el-form-item label="登录名" required>
+          <!-- 登录名是账号的主键，建好之后不能改（改了等于换一个账号） -->
+          <el-input
+            v-model="extForm.login_name"
+            :disabled="extForm.editing"
+            maxlength="20"
+            placeholder="登录时填在「学号」那一栏，如 teacher"
+          />
+        </el-form-item>
+        <el-form-item label="展示用户名" required>
+          <el-input
+            v-model="extForm.display_name"
+            maxlength="50"
+            placeholder="姓名、水印都用它，如 李俊刚"
+          />
+        </el-form-item>
+        <el-form-item label="等效权限" required>
+          <el-select v-model="extForm.role" style="width: 100%">
+            <el-option
+              v-for="(label, value) in ROLE_LABELS"
+              :key="value"
+              :label="label"
+              :value="value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="!extForm.editing" label="初始密码" required>
+          <el-input v-model="extForm.password" placeholder="6-32 位，需同时含字母和数字" />
+        </el-form-item>
+        <el-form-item label="头像">
+          <input
+            ref="extAvatarInput"
+            type="file"
+            accept="image/*"
+            style="display: none"
+            @change="handleExtAvatarPicked"
+          />
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <el-button @click="extAvatarInput?.click()">选择图片</el-button>
+            <span class="tip" style="margin: 0;">
+              {{ extAvatarText }}
+            </span>
+            <el-button
+              v-if="extForm.avatarFile || (extForm.hasAvatar && !extForm.removeAvatar)"
+              link
+              type="danger"
+              @click="handleExtAvatarClear"
+            >
+              清除头像
+            </el-button>
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="extDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="extSaving" @click="handleExtSave">
+          {{ extForm.editing ? '保存' : '创建' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -217,6 +311,9 @@ import {
   getUsers,
   setUserRole,
   resetUserPassword,
+  createExternalUser,
+  updateExternalUser,
+  deleteExternalUser,
   getLogs,
   clearLogs,
   listResources,
@@ -240,6 +337,11 @@ const filteredUsers = computed(() => {
   if (!kw) return users.value
   return users.value.filter((u) => u.name.includes(kw) || u.student_no.includes(kw))
 })
+
+// 「重置密码」tab 的候选：只列学生账号。
+// 那里的语义是「重置为身份证号后 6 位」，对域外账号不适用
+// （域外账号的密码由管理员在下面的对话框里直接指定）
+const studentUsers = computed(() => users.value.filter((u) => !u.is_external))
 
 async function fetchUsers() {
   loadingUsers.value = true
@@ -305,6 +407,175 @@ async function handleReset() {
     ElMessage.error(e?.response?.data?.detail || '重置失败')
   } finally {
     resetting.value = false
+  }
+}
+
+// ---------- 域外账号（不与学生关联的账号：老师、协助人员等）----------
+// 新建和编辑共用一个对话框，靠 extForm.editing 区分。
+// 登录名是账号主键，建好之后不让改（要换登录名等于换个账号，重新建即可）
+const extDialogVisible = ref(false)
+const extSaving = ref(false)
+const extAvatarInput = ref(null)
+const extForm = reactive({
+  editing: false,
+  login_name: '',
+  display_name: '',
+  role: 'student',
+  password: '',
+  avatarFile: null,   // 本次选中的新图片
+  hasAvatar: false,   // 服务端已有的头像
+  removeAvatar: false // 编辑时勾了「清除头像」
+})
+
+const extAvatarText = computed(() => {
+  if (extForm.avatarFile) return `已选择：${extForm.avatarFile.name}`
+  if (extForm.hasAvatar && !extForm.removeAvatar) return '已有头像，重新选择可替换'
+  if (extForm.removeAvatar) return '保存后清除头像'
+  return '不传则用姓名首字占位，单张不超过 2MB'
+})
+
+function resetExtForm() {
+  extForm.editing = false
+  extForm.login_name = ''
+  extForm.display_name = ''
+  extForm.role = 'student'
+  extForm.password = ''
+  extForm.avatarFile = null
+  extForm.hasAvatar = false
+  extForm.removeAvatar = false
+  // 清掉原生 input 里的选择，否则再打开还是上次那个文件
+  if (extAvatarInput.value) extAvatarInput.value.value = ''
+}
+
+function openCreateExternal() {
+  resetExtForm()
+  extDialogVisible.value = true
+}
+
+function openEditExternal(row) {
+  resetExtForm()
+  extForm.editing = true
+  extForm.login_name = row.student_no
+  extForm.display_name = row.name
+  extForm.role = row.role || 'student'
+  extForm.hasAvatar = !!row.has_avatar
+  extDialogVisible.value = true
+}
+
+function handleExtAvatarPicked(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  if (file.size > 2 * 1024 * 1024) {
+    ElMessage.warning('头像不能超过 2MB')
+    e.target.value = ''
+    return
+  }
+  extForm.avatarFile = file
+  extForm.removeAvatar = false
+}
+
+function handleExtAvatarClear() {
+  extForm.avatarFile = null
+  extForm.removeAvatar = true
+  if (extAvatarInput.value) extAvatarInput.value.value = ''
+}
+
+async function handleExtSave() {
+  if (!extForm.editing) {
+    if (!extForm.login_name.trim()) return ElMessage.warning('请填写登录名')
+  }
+  if (!extForm.display_name.trim()) return ElMessage.warning('请填写展示用户名')
+  if (!extForm.editing) {
+    // 规则与后端 _clean_login_name 一致：非空、不超过 20 位、不能有空格
+    // （不限定字母数字，老师也可能想用姓名当登录名）
+    const name = extForm.login_name.trim()
+    if (name.length > 20) return ElMessage.warning('登录名不能超过 20 位')
+    if (/\s/.test(name)) return ElMessage.warning('登录名不能包含空格')
+    if (extForm.password.length < 6 || extForm.password.length > 32) {
+      return ElMessage.warning('初始密码长度需为 6-32 位')
+    }
+    if (!/[A-Za-z]/.test(extForm.password) || !/\d/.test(extForm.password)) {
+      return ElMessage.warning('初始密码必须同时包含字母和数字')
+    }
+  }
+
+  const fd = new FormData()
+  fd.append('display_name', extForm.display_name.trim())
+  fd.append('role', extForm.role)
+  if (extForm.editing) {
+    // 用 remove_avatar 明确告诉后端「是清了还是没动」——
+    // 不传 avatar 字段时后端无法区分这两种情况
+    fd.append('remove_avatar', extForm.removeAvatar ? 'true' : 'false')
+  } else {
+    fd.append('login_name', extForm.login_name.trim())
+    fd.append('password', extForm.password)
+  }
+  if (extForm.avatarFile) fd.append('avatar', extForm.avatarFile)
+
+  extSaving.value = true
+  try {
+    if (extForm.editing) {
+      await updateExternalUser(extForm.login_name, fd)
+      ElMessage.success('已保存')
+    } else {
+      await createExternalUser(fd)
+      ElMessage.success('域外账号已创建')
+    }
+    extDialogVisible.value = false
+    fetchUsers()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    extSaving.value = false
+  }
+}
+
+async function handleExtResetPassword(row) {
+  let value
+  try {
+    const res = await ElMessageBox.prompt(
+      `给「${row.name}」设置一个新密码（6-32 位，需同时含字母和数字）。设置后立即生效，不会要求他再改一次。`,
+      '重置密码',
+      {
+        confirmButtonText: '确定',
+        inputPlaceholder: '新密码',
+        inputValidator: (v) => {
+          if (!v || v.length < 6 || v.length > 32) return '长度需为 6-32 位'
+          if (!/[A-Za-z]/.test(v) || !/\d/.test(v)) return '必须同时包含字母和数字'
+          return true
+        }
+      }
+    )
+    value = res.value
+  } catch (e) {
+    return // 取消
+  }
+
+  try {
+    await resetUserPassword(row.student_no, value)
+    ElMessage.success('密码已重置')
+    fetchUsers()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '重置失败')
+  }
+}
+
+async function handleExtDelete(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除域外账号「${row.name}」（${row.student_no}）吗？头像和推送订阅会一并清除，历史操作日志保留。`,
+      '删除账号',
+      { type: 'warning', confirmButtonText: '删除' }
+    )
+  } catch (e) {
+    return // 取消
+  }
+  try {
+    await deleteExternalUser(row.student_no)
+    ElMessage.success('已删除')
+    fetchUsers()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
   }
 }
 
