@@ -379,12 +379,18 @@ def get_filter_options(db: Session) -> dict:
     }
 
 
-def create_student(db: Session, student: StudentCreate) -> Student:
-    """创建学生信息"""
+def create_student(db: Session, student: StudentCreate, commit: bool = True) -> Student:
+    """创建学生信息
+
+    commit=False 时只加进 session，事务边界交给调用方 —— 新增学生要连同他的
+    登录账号一起提交，不能出现「学生建好了、账号没建上」这种半截状态。
+    那种情况下对象还没有主键，调用方 commit 之后再用。
+    """
     db_student = Student(**student.model_dump())
     db.add(db_student)
-    db.commit()
-    db.refresh(db_student)
+    if commit:
+        db.commit()
+        db.refresh(db_student)
     return db_student
 
 
@@ -414,11 +420,16 @@ def update_student(
     return db_student
 
 
-def delete_student(db: Session, student_id: int) -> bool:
-    """删除学生信息"""
+def delete_student(db: Session, student_id: int, commit: bool = True) -> bool:
+    """删除学生信息
+
+    commit=False 的含义同 create_student：删学生要连同他的登录账号、推送订阅
+    一起提交，交给调用方一次做完。
+    """
     db_student = get_student(db, student_id)
     if not db_student:
         return False
     db.delete(db_student)
-    db.commit()
+    if commit:
+        db.commit()
     return True

@@ -8,13 +8,13 @@
 
 from sqlalchemy.orm import Session
 
-from ..models import OperationLog, Student, User
+from ..models import OperationLog, User
+from .user_service import account_name
 
 
 def display_name(db: Session, user: User) -> str:
-    """取当前用户的姓名（users 表不存姓名，从学生表关联），取不到就退回学号"""
-    name = db.query(Student.name).filter(Student.student_no == user.student_no).scalar()
-    return name or user.student_no
+    """取当前用户的展示名（域外账号用自定义展示名，学生账号查学生表），取不到就退回登录名"""
+    return account_name(db, user)
 
 
 def log_operation(

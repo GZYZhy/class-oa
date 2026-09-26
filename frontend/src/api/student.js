@@ -63,13 +63,43 @@ export function logRollCall(data) {
 }
 
 /**
- * 新增学生
+ * 新增学生（仅管理员）
+ *
+ * 会连带开通登录账号。返回体里 fallback=true 表示该生没有身份证号、
+ * 初始密码退化成了学号后 6 位，这时 password 字段带着明文，需要单独告知本人。
  */
 export function createStudent(data) {
   return request({
     url: '/students',
     method: 'post',
     data
+  })
+}
+
+/**
+ * 上传/替换学生照片（仅管理员）
+ * @param {number} id 学生 id
+ * @param {string} type gaokao=高考照片，on_site=实地采集
+ * @param {File} file 照片文件
+ */
+export function uploadStudentPhoto(id, type, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request({
+    url: `/students/${id}/photo`,
+    method: 'post',
+    params: { type },
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+/** 删除学生照片（仅管理员），type 同上 */
+export function deleteStudentPhoto(id, type) {
+  return request({
+    url: `/students/${id}/photo`,
+    method: 'delete',
+    params: { type }
   })
 }
 

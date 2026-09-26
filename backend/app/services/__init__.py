@@ -20,7 +20,12 @@ from .notice_service import (
     update_notice,
     delete_notice,
 )
-from .user_service import ensure_default_users, default_password
+from .user_service import (
+    account_name,
+    create_account_for,
+    default_password,
+    ensure_default_users,
+)
 from .log_service import log_operation, display_name
 from .resource_service import (
     add_resource,
@@ -58,8 +63,10 @@ __all__ = [
     "create_notice",
     "update_notice",
     "delete_notice",
-    "ensure_default_users",
+    "account_name",
+    "create_account_for",
     "default_password",
+    "ensure_default_users",
     "log_operation",
     "display_name",
     "add_resource",

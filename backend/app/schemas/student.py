@@ -67,6 +67,20 @@ class StudentListResponse(BaseModel):
     items: list[StudentResponse]
 
 
+class StudentCreateResponse(BaseModel):
+    """新增学生的返回：学生本体 + 随学生一起开出来的登录账号
+
+    形状对齐 admin.py 的 ResetPasswordResponse，语义也一致：
+    只有密码退化成「学号后 6 位」时才把明文回带 —— 那等于公开信息、
+    本来就不是秘密，回带是为了让管理员知道要单独提醒谁去改密。
+    有身份证号时密码是身份证后 6 位，属于隐私，不在这里回显。
+    """
+    message: str
+    student: StudentResponse
+    password: Optional[str] = Field(None, description="仅退化为学号后 6 位时返回")
+    fallback: bool = Field(False, description="密码是否因缺身份证号而退化")
+
+
 class RollCallAbsentItem(BaseModel):
     """点名叫到但没人应答的一位同学"""
     student_no: str = Field(..., description="学号")

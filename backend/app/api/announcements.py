@@ -18,9 +18,10 @@ from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
 from ..database import get_db
-from ..models import Announcement, Student, User
+from ..models import Announcement, User
 from ..schemas import AnnouncementResponse
 from ..services import (
+    account_name,
     list_announcements,
     create_announcement,
     delete_announcement,
@@ -31,7 +32,6 @@ from ..services import (
 )
 from .deps import (
     get_current_user,
-    get_current_student,
     committee_required,
     is_committee,
     get_client_ip,
@@ -110,7 +110,6 @@ async def upload_announcement(
     is_public: bool = Form(True, description="是否向班委以外公开"),
     file: UploadFile = File(..., description="PDF 文件"),
     user: User = Depends(committee_required),
-    student: Student = Depends(get_current_student),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
@@ -139,8 +138,9 @@ async def upload_announcement(
         publish_date=publish_date,
         file_path=f"{URL_PREFIX}/{safe_name}",
         file_name=filename,
-        # 发布人一律取当前登录账号的姓名，前端无法伪造
-        publisher=student.name,
+        # 发布人一律取当前登录账号的展示名，前端无法伪造。
+        # 用 account_name 而不是学生表：域外账号（老师）也可能有班委权限
+        publisher=account_name(db, user),
         is_public=is_public,
     )
     log_operation(

@@ -4,11 +4,16 @@ from ..database import Base
 
 
 class User(Base):
-    """用户表：账号即学号，信息（姓名/头像）从学生表自动关联，用户只能修改密码"""
+    """用户表：账号即学号，信息（姓名/头像）从学生表自动关联，用户只能修改密码
+
+    域外账号（is_external=1）不属于本班学生，没有对应的学生记录，
+    展示名和头像改由本表的 display_name / avatar 提供。
+    """
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    student_no = Column(String(20), unique=True, index=True, nullable=False, comment="登录账号（学号）")
+    # 学生账号存学号；域外账号存管理员指定的登录名（沿用旧列名，避免改列代价）
+    student_no = Column(String(20), unique=True, index=True, nullable=False, comment="登录账号（学号 / 域外账号登录名）")
     password_hash = Column(String(128), nullable=False, comment="密码哈希")
     password_salt = Column(String(64), nullable=False, comment="密码盐")
     must_change_password = Column(Boolean, default=True, nullable=False, comment="首次登录是否必须改密码")
@@ -25,4 +30,15 @@ class User(Base):
     last_login_ip = Column(String(45), nullable=True, comment="最近登录 IP")
     # Bark 推送设备 key：在手机上的 Bark App 首页复制。空表示该用户没开推送
     bark_key = Column(String(128), nullable=True, comment="Bark 设备 key，未设置为空")
+    # ---------- 以下三列仅域外账号用 ----------
+    # 展示用户名：同时用作姓名、水印名、日志操作人、通知/公告发布人。
+    # 学生账号留空，姓名仍从学生表实时取，这样学生改了名字各处能跟着变
+    display_name = Column(String(50), nullable=True, comment="域外账号展示名，学生账号为空")
+    # 头像的裸文件名（与 Student.gaokao_photo 同样只存文件名，不存路径）
+    avatar = Column(String(200), nullable=True, comment="域外账号头像文件名，学生账号为空")
+    # 是否域外账号。老库补列时默认 0，即升级前所有账号都是学生账号
+    is_external = Column(
+        Boolean, nullable=False, default=False, server_default=text("0"),
+        comment="是否域外账号（不与学生表关联）",
+    )
     created_at = Column(DateTime, server_default=func.now())

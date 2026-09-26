@@ -16,7 +16,7 @@
       <div class="header-right">
         <span class="class-badge">
           <el-icon><UserFilled /></el-icon>
-          共 {{ totalStudents }} 人
+          共 {{ userStore.totalStudents }} 人
         </span>
 
         <!-- 已登录：头像 + 姓名，下拉可改密码/退出 -->
@@ -133,7 +133,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getPublicSummary, setInitialPassword } from '@/api/auth'
+import { setInitialPassword } from '@/api/auth'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import IosInstallGuide from '@/components/IosInstallGuide.vue'
 import NotifySettingDialog from '@/components/NotifySettingDialog.vue'
@@ -147,23 +147,23 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const activeMenu = computed(() => route.path)
-const totalStudents = ref(0)
 
 // 手机端的菜单抽屉：桌面端侧边栏常驻，这个开关不起作用
 const drawerOpen = ref(false)
 watch(() => route.path, () => { drawerOpen.value = false })
 
 // 侧边菜单。role = 可见的最低角色，不写则登录即可见；public = 未登录也可见。
-// 和 router 的 meta.role 保持一致（那里是防手敲地址，这里是控制显示）
+// studentOnly = 只有学生账号可见（域外账号没有学生记录，这些页面用不了）。
+// 和 router 的 meta 保持一致（那里是防手敲地址，这里是控制显示）
 const MENU = [
   { path: '/dashboard', title: '首页', icon: 'HomeFilled', public: true },
-  { path: '/my-info', title: '我的信息', icon: 'UserFilled' },
+  { path: '/my-info', title: '我的信息', icon: 'UserFilled', studentOnly: true },
   { path: '/students', title: '学生信息', icon: 'List', role: 'committee' },
   { path: '/statistics', title: '分类统计', icon: 'PieChart', role: 'committee' },
   { path: '/review', title: '审核审批', icon: 'Checked', role: 'committee' },
   { path: '/notices', title: '通知公告', icon: 'Bell', public: true },
   { path: '/announcements', title: '文件公开', icon: 'Files' },
-  { path: '/service', title: '办事中心', icon: 'Postcard' },
+  { path: '/service', title: '办事中心', icon: 'Postcard', studentOnly: true },
   { path: '/downloads', title: '资料下载', icon: 'Download' },
   { path: '/about', title: '关于班级', icon: 'InfoFilled' },
   { path: '/admin', title: '系统管理', icon: 'Setting', role: 'admin' }
@@ -173,6 +173,7 @@ const visibleMenu = computed(() =>
   MENU.filter((item) => {
     if (item.public) return true
     if (!userStore.isLogin) return false
+    if (item.studentOnly && userStore.isExternal) return false
     return rankOf(userStore.info?.role) >= rankOf(item.role || 'student')
   })
 )
@@ -284,13 +285,9 @@ onMounted(async () => {
   // 登录页是整屏布局、没有顶栏，就不必多问这一趟了
   if (!route.meta.bare && !userStore.resolved) await userStore.fetchMe()
 
-  // 班级人数取自公开摘要，未登录也能正常显示
-  try {
-    const summary = await getPublicSummary()
-    totalStudents.value = summary.total || 0
-  } catch (e) {
-    /* 忽略，保持 0 */
-  }
+  // 班级人数取自公开摘要，未登录也能正常显示。
+  // 增删学生之后由学生名单页再调一次 store 里的 refreshTotal()
+  await userStore.refreshTotal()
 })
 </script>
 
