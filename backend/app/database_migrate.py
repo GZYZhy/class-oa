@@ -26,6 +26,12 @@ NEW_COLUMNS = [
     ("operation_logs", "ip", "VARCHAR(45)"),
     # Bark 推送设备 key，可空：补列前没人开过推送
     ("users", "bark_key", "VARCHAR(128)"),
+    # ---------- 域外账号 ----------
+    # 以下三列可空 / 默认 0：补列后老账号一律视为「学生账号」，
+    # 姓名头像仍走学生表，行为与补列前完全一致
+    ("users", "display_name", "VARCHAR(50)"),
+    ("users", "avatar", "VARCHAR(200)"),
+    ("users", "is_external", "BOOLEAN NOT NULL DEFAULT 0"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）

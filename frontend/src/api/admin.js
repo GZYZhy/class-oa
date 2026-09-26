@@ -17,11 +17,45 @@ export function setUserRole(studentNo, role) {
   })
 }
 
-/** 重置为原始密码（身份证号后 6 位），重置后该生首次登录仍需改密 */
-export function resetUserPassword(studentNo) {
+/**
+ * 重置密码
+ *
+ * 学生账号：不用传 newPassword，重置为身份证号后 6 位，首次登录仍需改密。
+ * 域外账号：必须传 newPassword（管理员直接指定），设完即可用。
+ */
+export function resetUserPassword(studentNo, newPassword) {
   return request({
     url: `/admin/users/${studentNo}/reset-password`,
-    method: 'post'
+    method: 'post',
+    data: newPassword ? { password: newPassword } : {}
+  })
+}
+
+/** 新建域外账号（不与学生关联的账号：老师、协助人员等） */
+export function createExternalUser(formData) {
+  return request({
+    url: '/admin/external-users',
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+/** 修改域外账号的展示名 / 角色 / 头像 */
+export function updateExternalUser(loginName, formData) {
+  return request({
+    url: `/admin/external-users/${loginName}`,
+    method: 'put',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+/** 删除域外账号（连同它的头像文件和推送订阅） */
+export function deleteExternalUser(loginName) {
+  return request({
+    url: `/admin/external-users/${loginName}`,
+    method: 'delete'
   })
 }
 

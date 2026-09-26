@@ -1,19 +1,9 @@
 from typing import Optional
 
-import re
 from pydantic import BaseModel, Field, field_validator
 
-
-# 自定义密码规则：必须同时包含数字和字母（初始密码/重置密码不受这个限制）
-_PASSWORD_PATTERN = re.compile(r'^(?=.*[A-Za-z])(?=.*\d).+$')
-
-
-def _validate_password(value: str, field_name: str = "新密码") -> str:
-    if len(value) < 6 or len(value) > 32:
-        raise ValueError(f"{field_name}长度需为 6-32 位")
-    if not _PASSWORD_PATTERN.match(value):
-        raise ValueError(f"{field_name}必须同时包含字母和数字")
-    return value
+# 密码规则统一定义在 utils.security，管理员设域外账号密码时也用同一份
+from ..utils.security import validate_password
 
 
 class LoginRequest(BaseModel):
@@ -21,7 +11,11 @@ class LoginRequest(BaseModel):
     student_no: str = Field(..., description="学号")
     password: str = Field(..., description="密码")
     remember: bool = Field(False, description="是否保持登录 7 天")
-    captcha: Optional[str] = Field(None, description="验证码答案（失败 1 次后必填）")
+    captcha: Optional[str] = Field(None, description="算术验证码的答案（失败 1 次后必填）")
+    # 人机验证有两套，靠「哪个字段有值」区分，不做格式嗅探：
+    # 配了 Turnstile 且控件正常 → 填 turnstile_token；没配、或浏览器加载不出控件
+    # 而退回算术题 → 填上面的 captcha。两条路后端都认，见 api/auth.py 的登录接口
+    turnstile_token: Optional[str] = Field(None, description="Turnstile 控件给的 token")
 
 
 class ChangePasswordRequest(BaseModel):
@@ -32,7 +26,7 @@ class ChangePasswordRequest(BaseModel):
     @field_validator("new_password")
     @classmethod
     def check_new_password(cls, v: str) -> str:
-        return _validate_password(v, "新密码")
+        return validate_password(v, "新密码")
 
 
 class SetInitialPasswordRequest(BaseModel):
@@ -42,7 +36,7 @@ class SetInitialPasswordRequest(BaseModel):
     @field_validator("new_password")
     @classmethod
     def check_new_password(cls, v: str) -> str:
-        return _validate_password(v, "新密码")
+        return validate_password(v, "新密码")
 
 
 class BarkKeyRequest(BaseModel):
@@ -82,7 +76,12 @@ class WebPushUnsubscribeRequest(BaseModel):
 
 
 class UserInfoResponse(BaseModel):
-    """当前用户信息（姓名、头像均自动取自学生表，不含任何敏感字段）"""
+    """当前用户信息（不含任何敏感字段）
+
+    姓名、头像的取法：域外账号用 users 表上的展示名/头像，
+    学生账号仍实时取自学生表（改了名字各处能跟着变）。
+    """
+    # 学生账号是学号；域外账号是管理员指定的登录名
     student_no: str
     name: str
     avatar: Optional[str] = None
@@ -90,5 +89,7 @@ class UserInfoResponse(BaseModel):
     # 角色决定前端能看到哪些菜单：admin 管理员 / committee 班委 / student 普通学生
     role: str = "student"
     must_change_password: bool
+    # 域外账号：前端据此隐藏「我的信息」「办事中心」等绑定学生身份的入口
+    is_external: bool = False
     # Bark 推送设备 key，没开推送时为空。只返给本人（就是他在自己手机 App 首页看到的那串）
     bark_key: Optional[str] = None

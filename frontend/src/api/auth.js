@@ -11,7 +11,13 @@ export function getCaptcha() {
     .then(blob => URL.createObjectURL(blob))
 }
 
-/** 当前 IP 是否需要填验证码（登录失败 1 次后 10 分钟内需要） */
+/**
+ * 当前 IP 是否需要人机验证，以及用哪一种（登录失败 1 次后 10 分钟内需要）
+ *
+ * 返回 { required, mode: 'math' | 'turnstile', site_key }。
+ * mode 由后端 .env 有没有配 Turnstile 决定；site_key 只有 turnstile 时才有值，
+ * 它本来就是公开的，配了才需要发给浏览器。
+ */
 export function getCaptchaRequired() {
   return request({ url: '/auth/captcha-required', method: 'get' })
 }

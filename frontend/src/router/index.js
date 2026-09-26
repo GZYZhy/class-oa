@@ -4,8 +4,9 @@ import { useUserStore } from '@/store/user'
 import { rankOf } from '@/utils/roles'
 
 // meta 说明：
-//   public: true  无需登录（首页、通知公告）
-//   role: 'xxx'   需要该角色及以上（学生名单、分类统计要班委；系统管理要管理员）
+//   public: true     无需登录（首页、通知公告）
+//   role: 'xxx'      需要该角色及以上（学生名单、分类统计要班委；系统管理要管理员）
+//   studentOnly: true 只有学生账号能进（域外账号没有学生记录，这些页面用不了）
 const routes = [
   { path: '/', redirect: '/dashboard' },
   {
@@ -24,7 +25,7 @@ const routes = [
     path: '/my-info',
     name: 'MyInfo',
     component: () => import('@/views/MyInfo.vue'),
-    meta: { title: '我的信息' }
+    meta: { title: '我的信息', studentOnly: true }
   },
   {
     path: '/students',
@@ -72,19 +73,19 @@ const routes = [
     path: '/service',
     name: 'ServiceCenter',
     component: () => import('@/views/ServiceCenter.vue'),
-    meta: { title: '办事中心' }
+    meta: { title: '办事中心', studentOnly: true }
   },
   {
     path: '/leave',
     name: 'LeaveApply',
     component: () => import('@/views/LeaveApply.vue'),
-    meta: { title: '请假申请' }
+    meta: { title: '请假申请', studentOnly: true }
   },
   {
     path: '/feedback',
     name: 'Feedback',
     component: () => import('@/views/Feedback.vue'),
-    meta: { title: '意见反馈' }
+    meta: { title: '意见反馈', studentOnly: true }
   },
   {
     path: '/about',
@@ -117,6 +118,13 @@ router.beforeEach(async (to) => {
   // 菜单里本来就不显示这些项，这一层是防手敲地址栏（后端也有同样的校验兜底）
   if (to.meta.role && rankOf(userStore.info?.role) < rankOf(to.meta.role)) {
     ElMessage.warning('权限不足')
+    return { path: '/dashboard' }
+  }
+
+  // 域外账号（老师等）没有学生记录，「我的信息」「办事中心」这些页面用不了。
+  // 菜单里不显示入口，这一层是防手敲地址栏（后端接口同样会拒绝）
+  if (to.meta.studentOnly && userStore.isExternal) {
+    ElMessage.warning('域外账号不支持该功能')
     return { path: '/dashboard' }
   }
 

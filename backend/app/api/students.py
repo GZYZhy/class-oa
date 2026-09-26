@@ -1,17 +1,19 @@
 import os
+import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
 from ..database import get_db
-from ..models import Student, User
+from ..models import ChangeRequest, LeaveRequest, PushSubscription, Student, User
 from ..schemas import (
     StudentResponse,
     StudentListResponse,
     StudentCreate,
+    StudentCreateResponse,
     StudentUpdate,
     RollCallLogRequest,
     student_response,
@@ -22,6 +24,7 @@ from ..services import (
     get_students,
     get_statistics,
     get_filter_options,
+    create_account_for,
     create_student,
     update_student,
     delete_student,
@@ -43,6 +46,48 @@ PHOTO_DIR = BASE_DIR / "data" / "photos"
 
 # 班委能改的字段：只有备注。姓名、学号、身份证号这些只能由管理员改
 COMMITTEE_EDITABLE_FIELDS = {"remark"}
+
+# 上传学生照片：后缀白名单 + UUID 文件名，与域外账号头像、请假证明的做法一致
+ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+MAX_PHOTO_SIZE = 10 * 1024 * 1024  # 10MB，手机拍的实地采集照片也不会更大
+# 前端传的类型 → 列名。两种照片各占一列，取法统一走 _photo_field
+PHOTO_FIELDS = {"gaokao": "gaokao_photo", "on_site": "on_site_photo"}
+
+
+def _photo_field(photo_type: str) -> str:
+    """把前端传的 type 映射成列名，非法值直接拒绝"""
+    field = PHOTO_FIELDS.get(photo_type)
+    if not field:
+        raise HTTPException(status_code=400, detail="照片类型只能是 gaokao 或 on_site")
+    return field
+
+
+def _save_photo(file: UploadFile) -> str:
+    """把上传的照片写到磁盘，返回裸文件名（库里只存文件名，不存路径）"""
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_PHOTO_EXTENSIONS:
+        allowed = " / ".join(sorted(e.lstrip(".") for e in ALLOWED_PHOTO_EXTENSIONS))
+        raise HTTPException(status_code=400, detail=f"照片只支持 {allowed} 格式")
+
+    content = file.file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传的文件是空的")
+    if len(content) > MAX_PHOTO_SIZE:
+        raise HTTPException(status_code=400, detail="照片不能超过 10MB")
+
+    safe_name = f"{uuid.uuid4().hex}{ext}"
+    (PHOTO_DIR / safe_name).write_bytes(content)
+    return safe_name
+
+
+def _remove_photo(file_name: str | None) -> None:
+    """删照片文件。文件已经不在了也不报错（手工清理过、换过盘都可能）"""
+    if not file_name:
+        return
+    try:
+        (PHOTO_DIR / os.path.basename(file_name)).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _ensure_can_view(user: User, student: Student) -> None:
@@ -140,6 +185,9 @@ def my_photo(
     student = (
         db.query(Student).filter(Student.student_no == current_user.student_no).first()
     )
+    if not student:
+        # 域外账号没有学生记录，头像走 /api/auth/avatar，这里直接说没有
+        raise HTTPException(status_code=404, detail="照片不存在")
     return _serve_photo(student, "gaokao")
 
 
@@ -156,6 +204,8 @@ def read_my_info(
 def student_photo(
     student_id: int,
     type: str = Query("gaokao", description="gaokao=高考照片, on_site=实地采集"),
+    # 版本号：只用于让浏览器别拿缓存里的旧图，后端不用（换照片后文件名会变）
+    v: str = "",
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -193,19 +243,48 @@ def read_student(
     return student_response(student, user.role or "student")
 
 
-@router.post("", response_model=StudentResponse, summary="新增学生（仅管理员）")
+@router.post("", response_model=StudentCreateResponse, summary="新增学生（仅管理员）")
 def create_student_api(
     student: StudentCreate,
     user: User = Depends(admin_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
+    """新增学生，并同步给他开一个登录账号
+
+    密码规则与批量建号（`scripts/init_users.py`）完全一致，共用 `default_password`：
+    身份证号后 6 位；还没有身份证号的新生（刚入学常见）退化成学号后 6 位 ——
+    那种情况下接口会把明文回带，因为学号后 6 位本来就不是秘密，回带是为了让
+    管理员知道要单独提醒谁去改密。账号建成即带「首次登录必须改密」标记。
+
+    注意：管理员事后补录身份证号**不会**改动已设的密码 —— 密码只在建号、
+    重置这两个时点确定，避免改个资料就把人的密码悄悄换掉。
+    """
+    student.student_no = (student.student_no or "").strip()
+    student.name = (student.name or "").strip()
+    if not student.student_no or not student.name:
+        raise HTTPException(status_code=400, detail="学号和姓名不能为空")
     if get_student_by_no(db, student.student_no):
         raise HTTPException(status_code=400, detail="学号已存在")
-    created = create_student(db, student)
-    log_operation(db, user, "新增学生", target=f"{created.student_no} {created.name}", ip=ip)
+    # 域外账号可能正占着这个登录名，那会建出一个重名账号
+    if db.query(User).filter(User.student_no == student.student_no).first():
+        raise HTTPException(status_code=400, detail="该学号已被域外账号占用，请先处理那个账号")
+
+    # 学生和账号在同一个事务里提交，不会出现「学生建好了、账号没建上」
+    created = create_student(db, student, commit=False)
+    password, is_fallback = create_account_for(db, created)
+    log_operation(
+        db, user, "新增学生", target=f"{created.student_no} {created.name}",
+        detail="已开通登录账号" + ("（无身份证号，密码为学号后6位）" if is_fallback else ""),
+        ip=ip,
+    )
     db.commit()
-    return created
+    return StudentCreateResponse(
+        message="新增成功，登录账号已开通，首次登录需修改密码",
+        student=student_response(created, user.role or "student"),
+        password=password if is_fallback else None,
+        fallback=is_fallback,
+    )
 
 
 @router.put("/{student_id}", response_model=StudentResponse, summary="更新学生信息")
@@ -217,6 +296,15 @@ def update_student_api(
     ip: str = Depends(get_client_ip),
 ):
     """管理员可改所有字段；班委只能改备注，其余的字段静静忽略（不是报错）"""
+    current = get_student(db, student_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    # 学号就是登录账号：改了它，这个学生立刻登不上，请假/反馈里存的学号也对不上号。
+    # 前端那个输入框是灰的，这里是防手敲和防旧版前端
+    if student.student_no and student.student_no != current.student_no:
+        raise HTTPException(status_code=400, detail="学号不能修改；确实要换号，请删除后重新新增")
+
     allowed = None if user.role == "admin" else COMMITTEE_EDITABLE_FIELDS
     updated = update_student(db, student_id, student, allowed_fields=allowed)
     if not updated:
@@ -242,12 +330,109 @@ def delete_student_api(
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
+    """删除学生，连同他的登录账号和照片文件一起清掉
+
+    两道闸：
+    1. 不能删当前登录的账号 —— 管理员本人也是学生，删了就没人管这个系统了
+    2. 还有待审核的请假 / 信息修改申请时拒绝 —— 否则班委点「通过」会撞上
+       「学生不存在」，那些待办也没法收尾了
+
+    已审核过的请假、反馈、修改申请**原样保留**：它们存的是姓名学号的快照，
+    不依赖学生表，属于历史记录，不该因为删人而消失。
+    """
     student = get_student(db, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
-    # 先取出标识：删除并 commit 后再访问属性会报 ObjectDeletedError
+    if student.student_no == user.student_no:
+        raise HTTPException(status_code=400, detail="不能删除当前登录的账号")
+
+    pending = []
+    for model, label in ((LeaveRequest, "待审核的请假申请"), (ChangeRequest, "待审核的信息修改申请")):
+        n = (
+            db.query(model)
+            .filter(model.student_no == student.student_no, model.status == "pending")
+            .count()
+        )
+        if n:
+            pending.append(f"{n} 条{label}")
+    if pending:
+        raise HTTPException(
+            status_code=400,
+            detail="该生还有" + "、".join(pending) + "，请先在「审核审批」里处理完再删除",
+        )
+
+    # 先取出后面要用的值：删除并 commit 之后再访问属性会报 ObjectDeletedError
     target = f"{student.student_no} {student.name}"
-    delete_student(db, student_id)
-    log_operation(db, user, "删除学生", target=target, ip=ip)
+    photo_names = [student.gaokao_photo, student.on_site_photo]
+
+    # 账号和推送订阅跟着学生走：人没了就别再留着账号，也别再往下推
+    db.query(PushSubscription).filter(PushSubscription.student_no == student.student_no).delete()
+    db.query(User).filter(User.student_no == student.student_no).delete()
+    delete_student(db, student_id, commit=False)
+    log_operation(db, user, "删除学生", target=target, detail="已注销登录账号", ip=ip)
     db.commit()
+
+    # 提交成功后再删照片文件，中途失败也不会两头空
+    for name in photo_names:
+        _remove_photo(name)
     return {"message": "删除成功"}
+
+
+@router.post("/{student_id}/photo", summary="上传/替换学生照片（仅管理员）")
+def upload_student_photo(
+    student_id: int,
+    file: UploadFile = File(..., description="照片文件"),
+    type: str = Query("gaokao", description="gaokao=高考照片, on_site=实地采集"),
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """传新照片就换掉旧的；旧文件在提交成功之后才删"""
+    field = _photo_field(type)
+    student = get_student(db, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    old_name = getattr(student, field)
+    new_name = _save_photo(file)
+    setattr(student, field, new_name)
+    log_operation(
+        db, user, "更新学生照片", target=f"{student.student_no} {student.name}",
+        detail="高考照片" if type == "gaokao" else "实地采集照片", ip=ip,
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        _remove_photo(new_name)
+        raise
+    # 只有真的换了才删旧文件：文件名变了，旧图不会再被任何地方引用
+    _remove_photo(old_name)
+    return {"message": "照片已更新", "photo": new_name}
+
+
+@router.delete("/{student_id}/photo", summary="删除学生照片（仅管理员）")
+def delete_student_photo(
+    student_id: int,
+    type: str = Query("gaokao", description="gaokao=高考照片, on_site=实地采集"),
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    field = _photo_field(type)
+    student = get_student(db, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    old_name = getattr(student, field)
+    if not old_name:
+        return {"message": "本来就没有照片"}
+
+    setattr(student, field, None)
+    log_operation(
+        db, user, "删除学生照片", target=f"{student.student_no} {student.name}",
+        detail="高考照片" if type == "gaokao" else "实地采集照片", ip=ip,
+    )
+    db.commit()
+    _remove_photo(old_name)
+    return {"message": "照片已删除"}

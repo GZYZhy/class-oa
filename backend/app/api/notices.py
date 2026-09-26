@@ -4,9 +4,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Notice, Student, User
+from ..models import Notice, User
 from ..schemas import NoticeCreate, NoticeResponse
 from ..services import (
+    account_name,
     clip,
     list_notices,
     create_notice,
@@ -16,7 +17,7 @@ from ..services import (
     notify,
     recipients,
 )
-from .deps import committee_required, get_current_student, get_client_ip
+from .deps import committee_required, get_client_ip
 
 router = APIRouter(prefix="/api/notices", tags=["通知公告"])
 
@@ -52,13 +53,13 @@ def publish(
     notice: NoticeCreate,
     background: BackgroundTasks,
     user: User = Depends(committee_required),
-    student: Student = Depends(get_current_student),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
     data = notice.model_dump()
-    # 发布人一律取当前登录账号的姓名，前端即便传了 publisher 也不作数
-    data["publisher"] = student.name
+    # 发布人一律取当前登录账号的展示名，前端即便传了 publisher 也不作数。
+    # 用 account_name 而不是学生表：域外账号（老师）也可能有班委权限
+    data["publisher"] = account_name(db, user)
     created = create_notice(db, data)
     log_operation(db, user, "发布通知", target=created.title, ip=ip)
     # 先取收件人：下面 commit 之后才算真的发出去了

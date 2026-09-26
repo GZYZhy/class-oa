@@ -1,10 +1,12 @@
+import os
 import re
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..config import settings
+from ..config import BASE_DIR, settings, turnstile_enabled
 from ..database import get_db
 from ..models import User, Student
 from ..schemas.auth import (
@@ -17,6 +19,7 @@ from ..schemas.auth import (
     WebPushUnsubscribeRequest,
 )
 from ..services import (
+    account_name,
     icon_url,
     push,
     vapid_public_key,
@@ -28,9 +31,22 @@ from ..services.webpush_service import TEST_BUDGET
 from ..services.webpush_service import push as web_push
 from ..utils.security import hash_password, verify_password, verify_master_password
 from ..utils.captcha import generate_captcha
-from .deps import get_current_user, get_current_student, get_client_ip
+from ..utils.turnstile import verify as turnstile_verify
+from .deps import get_current_user, get_client_ip
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
+
+# 头像目录：域外账号的头像存这里，学生账号的照片在 data/photos（见 students.py）
+AVATAR_DIR = BASE_DIR / "data" / "avatars"
+PHOTO_DIR = BASE_DIR / "data" / "photos"
+
+# 头像文件后缀 → 响应类型。认不出来的按 jpeg 兜底（上传时已经卡过后缀白名单）
+_AVATAR_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+}
 
 # 按 IP 记录登录失败次数，用于触发验证码。
 # 用内存字典就够（班级系统量级很小），重启就清空也无所谓 ——
@@ -71,19 +87,38 @@ def _clear_failures(ip: str) -> None:
     _login_failures.pop(ip, None)
 
 
-def build_user_info(user: User, student: Student | None) -> UserInfoResponse:
-    """组装返回给前端的用户信息（头像用高考照片）
+def _student_of(db: Session, user: User) -> Student | None:
+    """取账号对应的学生记录；域外账号（以及学生被删掉的老账号）没有，返回 None
 
-    头像 URL 带一个学号后缀，避免切换账号后浏览器命中缓存 ——
-    所有账号的头像都叫 /api/students/me/photo，浏览器会以为是同一张。
+    注意别换成 get_current_student：那个对域外账号会直接抛 403，
+    而登录和 /me 恰恰需要容忍「没有学生记录」。
     """
+    return db.query(Student).filter(Student.student_no == user.student_no).first()
+
+
+def build_user_info(db: Session, user: User, student: Student | None) -> UserInfoResponse:
+    """组装返回给前端的用户信息
+
+    姓名：域外账号用自定义展示名，学生账号用学生姓名（见 account_name）。
+    头像：域外账号用自己上传的那张，学生账号用高考照片。
+
+    头像 URL 带登录名后缀，避免切换账号后浏览器命中缓存 ——
+    所有账号的头像都叫同一个地址，浏览器会以为是同一张。
+    文件名再当一次版本号（v 参数）：换了头像/照片之后地址跟着变，
+    否则管理员刚换的图会被浏览器缓存里的旧图盖住。
+    """
+    # 学生账号没有学生记录时（理论上不会发生）student 为 None，这里一并兜住
+    file_name = user.avatar if user.is_external else (student.gaokao_photo if student else None)
     return UserInfoResponse(
         student_no=user.student_no,
-        name=student.name if student else user.student_no,
-        avatar=f"/api/students/me/photo?u={user.student_no}" if student and student.gaokao_photo else None,
+        name=account_name(db, user),
+        avatar=(
+            f"/api/auth/avatar?u={user.student_no}&v={file_name}" if file_name else None
+        ),
         class_name=student.class_name if student else None,
         role=user.role or "student",
         must_change_password=user.must_change_password,
+        is_external=bool(user.is_external),
         bark_key=user.bark_key or None,
     )
 
@@ -105,11 +140,20 @@ def get_captcha(request: Request):
     )
 
 
-@router.get("/captcha-required", summary="当前 IP 是否需要验证码")
+@router.get("/captcha-required", summary="当前 IP 是否需要人机验证，以及用哪一种")
 def captcha_required(ip: str = Depends(get_client_ip)):
     """登录页先问一下要不要显示验证码框，免得每次都加载 SVG。
-    返回 {required: true/false}。"""
-    return {"required": _needs_captcha(ip)}
+
+    required 为 False 时也要带上 mode / site_key：前端要靠它知道
+    「等会儿万一输错了，该去加载 Turnstile 控件还是拉算术题」。
+    site key 本来就是公开的（它要发给浏览器），secret key 永远不出后端。
+    """
+    enabled = turnstile_enabled()
+    return {
+        "required": _needs_captcha(ip),
+        "mode": "turnstile" if enabled else "math",
+        "site_key": settings.turnstile_site_key if enabled else "",
+    }
 
 
 @router.post("/login", response_model=UserInfoResponse, summary="登录")
@@ -120,17 +164,26 @@ def login(
     ip: str = Depends(get_client_ip),
 ):
 
-    # 先看是否需要验证码
+    # 先看是否需要人机验证
     if _needs_captcha(ip):
-        if not data.captcha:
-            raise HTTPException(status_code=400, detail="请输入验证码")
-        expected = request.session.get("captcha_answer")
-        # 用完就清，防止重复使用同一个答案试密码
-        request.session.pop("captcha_answer", None)
-        if expected is None or str(data.captcha).strip() != str(expected):
-            # 验证码答错也算一次失败，会延长窗口时间，防暴力破解
-            _record_failure(ip)
-            raise HTTPException(status_code=400, detail="验证码错误")
+        # 配了 Turnstile、且前端把 token 交回来了 → 问 Cloudflare。
+        # 没配 Turnstile 的部署，以及配了但浏览器加载不出控件而退回算术题的，
+        # 都走下面 else 那条老路 —— 两条路都留着，谁都不会被挡在门外
+        if turnstile_enabled() and (data.turnstile_token or "").strip():
+            if not turnstile_verify(data.turnstile_token, ip):
+                # 和验证码答错一样记一次失败，会延长窗口时间，防暴力破解
+                _record_failure(ip)
+                raise HTTPException(status_code=400, detail="人机验证未通过，请重试")
+        else:
+            if not data.captcha:
+                raise HTTPException(status_code=400, detail="请输入验证码")
+            expected = request.session.get("captcha_answer")
+            # 用完就清，防止重复使用同一个答案试密码
+            request.session.pop("captcha_answer", None)
+            if expected is None or str(data.captcha).strip() != str(expected):
+                # 验证码答错也算一次失败，会延长窗口时间，防暴力破解
+                _record_failure(ip)
+                raise HTTPException(status_code=400, detail="验证码错误")
 
     user = (
         db.query(User).filter(User.student_no == data.student_no.strip()).first()
@@ -167,10 +220,7 @@ def login(
     if data.remember:
         request.session["_remember"] = True
 
-    student = (
-        db.query(Student).filter(Student.student_no == user.student_no).first()
-    )
-    return build_user_info(user, student)
+    return build_user_info(db, user, _student_of(db, user))
 
 
 @router.post("/logout", summary="退出登录")
@@ -180,8 +230,41 @@ def logout(request: Request):
 
 
 @router.get("/me", response_model=UserInfoResponse, summary="当前用户信息")
-def me(user: User = Depends(get_current_user), student: Student = Depends(get_current_student)):
-    return build_user_info(user, student)
+def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """刷新页面时前端靠这个接口恢复登录状态
+
+    所以这里不能依赖 get_current_student —— 域外账号没有学生记录，
+    那样会让它一刷新就被当成未登录踢回登录页。
+    """
+    return build_user_info(db, user, _student_of(db, user))
+
+
+@router.get("/avatar", summary="当前用户头像")
+def my_avatar(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    u: str = "",
+):
+    """u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），后端不使用"""
+    if user.is_external:
+        # 域外账号：自己上传的头像
+        if not user.avatar:
+            raise HTTPException(status_code=404, detail="头像不存在")
+        file_path = AVATAR_DIR / os.path.basename(user.avatar)
+    else:
+        # 学生账号：仍用高考照片
+        student = _student_of(db, user)
+        if not student or not student.gaokao_photo:
+            raise HTTPException(status_code=404, detail="头像不存在")
+        file_path = PHOTO_DIR / os.path.basename(student.gaokao_photo)
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="头像文件丢失")
+
+    return FileResponse(
+        str(file_path),
+        media_type=_AVATAR_MEDIA_TYPES.get(file_path.suffix.lower(), "image/jpeg"),
+    )
 
 
 @router.post("/set-initial-password", summary="首次登录设置密码（无需原密码）")
