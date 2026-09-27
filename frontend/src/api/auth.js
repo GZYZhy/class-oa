@@ -27,9 +27,14 @@ export function logout() {
   return request({ url: '/auth/logout', method: 'post' })
 }
 
-/** 当前登录用户信息 */
+/** 当前登录用户信息
+ *
+ * skipAuthRedirect：这是一次「我登录了吗」的探测，401 是预期答案、不是会话刚失效，
+ * 所以不让响应拦截器跳登录页 —— 未登录的游客逛首页时也会走到这里，
+ * 一跳就等于把游客强行赶去登录页。调用方 store.fetchMe() 会把 info 置空。
+ */
 export function getMe() {
-  return request({ url: '/auth/me', method: 'get' })
+  return request({ url: '/auth/me', method: 'get', skipAuthRedirect: true })
 }
 
 /** 首次登录设置密码（无需原密码） */

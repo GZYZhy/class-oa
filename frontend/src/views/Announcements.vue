@@ -72,8 +72,8 @@
         <el-table-column prop="publish_date" label="发布时间" width="140" align="center" sortable />
         <el-table-column label="操作" width="220" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link @click="viewFile(row)">查看</el-button>
-            <el-button v-if="!userStore.isStudent" type="success" link @click="downloadFile(row)">
+            <el-button type="primary" link @click="handleView(row)">查看</el-button>
+            <el-button v-if="!userStore.isStudent" type="success" link @click="handleDownload(row)">
               下载
             </el-button>
             <el-button v-if="userStore.isCommittee" type="danger" link @click="handleDelete(row)">
@@ -114,8 +114,8 @@
           </el-radio-group>
           <div class="form-tip">
             {{ form.is_public
-              ? '全体登录用户都能在「文件公开」里看到并在线查看。'
-              : '普通学生的列表里不会出现这个文件，也不能通过链接查看。' }}
+              ? '所有登录用户都能看到并在线查看。'
+              : '普通学生看不到这个文件。' }}
           </div>
         </el-form-item>
         <el-form-item label="PDF文件" required>
@@ -147,6 +147,7 @@ import { getAnnouncements, createAnnouncement, deleteAnnouncement } from '@/api/
 import { useUserStore } from '@/store/user'
 import Watermark from '@/components/Watermark.vue'
 import { useWatermark } from '@/composables/useWatermark'
+import { downloadFile, previewFile, blobErrorDetail } from '@/utils/download'
 
 const userStore = useUserStore()
 const watermarkText = useWatermark()
@@ -239,19 +240,24 @@ async function handleSubmit() {
   }
 }
 
-// 查看：新标签页打开 PDF
-function viewFile(row) {
-  window.open(row.file_path, '_blank')
+// 查看：经 axios 取回 PDF 再在新标签页打开。
+// 直接 window.open(file_path) 的话，会话失效时新标签页里只会是一坨错误 JSON，
+// 当前页面还停在原地；走 axios 才能被 401 拦截器接住（见 utils/download.js）
+async function handleView(row) {
+  try {
+    await previewFile(row.file_path)
+  } catch (e) {
+    ElMessage.error(await blobErrorDetail(e, '打开失败'))
+  }
 }
 
-// 下载：a 标签触发，保留原始文件名
-function downloadFile(row) {
-  const a = document.createElement('a')
-  a.href = row.file_path
-  a.download = row.file_name || `${row.title}.pdf`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+// 下载：同样经 axios 取回，保留原始文件名
+async function handleDownload(row) {
+  try {
+    await downloadFile(row.file_path, row.file_name || `${row.title}.pdf`)
+  } catch (e) {
+    ElMessage.error(await blobErrorDetail(e))
+  }
 }
 
 async function handleDelete(row) {

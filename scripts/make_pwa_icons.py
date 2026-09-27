@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """
 PWA 图标生成脚本
-用 frontend/public/logo.png 生成「添加到主屏」需要的四种图标
+用校徽生成「添加到主屏」需要的四种图标
 
-    python3 scripts/make_pwa_icons.py
+    python3 scripts/make_pwa_icons.py [源图] [输出目录]
 
-换校徽时重跑一次，然后**把产物一起提交**（图标是构建产物里唯一进版本库的东西，
-因为服务器上不装 Pillow，Docker 构建阶段也不该为了四个图标多装一个依赖）。
+两个参数都可省略：
+    省略源图   → frontend/public/logo.png
+    省略输出目录 → frontend/public/icons
 
-生成到 frontend/public/icons/：
+换掉仓库里的校徽时重跑一次，然后**把产物一起提交**（图标是构建产物里唯一进版本库
+的东西，因为服务器上不装 Pillow，Docker 构建阶段也不该为了四个图标多装一个依赖）。
+
+给服务器上的自定义校徽生成图标时，两个参数都要给，产物直接落进挂载目录：
+    python3 scripts/make_pwa_icons.py 新校徽.png data/frontend/branding/icons
+
+生成四种：
     icon-192.png            192×192  普通图标（透明底）
     icon-512.png            512×512  普通图标（透明底），装到桌面时用
     icon-maskable-512.png   512×512  安卓自适应图标，四周留安全区
@@ -18,8 +25,12 @@ PWA 图标生成脚本
 import os
 import sys
 
-SOURCE = os.path.join(os.path.dirname(__file__), "..", "frontend", "public", "logo.png")
-TARGET_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "public", "icons")
+DEFAULT_SOURCE = os.path.join(
+    os.path.dirname(__file__), "..", "frontend", "public", "logo.png"
+)
+DEFAULT_TARGET_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "frontend", "public", "icons"
+)
 
 # 带底色的两种图标都铺白底。
 # 不用主题色 #409EFF：校徽本身是深红圆徽，压在高饱和度的蓝底上两色相冲，
@@ -59,21 +70,24 @@ def on_background(im, size, color, ratio):
 
 
 def main() -> int:
+    source = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SOURCE
+    target_dir = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_TARGET_DIR
+
     try:
         from PIL import Image
     except ImportError:
         print("❌ 未安装 Pillow，无法生成图标。可执行：pip install Pillow")
         return 1
 
-    if not os.path.isfile(SOURCE):
-        print(f"❌ 找不到源图：{os.path.abspath(SOURCE)}")
+    if not os.path.isfile(source):
+        print(f"❌ 找不到源图：{os.path.abspath(source)}")
         return 1
 
-    src = Image.open(SOURCE).convert("RGBA")
-    print(f"源图 {os.path.basename(SOURCE)}：{src.width}×{src.height}")
+    src = Image.open(source).convert("RGBA")
+    print(f"源图 {os.path.basename(source)}：{src.width}×{src.height}")
     base = square(src)
 
-    os.makedirs(TARGET_DIR, exist_ok=True)
+    os.makedirs(target_dir, exist_ok=True)
     jobs = [
         # (文件名, 尺寸, 画法, 说明)
         ("icon-192.png", 192, lambda: base.resize((192, 192), Image.LANCZOS), "普通图标"),
@@ -85,11 +99,11 @@ def main() -> int:
     ]
 
     for name, _, build, note in jobs:
-        path = os.path.join(TARGET_DIR, name)
+        path = os.path.join(target_dir, name)
         build().save(path, optimize=True)
         print(f"✅ {name:<24} {os.path.getsize(path) // 1024:>3} KB  {note}")
 
-    print(f"\n完成，共生成 {len(jobs)} 个图标：{os.path.abspath(TARGET_DIR)}")
+    print(f"\n完成，共生成 {len(jobs)} 个图标：{os.path.abspath(target_dir)}")
     return 0
 
 

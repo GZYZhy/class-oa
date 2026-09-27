@@ -5,7 +5,11 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Notice, User
-from ..schemas import NoticeCreate, NoticeResponse
+from ..schemas import (
+    NoticeCreate,
+    NoticeResponse,
+    NoticeReadStatus,
+)
 from ..services import (
     account_name,
     clip,
@@ -13,11 +17,19 @@ from ..services import (
     create_notice,
     update_notice,
     delete_notice,
+    mark_read,
+    read_notice_ids,
+    read_status,
     log_operation,
     notify,
     recipients,
 )
-from .deps import committee_required, get_client_ip
+from .deps import (
+    committee_required,
+    get_client_ip,
+    get_current_user,
+    get_optional_user,
+)
 
 router = APIRouter(prefix="/api/notices", tags=["通知公告"])
 
@@ -42,9 +54,46 @@ def get_list(
     title: str | None = Query(None, description="按标题搜索（模糊）"),
     start_date: str | None = Query(None, description="发布时间起始"),
     end_date: str | None = Query(None, description="发布时间截止"),
+    user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
-    return list_notices(db, title=title, start_date=start_date, end_date=end_date)
+    notices = list_notices(db, title=title, start_date=start_date, end_date=end_date)
+
+    # 给每条通知挂上 is_read（NoticeResponse 按属性读这个名字）。
+    # 直接挂在 ORM 对象上的确有点取巧，但省掉了把整个响应体复制一遍；
+    # 这些对象本来就是这次请求里现查出来、用完就丢的。
+    read_ids = read_notice_ids(db, user.student_no) if user else set()
+    for notice in notices:
+        notice.is_read = notice.id in read_ids
+    return notices
+
+
+@router.post("/{notice_id}/read", summary="标记为已读")
+def mark_notice_read(
+    notice_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """展开通知时前端调它。重复调用无副作用（唯一约束兜底）"""
+    if not db.query(Notice.id).filter(Notice.id == notice_id).first():
+        raise HTTPException(status_code=404, detail="通知不存在")
+    mark_read(db, notice_id, user.student_no)
+    return {"message": "已标记为已读"}
+
+
+@router.get(
+    "/{notice_id}/reads",
+    response_model=NoticeReadStatus,
+    summary="通知已读情况（班委及以上）",
+)
+def get_reads(
+    notice_id: int,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    if not db.query(Notice.id).filter(Notice.id == notice_id).first():
+        raise HTTPException(status_code=404, detail="通知不存在")
+    return read_status(db, notice_id)
 
 
 # 以下管理操作需要班委及以上

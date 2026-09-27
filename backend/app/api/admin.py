@@ -338,6 +338,34 @@ def unfreeze_user(
     return {"message": "已解冻"}
 
 
+@router.post("/users/{student_no}/revoke-sessions", summary="吊销该账号的所有会话")
+def revoke_sessions(
+    student_no: str,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """把这个账号在所有设备上的登录一次性踢掉，但**不禁止它重新登录**
+
+    用途是「密码可能泄露了，先把所有设备登出」这类不想停用账号的场合。
+    和冻结的区别：冻结是禁止登录（is_frozen），这个是允许登录、只让已签发的 cookie 作废。
+
+    会话是签名 Cookie、服务端没有会话表，所以这里不是去删什么记录，而是把
+    session_epoch +1；deps.get_current_user 每次请求拿 cookie 里的代次和这一列比对，
+    对不上的下一个请求就 401。全部设备一起生效，不用挨个通知。
+    """
+    target = _get_user(db, student_no)
+
+    # 不拦「吊销自己」：管理员怀疑自己的会话被蹭了同样需要这个操作，
+    # 代价只是自己也被踢下线、重新登录一遍而已，不像冻结自己那样会锁死系统
+    target.session_epoch = (target.session_epoch or 0) + 1
+    log_operation(
+        db, user, "吊销会话", target=f"{student_no} {account_name(db, target)}", ip=ip,
+    )
+    db.commit()
+    return {"message": "已吊销该账号的全部会话"}
+
+
 @router.get(
     "/users/{student_no}/logs",
     response_model=AdminUserLogsResponse,

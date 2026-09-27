@@ -46,6 +46,7 @@ from app.models import (  # noqa: E402
     IpBan,
     LeaveRequest,
     Notice,
+    NoticeRead,
     OperationLog,
     PushSubscription,
     Student,
@@ -63,6 +64,9 @@ CLEAR_MODELS = [
     ChangeRequest,
     Announcement,
     Notice,
+    # 已读记录跟着通知走：通知都清空了，留着上几届的已读行毫无意义，
+    # 而且它们的 notice_id 会砸到下一届新通知头上，把未读数算错
+    NoticeRead,
     PushSubscription,
 ]
 

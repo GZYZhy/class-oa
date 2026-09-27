@@ -8,9 +8,11 @@ SQLAlchemy 的 `Base.metadata.create_all` 只建「不存在的表」，**不会
 只用 SQLite 语法（PRAGMA），换别的数据库时请手工补列。
 """
 
-from sqlalchemy import text
+from datetime import datetime
 
-from .database import engine
+from sqlalchemy import insert, text
+
+from .database import SessionLocal, engine
 
 # 需要补的列：(表名, 列名, 列定义)。新库由 create_all 直接建全，这里只服务老库
 NEW_COLUMNS = [
@@ -36,6 +38,9 @@ NEW_COLUMNS = [
     ("feedbacks", "attachments", "TEXT DEFAULT ''"),
     # 是否冻结账号。默认 0：补列时老账号一律视为未冻结，行为与补列前一致
     ("users", "is_frozen", "BOOLEAN NOT NULL DEFAULT 0"),
+    # 会话代次。默认 0：补列前签发的会话 cookie 里没有这个字段，校验时按 0 处理，
+    # 正好和这里的默认值对上，所以升级不会把已登录的人集体踢下线
+    ("users", "session_epoch", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）
@@ -87,6 +92,44 @@ def _rebuild_leave_table(conn) -> None:
     conn.execute(text("DROP TABLE leave_requests"))
     LeaveRequest.__table__.create(bind=conn)
     print("[迁移] 已按「精确到小时」的新结构重建 leave_requests", flush=True)
+
+
+def backfill_notice_reads() -> None:
+    """把升级前就已存在的通知，一次性补成「全员已读」
+
+    调用条件由 main.py 把关：只在 notice_reads 表**刚被建出来**的那一次启动时跑，
+    所以这里不用做幂等判断，也不会把将来新发的通知误标成已读。
+
+    为什么必须补：老版本没有已读这个概念，升级后一条记录都没有的话，
+    每个人一登录就会看到红点上写着「未读 30 条」，而那些通知他们早就看过了；
+    班委打开「已读情况」也会看到一份全是不准的名单。补完之后，
+    红点只反映升级之后新发的通知。
+    """
+    # 在函数内 import：models 会反过来用到 database，放到模块顶部容易绕成循环导入
+    from .models import Notice, NoticeRead, User
+
+    with SessionLocal() as db:
+        notice_ids = [row[0] for row in db.query(Notice.id).all()]
+        student_nos = [row[0] for row in db.query(User.student_no).all()]
+        if not notice_ids or not student_nos:
+            # 全新部署（没有老通知）或还没有任何账号，无事可做
+            return
+
+        now = datetime.now()
+        db.execute(
+            insert(NoticeRead),
+            [
+                {"notice_id": notice_id, "student_no": student_no, "read_at": now}
+                for notice_id in notice_ids
+                for student_no in student_nos
+            ],
+        )
+        db.commit()
+        print(
+            f"[迁移] 已把 {len(notice_ids)} 条既有通知补为「全员已读」"
+            f"（{len(notice_ids) * len(student_nos)} 行）",
+            flush=True,
+        )
 
 
 def run_migrations() -> None:

@@ -72,6 +72,30 @@ server {
         add_header Cache-Control "no-cache";
     }
 
+    # 运行时注入的品牌文件与可运行时替换的品牌图片，绝不能落进下面那条按扩展名的
+    # 1 年 immutable 规则，否则改了 .env 里的班级名、或者换了校徽，老访客一年都看不到。
+    # 站点品牌怎么配见项目根 .env.example 的「前端品牌」一段。
+    # 精确匹配（=）与 ^~ 前缀的优先级都高于正则，写在哪一行都生效。
+    location = /site-config.js {
+        add_header Cache-Control "no-cache";
+    }
+
+    location = /manifest.webmanifest {
+        add_header Cache-Control "no-cache";
+    }
+
+    location = /logo.png {
+        add_header Cache-Control "no-cache";
+    }
+
+    location = /favicon.png {
+        add_header Cache-Control "no-cache";
+    }
+
+    location ^~ /icons/ {
+        add_header Cache-Control "no-cache";
+    }
+
     # 前端静态资源缓存（js/css/图片字体等）
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         expires 1y;

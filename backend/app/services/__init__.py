@@ -19,6 +19,10 @@ from .notice_service import (
     create_notice,
     update_notice,
     delete_notice,
+    mark_read,
+    read_notice_ids,
+    unread_count,
+    read_status,
 )
 from .user_service import (
     account_name,
@@ -71,6 +75,10 @@ __all__ = [
     "create_notice",
     "update_notice",
     "delete_notice",
+    "mark_read",
+    "read_notice_ids",
+    "unread_count",
+    "read_status",
     "account_name",
     "create_account_for",
     "default_password",

@@ -4,7 +4,7 @@
       <h3 class="page-title">办事中心</h3>
 
       <p class="center-intro">
-        这里是班级线上办事入口，所有办件走这里提交。后续会持续扩展更多功能。
+        这里是班级线上办事入口，后续会持续扩展更多功能。
       </p>
 
       <div class="service-grid">

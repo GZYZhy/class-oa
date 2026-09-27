@@ -1,6 +1,6 @@
 """通用鉴权依赖"""
 
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -94,7 +94,33 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="账号已被冻结",
         )
+    # 会话代次：管理员「吊销所有会话」会把这一列 +1，此前签发的 cookie 全部作废。
+    # 老 cookie（本列上线前签发的）里没有 epoch，按 0 处理 —— 与补列时的默认值一致，
+    # 所以升级本身不会把已登录的人集体踢下线；只有真的点过吊销，代次才会对不上
+    if request.session.get("epoch", 0) != (user.session_epoch or 0):
+        request.session.clear()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="会话已被吊销，请重新登录",
+        )
     return user
+
+
+def get_optional_user(
+    request: Request, db: Session = Depends(get_db)
+) -> Optional[User]:
+    """可选登录：登录了就返回用户，没登录返回 None，**不抛 401**
+
+    给公开接口用 —— 通知列表游客也能看，登录的人额外拿一个 is_read。
+
+    直接复用 get_current_user 再吞掉 401，是为了让「什么算登录着」只有一处口径。
+    会话失效 / 账号冻结 / 会话被吊销在这里都当作游客，顺带把无效 cookie 清掉
+    （get_current_user 里的 session.clear()）也没关系 —— 反正这个请求不依赖它。
+    """
+    try:
+        return get_current_user(request, db)
+    except HTTPException:
+        return None
 
 
 def get_current_student(

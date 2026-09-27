@@ -42,6 +42,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import { downloadFile, blobErrorDetail } from '@/utils/download'
 
 const groups = ref([])
 const loading = ref(false)
@@ -71,18 +72,17 @@ function formatSize(bytes) {
   return (bytes / 1024).toFixed(1) + ' KB'
 }
 
-// 下载：用隐藏 a 标签触发浏览器下载（保留原文件名）
-function download(item) {
+// 下载：经 axios 取回再存盘，这样会话失效时能被 401 拦截器接住（见 utils/download.js）
+async function download(item) {
   if (!item.url) {
     ElMessage.warning('文件暂不可用')
     return
   }
-  const a = document.createElement('a')
-  a.href = item.url
-  a.download = item.file
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  try {
+    await downloadFile(item.url, item.file)
+  } catch (e) {
+    ElMessage.error(await blobErrorDetail(e))
+  }
 }
 
 onMounted(async () => {

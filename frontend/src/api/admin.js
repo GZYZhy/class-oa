@@ -47,6 +47,14 @@ export function unfreezeUser(studentNo) {
   })
 }
 
+/** 吊销该账号的所有会话：把所有设备踢下线，但账号仍可正常登录 */
+export function revokeUserSessions(studentNo) {
+  return request({
+    url: `/admin/users/${studentNo}/revoke-sessions`,
+    method: 'post'
+  })
+}
+
 /**
  * 某个账号的日志
  *

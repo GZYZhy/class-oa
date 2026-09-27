@@ -2,13 +2,14 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import fail_window_minutes, login_ban_values, settings, resolve_session_secret
 from .middleware import RememberMeMiddleware
 from .api import api_router
 from .database import Base, engine, SessionLocal
-from .database_migrate import run_migrations
+from .database_migrate import backfill_notice_reads, run_migrations
 from .services import ensure_default_users, purge_expired, seed_from_catalog
 from .utils.ip import parse_cidrs
 
@@ -22,11 +23,21 @@ DATA_DIR.mkdir(exist_ok=True)
 PHOTO_DIR.mkdir(exist_ok=True)
 AVATAR_DIR.mkdir(exist_ok=True)
 
+# 「通知未读」功能新增了 notice_reads 表。建表**之前**先看一眼它在不在：
+# 不在，说明这次是从老版本升级上来的 —— 建完表要把既有通知补成「全员已读」，
+# 否则大家一登录就会看到「未读 30 条」，而那些通知早就看过了。
+# 这个判断必须抢在 create_all 前面，建完就分不清「刚建的」和「本来就有」了。
+NOTICE_READS_IS_NEW = not inspect(engine).has_table("notice_reads")
+
 # 创建数据库表（只建新表）
 Base.metadata.create_all(bind=engine)
 
 # 再给老表补上新增的列（create_all 不会做这件事），必须在任何查询之前
 run_migrations()
+
+# 平滑升级：只在 notice_reads 刚建出来的这一次补，之后每次启动都不会再跑
+if NOTICE_READS_IS_NEW:
+    backfill_notice_reads()
 
 
 def init_login_accounts() -> None:

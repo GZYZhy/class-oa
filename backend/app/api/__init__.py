@@ -11,6 +11,7 @@ from .admin import router as admin_router
 from .about import router as about_router
 from .leaves import router as leaves_router
 from .feedback import router as feedback_router
+from .badges import router as badges_router
 
 api_router = APIRouter()
 api_router.include_router(public_router)   # 首页摘要：公开
@@ -23,4 +24,5 @@ api_router.include_router(about_router)          # 关于班级：登录即可
 api_router.include_router(change_requests_router)  # 修改申请：学生提交，班委审核
 api_router.include_router(leaves_router)         # 请假申请：学生提交，管理员审核
 api_router.include_router(feedback_router)       # 意见反馈：学生提交，班委回复
+api_router.include_router(badges_router)         # 菜单红点：需登录
 api_router.include_router(admin_router)          # 系统管理：仅管理员

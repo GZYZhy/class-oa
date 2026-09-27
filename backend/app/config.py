@@ -93,6 +93,14 @@ class Settings(BaseSettings):
     class Config:
         # 先找项目根目录的 .env（部署时统一放根目录），再找当前目录的 .env（本地开发直接在 backend/ 里跑）
         env_file = ["../.env", ".env"]
+        # 忽略这个文件里后端用不到的键。根目录那份 .env 是前后端共用的，里面有
+        # SITE_NAME / SITE_FOOTER 这类只有前端要的品牌配置；pydantic 默认对未知键
+        # 直接报错，于是 `cd backend && uvicorn app.main:app` 会当场崩掉。
+        #
+        # 这不放松任何东西：部署时这些值是 compose 当**环境变量**传进来的，
+        # 而未声明的环境变量 pydantic 本来就一律忽略 —— 打开这个开关只是让
+        # 本地开发的行为和线上一致，顺带让打错的变量名在两边表现相同。
+        extra = "ignore"
 
 
 settings = Settings()

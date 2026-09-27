@@ -71,7 +71,9 @@ def icon_url() -> str | None:
     """推送通知里的校徽地址；没配 public_base_url 时返回 None（推送就不带图标）
 
     只此一处定义，设置界面的预览和真正发出去的推送必须完全一致。
-    ?v=1 是为了破 nginx 对 .png 的 1 年 immutable 缓存，以后换校徽改成 v=2 即可。
+    ?v=1 是历史遗留：nginx 原本给 .png 打 1 年 immutable，靠它破缓存。现在 nginx 已对
+    /logo.png 改成 no-cache，换校徽不用再动这个版本号；留着只是为了兼容老客户端
+    已经按这个 URL 建好的缓存键。
     """
     base = settings.public_base_url.rstrip("/")
     return f"{base}/logo.png?v=1" if base else None

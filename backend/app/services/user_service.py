@@ -29,6 +29,28 @@ def account_name(db: Session, user: User) -> str:
     return name or user.student_no
 
 
+def account_names(db: Session, users: list[User]) -> dict[str, str]:
+    """一次解析一批账号的展示名，返回 {学号: 展示名}
+
+    口径与 account_name 完全一致，只是把逐个查学生表换成了批量查一次 ——
+    通知的已读名单一次要出几十个人的名字，逐个调 account_name 就是 N+1。
+    """
+    student_nos = [user.student_no for user in users]
+    names: dict[str, str] = {}
+    if student_nos:
+        names = dict(
+            db.query(Student.student_no, Student.name)
+            .filter(Student.student_no.in_(student_nos))
+            .all()
+        )
+    return {
+        user.student_no: (
+            user.display_name or names.get(user.student_no) or user.student_no
+        )
+        for user in users
+    }
+
+
 def default_password(student: Student) -> tuple[str, bool]:
     """
     返回 (默认密码, 是否因缺少身份证号而退化)
