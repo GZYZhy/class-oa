@@ -9,13 +9,23 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from ..config import BASE_DIR
+from ..config import BASE_DIR, settings
 from ..database import get_db
-from ..models import AccountEvent, OperationLog, PushSubscription, Resource, Student, User
+from ..models import (
+    AccountEvent,
+    IpBan,
+    OperationLog,
+    PushSubscription,
+    Resource,
+    Student,
+    User,
+)
 from ..schemas import (
     AccountEventResponse,
     AdminUserLogsResponse,
     AdminUserResponse,
+    IpBanListResponse,
+    IpBanRequest,
     OperationLogListResponse,
     ResetPasswordRequest,
     ResetPasswordResponse,
@@ -24,13 +34,17 @@ from ..schemas import (
 from ..services import (
     account_name,
     add_resource,
+    ban_ip,
+    clear_failures,
     default_password,
     delete_resource,
     list_all_resources,
     log_operation,
     reorder_category,
+    unban_ip,
     update_resource,
 )
+from ..utils.ip import normalize_target, parse_cidrs, parse_network, target_matches
 from ..utils.security import hash_password, validate_password
 from .deps import admin_required, get_client_ip
 
@@ -571,6 +585,151 @@ def clear_logs(
     log_operation(db, user, "清空了日志", detail=f"清空前共 {deleted} 条", ip=ip)
     db.commit()
     return {"message": f"已清空 {deleted} 条日志", "deleted": deleted}
+
+
+# ==================== IP 封禁 ====================
+# 自动封禁（登录失败触发，见 api/auth.py 的 _reject）不写 operation_logs ——
+# log_service 的章程是「内容变更 + 有人主动做出的动作」，自动封禁两者都不是。
+# 它的留痕由 ip_bans 行本身（reason 里写着失败次数）+ stdout 的 [封禁] 行承担。
+# 附带好处：「清空日志」不会把自动封禁的记录一起抹掉。
+# 管理员的手动封禁 / 解封是人的动作，照常记日志。
+
+
+@router.get("/ip-bans", response_model=IpBanListResponse, summary="封禁中的 IP 列表")
+def list_ip_bans(
+    user: User = Depends(admin_required),
+    target: str | None = Query(None, description="按 IP 或网段模糊搜索"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """只列**生效中**的封禁（过期行在 SQL 里过滤掉）。
+
+    过期行留在表里不清：清的理由只有「列表好看」，
+    而清的动作要么放在 GET 里（写库还忘了 commit 就静默无效，没人会注意），
+    要么加一堆定时任务。启动时 purge 一次已经够，平时让它们躺着不影响任何判定。
+    """
+    now = datetime.now()
+    query = db.query(IpBan).filter(
+        (IpBan.expires_at.is_(None)) | (IpBan.expires_at > now)
+    )
+    if target:
+        query = query.filter(IpBan.target.like(f"%{target}%"))
+
+    total = query.count()
+    items = (
+        query.order_by(IpBan.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {"total": total, "items": items, "self_ip": ip}
+
+
+@router.post("/ip-bans", summary="手动封禁 IP 或网段")
+def create_ip_ban(
+    payload: IpBanRequest,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """手动封禁。三步校验的顺序是有讲究的，别调换（见下面每条的理由）。"""
+    # ① 格式：单个 IP 或 CIDR 网段都收，不接受带端口的写法
+    normalized = normalize_target(payload.target)
+    if normalized is None:
+        raise HTTPException(
+            status_code=400,
+            detail="IP 或网段格式不正确（示例：203.0.113.9 或 203.0.113.0/24）",
+        )
+
+    # ② 不能封到操作者自己头上。用**包含**判定而不是相等判定：
+    #    填 0.0.0.0/0 或 127.0.0.0/8 也会被这条挡住，顺手避免「一个网段把所有人
+    #    （包括自己）一起封掉」——那种情况下连挽救的入口都没有了。
+    #    这条要放在「可信网段」之前：本地开发时 peer 就是 127.0.0.1、正好落在
+    #    默认可信网段里，先判可信网段会给出牛头不对马嘴的提示
+    if target_matches(normalized, ip):
+        raise HTTPException(status_code=400, detail="不能封禁当前操作所在的 IP")
+
+    # ③ 不能封到反向代理网段。没有这条的话，管理员一个手滑填 172.16.0.0/12
+    #    就等于把全班挡在门外，而且**连挽救的入口（登录）都一起没了**
+    if _overlaps_trusted_proxies(normalized):
+        raise HTTPException(
+            status_code=400,
+            detail="该网段与反向代理网段重叠，封禁会导致所有人无法登录",
+        )
+
+    record = ban_ip(
+        db, normalized, payload.minutes, reason=payload.reason, operator=user,
+    )
+    if record is None:
+        # 结束时间没有任何变化（重复点了同一个时长），不报错也不留痕，
+        # 和冻结那套的容错口径一致
+        return {"message": "该目标已在封禁中，设置未发生变化"}
+
+    log_operation(
+        db, user, "封禁IP", target=normalized,
+        detail=_ban_log_detail(record, payload.reason), ip=ip,
+    )
+    db.commit()
+    return {"message": "已封禁"}
+
+
+@router.delete("/ip-bans/{ban_id}", summary="解除 IP 封禁")
+def delete_ip_ban(
+    ban_id: int,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """按主键解封。
+
+    接口参数用自增 id 而不是 target：IPv6 和网段里的 / : % 在 URL 路径里
+    都要转义，转完还可能被中间层还原错，踩一次很难查。前端列表里本来就有 id。
+
+    解封后必须清掉内存里的失败计数，否则该 IP 下次输错一次立刻又被自动封，
+    管理员会以为「解封没生效」。
+    """
+    record = unban_ip(db, ban_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="该封禁记录不存在，可能已被解除")
+
+    clear_failures(record.target)
+    log_operation(db, user, "解封IP", target=record.target, ip=ip)
+    db.commit()
+    return {"message": "已解除封禁"}
+
+
+def _overlaps_trusted_proxies(target: str) -> bool:
+    """这个封禁目标是否和任一可信代理网段有交集
+
+    没配 TRUSTED_PROXIES 时无法判定，一律返回 False（放行）。
+    这是**预期的降级**：那种部署下 XFF 本来就不采信，
+    也就分不清谁是真的客户端，封网段的风险由「不能封自己」那条兜住。
+    """
+    nets = parse_cidrs(settings.trusted_proxies)
+    if not nets:
+        return False
+    net = parse_network(target)
+    if net is None:
+        return False
+    for trusted in nets:
+        try:
+            if net.overlaps(trusted):
+                return True
+        except (TypeError, ValueError):
+            # v4 网段和 v6 网段没法比，那本来就不重叠
+            continue
+    return False
+
+
+def _ban_log_detail(record: IpBan, reason: str) -> str:
+    """拼操作日志的 detail：说清楚封到什么时候"""
+    if record.expires_at is None:
+        until = "永久"
+    else:
+        until = record.expires_at.strftime("%Y-%m-%d %H:%M")
+    return f"至 {until}" + (f"；原因：{reason}" if reason else "")
 
 
 # ==================== 资料下载管理 ====================

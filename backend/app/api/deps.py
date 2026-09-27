@@ -1,23 +1,71 @@
 """通用鉴权依赖"""
 
+from typing import NamedTuple
+
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..models import User, Student
+from ..utils.ip import ip_in_cidrs, normalize_ip, parse_cidrs, pick_client_ip
+
+
+class ClientInfo(NamedTuple):
+    """一次请求的来源判定结果
+
+    - ip：用于记录和封禁的地址（已归一化）
+    - peer：直连来源（TCP 层看到的那个地址）
+    - is_proxy：True 表示解析出来的其实是代理自己，不是真实客户端 ——
+      这种地址**绝不能拿去封**，封了等于把全班挡在门外
+    """
+
+    ip: str
+    peer: str
+    is_proxy: bool
+
+
+def resolve_client(request: Request) -> ClientInfo:
+    """判断这个请求到底是哪个 IP 发来的。
+
+    规则只有一条：**只信自己人的 X-Forwarded-For**。
+
+    直连来源不在可信网段里（也就是说，这个请求不是从我们的反向代理转过来的），
+    那么它带的 XFF 全是它自己写的，一律不作数，直接按直连地址算。
+    只有直连来源可信时，才从 XFF 里从右往左找出真实客户端（见 utils.ip.pick_client_ip）。
+
+    为什么不认 X-Real-IP：多认一个头就多一个可以伪造的面，
+    而 XFF 在本项目的两种 nginx 配置下都必然存在。
+    """
+    peer = request.client.host if request.client else ""
+    nets = parse_cidrs(settings.trusted_proxies)
+    norm = normalize_ip(peer)
+
+    if norm is None:
+        # 直连来源不是 IP（TestClient 的 "testclient"、异常情况下的空值）。
+        # is_proxy=True：这种地址不能封，封了就是所有人共用一行
+        return ClientInfo(peer or "unknown", peer, True)
+
+    if not ip_in_cidrs(norm, nets):
+        # 直连来源不可信 → 忽略它带来的 XFF
+        return ClientInfo(norm, norm, False)
+
+    real = pick_client_ip(request.headers.get("x-forwarded-for", ""), nets)
+    if real:
+        return ClientInfo(real, norm, False)
+
+    # 可信代理，但拿不到可用的转发头（自定义 nginx 配置、NGINX_TRUST_PROXY=off）。
+    # 这时解析出来的只能是代理自己，同样不能拿去封
+    return ClientInfo(norm, norm, True)
 
 
 def get_client_ip(request: Request) -> str:
-    """取真实客户端 IP。
+    """取真实客户端 IP（40 多处调用点用的都是这个）
 
-    有 X-Forwarded-For 时取最左边那个（那才是用户，后面的都是代理）。
-    部署时如果前面挂了反向代理（Nginx/Caddy/Cloudflare），
-    记得在代理层配置把用户 IP 写到这个头里。
+    只是 resolve_client 的一层薄包装。需要区分「直连来源」和「是否代理」的地方
+    请直接用 resolve_client。
     """
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    return resolve_client(request).ip
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:

@@ -4,12 +4,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from .config import settings, resolve_session_secret
+from .config import fail_window_minutes, login_ban_values, settings, resolve_session_secret
 from .middleware import RememberMeMiddleware
 from .api import api_router
 from .database import Base, engine, SessionLocal
 from .database_migrate import run_migrations
-from .services import ensure_default_users, seed_from_catalog
+from .services import ensure_default_users, purge_expired, seed_from_catalog
+from .utils.ip import parse_cidrs
 
 # 确保数据目录存在
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -84,6 +85,83 @@ def warn_turnstile() -> None:
 
 
 warn_turnstile()
+
+
+def warn_security_config() -> None:
+    """把这次启动生效的登录安全配置打在日志里
+
+    这三行是排查 IP 相关问题最省事的入口：
+    - 操作日志里所有人的 IP 都变成同一个私网地址 → 可信网段没覆盖到实际网络
+    - 自动封禁「该封的没封」→ 看一眼可信网段是不是空的（空 = 自动封禁已关闭）
+    """
+    # 可信网段要先算出来：它同时决定「自动封禁开不开得起来」——
+    # 网段为空时 is_ban_candidate 会拒绝一切地址（分不清代理和真实客户端），
+    # 光看阈值配了就说「已开启」是在骗运维
+    nets = parse_cidrs(settings.trusted_proxies)
+    threshold, ban_minutes = login_ban_values()
+
+    if threshold > 0 and nets:
+        print(
+            f"[安全] 登录失败 {threshold} 次/{fail_window_minutes()} 分钟 "
+            f"→ 自动封禁该 IP {ban_minutes} 分钟",
+            flush=True,
+        )
+    elif threshold > 0:
+        # 原因由下面那条「可信代理网段」的日志展开说，这里只点一句，不重复
+        print("[安全] 自动封禁不生效：没有可用的可信代理网段（详见下一行）", flush=True)
+    else:
+        # 配成 0 是关闭，配成负数 / 0 分钟是配错，两种都说清楚
+        raw = (
+            f"（配置值 LOGIN_BAN_THRESHOLD={settings.login_ban_threshold}、"
+            f"LOGIN_BAN_MINUTES={settings.login_ban_minutes}）"
+            if settings.login_ban_threshold < 0 or settings.login_ban_minutes <= 0
+            else ""
+        )
+        print(f"[安全] 自动封禁已关闭{raw}", flush=True)
+
+    if nets:
+        print(
+            f"[安全] 可信代理网段（{len(nets)} 个）："
+            + ", ".join(str(n) for n in nets),
+            flush=True,
+        )
+    else:
+        print(
+            "[安全] TRUSTED_PROXIES 为空或全部解析失败：X-Forwarded-For 一律不采信，"
+            "所有请求看起来都来自代理 IP —— 自动封禁已关闭以免误封全体。"
+            "反向代理部署下请把它配成代理所在的网段",
+            flush=True,
+        )
+
+    if settings.master_password_allow_ips.strip():
+        print(
+            f"[安全] 通开密码仅限白名单 IP：{settings.master_password_allow_ips}",
+            flush=True,
+        )
+    else:
+        print("[安全] 通开密码未限制来源 IP", flush=True)
+
+
+warn_security_config()
+
+
+def purge_ip_bans() -> None:
+    """启动时清掉已经过期的封禁行
+
+    平时不清理（列表接口在 SQL 里过滤过期行就够了），只在启动时清一次 ——
+    这里能显式 commit，而放在任何 GET 接口里都容易变成「写库还忘了提交」的静默无效。
+    """
+    db = SessionLocal()
+    try:
+        n = purge_expired(db)
+        db.commit()
+        if n:
+            print(f"[初始化] 已清理 {n} 条过期的 IP 封禁记录")
+    finally:
+        db.close()
+
+
+purge_ip_bans()
 
 app = FastAPI(
     title=settings.app_name,

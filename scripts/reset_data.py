@@ -16,6 +16,8 @@ user_service.ensure_default_users 共用同一个函数，不在这里另写一�
 - users.bark_key             账号级的设备绑定，跟着账号走，不是业务数据
 - users.is_frozen            管理员有意冻结的账号，重置业务数据不该悄悄给人解冻
                              （和 users.role 同一类：账号级状态，不是业务数据）
+- ip_bans                    正在生效的 IP 封禁。同上：安全状态不是业务数据，
+                             重置一下就把攻击者放进来，等于自己拆了防线
 
 用法：python3 scripts/reset_data.py
 """
@@ -35,12 +37,13 @@ from sqlalchemy import delete, func, select  # noqa: E402
 from app.api.announcements import ANNOUNCEMENT_DIR  # noqa: E402
 from app.api.feedback import FEEDBACK_DIR  # noqa: E402
 from app.api.leaves import LEAVE_DIR  # noqa: E402
-from app.database import SessionLocal  # noqa: E402
+from app.database import Base, SessionLocal, engine  # noqa: E402
 from app.models import (  # noqa: E402
     AccountEvent,
     Announcement,
     ChangeRequest,
     Feedback,
+    IpBan,
     LeaveRequest,
     Notice,
     OperationLog,
@@ -83,6 +86,12 @@ def remove_files(names, directory, label: str) -> None:
 
 
 def main() -> None:
+    # 先把缺的表补上。后端启动时会 create_all，但**不能假设运维先重启过后端** ——
+    # 库比代码旧时，下面那句「保留 N 条 ip_bans」会以 no such table 崩掉，
+    # 而那时业务数据早就清完了：运维只看到一个报错的堆栈，不知道到底重置成功没有。
+    # 本脚本只管建表，补列仍然归 database_migrate（和后端启动时的分工一致）。
+    Base.metadata.create_all(bind=engine)
+
     db = SessionLocal()
     try:
         print("=== 1. 清空业务数据 ===", flush=True)
@@ -165,7 +174,17 @@ def main() -> None:
             select(func.count()).select_from(User).where(User.is_frozen.is_(True))
         ).scalar()
         print(f"  users.is_frozen        保留 {frozen} 个冻结账号", flush=True)
+        bans = db.execute(select(func.count()).select_from(IpBan)).scalar()
+        print(f"  ip_bans                保留 {bans} 条 IP 封禁", flush=True)
         print("  data/photos/、data/downloads/、.session_secret、.vapid_private.pem 均未改动", flush=True)
+
+        # 登录失败计数是后端进程里的内存字典，这个脚本够不着。
+        # 不提醒的话会有人重置完发现「刚重置完就又要验证码」，以为没重置干净
+        print(
+            "\n注意：登录失败计数存在后端进程内存里，本脚本无法清零 —— "
+            "重置后请重启后端，否则刚刚失败过的 IP 仍会先要验证码。",
+            flush=True,
+        )
     finally:
         db.close()
 

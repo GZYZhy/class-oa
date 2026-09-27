@@ -75,6 +75,49 @@ class OperationLogListResponse(BaseModel):
     items: list[OperationLogResponse]
 
 
+class IpBanRequest(BaseModel):
+    """手动封禁请求
+
+    target 既可以是单个 IP，也可以是一个 CIDR 网段（格式由后端校验）。
+    未归一化也没关系 —— 后端会先归一再入库。
+    """
+    target: str = Field(..., description="IP 或 CIDR 网段，如 203.0.113.9 或 203.0.113.0/24")
+    # None = 永久封禁。上下界都必须有：
+    # 下界 0/负数会和无期（null）的语义撞车；
+    # 上界不加的话 timedelta(minutes=10**18) 会抛 OverflowError，变成 500
+    minutes: Optional[int] = Field(
+        None, ge=1, le=5256000, description="封禁分钟数，留空表示永久（上限 10 年）"
+    )
+    reason: str = Field("", max_length=200, description="封禁原因")
+
+
+class IpBanResponse(BaseModel):
+    """一条封禁记录"""
+    id: int
+    # 单个 IP 或 CIDR 网段（已归一化）
+    target: str
+    reason: Optional[str] = None
+    # 手动封禁 = True；登录失败自动触发的 = False。
+    # 管理员延长过的自动封禁也置 True
+    is_manual: bool
+    created_at: Optional[datetime] = None
+    # 为 None 表示永久封禁
+    expires_at: Optional[datetime] = None
+    operator_no: Optional[str] = None
+    operator_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class IpBanListResponse(BaseModel):
+    total: int
+    items: list[IpBanResponse]
+    # 当前操作者自己的 IP。前端显示成「你当前的 IP：x（不能封自己）」，
+    # 比只在提交时报错友好
+    self_ip: Optional[str] = None
+
+
 class AccountEventResponse(BaseModel):
     """一条账号事件（登录 / 本人自行改密）"""
     id: int

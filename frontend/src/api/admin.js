@@ -107,6 +107,34 @@ export function clearLogs() {
   })
 }
 
+// ==================== IP 封禁 ====================
+
+/** 封禁中的 IP 列表（分页 + 按 IP/网段模糊搜索），附带 self_ip 供提示「不能封自己」 */
+export function getIpBans(params) {
+  return request({
+    url: '/admin/ip-bans',
+    method: 'get',
+    params
+  })
+}
+
+/** 手动封禁。target 是单个 IP 或 CIDR 网段，minutes 为 null 表示永久 */
+export function createIpBan({ target, minutes, reason }) {
+  return request({
+    url: '/admin/ip-bans',
+    method: 'post',
+    data: { target, minutes, reason }
+  })
+}
+
+/** 解封（按记录 id，不用 target —— 网段和 IPv6 在 URL 路径里要转义） */
+export function deleteIpBan(id) {
+  return request({
+    url: `/admin/ip-bans/${id}`,
+    method: 'delete'
+  })
+}
+
 // ==================== 资料下载管理 ====================
 
 /** 资料列表（管理员用，不分组，按分类+排序） */
