@@ -375,12 +375,16 @@ def user_logs(
     student_no: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    target_page: int = Query(1, ge=1),
+    target_page_size: int = Query(20, ge=1, le=200),
     _: User = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
-    """两块内容：
+    """三块内容：
 
     - 操作日志：这个账号**作为操作人**留下的全部记录，分页
+    - 被操作记录：这个账号**作为操作对象**的记录（别人重置他的密码、改他的
+      角色、改他的学生信息、审批他的申请……），分页
     - 账号事件：这个账号最近 7 天的登录 / 自行改密
 
     事件那块只能查到本功能上线之后 —— 之前这两种行为压根没入库，
@@ -396,6 +400,29 @@ def user_logs(
         operations.order_by(OperationLog.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
+        .all()
+    )
+
+    # 被操作记录：以这个账号为**对象**的操作。
+    # operation_logs 没有「对象学号」列，只能按 target 的书写格式反查 —— 全项目的
+    # 约定是 f"{学号} {姓名}"（见各处 log_operation 调用）。学号后面那个空格是必需的：
+    # 拿 2026012 去查时，不带空格的 LIKE %2026012% 会把 20260123、20260124 一起带出来，
+    # 和上面避开的是同一个坑。
+    # 第 2 个条件（裸学号）是给「修改角色」兜底的 —— 那一处的 target 只写了学号没写姓名。
+    # LIKE 里的 % 和 _ 要转义：域外账号的登录名允许带下划线（teacher_li 之类），
+    # 不转义的话 _ 会当通配符，把 teacherXli 的记录也拉进来
+    escaped_no = student_no.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    targeted = db.query(OperationLog).filter(
+        or_(
+            OperationLog.target == student_no,
+            OperationLog.target.like(f"{escaped_no} %", escape="\\"),
+        )
+    )
+    targeted_total = targeted.count()
+    targeted_items = (
+        targeted.order_by(OperationLog.id.desc())
+        .offset((target_page - 1) * target_page_size)
+        .limit(target_page_size)
         .all()
     )
 
@@ -421,6 +448,7 @@ def user_logs(
         student_no=student_no,
         name=account_name(db, target),
         operations=OperationLogListResponse(total=op_total, items=op_items),
+        targeted=OperationLogListResponse(total=targeted_total, items=targeted_items),
         events=[AccountEventResponse.model_validate(e) for e in event_items],
         events_total=event_total,
         events_since=since,

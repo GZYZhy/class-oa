@@ -444,6 +444,41 @@
         </div>
 
         <div class="log-section-title">
+          被操作记录
+          <!-- 本人对自己的操作（提交请假、提交修改申请）也算在内，所以措辞是
+               「以这个账号为对象」而不是「别人对它做的」 -->
+          <span class="log-section-hint">以这个账号为对象的操作（含本人提交的申请）</span>
+        </div>
+        <!-- 列和上面那块刻意不同：对象恒是本人，所以不列「对象」，改列「操作人」 -->
+        <el-table :data="userLogs.targeted.items" stripe border style="width: 100%;">
+          <el-table-column label="时间" width="160" align="center">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="操作人" width="120" align="center" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.operator_name || row.operator_no || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="action" label="动作" width="120" align="center" />
+          <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+        </el-table>
+        <el-empty
+          v-if="!loadingUserLogs && !userLogs.targeted.total"
+          description="还没有针对这个账号的操作记录"
+          :image-size="60"
+        />
+        <div v-if="userLogs.targeted.total" class="pagination-wrap">
+          <el-pagination
+            v-model:current-page="targetedPage"
+            v-model:page-size="targetedPageSize"
+            :page-sizes="[20, 50, 100, 200]"
+            :total="userLogs.targeted.total"
+            layout="total, sizes, prev, pager, next"
+            background
+            @size-change="fetchUserLogs"
+            @current-change="fetchUserLogs"
+          />
+        </div>
+
+        <div class="log-section-title">
           登录与改密
           <!-- 把 7 天这个边界显示出来，不然只会让人猜为什么只有这几条 -->
           <span class="log-section-hint">
@@ -682,9 +717,13 @@ const loadingUserLogs = ref(false)
 const logTarget = ref({})
 const userLogPage = ref(1)
 const userLogPageSize = ref(20)
+// 被操作记录单独一套分页：两块表各翻各的，翻上面那块不该把下面顶回第一页
+const targetedPage = ref(1)
+const targetedPageSize = ref(20)
 // 先给个空壳，模板里就不用到处判空了（events_since 为空时 formatDateTime 显示 '-'）
 const userLogs = ref({
   operations: { total: 0, items: [] },
+  targeted: { total: 0, items: [] },
   events: [],
   events_total: 0,
   events_since: null
@@ -698,6 +737,8 @@ async function openUserLogs(row) {
   logTarget.value = row
   userLogPage.value = 1
   userLogPageSize.value = 20
+  targetedPage.value = 1
+  targetedPageSize.value = 20
   logVisible.value = true
   // 打开才请求：账号列表可能有几十上百行，进页面时为每行都拉一次日志没意义
   await fetchUserLogs()
@@ -709,7 +750,9 @@ async function fetchUserLogs() {
   try {
     userLogs.value = await getUserLogs(logTarget.value.student_no, {
       page: userLogPage.value,
-      page_size: userLogPageSize.value
+      page_size: userLogPageSize.value,
+      target_page: targetedPage.value,
+      target_page_size: targetedPageSize.value
     })
   } catch (e) {
     ElMessage.error('日志加载失败')
