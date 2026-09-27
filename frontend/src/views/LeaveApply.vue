@@ -5,7 +5,7 @@
 
       <el-alert type="info" :closable="false" show-icon style="margin-bottom: 20px;">
         <template #title>温馨提示</template>
-        本网办流程仅用于简化流程、避免材料递交繁琐，请假审批是否通过由学校决定。
+        本网办事项仅用于简化流程、避免材料递交繁琐，请假审批是否通过由学校决定。
       </el-alert>
 
       <el-tabs v-model="activeTab">
@@ -90,8 +90,9 @@
             </el-form-item>
 
             <el-form-item prop="agreed">
-              <el-checkbox v-model="form.agreed">
-                我已阅读并同意遵守学校相关规定，确认以上信息真实有效
+              <el-checkbox v-model="form.agreed" class="agree-checkbox">
+                <div>我已阅读并同意遵守学校相关规定，确认以上信息真实有效</div>
+                <div>我授权系统为我按以上信息生成“请假申请表”，并确认是我个人意愿的真实体现。</div>
               </el-checkbox>
             </el-form-item>
 
@@ -358,5 +359,28 @@ onMounted(() => {
 .el-upload__tip {
   font-size: 12px;
   color: #909399;
+}
+
+/* 确认行：两句声明在手机上很长，而 Element Plus 的复选框默认
+   white-space: nowrap 且高度写死 32px，文字既不能换行、换了也会被裁掉。
+   这里放开换行、高度自适应，方框改成对齐第一行而不是整块垂直居中 */
+.agree-checkbox {
+  white-space: normal;
+  height: auto;
+  align-items: flex-start;
+}
+
+.agree-checkbox :deep(.el-checkbox__label) {
+  line-height: 1.6;
+}
+
+/* 方框下移一点对齐第一行的中线（行高约 22px、方框 14px） */
+.agree-checkbox :deep(.el-checkbox__input) {
+  margin-top: 4px;
+}
+
+/* 两句声明分块显示，各占一行，不和行内折行混在一起 */
+.agree-checkbox :deep(.el-checkbox__label) div + div {
+  margin-top: 2px;
 }
 </style>
