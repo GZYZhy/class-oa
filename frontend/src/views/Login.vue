@@ -7,7 +7,18 @@
         <p class="login-sub">北方工业大学理学院统计学系</p>
       </div>
 
-      <el-form :model="form" @submit.prevent="handleLogin">
+      <!-- 本机 IP 被封禁：直接把表单换成提示，不让用户白填一遍再吃 403 -->
+      <div v-if="banMessage" class="login-banned">
+        <el-alert type="error" :closable="false" show-icon>
+          <template #title>{{ banMessage }}</template>
+          <div class="login-banned-tip">
+            若认为这是误封，请联系管理员解封；网络出口为公共地址时，
+            同一条线路下的其他人也会受影响。
+          </div>
+        </el-alert>
+      </div>
+
+      <el-form v-else :model="form" @submit.prevent="handleLogin">
         <el-form-item>
           <el-input
             v-model="form.student_no"
@@ -111,6 +122,9 @@ const turnstileSiteKey = ref('')
 const turnstileToken = ref('')
 const turnstileRef = ref(null)
 
+// 非空表示本机 IP 正被封禁：整个表单换成这段提示
+const banMessage = ref('')
+
 async function refreshCaptcha() {
   try {
     captchaSrc.value = await getCaptcha()
@@ -145,6 +159,11 @@ onMounted(async () => {
     // 等会儿万一输错了要显示验证码框，得知道该加载 Turnstile 还是拉算术题
     captchaMode.value = res.mode === 'turnstile' ? 'turnstile' : 'math'
     turnstileSiteKey.value = res.site_key || ''
+    // 已被封禁就不用显示表单和验证码了 —— 反正提交上去也是 403
+    if (res.banned) {
+      banMessage.value = res.ban_message || '本机 IP 已被封禁，请联系管理员'
+      return
+    }
     if (res.required) {
       showCaptcha.value = true
       // Turnstile 的控件由组件自己挂载时加载；算术题这里就得去拉 SVG
@@ -174,8 +193,16 @@ async function handleLogin() {
     // 登录前想去的页面，登录后直接过去
     router.replace(route.query.redirect || '/dashboard')
   } catch (e) {
+    const status = e?.response?.status
     const msg = e?.response?.data?.detail || '登录失败，请稍后重试'
     ElMessage.error(msg)
+
+    // 403 = 本机 IP 已被封禁。直接换成封禁提示并**就此打住**：
+    // 再弹一张验证码框会让人以为「再试一次就能进」，而这张验证码根本没机会用上
+    if (status === 403) {
+      banMessage.value = msg
+      return
+    }
 
     // 登录失败后，显示人机验证并换一张
     // （后端已经开始计数了，下次登录必须带验证码）
@@ -257,6 +284,13 @@ function goHome() {
 .login-sub {
   margin: 0;
   font-size: 12px;
+  color: #909399;
+}
+
+.login-banned-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
   color: #909399;
 }
 

@@ -2,7 +2,7 @@
   <div class="page-card">
     <h3 class="page-title">系统管理</h3>
 
-    <el-tabs v-model="activeTab">
+    <el-tabs v-model="activeTab" @tab-change="handleTabChange">
       <!-- ============ 账号管理 ============ -->
       <el-tab-pane label="账号管理" name="users">
         <el-form :inline="true">
@@ -180,6 +180,115 @@
             @size-change="fetchLogs"
             @current-change="fetchLogs"
           />
+        </div>
+      </el-tab-pane>
+
+      <!-- ============ IP 封禁 ============ -->
+      <el-tab-pane label="IP 封禁" name="bans">
+        <!-- 手机上和账号管理那边的做法一致：竖排、每个控件占满一行 -->
+        <el-form :inline="!isMobile" :label-width="isMobile ? 'auto' : undefined">
+          <el-form-item label="目标">
+            <el-input
+              v-model="banForm.target"
+              placeholder="IP 或网段，如 203.0.113.9 或 203.0.113.0/24"
+              clearable
+              :style="isMobile ? 'width: 100%' : 'width: 260px'"
+            />
+          </el-form-item>
+          <el-form-item label="时长">
+            <el-select v-model="banForm.minutes" :style="isMobile ? 'width: 100%' : 'width: 130px'">
+              <el-option
+                v-for="opt in BAN_DURATIONS"
+                :key="String(opt.value)"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="原因">
+            <el-input
+              v-model="banForm.reason"
+              placeholder="可留空，如：恶意爆破登录"
+              clearable
+              maxlength="200"
+              :style="isMobile ? 'width: 100%' : 'width: 200px'"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="danger" :loading="creatingBan" @click="handleCreateBan">
+              <el-icon><Lock /></el-icon>封禁
+            </el-button>
+            <el-button @click="fetchIpBans">刷新</el-button>
+          </el-form-item>
+        </el-form>
+
+        <div class="tip ban-self-tip">
+          你当前的 IP：<span class="mono">{{ selfIp || '未知' }}</span>
+          （不能封禁自己所在的 IP 或网段；与反向代理网段重叠的网段也不允许封）。
+        </div>
+
+        <el-table :data="ipBans" v-loading="loadingBans" stripe border style="width: 100%;">
+          <el-table-column label="目标" width="190" align="center">
+            <template #default="{ row }">
+              <span class="mono">{{ row.target }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="来源" width="90" align="center">
+            <template #default="{ row }">
+              <!-- 自动 = 登录失败攒够阈值触发的；手动 = 管理员封的（含被管理员延长过的） -->
+              <el-tag v-if="row.is_manual" type="danger" size="small">手动</el-tag>
+              <el-tag v-else type="warning" size="small">自动</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row.reason">{{ row.reason }}</span>
+              <span v-else style="color: #c0c4cc;">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="封禁时间" width="160" align="center">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="解封时间" width="160" align="center">
+            <template #default="{ row }">
+              <span v-if="!row.expires_at" style="color: #f56c6c; font-weight: 600;">永久</span>
+              <span v-else>{{ formatDateTime(row.expires_at) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作人" width="140" align="center">
+            <template #default="{ row }">
+              <template v-if="row.operator_no">
+                {{ row.operator_name || '-' }}
+                <div style="font-size: 12px; color: #909399;">{{ row.operator_no }}</div>
+              </template>
+              <span v-else style="color: #909399;">系统（自动）</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="90" align="center">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click="handleUnban(row)">解封</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-empty v-if="!loadingBans && !ipBans.length" description="当前没有封禁中的 IP" :image-size="60" />
+
+        <div class="pagination-wrap">
+          <el-pagination
+            v-model:current-page="banPage"
+            v-model:page-size="banPageSize"
+            :page-sizes="[20, 50, 100, 200]"
+            :total="banTotal"
+            layout="total, sizes, prev, pager, next"
+            background
+            @size-change="fetchIpBans"
+            @current-change="fetchIpBans"
+          />
+        </div>
+
+        <div class="tip">
+          列表只显示生效中的封禁，过期的会自动消失。自动封禁由登录失败攒够阈值触发，
+          不写操作日志，它的来由记在这里的「原因」里。
         </div>
       </el-tab-pane>
 
@@ -380,6 +489,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Lock } from '@element-plus/icons-vue'
 import {
   getUsers,
   setUserRole,
@@ -392,6 +502,9 @@ import {
   deleteExternalUser,
   getLogs,
   clearLogs,
+  getIpBans,
+  createIpBan,
+  deleteIpBan,
   listResources,
   uploadResource,
   updateResource,
@@ -814,6 +927,118 @@ async function handleClearLogs() {
   }
 }
 
+// ---------- IP 封禁 ----------
+// 时长走预设：手填分钟数既容易填错，也不好判断「到底封了多久」
+const BAN_DURATIONS = [
+  { label: '1 小时', value: 60 },
+  { label: '1 天', value: 1440 },
+  { label: '7 天', value: 10080 },
+  { label: '30 天', value: 43200 },
+  { label: '永久', value: null }
+]
+
+const ipBans = ref([])
+const loadingBans = ref(false)
+const creatingBan = ref(false)
+const banTotal = ref(0)
+const banPage = ref(1)
+const banPageSize = ref(50)
+// 后端带回的「我自己的 IP」，显示在表格上方
+const selfIp = ref('')
+const banForm = reactive({ target: '', minutes: 60, reason: '' })
+
+// 懒加载：进页面时有账号 / 日志 / 资料三个请求，不为一个默认看不见的 tab 再多发一个
+const bansLoaded = ref(false)
+
+async function fetchIpBans() {
+  loadingBans.value = true
+  try {
+    const res = await getIpBans({
+      page: banPage.value,
+      page_size: banPageSize.value
+    })
+    ipBans.value = res.items
+    banTotal.value = res.total
+    selfIp.value = res.self_ip || ''
+    bansLoaded.value = true
+  } catch (e) {
+    ElMessage.error('封禁列表加载失败')
+  } finally {
+    loadingBans.value = false
+  }
+}
+
+function handleTabChange(name) {
+  if (name === 'bans' && !bansLoaded.value) fetchIpBans()
+}
+
+async function handleCreateBan() {
+  const target = banForm.target.trim()
+  if (!target) return ElMessage.warning('请输入要封禁的 IP 或网段')
+
+  const isNetwork = target.includes('/')
+  const isForever = banForm.minutes === null
+
+  // 确认框分两档：封网段和封永久都是「一按下去影响一片」的操作，
+  // 后果必须在按下去之前说清楚，而不是事后来解封
+  let tip = `确定封禁 ${target} 吗？该地址将无法登录本系统。`
+  if (isNetwork) {
+    tip = `确定封禁网段 ${target} 吗？该网段内的所有地址都将无法登录本系统。`
+  }
+  if (isForever) {
+    tip += isNetwork
+      ? '这是永久封禁，不会自动解除，只能由管理员手动解封。'
+      : '这是永久封禁，不会自动解除。'
+  }
+  try {
+    await ElMessageBox.confirm(tip, isForever ? '永久封禁' : '封禁 IP', {
+      type: 'warning',
+      confirmButtonText: '封禁',
+      cancelButtonText: '取消',
+      dangerouslyUseHTMLString: false
+    })
+  } catch (e) {
+    return // 取消
+  }
+
+  creatingBan.value = true
+  try {
+    const res = await createIpBan({
+      target,
+      minutes: banForm.minutes,
+      reason: banForm.reason.trim()
+    })
+    ElMessage.success(res?.message || '已封禁')
+    banForm.target = ''
+    banForm.reason = ''
+    banPage.value = 1
+    fetchIpBans()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '封禁失败')
+  } finally {
+    creatingBan.value = false
+  }
+}
+
+async function handleUnban(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定解除对 ${row.target} 的封禁吗？解除后该地址立即可以登录，登录失败计数也会清零。`,
+      '解除封禁',
+      { type: 'warning', confirmButtonText: '解封' }
+    )
+  } catch (e) {
+    return // 取消
+  }
+  try {
+    await deleteIpBan(row.id)
+    ElMessage.success('已解除封禁')
+    fetchIpBans()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '解封失败')
+  }
+}
+
 // ---------- 资料下载管理 ----------
 const resources = ref([])
 const loadingResources = ref(false)
@@ -1006,6 +1231,16 @@ onMounted(() => {
   font-size: 12px;
   color: #909399;
   font-weight: normal;
+}
+
+/* ---------- IP 封禁 ---------- */
+.mono {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.ban-self-tip {
+  margin-bottom: 12px;
 }
 
 /* ---------- 资料下载管理 ---------- */
