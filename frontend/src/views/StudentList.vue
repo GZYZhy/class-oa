@@ -6,7 +6,7 @@
         <el-form-item label="关键词">
           <el-input
             v-model="filterForm.keyword"
-            placeholder="姓名/学号/班级/宿舍/生源地"
+            placeholder="任意信息（姓名/学号/电话/备注等）"
             clearable
             style="width: 240px"
             @keyup.enter="handleSearch"
