@@ -80,7 +80,9 @@ oa/
 │   ├── setup_resources.py # 安装资料下载的文件
 │   ├── make_pwa_icons.py  # 从校徽生成 PWA 图标
 │   ├── reset_data.py      # 清空业务数据（⚠️ 不可逆）
-│   └── build_images.sh    # 构建/推送 ghcr.io/gzyzhy/class-oa-* 镜像
+│   └── build_images.sh    # 本地应急构建（推 main 时由 GitHub Actions 自动构建）
+├── .github/workflows/
+│   └── build-images.yml   # 推 main 自动构建并推送镜像
 ├── docker-compose.yml     # Docker Compose 配置
 ├── .env.example          # 环境变量示例（复制为 .env 后使用）
 └── README.md
@@ -91,15 +93,30 @@ oa/
 镜像发布在 GHCR 的 `ghcr.io/gzyzhy/class-oa-*`，**私有包**。部署机只要有 compose 文件和
 `.env` 就能跑，不需要源码，也不需要构建链。
 
-**开发机（这台 Mac）**——改完代码后构建并推送：
+**构建由 GitHub Actions 自动完成**：往 `main` 推代码就会构建并推送镜像，不需要在本地做任何事。
+改完照常 `git push`，等 Actions 跑完（约 3~5 分钟）再让服务器 `pull` 就行。
+
+每次构建打三个标签：
+
+| 标签 | 用途 |
+|---|---|
+| `latest` | 服务器默认拉的就是它 |
+| `YYYY-MM-DD` | 日期版本，用来锁版本或回滚（同一天多次推送会覆盖同一标签，要精确到某次提交用下一个） |
+| `sha-<7位短哈希>` | 对应到具体提交，回滚用这个最稳 |
+
+> 只改文档（`**.md`、`.env.example`…）的提交不会触发构建——那类改动不会改变镜像内容。
+> 想手动触发一次，去仓库的 Actions 页面点「构建并推送镜像」→「Run workflow」。
+
+**本地应急构建（这台 Mac）**——GitHub 挂了、或者需要 `linux/arm64` 镜像时才用：
 
 ```bash
 ./scripts/build_images.sh --push
 ```
 
-> 推送时默认只构建 `linux/amd64`——服务器是 x86_64，本机虽是 Apple Silicon 但推的必须是
-> amd64，否则服务器拉下来会报 `no matching manifest`。需要 arm 机器上跑时才加 `--arm`
-> 多构建一份 `linux/arm64`（走 QEMU 模拟，会明显变慢）：
+> 脚本和 Actions 用的是同一套标签规则（含日期同样按北京时间算），两边构建出来的标签一致。
+> 默认只构建 `linux/amd64`——服务器是 x86_64，本机虽是 Apple Silicon 但推的必须是 amd64，
+> 否则服务器拉下来会报 `no matching manifest`。需要 arm 机器上跑时才加 `--arm` 多构建一份
+> `linux/arm64`（走 QEMU 模拟，会明显变慢）：
 >
 > ```bash
 > ./scripts/build_images.sh --push --arm
@@ -567,7 +584,7 @@ TURNSTILE_SECRET_KEY=
 - 隐私数据**不进入 Docker 镜像**：`backend/.dockerignore` 排除了 `data/`（容器构建上下文里的 `data/`），
   容器里的 `/app/data` 完全来自 bind mount。可以这样自查：
   ```bash
-  ./scripts/build_images.sh
+  docker pull ghcr.io/gzyzhy/class-oa-backend:latest   # 本地构建的话改用 ./scripts/build_images.sh
   docker run --rm --entrypoint sh ghcr.io/gzyzhy/class-oa-backend:latest -c 'ls -A /app/data'   # 应为空
   ```
   这一点很关键 —— bind mount 只是在运行时"盖住"了镜像里的副本，
