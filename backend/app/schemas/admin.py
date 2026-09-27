@@ -132,13 +132,16 @@ class AccountEventResponse(BaseModel):
 
 
 class AdminUserLogsResponse(BaseModel):
-    """某个账号的日志：操作日志（全部）+ 账号事件（最近 7 天）"""
+    """某个账号的日志：操作日志（全部）+ 被操作记录 + 账号事件（最近 7 天）"""
     student_no: str
     name: str
     # 该账号作为「操作人」留下的操作日志。只按操作人过滤，不看时间；
     # 不是用 /logs?operator= 那个模糊匹配 —— 按 2026012 查会把 20260123、
     # 20260124 一起带出来
     operations: OperationLogListResponse
+    # 该账号作为「被操作对象」的日志（别人重置他的密码、改他的角色、冻结他、
+    # 改他的学生信息、审批他的申请等），分页。定位方式见 api/admin.py 的注释
+    targeted: OperationLogListResponse
     # 最近 7 天的登录 / 改密事件。events 最多 200 条，events_total 是窗口内的真实条数，
     # 前端在 total 大于条数时提示「仅显示最近 200 条」—— 不做静默截断
     events: list[AccountEventResponse]
