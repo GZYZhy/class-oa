@@ -1,11 +1,49 @@
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
 
 from ..models import Student
 from ..schemas import StudentCreate, StudentUpdate
+
+# 关键词搜索覆盖的字段：学生表里所有承载信息的列，包括备注。
+# 只排除 id（自增主键，没有检索意义）和两个照片路径列（存的是文件名，不是学生信息）。
+# 以后新增字段想让它可被搜到，加进这个元组即可。
+KEYWORD_SEARCH_COLUMNS = (
+    Student.student_no,
+    Student.name,
+    Student.gender,
+    Student.major,
+    Student.class_name,
+    Student.birth_date,
+    Student.ethnicity,
+    Student.political_status,
+    Student.hometown,
+    Student.id_card,
+    Student.exam_no,
+    Student.exam_category,
+    Student.subject_type,
+    Student.exam_type,
+    Student.admission_batch,
+    Student.gaokao_score,
+    Student.high_school,
+    Student.registration_status,
+    Student.registration_time,
+    Student.school_status,
+    Student.phone,
+    Student.family_phone,
+    Student.qq,
+    Student.email,
+    Student.family_address,
+    Student.postal_code,
+    Student.dormitory,
+    Student.bed,
+    Student.class_position,
+    Student.league_position,
+    Student.is_poor,
+    Student.remark,
+)
 
 
 def get_student(db: Session, student_id: int) -> Optional[Student]:
@@ -43,16 +81,14 @@ def get_students(
     """
     query = db.query(Student)
 
-    # 关键词搜索（姓名、学号、班级、宿舍）
+    # 关键词搜索：命中任意一个信息字段即算匹配
+    # 统一 cast 成字符串再 LIKE。SQLite 下日期/整数列不加 cast 也能按原文片段搜到
+    # （实测 birth_date 搜 "2005-03"、gaokao_score 搜 "62" 都命中），加 cast 是为了
+    # 不依赖这种隐式转文本的宽容度 —— 换数据库时类型不匹配会直接报错
     if keyword:
         keyword_pattern = f"%{keyword}%"
         query = query.filter(
-            (Student.name.like(keyword_pattern))
-            | (Student.student_no.like(keyword_pattern))
-            | (Student.class_name.like(keyword_pattern))
-            | (Student.dormitory.like(keyword_pattern))
-            | (Student.hometown.like(keyword_pattern))
-            | (Student.league_position.like(keyword_pattern))
+            or_(*(cast(col, String).like(keyword_pattern) for col in KEYWORD_SEARCH_COLUMNS))
         )
 
     # 分类筛选
