@@ -15,6 +15,14 @@ export function formatDate(value) {
   return s.split('T')[0].split(' ')[0]
 }
 
+/** 附件大小，形如 320 B / 12.5 KB / 3.2 MB */
+export function formatFileSize(bytes) {
+  const n = Number(bytes) || 0
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
 /** 水印用的当前时刻，形如「9月24日 14:30」 */
 export function formatStamp(date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0')

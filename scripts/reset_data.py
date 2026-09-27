@@ -2,7 +2,7 @@
 把数据库恢复成初始化状态：只保留学生个人信息
 
 清空所有业务数据（通知、公告、请假、反馈、修改申请、操作日志、浏览器推送订阅），
-删掉请假证明和公告附件的物理文件，并把所有账号恢复成初始密码 + 首次登录强制改密。
+删掉请假证明、公告附件和反馈附件的物理文件，并把所有账号恢复成初始密码 + 首次登录强制改密。
 
 ⚠️ 不可逆。执行前请先备份 backend/data/。默认密码的算法与
 user_service.ensure_default_users 共用同一个函数，不在这里另写一份，
@@ -18,6 +18,7 @@ user_service.ensure_default_users 共用同一个函数，不在这里另写一�
 用法：python3 scripts/reset_data.py
 """
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -30,6 +31,7 @@ from sqlalchemy import delete, func, select  # noqa: E402
 # 上传目录从各自的接口模块里取，不在这里另写一份路径 —— 万一目录改了，
 # 脚本会跟着一起改；自己写死的话只会静默地留下满地孤儿文件
 from app.api.announcements import ANNOUNCEMENT_DIR  # noqa: E402
+from app.api.feedback import FEEDBACK_DIR  # noqa: E402
 from app.api.leaves import LEAVE_DIR  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
 from app.models import (  # noqa: E402
@@ -85,6 +87,21 @@ def main() -> None:
         proof_files = [r[0] for r in db.execute(select(LeaveRequest.proof_file)).all()]
         announcement_files = [r[0] for r in db.execute(select(Announcement.file_path)).all()]
 
+        # 反馈附件存的是 JSON 数组，逐个取出里面的存盘名。
+        # 解析失败就跳过这一行 —— 一行脏数据不该卡住整个重置
+        feedback_files = []
+        for (raw,) in db.execute(select(Feedback.attachments)).all():
+            try:
+                items = json.loads(raw or "")
+            except (ValueError, TypeError):
+                continue
+            if isinstance(items, list):
+                feedback_files += [
+                    item.get("file")
+                    for item in items
+                    if isinstance(item, dict) and item.get("file")
+                ]
+
         for model in CLEAR_MODELS:
             removed = db.execute(delete(model)).rowcount
             print(f"  {model.__tablename__:<22} 清掉 {removed} 行", flush=True)
@@ -117,6 +134,7 @@ def main() -> None:
         print("\n=== 3. 删除上传的物理文件 ===", flush=True)
         remove_files(proof_files, LEAVE_DIR, "请假证明")
         remove_files(announcement_files, ANNOUNCEMENT_DIR, "公告附件")
+        remove_files(feedback_files, FEEDBACK_DIR, "反馈附件")
 
         print("\n=== 4. 重置后核对 ===", flush=True)
         for model in CLEAR_MODELS:
