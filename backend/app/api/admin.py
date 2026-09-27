@@ -205,8 +205,10 @@ def set_role(
 
     old_label = ROLE_LABELS.get(target.role or "student", target.role)
     target.role = payload.role
+    # target 写全「学号 姓名」，与其它 20 来处保持一致 —— 账号日志的「被操作记录」
+    # 就是按这个格式反查的（见 user_logs）。只写学号的话新记录得靠那条兜底条件才查得到
     log_operation(
-        db, user, "修改角色", target=student_no,
+        db, user, "修改角色", target=f"{student_no} {account_name(db, target)}",
         detail=f"{old_label} → {ROLE_LABELS[payload.role]}",
         ip=ip,
     )
@@ -408,7 +410,8 @@ def user_logs(
     # 约定是 f"{学号} {姓名}"（见各处 log_operation 调用）。学号后面那个空格是必需的：
     # 拿 2026012 去查时，不带空格的 LIKE %2026012% 会把 20260123、20260124 一起带出来，
     # 和上面避开的是同一个坑。
-    # 第 2 个条件（裸学号）是给「修改角色」兜底的 —— 那一处的 target 只写了学号没写姓名。
+    # 第 2 个条件（裸学号）只为**历史数据**保留：老版本的「修改角色」只写学号没写姓名，
+    # 那些行已经躺在库里了，不做数据回填就得靠它才查得到。现在所有写入点一律带姓名。
     # LIKE 里的 % 和 _ 要转义：域外账号的登录名允许带下划线（teacher_li 之类），
     # 不转义的话 _ 会当通配符，把 teacherXli 的记录也拉进来
     escaped_no = student_no.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
