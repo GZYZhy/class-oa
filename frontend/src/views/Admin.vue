@@ -929,12 +929,15 @@ async function handleClearLogs() {
 
 // ---------- IP 封禁 ----------
 // 时长走预设：手填分钟数既容易填错，也不好判断「到底封了多久」
+// 「永久」用 0 当哨兵值，**不能写 null** —— el-select 把 null 当成「没选」，
+// 选中后框里还是显示 placeholder「请选择」，看着像点不动。提交时 0 再转回 null，
+// 后端 minutes=null 才是永久。后端校验是 ge=1，0 不是合法时长，不会歧义。
 const BAN_DURATIONS = [
   { label: '1 小时', value: 60 },
   { label: '1 天', value: 1440 },
   { label: '7 天', value: 10080 },
   { label: '30 天', value: 43200 },
-  { label: '永久', value: null }
+  { label: '永久', value: 0 }
 ]
 
 const ipBans = ref([])
@@ -977,7 +980,7 @@ async function handleCreateBan() {
   if (!target) return ElMessage.warning('请输入要封禁的 IP 或网段')
 
   const isNetwork = target.includes('/')
-  const isForever = banForm.minutes === null
+  const isForever = banForm.minutes === 0
 
   // 确认框分两档：封网段和封永久都是「一按下去影响一片」的操作，
   // 后果必须在按下去之前说清楚，而不是事后来解封
@@ -1005,7 +1008,8 @@ async function handleCreateBan() {
   try {
     const res = await createIpBan({
       target,
-      minutes: banForm.minutes,
+      // 0 是界面上的哨兵，后端认的是 null（永久）
+      minutes: isForever ? null : banForm.minutes,
       reason: banForm.reason.trim()
     })
     ElMessage.success(res?.message || '已封禁')
