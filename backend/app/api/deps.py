@@ -37,6 +37,15 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户不存在",
         )
+    # 冻结的账号当场踢下线。会话是签名 Cookie，服务端没有会话表，
+    # 所以「立即终止现有会话」不是去清什么服务端状态，而是让下一个请求就 401 ——
+    # 放在这里，全部需要登录的接口一次性全覆盖，不用逐个接口加判断
+    if user.is_frozen:
+        request.session.clear()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="账号已被冻结",
+        )
     return user
 
 

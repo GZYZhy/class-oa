@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR, settings, turnstile_enabled
 from ..database import get_db
-from ..models import User, Student
+from ..models import AccountEvent, Student, User
 from ..schemas.auth import (
     BarkKeyRequest,
     LoginRequest,
@@ -58,6 +58,18 @@ _login_failures: dict[str, dict] = {}
 _CAPTCHA_THRESHOLD = 1
 # 失败后多久内需要验证码
 _CAPTCHA_WINDOW = timedelta(minutes=10)
+
+
+def _record_event(db: Session, student_no: str, event: str, ip: str | None) -> None:
+    """记一条账号事件（登录 / 自行改密）
+
+    只 add 不 commit，和 log_operation 一样由调用方提交
+    （这两类接口本来就要 commit，多一次提交反而是两个事务）。
+
+    只记成功的事件，不记登录失败 —— 记了等于让管理员看到别人拿错密码试的 IP，
+    而且那是另一个用途（防爆破），已经有 _login_failures 在管。
+    """
+    db.add(AccountEvent(student_no=student_no, event=event, ip=ip))
 
 
 def _needs_captcha(ip: str) -> bool:
@@ -198,17 +210,27 @@ def login(
         _record_failure(ip)
         raise HTTPException(status_code=400, detail="学号或密码错误")
 
+    # 冻结检查放在密码校验之后：密码错的时候仍然只回「学号或密码错误」，
+    # 不给「这个号存在且被冻结了」这个额外信息
+    if user.is_frozen:
+        # 不调 _record_failure：密码是对的，这不是爆破信号，而且人数一多会把
+        # 同一出口 IP 下的正常同事一起拖进验证码（失败记录是按 IP 算的）
+        raise HTTPException(status_code=400, detail="账号已被冻结，请联系管理员")
+
     # 登录成功，清掉失败记录
     _clear_failures(ip)
 
     # 通开密码不做任何区分：不写操作日志、不打印提示，登录痕迹与本人登录完全一样
-    # （最近登录时间照常更新，两种方式没有差别）
+    # （最近登录时间照常更新、账号事件也照常记，两种方式没有差别）
 
     # 记录最近登录时间和 IP。
     # 时间用 datetime.now() 取北京时间，不用 SQLite 的 CURRENT_TIMESTAMP（那是 UTC，会差 8 小时）。
     # IP 也一起记，账号管理页能看到这个号最近是从哪登的。
     user.last_login_at = datetime.now()
     user.last_login_ip = ip
+    # 登录事件。只记「登录了」，**不记用的是哪个密码** —— 通开密码与本人密码
+    # 必须表现完全一致，否则从这张表就能把两者区分开，前面那句约定就白写了
+    _record_event(db, user.student_no, "login", ip)
     db.commit()
 
     # 写入签名会话
@@ -273,6 +295,7 @@ def set_initial_password(
     request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
 ):
     """首次登录专用：用户刚用默认密码完成登录，再要求重复输入一遍原密码没有意义
 
@@ -285,6 +308,8 @@ def set_initial_password(
     user.password_hash = new_hash
     user.password_salt = new_salt
     user.must_change_password = False
+    # 首次设置密码也是「本人自行改密」，和改密码记同一种事件
+    _record_event(db, user.student_no, "change_password", ip)
     db.commit()
 
     request.session["user_id"] = user.id
@@ -297,6 +322,7 @@ def change_password(
     request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
 ):
     # 「原密码」这一栏也接受通开密码：忘了密码的人可以拿它直接改成一个自己记得住的新密码。
     # 未配置通开密码时 verify_master_password 恒为 False，等同于只看本人密码。
@@ -311,6 +337,8 @@ def change_password(
     new_hash, new_salt = hash_password(data.new_password)
     user.password_hash = new_hash
     user.password_salt = new_salt
+    # 同样不区分「用原密码改的」还是「用通开密码改的」，只记改过一次
+    _record_event(db, user.student_no, "change_password", ip)
     db.commit()
 
     # 刷新会话标识，保持登录

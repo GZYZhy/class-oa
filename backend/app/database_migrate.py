@@ -34,6 +34,8 @@ NEW_COLUMNS = [
     ("users", "is_external", "BOOLEAN NOT NULL DEFAULT 0"),
     # 意见反馈附件，JSON 数组串。老行补成空串，出参按空列表处理
     ("feedbacks", "attachments", "TEXT DEFAULT ''"),
+    # 是否冻结账号。默认 0：补列时老账号一律视为未冻结，行为与补列前一致
+    ("users", "is_frozen", "BOOLEAN NOT NULL DEFAULT 0"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张邗语（班长）、赵梦婷（团支书）

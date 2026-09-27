@@ -1,7 +1,8 @@
-"""系统管理：仅管理员可用（账号角色、重置密码、域外账号、资料下载、操作日志）"""
+"""系统管理：仅管理员可用（账号角色、重置密码、冻结、域外账号、资料下载、操作日志）"""
 
 import os
 import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -10,8 +11,10 @@ from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
 from ..database import get_db
-from ..models import OperationLog, PushSubscription, Resource, Student, User
+from ..models import AccountEvent, OperationLog, PushSubscription, Resource, Student, User
 from ..schemas import (
+    AccountEventResponse,
+    AdminUserLogsResponse,
     AdminUserResponse,
     OperationLogListResponse,
     ResetPasswordRequest,
@@ -42,6 +45,12 @@ ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2MB，头像不需要更大
 # 域外账号登录名：不能有空白字符，否则登录时 strip 过就对不上了
 EXTERNAL_LOGIN_NAME_MAX = 20  # 与 users.student_no 的字段长度一致
+
+# 「按账号查日志」里登录 / 改密事件的查询窗口（天）。
+# 只是查询窗口，不删数据 —— account_events 只增不删
+ACCOUNT_EVENT_DAYS = 7
+# 窗口内的事件最多回这么多条，多出来的在 events_total 里报数，前端提示「仅显示最近 N 条」
+ACCOUNT_EVENT_LIMIT = 200
 
 
 def _save_avatar(file: UploadFile) -> str:
@@ -124,6 +133,14 @@ def _get_external_user(db: Session, login_name: str) -> User:
     return target
 
 
+def _get_user(db: Session, login_name: str) -> User:
+    """按登录名取账号，不区分类别（冻结、查日志两种账号都要管）"""
+    target = db.query(User).filter(User.student_no == login_name).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="账号不存在")
+    return target
+
+
 @router.get("/users", response_model=list[AdminUserResponse], summary="账号列表")
 def list_users(_: User = Depends(admin_required), db: Session = Depends(get_db)):
     rows = (
@@ -144,6 +161,7 @@ def list_users(_: User = Depends(admin_required), db: Session = Depends(get_db))
             has_avatar=bool(user.is_external and user.avatar),
             last_login_at=user.last_login_at,
             last_login_ip=user.last_login_ip,
+            is_frozen=bool(user.is_frozen),
         )
         for user, student in rows
     ]
@@ -243,6 +261,127 @@ def reset_password(
         message="已重置为原始密码，该生下次登录需修改密码",
         password=password if is_fallback else None,
         fallback=is_fallback,
+    )
+
+
+# ---------- 冻结 / 解冻 ----------
+# 冻结 = 禁止登录 + 已登录的会话下一个请求就 401。
+# 前者拦在 auth.login，后者拦在 deps.get_current_user —— 只有那两处，
+# 别在别的接口里再补判断（补了就会漏，那两个点才是必经之路）。
+
+
+@router.post("/users/{student_no}/freeze", summary="冻结账号")
+def freeze_user(
+    student_no: str,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """冻结学生账号和域外账号都行（_get_user 不区分类别）
+
+    不需要额外判断「是不是最后一个未冻结的管理员」——下面那道「不能冻自己」
+    已经把它盖住了，理由是：
+      调用者此刻**必定是未冻结的管理员**（admin_required 查的是库里的实时角色，
+       冻结的账号在 get_current_user 里就被 401 挡掉，根本进不到这个函数），
+      而它冻不了自己，所以冻完任何一个目标之后，系统里至少还剩它这一个
+       未冻结管理员。目标不是自己、又是个管理员时，未冻结管理员必然 ≥ 2 个，
+      「冻完就没管理员了」这种情况不可能出现。
+    """
+    target = _get_user(db, student_no)
+
+    # 冻自己 = 下一步自己的会话就被踢掉，再想解冻都没人操作得了
+    if target.student_no == user.student_no:
+        raise HTTPException(status_code=400, detail="不能冻结当前登录的账号")
+
+    # 重复点不报错：两个管理员同时点一下不该弹红字，也不该记两条日志
+    if target.is_frozen:
+        return {"message": "该账号已是冻结状态"}
+
+    target.is_frozen = True
+    log_operation(
+        db, user, "冻结账号", target=f"{student_no} {account_name(db, target)}", ip=ip,
+    )
+    db.commit()
+    return {"message": "已冻结"}
+
+
+@router.post("/users/{student_no}/unfreeze", summary="解冻账号")
+def unfreeze_user(
+    student_no: str,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    target = _get_user(db, student_no)
+    if not target.is_frozen:
+        return {"message": "该账号本来就是未冻结状态"}
+
+    target.is_frozen = False
+    log_operation(
+        db, user, "解冻账号", target=f"{student_no} {account_name(db, target)}", ip=ip,
+    )
+    db.commit()
+    return {"message": "已解冻"}
+
+
+@router.get(
+    "/users/{student_no}/logs",
+    response_model=AdminUserLogsResponse,
+    summary="某个账号的日志",
+)
+def user_logs(
+    student_no: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    _: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    """两块内容：
+
+    - 操作日志：这个账号**作为操作人**留下的全部记录，分页
+    - 账号事件：这个账号最近 7 天的登录 / 自行改密
+
+    事件那块只能查到本功能上线之后 —— 之前这两种行为压根没入库，
+    不存在的历史补不回来（不是漏查，是从来没有）。
+    """
+    target = _get_user(db, student_no)
+
+    # operator_no 是精确匹配。现有的 /logs?operator= 走的是 LIKE %x%，
+    # 拿 2026012 去查会把 20260123、20260124 一起带出来，那种模糊匹配不能用来「看某个账号」
+    operations = db.query(OperationLog).filter(OperationLog.operator_no == student_no)
+    op_total = operations.count()
+    op_items = (
+        operations.order_by(OperationLog.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    since = datetime.now() - timedelta(days=ACCOUNT_EVENT_DAYS)
+    events = db.query(AccountEvent).filter(
+        AccountEvent.student_no == student_no,
+        # created_at 是 Python 端写入的北京时间，这里也用 datetime.now()，
+        # 两边同源才比得了（SQLite 的 CURRENT_TIMESTAMP 是 UTC，混用就会错 8 小时）
+        AccountEvent.created_at >= since,
+    )
+    event_total = events.count()
+    event_items = (
+        # 按 created_at 倒序而不是 id 倒序：窗口本来就是拿 created_at 划的，
+        # 排序用同一个字段才自洽。id 倒序只在「写入顺序 = 时间顺序」时等价，
+        # 补数据、导数据时会露馅（本模块的注释也说了本表只增不删，
+        # 但没人保证一定是按时间顺序增的）
+        events.order_by(AccountEvent.created_at.desc(), AccountEvent.id.desc())
+        .limit(ACCOUNT_EVENT_LIMIT)
+        .all()
+    )
+
+    return AdminUserLogsResponse(
+        student_no=student_no,
+        name=account_name(db, target),
+        operations=OperationLogListResponse(total=op_total, items=op_items),
+        events=[AccountEventResponse.model_validate(e) for e in event_items],
+        events_total=event_total,
+        events_since=since,
     )
 
 
@@ -415,13 +554,21 @@ def list_logs(
 
 
 @router.delete("/logs", summary="清空操作日志")
-def clear_logs(_: User = Depends(admin_required), db: Session = Depends(get_db)):
-    """删除全部操作日志
+def clear_logs(
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """删除全部操作日志，**然后补一条「清空了日志」**
 
-    刻意不记「谁清空了日志」—— 清空就是归零，留一条尾巴反而让人以为没清干净。
-    代价是清空这个动作本身也不可追溯，所以前端加了二次确认。
+    清空本身也是要留痕的动作 —— 否则日志突然变空之后谁也说不清是清过、
+    还是库出问题了。清掉了多少条写进 detail，两次清空之间对得上账。
+
+    顺序是先删后写，`query.delete()` 是立即执行的批量删除（不是挂到 flush 上），
+    所以补的那条不会被自己删掉。
     """
     deleted = db.query(OperationLog).delete()
+    log_operation(db, user, "清空了日志", detail=f"清空前共 {deleted} 条", ip=ip)
     db.commit()
     return {"message": f"已清空 {deleted} 条日志", "deleted": deleted}
 
