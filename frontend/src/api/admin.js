@@ -31,6 +31,37 @@ export function resetUserPassword(studentNo, newPassword) {
   })
 }
 
+/** 冻结账号：禁止登录，已登录的会话下一个请求就 401 */
+export function freezeUser(studentNo) {
+  return request({
+    url: `/admin/users/${studentNo}/freeze`,
+    method: 'post'
+  })
+}
+
+/** 解冻账号 */
+export function unfreezeUser(studentNo) {
+  return request({
+    url: `/admin/users/${studentNo}/unfreeze`,
+    method: 'post'
+  })
+}
+
+/**
+ * 某个账号的日志
+ *
+ * 返回 { student_no, name, operations: {total, items}, events, events_total, events_since }
+ * operations 是它作为操作人的全部操作日志（分页）；
+ * events 是最近 7 天的登录 / 自行改密，不分页，超过 200 条时看 events_total。
+ */
+export function getUserLogs(studentNo, params) {
+  return request({
+    url: `/admin/users/${studentNo}/logs`,
+    method: 'get',
+    params
+  })
+}
+
 /** 新建域外账号（不与学生关联的账号：老师、协助人员等） */
 export function createExternalUser(formData) {
   return request({
@@ -68,7 +99,7 @@ export function getLogs(params) {
   })
 }
 
-/** 清空全部操作日志（不可恢复，且不会留下「谁清的」记录） */
+/** 清空全部操作日志（不可恢复；清空本身会留一条「清空了日志」） */
 export function clearLogs() {
   return request({
     url: '/admin/logs',

@@ -3,8 +3,8 @@
     <h3 class="page-title">系统管理</h3>
 
     <el-tabs v-model="activeTab">
-      <!-- ============ 账号角色管理 ============ -->
-      <el-tab-pane label="账号角色管理" name="users">
+      <!-- ============ 账号管理 ============ -->
+      <el-tab-pane label="账号管理" name="users">
         <el-form :inline="true">
           <el-form-item label="搜索">
             <el-input
@@ -23,7 +23,13 @@
 
         <el-table :data="filteredUsers" v-loading="loadingUsers" stripe border style="width: 100%;">
           <el-table-column prop="student_no" label="学号" width="130" align="center" />
-          <el-table-column prop="name" label="姓名" width="110" align="center" />
+          <el-table-column prop="name" label="姓名" width="130" align="center">
+            <template #default="{ row }">
+              {{ row.name }}
+              <!-- 冻结是能拦住登录的状态，必须一眼看得见，不能只藏在操作按钮的文字里 -->
+              <el-tag v-if="row.is_frozen" type="danger" size="small">已冻结</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="类型" width="90" align="center">
             <template #default="{ row }">
               <el-tag v-if="row.is_external" type="warning" size="small">域外</el-tag>
@@ -76,55 +82,52 @@
               <el-tag v-else type="danger" size="small">缺失</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="200" align="center">
+          <el-table-column label="操作" :width="isMobile ? 175 : 265" align="center">
             <template #default="{ row }">
-              <template v-if="row.is_external">
-                <el-button link type="primary" size="small" @click="openEditExternal(row)">编辑</el-button>
-                <el-button link type="primary" size="small" @click="handleExtResetPassword(row)">重置密码</el-button>
-                <el-button link type="danger" size="small" @click="handleExtDelete(row)">删除</el-button>
+              <!-- 手机上 5 个按钮排不下（会把这列顶得比整屏还宽），
+                   所以只直显 MOBILE_PRIMARY，其余收进「更多」下拉 -->
+              <template v-if="isMobile">
+                <el-button link type="primary" size="small" @click="primaryAction(row).run()">
+                  {{ MOBILE_PRIMARY }}
+                </el-button>
+                <el-dropdown trigger="click" @command="(action) => action.run()">
+                  <el-button link type="primary" size="small">
+                    更多<el-icon><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <!-- command 绑的是 action 对象本身，不是下标：过滤之后
+                           下标和原数组对不上，会点「日志」执行「删除」 -->
+                      <el-dropdown-item
+                        v-for="action in restActions(row)"
+                        :key="action.label"
+                        :command="action"
+                      >
+                        {{ action.label }}
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </template>
-              <span v-else style="color: #c0c4cc;">-</span>
+              <template v-else>
+                <el-button
+                  v-for="action in rowActions(row)"
+                  :key="action.label"
+                  link
+                  :type="action.type"
+                  size="small"
+                  @click="action.run()"
+                >
+                  {{ action.label }}
+                </el-button>
+              </template>
             </template>
           </el-table-column>
         </el-table>
         <div class="tip">
-          共 {{ filteredUsers.length }} 个账号，改角色会对该账号立即生效并记入日志。
+          共 {{ filteredUsers.length }} 个账号，改角色、冻结都会对该账号立即生效并记入日志。
           域外账号不与学生关联，不会出现在学生名单、点名和各类统计里。
         </div>
-      </el-tab-pane>
-
-      <!-- ============ 重置密码 ============ -->
-      <el-tab-pane label="重置密码" name="reset">
-        <el-alert
-          type="warning"
-          :closable="false"
-          show-icon
-          title="重置后密码回到「身份证号后 6 位」，该生下次登录仍会被要求改密码。"
-          style="margin-bottom: 16px;"
-        />
-        <el-form :inline="true">
-          <el-form-item label="选择账号">
-            <!-- 只列学生账号：域外账号没有身份证号，重置方式不同，在「账号角色管理」里操作 -->
-            <el-select
-              v-model="resetTarget"
-              filterable
-              placeholder="输入姓名或学号搜索"
-              style="width: 280px"
-            >
-              <el-option
-                v-for="u in studentUsers"
-                :key="u.student_no"
-                :label="`${u.name}（${u.student_no}）`"
-                :value="u.student_no"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="danger" :loading="resetting" :disabled="!resetTarget" @click="handleReset">
-              重置密码
-            </el-button>
-          </el-form-item>
-        </el-form>
       </el-tab-pane>
 
       <!-- ============ 操作日志 ============ -->
@@ -301,6 +304,76 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- ============ 某个账号的日志 ============ -->
+    <el-dialog v-model="logVisible" :title="logTitle" width="720px">
+      <div v-loading="loadingUserLogs">
+        <div class="log-section-title">操作日志</div>
+        <el-table :data="userLogs.operations.items" stripe border style="width: 100%;">
+          <el-table-column label="时间" width="160" align="center">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column prop="action" label="动作" width="120" align="center" />
+          <el-table-column prop="target" label="对象" min-width="150" show-overflow-tooltip />
+          <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+        </el-table>
+        <el-empty
+          v-if="!loadingUserLogs && !userLogs.operations.total"
+          description="这个账号还没有操作记录"
+          :image-size="60"
+        />
+        <div v-if="userLogs.operations.total" class="pagination-wrap">
+          <el-pagination
+            v-model:current-page="userLogPage"
+            v-model:page-size="userLogPageSize"
+            :page-sizes="[20, 50, 100, 200]"
+            :total="userLogs.operations.total"
+            layout="total, sizes, prev, pager, next"
+            background
+            @size-change="fetchUserLogs"
+            @current-change="fetchUserLogs"
+          />
+        </div>
+
+        <div class="log-section-title">
+          登录与改密
+          <!-- 把 7 天这个边界显示出来，不然只会让人猜为什么只有这几条 -->
+          <span class="log-section-hint">
+            仅最近 7 天（{{ formatDateTime(userLogs.events_since) }} 起）
+          </span>
+        </div>
+        <el-table :data="userLogs.events" stripe border style="width: 100%;">
+          <el-table-column label="时间" width="160" align="center">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="事件" width="120" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.event === 'login'" type="info" size="small">登录</el-tag>
+              <el-tag v-else-if="row.event === 'change_password'" type="warning" size="small">
+                修改密码
+              </el-tag>
+              <span v-else>{{ row.event }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="IP" min-width="150" align="center">
+            <template #default="{ row }">
+              <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
+              <span v-else style="color: #c0c4cc;">-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div v-if="userLogs.events_total > userLogs.events.length" class="tip">
+          7 天内共 {{ userLogs.events_total }} 条，这里只列出最近 {{ userLogs.events.length }} 条。
+        </div>
+        <el-empty
+          v-else-if="!loadingUserLogs && !userLogs.events_total"
+          description="最近 7 天没有登录或改密记录"
+          :image-size="60"
+        />
+        <!-- 这个功能上线之前的登录/改密压根没入库，历史补不回来，说清楚免得以为漏查 -->
+        <div class="tip">登录与改密记录自本功能上线起才开始保存，更早的记录查不到。</div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -311,6 +384,9 @@ import {
   getUsers,
   setUserRole,
   resetUserPassword,
+  freezeUser,
+  unfreezeUser,
+  getUserLogs,
   createExternalUser,
   updateExternalUser,
   deleteExternalUser,
@@ -324,10 +400,15 @@ import {
 } from '@/api/admin'
 import { ROLE_LABELS } from '@/utils/roles'
 import { formatDateTime } from '@/utils/format'
+import { useIsMobile } from '@/composables/useIsMobile'
+
+// 手机上操作列只直显这一个按钮，其余收进「更多」下拉。想换直显项改这里一个词
+const MOBILE_PRIMARY = '重置密码'
 
 const activeTab = ref('users')
+const isMobile = useIsMobile()
 
-// ---------- 账号角色 ----------
+// ---------- 账号管理 ----------
 const users = ref([])
 const loadingUsers = ref(false)
 const userKeyword = ref('')
@@ -337,11 +418,6 @@ const filteredUsers = computed(() => {
   if (!kw) return users.value
   return users.value.filter((u) => u.name.includes(kw) || u.student_no.includes(kw))
 })
-
-// 「重置密码」tab 的候选：只列学生账号。
-// 那里的语义是「重置为身份证号后 6 位」，对域外账号不适用
-// （域外账号的密码由管理员在下面的对话框里直接指定）
-const studentUsers = computed(() => users.value.filter((u) => !u.is_external))
 
 async function fetchUsers() {
   loadingUsers.value = true
@@ -374,16 +450,48 @@ async function handleRoleChange(row, role) {
   }
 }
 
-// ---------- 重置密码 ----------
-const resetTarget = ref('')
-const resetting = ref(false)
+// ---------- 行内操作 ----------
+// 一行有哪些按钮只在这里定义一次：桌面端平铺、手机端取其中一项直显，两边共用，
+// 不把按钮列表在模板里抄两遍（抄两遍之后加个按钮必然会漏一边）
+function rowActions(row) {
+  const frozen = row.is_frozen
+  return [
+    ...(row.is_external
+      ? [{ label: '编辑', type: 'primary', run: () => openEditExternal(row) }]
+      : []),
+    {
+      label: '重置密码',
+      type: 'primary',
+      // 两种账号的重置方式不同（学生重置回原始密码，域外账号由管理员指定新密码）
+      run: () => (row.is_external ? handleExtResetPassword(row) : handleStudentReset(row))
+    },
+    { label: '日志', type: 'primary', run: () => openUserLogs(row) },
+    {
+      label: frozen ? '解冻' : '冻结',
+      type: frozen ? 'success' : 'warning',
+      run: () => handleToggleFreeze(row)
+    },
+    ...(row.is_external
+      ? [{ label: '删除', type: 'danger', run: () => handleExtDelete(row) }]
+      : [])
+  ]
+}
 
-async function handleReset() {
-  const target = users.value.find((u) => u.student_no === resetTarget.value)
-  if (!target) return
+/** 手机端直显的那个。一定存在，不用可选链 */
+function primaryAction(row) {
+  return rowActions(row).find((a) => a.label === MOBILE_PRIMARY)
+}
+
+/** 手机端下拉里的其余项 */
+function restActions(row) {
+  return rowActions(row).filter((a) => a.label !== MOBILE_PRIMARY)
+}
+
+// ---------- 重置密码 ----------
+async function handleStudentReset(row) {
   try {
     await ElMessageBox.confirm(
-      `确定把「${target.name}」的密码重置为原始密码吗？`,
+      `确定把「${row.name}」的密码重置为原始密码吗？`,
       '重置密码',
       { type: 'warning', confirmButtonText: '重置' }
     )
@@ -391,9 +499,8 @@ async function handleReset() {
     return // 取消
   }
 
-  resetting.value = true
   try {
-    const res = await resetUserPassword(resetTarget.value)
+    const res = await resetUserPassword(row.student_no)
     if (res.password) {
       // 没有身份证号时密码退化成学号后 6 位，后端把明文回带，好让管理员转告学生
       ElMessageBox.alert(`该生没有身份证号，密码已重置为：${res.password}`, '重置成功', {
@@ -405,8 +512,72 @@ async function handleReset() {
     fetchUsers()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '重置失败')
+  }
+}
+
+// ---------- 冻结 / 解冻 ----------
+async function handleToggleFreeze(row) {
+  const freezing = !row.is_frozen
+  try {
+    await ElMessageBox.confirm(
+      freezing
+        ? `确定冻结「${row.name}」吗？冻结后该账号无法登录，已登录的会话会立即失效。`
+        : `确定解冻「${row.name}」吗？解冻后可以重新登录。`,
+      freezing ? '冻结账号' : '解冻账号',
+      { type: 'warning', confirmButtonText: freezing ? '冻结' : '解冻' }
+    )
+  } catch (e) {
+    return // 取消
+  }
+
+  try {
+    await (freezing ? freezeUser(row.student_no) : unfreezeUser(row.student_no))
+    ElMessage.success(freezing ? '已冻结' : '已解冻')
+    fetchUsers()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || (freezing ? '冻结失败' : '解冻失败'))
+  }
+}
+
+// ---------- 某个账号的日志 ----------
+const logVisible = ref(false)
+const loadingUserLogs = ref(false)
+const logTarget = ref({})
+const userLogPage = ref(1)
+const userLogPageSize = ref(20)
+// 先给个空壳，模板里就不用到处判空了（events_since 为空时 formatDateTime 显示 '-'）
+const userLogs = ref({
+  operations: { total: 0, items: [] },
+  events: [],
+  events_total: 0,
+  events_since: null
+})
+
+const logTitle = computed(
+  () => `${logTarget.value.name || ''}（${logTarget.value.student_no || ''}）的日志`
+)
+
+async function openUserLogs(row) {
+  logTarget.value = row
+  userLogPage.value = 1
+  userLogPageSize.value = 20
+  logVisible.value = true
+  // 打开才请求：账号列表可能有几十上百行，进页面时为每行都拉一次日志没意义
+  await fetchUserLogs()
+}
+
+async function fetchUserLogs() {
+  if (!logTarget.value.student_no) return
+  loadingUserLogs.value = true
+  try {
+    userLogs.value = await getUserLogs(logTarget.value.student_no, {
+      page: userLogPage.value,
+      page_size: userLogPageSize.value
+    })
+  } catch (e) {
+    ElMessage.error('日志加载失败')
   } finally {
-    resetting.value = false
+    loadingUserLogs.value = false
   }
 }
 
@@ -812,6 +983,29 @@ onMounted(() => {
   margin-top: 12px;
   font-size: 13px;
   color: #909399;
+}
+
+/* ---------- 账号日志对话框 ---------- */
+.log-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  margin: 0 0 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 第二个小标题跟上面的表格拉开距离，第一个不用（它就在弹窗顶部） */
+.log-section-title:not(:first-child) {
+  margin-top: 24px;
+}
+
+.log-section-hint {
+  font-size: 12px;
+  color: #909399;
+  font-weight: normal;
 }
 
 /* ---------- 资料下载管理 ---------- */

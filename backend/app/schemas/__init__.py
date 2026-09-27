@@ -25,6 +25,8 @@ from .admin import (
     ResetPasswordResponse,
     OperationLogResponse,
     OperationLogListResponse,
+    AccountEventResponse,
+    AdminUserLogsResponse,
 )
 from .about import CommitteeMember, AboutResponse
 from .leave import LeaveRequestCreate, LeaveRequestResponse, LeaveRejectRequest
@@ -56,6 +58,8 @@ __all__ = [
     "ResetPasswordResponse",
     "OperationLogResponse",
     "OperationLogListResponse",
+    "AccountEventResponse",
+    "AdminUserLogsResponse",
     "CommitteeMember",
     "AboutResponse",
     "LeaveRequestCreate",

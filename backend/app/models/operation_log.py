@@ -6,7 +6,12 @@ from ..database import Base
 
 
 class OperationLog(Base):
-    """操作日志：只记内容变更（发布/修改/删除、审核、重置密码、改角色），不记登录"""
+    """操作日志：只记内容变更（发布/修改/删除、审核、重置密码、改角色、冻结），不记登录
+
+    登录和「本人自行改密」在 account_events —— 那是高频事件，混进来会把
+    这里的操作记录冲没；而且本表会被「清空日志」整体删掉，
+    放一起等于清日志时把登录痕迹一起抹了。
+    """
     __tablename__ = "operation_logs"
 
     id = Column(Integer, primary_key=True, index=True)

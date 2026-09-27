@@ -24,6 +24,9 @@ class AdminUserResponse(BaseModel):
     last_login_at: Optional[datetime] = None
     # 最近登录 IP
     last_login_ip: Optional[str] = None
+    # 是否已冻结：冻结后不能登录，已登录的会话下一个请求就 401。
+    # 老库补列时一律为 False
+    is_frozen: bool = False
 
 
 class RoleUpdateRequest(BaseModel):
@@ -70,3 +73,33 @@ class OperationLogResponse(BaseModel):
 class OperationLogListResponse(BaseModel):
     total: int
     items: list[OperationLogResponse]
+
+
+class AccountEventResponse(BaseModel):
+    """一条账号事件（登录 / 本人自行改密）"""
+    id: int
+    created_at: Optional[datetime] = None
+    # login | change_password。存英文值、前端映射中文，
+    # 免得以后加事件类型时库里已经存了一批中文
+    event: str
+    ip: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AdminUserLogsResponse(BaseModel):
+    """某个账号的日志：操作日志（全部）+ 账号事件（最近 7 天）"""
+    student_no: str
+    name: str
+    # 该账号作为「操作人」留下的操作日志。只按操作人过滤，不看时间；
+    # 不是用 /logs?operator= 那个模糊匹配 —— 按 2026012 查会把 20260123、
+    # 20260124 一起带出来
+    operations: OperationLogListResponse
+    # 最近 7 天的登录 / 改密事件。events 最多 200 条，events_total 是窗口内的真实条数，
+    # 前端在 total 大于条数时提示「仅显示最近 200 条」—— 不做静默截断
+    events: list[AccountEventResponse]
+    events_total: int
+    # 7 天窗口的左端。回给前端是为了让它把边界显示出来，
+    # 而不是让人猜「为什么只有这几条」
+    events_since: datetime

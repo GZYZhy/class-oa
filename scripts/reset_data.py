@@ -14,6 +14,8 @@ user_service.ensure_default_users 共用同一个函数，不在这里另写一�
 - data/.session_secret       删了全体登录态立刻失效，那是另一个动作
 - data/.vapid_private.pem    删了这台服务器上所有浏览器推送订阅立刻失效
 - users.bark_key             账号级的设备绑定，跟着账号走，不是业务数据
+- users.is_frozen            管理员有意冻结的账号，重置业务数据不该悄悄给人解冻
+                             （和 users.role 同一类：账号级状态，不是业务数据）
 
 用法：python3 scripts/reset_data.py
 """
@@ -35,6 +37,7 @@ from app.api.feedback import FEEDBACK_DIR  # noqa: E402
 from app.api.leaves import LEAVE_DIR  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
 from app.models import (  # noqa: E402
+    AccountEvent,
     Announcement,
     ChangeRequest,
     Feedback,
@@ -51,6 +54,7 @@ from app.utils.security import hash_password  # noqa: E402
 # 要清空的业务表。顺序无所谓（表之间没有强外键约束）
 CLEAR_MODELS = [
     OperationLog,
+    AccountEvent,
     LeaveRequest,
     Feedback,
     ChangeRequest,
@@ -106,7 +110,7 @@ def main() -> None:
             removed = db.execute(delete(model)).rowcount
             print(f"  {model.__tablename__:<22} 清掉 {removed} 行", flush=True)
 
-        print("\n=== 2. 账号恢复初始状态（角色保持不变）===", flush=True)
+        print("\n=== 2. 账号恢复初始状态（角色、冻结状态保持不变）===", flush=True)
         students = {s.student_no: s for s in db.query(Student).all()}
         reset = 0
         skipped: list[str] = []
@@ -157,6 +161,10 @@ def main() -> None:
             select(func.count()).select_from(User).where(User.bark_key.isnot(None), User.bark_key != "")
         ).scalar()
         print(f"  users.bark_key         保留 {bark} 条设备绑定", flush=True)
+        frozen = db.execute(
+            select(func.count()).select_from(User).where(User.is_frozen.is_(True))
+        ).scalar()
+        print(f"  users.is_frozen        保留 {frozen} 个冻结账号", flush=True)
         print("  data/photos/、data/downloads/、.session_secret、.vapid_private.pem 均未改动", flush=True)
     finally:
         db.close()

@@ -41,4 +41,11 @@ class User(Base):
         Boolean, nullable=False, default=False, server_default=text("0"),
         comment="是否域外账号（不与学生表关联）",
     )
+    # 是否已冻结：禁止登录，且已登录的会话下一个请求就 401
+    # （会话是签名 Cookie，服务端没有会话表，所以「踢掉在线会话」靠的是
+    #   deps.get_current_user 里那道判断，不是去清什么服务端状态）
+    is_frozen = Column(
+        Boolean, nullable=False, default=False, server_default=text("0"),
+        comment="是否已冻结（禁止登录，在线会话立即失效）",
+    )
     created_at = Column(DateTime, server_default=func.now())
