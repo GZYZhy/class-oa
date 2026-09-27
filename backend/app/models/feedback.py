@@ -25,6 +25,11 @@ class Feedback(Base):
     title = Column(String(100), comment="标题")
     content = Column(Text, comment="正文")
 
+    # 附件：[{"file": "存盘名", "name": "原始名", "size": 字节数}]
+    # 用 TEXT 存 JSON 而不单开一张表：附件不需要单独查询、不需要外键，
+    # 同一行自带还能让列表接口零额外查询（同 change_requests.changes）
+    attachments = Column(Text, default="", comment="附件列表（JSON）")
+
     # 状态：unread 未读 / read 已读 / replied 已回复
     status = Column(String(20), default="unread", index=True, comment="unread/read/replied")
 

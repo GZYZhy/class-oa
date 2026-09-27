@@ -5,9 +5,26 @@ export function getMyFeedback() {
   return request({ url: '/feedback/my', method: 'get' })
 }
 
-/** 提交反馈 */
-export function submitFeedback(data) {
-  return request({ url: '/feedback', method: 'post', data })
+/** 提交反馈（form-data：正文和附件一起发） */
+export function submitFeedback(formData) {
+  return request({
+    url: '/feedback',
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    // 单个附件可达 20MB，默认的 15 秒在手机网络上必然超时
+    timeout: 120000
+  })
+}
+
+/** 下载反馈附件（index 取自 feedback.attachments[].index） */
+export function downloadFeedbackAttachment(feedbackId, index) {
+  return request({
+    url: `/feedback/${feedbackId}/attachments/${index}`,
+    method: 'get',
+    responseType: 'blob',
+    timeout: 120000
+  })
 }
 
 /** 我的反馈详情 */

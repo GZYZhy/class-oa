@@ -8,7 +8,7 @@
 #                           前面挂了固定的反向代理时建议改成那个代理的 IP
 #   NGINX_SSL_CERT          SSL 证书在容器内的路径，留空=不开启 HTTPS
 #   NGINX_SSL_KEY           SSL 私钥在容器内的路径，留空=不开启 HTTPS
-#   NGINX_CLIENT_MAX_BODY   上传文件大小限制，默认 50M
+#   NGINX_CLIENT_MAX_BODY   上传文件大小限制，默认 70M
 
 server {
     listen       80;

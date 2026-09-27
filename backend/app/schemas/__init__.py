@@ -28,7 +28,7 @@ from .admin import (
 )
 from .about import CommitteeMember, AboutResponse
 from .leave import LeaveRequestCreate, LeaveRequestResponse, LeaveRejectRequest
-from .feedback import FeedbackCreate, FeedbackReply, FeedbackResponse
+from .feedback import FeedbackAttachment, FeedbackReply, FeedbackResponse
 
 __all__ = [
     "StudentBase",
@@ -61,7 +61,7 @@ __all__ = [
     "LeaveRequestCreate",
     "LeaveRequestResponse",
     "LeaveRejectRequest",
-    "FeedbackCreate",
+    "FeedbackAttachment",
     "FeedbackReply",
     "FeedbackResponse",
 ]

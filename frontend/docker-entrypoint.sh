@@ -5,7 +5,10 @@ set -e
 export NGINX_SERVER_NAME="${NGINX_SERVER_NAME:-_}"
 export NGINX_TRUST_PROXY="${NGINX_TRUST_PROXY:-on}"
 export NGINX_TRUSTED_PROXIES="${NGINX_TRUSTED_PROXIES:-172.16.0.0/12}"
-export NGINX_CLIENT_MAX_BODY_SIZE="${NGINX_CLIENT_MAX_BODY_SIZE:-50M}"
+# 70M：意见反馈最多 3 个附件、单个上限 20MB，3×20=60MB 再加上表单正文，
+# 低于这个值会在 FastAPI 之前就被 nginx 用 413 挡掉（返回 HTML 错误页，
+# 前端只能弹一句「提交失败」，极难排查）
+export NGINX_CLIENT_MAX_BODY_SIZE="${NGINX_CLIENT_MAX_BODY_SIZE:-70M}"
 
 # 组装信任代理的配置块
 if [ "$NGINX_TRUST_PROXY" = "on" ]; then

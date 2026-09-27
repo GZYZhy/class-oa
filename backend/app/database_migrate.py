@@ -32,6 +32,8 @@ NEW_COLUMNS = [
     ("users", "display_name", "VARCHAR(50)"),
     ("users", "avatar", "VARCHAR(200)"),
     ("users", "is_external", "BOOLEAN NOT NULL DEFAULT 0"),
+    # 意见反馈附件，JSON 数组串。老行补成空串，出参按空列表处理
+    ("feedbacks", "attachments", "TEXT DEFAULT ''"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）

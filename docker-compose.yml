@@ -65,8 +65,9 @@ services:
       #   也就是 Docker 宿主机本身 —— 最外层 nginx 跑在宿主机上时，容器看到的
       #   来源 IP 就在这个网段里；如果前面还有 CDN，再把 CDN 的网段加进来）
       # - NGINX_TRUSTED_PROXIES=172.16.0.0/12
-      # 上传文件大小限制，默认 50M
-      # - NGINX_CLIENT_MAX_BODY_SIZE=50M
+      # 上传文件大小限制，默认 70M（意见反馈 3 个附件 × 单个 20MB 需要 ≥65M，
+      #   调小的话大附件会在这里被 413 挡掉）
+      # - NGINX_CLIENT_MAX_BODY_SIZE=70M
       # SSL 证书路径（容器内路径），两个都配置了才开启 HTTPS
       # - NGINX_SSL_CERT=/etc/nginx/ssl/cert.pem
       # - NGINX_SSL_KEY=/etc/nginx/ssl/key.pem

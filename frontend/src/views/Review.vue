@@ -215,6 +215,17 @@
         </div>
         <div class="detail-body">{{ currentFeedback.content }}</div>
 
+        <div v-if="currentFeedback.attachments?.length" class="attachment-block">
+          <div class="attachment-title">附件</div>
+          <div v-for="item in currentFeedback.attachments" :key="item.index" class="attachment-item">
+            <el-icon><Paperclip /></el-icon>
+            <span class="attachment-name" @click="downloadAttachment(currentFeedback.id, item)">
+              {{ item.name }}
+            </span>
+            <span class="attachment-size">{{ formatFileSize(item.size) }}</span>
+          </div>
+        </div>
+
         <!-- 回复区 -->
         <div v-if="currentFeedback.status === 'replied'" class="reply-block">
           <div class="reply-title">
@@ -253,7 +264,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Right, ChatDotRound } from '@element-plus/icons-vue'
+import { Right, ChatDotRound, Paperclip } from '@element-plus/icons-vue'
 import {
   getChangeRequests,
   approveChangeRequest,
@@ -270,10 +281,11 @@ import {
   getFeedbackList,
   getFeedbackDetail,
   markFeedbackRead,
-  replyFeedback
+  replyFeedback,
+  downloadFeedbackAttachment
 } from '@/api/feedback'
 import { FIELD_LABELS, STATUS_LABELS, STATUS_TYPES } from '@/utils/changeFields'
-import { formatDate, formatDateTime } from '@/utils/format'
+import { formatDate, formatDateTime, formatFileSize } from '@/utils/format'
 import Watermark from '@/components/Watermark.vue'
 import { useWatermark } from '@/composables/useWatermark'
 import { useUserStore } from '@/store/user'
@@ -447,6 +459,22 @@ async function viewFeedback(row) {
   }
 }
 
+/** index 用后端给的，不靠数组下标猜（班委和学生看到的是同一份下标） */
+async function downloadAttachment(feedbackId, item) {
+  try {
+    const blob = await downloadFeedbackAttachment(feedbackId, item.index)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    // blob: URL 上没有后端的 Content-Disposition，文件名只能自己给
+    a.download = item.name
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    ElMessage.error('附件下载失败')
+  }
+}
+
 async function handleMarkRead(row) {
   try {
     await markFeedbackRead(row.id)
@@ -585,6 +613,44 @@ onMounted(handleTabChange)
   color: #303133;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.attachment-block {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #ebeef5;
+}
+
+.attachment-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+  margin-bottom: 8px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #909399;
+  padding: 4px 0;
+}
+
+/* 长文件名要能断行，否则会把大小挤出去、撑破弹窗 */
+.attachment-name {
+  color: #409eff;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.attachment-name:hover {
+  text-decoration: underline;
+}
+
+.attachment-size {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .reply-block {
