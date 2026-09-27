@@ -36,7 +36,7 @@
                ?v=1 是 PWA 图标的版本串约定（nginx 给 png 打了一年 immutable） -->
           <img class="ig-icon" src="/icons/apple-touch-icon.png?v=1" alt="" />
 
-          <h3 class="ig-title">把「统26-1班」装到主屏</h3>
+          <h3 class="ig-title">把「{{ SITE.shortName }}」装到主屏</h3>
           <p class="ig-sub">装好后能收通知，打开也没有地址栏</p>
 
           <ol class="ig-steps">
@@ -92,6 +92,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { isIos, isIosSafari, isInAppBrowser, isStandalone } from '@/utils/webpush'
+import { SITE } from '@/utils/site'
 
 // 「不再显示」= 永久，记 localStorage；「我知道了」= 只压本次会话，记 sessionStorage
 const NEVER_KEY = 'oa.iosInstallGuide.never'

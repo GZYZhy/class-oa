@@ -285,6 +285,9 @@ def login(
     # 写入签名会话
     request.session.clear()
     request.session["user_id"] = user.id
+    # 会话代次：管理员「吊销所有会话」后，客户端手里的旧 cookie 会因为代次对不上而失效。
+    # 这里记下签发时的代次，deps.get_current_user 每次请求拿它和库里的值比对
+    request.session["epoch"] = user.session_epoch or 0
     # 标记是否保持登录。RememberMeMiddleware 会根据这个标志调整 cookie 的 Max-Age：
     #   true  → 7 天持久化
     #   false → session cookie（浏览器关了就没）

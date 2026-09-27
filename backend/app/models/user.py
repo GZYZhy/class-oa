@@ -48,4 +48,12 @@ class User(Base):
         Boolean, nullable=False, default=False, server_default=text("0"),
         comment="是否已冻结（禁止登录，在线会话立即失效）",
     )
+    # 会话代次：管理员点「吊销所有会话」时 +1，此前签发的 cookie 全部作废。
+    # 同样没有服务端会话表，所以「作废」靠的是 deps.get_current_user 拿 cookie 里的
+    # 代次和这一列比对，不是去删什么记录。
+    # 与 is_frozen 的区别：吊销只把在线会话踢掉，账号本身还能正常登录
+    session_epoch = Column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+        comment="会话代次，吊销所有会话时 +1",
+    )
     created_at = Column(DateTime, server_default=func.now())

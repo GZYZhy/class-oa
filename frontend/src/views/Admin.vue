@@ -125,8 +125,7 @@
           </el-table-column>
         </el-table>
         <div class="tip">
-          共 {{ filteredUsers.length }} 个账号，改角色、冻结都会对该账号立即生效并记入日志。
-          域外账号不与学生关联，不会出现在学生名单、点名和各类统计里。
+          共 {{ filteredUsers.length }} 个账号。域外账号不出现在学生名单、点名和各类统计里。
         </div>
       </el-tab-pane>
 
@@ -224,7 +223,7 @@
 
         <div class="tip ban-self-tip">
           你当前的 IP：<span class="mono">{{ selfIp || '未知' }}</span>
-          （不能封禁自己所在的 IP 或网段；与反向代理网段重叠的网段也不允许封）。
+          （不能封禁自己所在的 IP 或网段）。
         </div>
 
         <el-table :data="ipBans" v-loading="loadingBans" stripe border style="width: 100%;">
@@ -287,8 +286,8 @@
         </div>
 
         <div class="tip">
-          列表只显示生效中的封禁，过期的会自动消失。自动封禁由登录失败攒够阈值触发，
-          不写操作日志，它的来由记在这里的「原因」里。
+          列表只显示生效中的封禁，过期的会自动消失。操作人标着「系统（自动）」的，
+          是登录失败次数过多触发的。
         </div>
       </el-tab-pane>
 
@@ -304,7 +303,7 @@
             style="display: none"
             @change="handleFileSelected"
           />
-          <span class="tip">管理「资料下载」页面显示的条目。文件存在服务器上，改名不影响文件本身。</span>
+          <span class="tip">管理「资料下载」页面显示的条目。</span>
         </div>
 
         <div v-for="group in resourceGroups" :key="group.category" class="resource-group">
@@ -496,6 +495,7 @@ import {
   resetUserPassword,
   freezeUser,
   unfreezeUser,
+  revokeUserSessions,
   getUserLogs,
   createExternalUser,
   updateExternalUser,
@@ -579,6 +579,7 @@ function rowActions(row) {
       run: () => (row.is_external ? handleExtResetPassword(row) : handleStudentReset(row))
     },
     { label: '日志', type: 'primary', run: () => openUserLogs(row) },
+    { label: '吊销会话', type: 'warning', run: () => handleRevokeSessions(row) },
     {
       label: frozen ? '解冻' : '冻结',
       type: frozen ? 'success' : 'warning',
@@ -634,7 +635,7 @@ async function handleToggleFreeze(row) {
   try {
     await ElMessageBox.confirm(
       freezing
-        ? `确定冻结「${row.name}」吗？冻结后该账号无法登录，已登录的会话会立即失效。`
+        ? `确定冻结「${row.name}」吗？冻结后该账号无法登录，已登录的设备会被踢下线。`
         : `确定解冻「${row.name}」吗？解冻后可以重新登录。`,
       freezing ? '冻结账号' : '解冻账号',
       { type: 'warning', confirmButtonText: freezing ? '冻结' : '解冻' }
@@ -649,6 +650,29 @@ async function handleToggleFreeze(row) {
     fetchUsers()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || (freezing ? '冻结失败' : '解冻失败'))
+  }
+}
+
+// 吊销会话：把人踢下线，但不禁用账号，和「冻结」是两回事，确认框里要点明区别，
+// 否则管理员容易以为点了它就等于停用了这个号
+async function handleRevokeSessions(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定吊销「${row.name}」的全部会话吗？该账号将在所有设备上退出登录，重新登录后可继续使用。`,
+      '吊销所有会话',
+      { type: 'warning', confirmButtonText: '吊销' }
+    )
+  } catch (e) {
+    return // 取消
+  }
+
+  try {
+    await revokeUserSessions(row.student_no)
+    ElMessage.success('已吊销该账号的全部会话')
+    // 吊销的要是自己，这次刷新就会吃到一个 401，由拦截器接管跳登录页
+    fetchUsers()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '吊销失败')
   }
 }
 
@@ -847,7 +871,7 @@ async function handleExtResetPassword(row) {
 async function handleExtDelete(row) {
   try {
     await ElMessageBox.confirm(
-      `确定删除域外账号「${row.name}」（${row.student_no}）吗？头像和推送订阅会一并清除，历史操作日志保留。`,
+      `确定删除域外账号「${row.name}」（${row.student_no}）吗？删除后无法恢复。`,
       '删除账号',
       { type: 'warning', confirmButtonText: '删除' }
     )
@@ -906,7 +930,7 @@ const clearingLogs = ref(false)
 async function handleClearLogs() {
   try {
     await ElMessageBox.confirm(
-      `确定清空全部操作日志吗？共 ${logTotal.value} 条。清空后无法恢复，也不会留下清空记录。`,
+      `确定清空全部操作日志吗？共 ${logTotal.value} 条，清空后无法恢复。`,
       '清空日志',
       { type: 'warning', confirmButtonText: '清空', cancelButtonText: '取消' }
     )

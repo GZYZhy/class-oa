@@ -3,8 +3,8 @@
     <div class="login-card">
       <div class="login-head">
         <img src="/logo.png" class="login-logo" alt="校徽" />
-        <h1 class="login-title">统26-1班信息管理系统</h1>
-        <p class="login-sub">北方工业大学理学院统计学系</p>
+        <h1 class="login-title">{{ SITE.name }}</h1>
+        <p class="login-sub">{{ SITE.subtitle }}</p>
       </div>
 
       <!-- 本机 IP 被封禁：直接把表单换成提示，不让用户白填一遍再吃 403 -->
@@ -12,8 +12,7 @@
         <el-alert type="error" :closable="false" show-icon>
           <template #title>{{ banMessage }}</template>
           <div class="login-banned-tip">
-            若认为这是误封，请联系管理员解封；网络出口为公共地址时，
-            同一条线路下的其他人也会受影响。
+            若认为这是误封，请联系管理员解封。
           </div>
         </el-alert>
       </div>
@@ -100,6 +99,7 @@ import { User, Lock, Key } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { getCaptcha, getCaptchaRequired } from '@/api/auth'
+import { SITE } from '@/utils/site'
 
 const router = useRouter()
 const route = useRoute()

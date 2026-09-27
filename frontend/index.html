@@ -4,7 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>统26-1班信息管理系统</title>
+
+    <!-- 下面这些 ${SITE_*} 是给容器启动时替换的占位符，值来自项目根的 .env：
+         生产走 frontend/docker-entrypoint.sh 的 envsubst，
+         本地 npm run dev 走 frontend/vite.config.js 里的同名插件。
+         所以**不要**把占位符改成写死的班名 —— 那样换学校就得重编镜像。
+         字段清单见 frontend/site-config.js.template。 -->
+    <title>${SITE_NAME}</title>
+    <meta name="description" content="${SITE_DESCRIPTION}" />
+    <!-- 站内有身份证号、住址等隐私数据：默认拒绝一切抓取。
+         robots.txt 的 Disallow 只挡住抓取，挡不住别人从别处链接过来时
+         我们的 URL 以裸链接出现在结果里，所以这里再加一道 noindex。 -->
+    <meta name="robots" content="noindex, nofollow" />
 
     <!-- PWA：让「添加到主屏」变成一个独立应用。
          这不只是为了像原生应用 —— iPhone 上 Safari 只有在添加到主屏、并且
@@ -12,12 +23,18 @@
          权限弹窗都弹不出来。所以以下这几行是 iOS 收推送的前置条件。 -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- iOS 不认 manifest 里的 icons，主屏图标只认这一行 -->
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=1" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="theme-color" content="#409EFF" />
     <!-- 没有这一行，iOS 添加到主屏后点开还是带地址栏的浏览器视图 -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="统26-1班" />
+    <meta name="apple-mobile-web-app-title" content="${SITE_SHORT_NAME}" />
+
+    <!-- 品牌配置。必须是普通脚本（不是 module）：module 天生 defer，
+         那样这个文件会在 src/main.js 之后才执行，应用启动时读不到品牌值。
+         普通脚本在这里同步执行，window.__SITE__ 一定比 main.js 先就绪。
+         Service Worker 也 importScripts 同一个文件。 -->
+    <script src="/site-config.js"></script>
   </head>
   <body>
     <div id="app"></div>

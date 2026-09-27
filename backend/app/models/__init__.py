@@ -1,6 +1,7 @@
 from .student import Student
 from .announcement import Announcement
 from .notice import Notice
+from .notice_read import NoticeRead
 from .user import User
 from .change_request import ChangeRequest
 from .operation_log import OperationLog
@@ -11,4 +12,4 @@ from .feedback import Feedback
 from .push_subscription import PushSubscription
 from .resource import Resource
 
-__all__ = ["Student", "Announcement", "Notice", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource"]
+__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource"]

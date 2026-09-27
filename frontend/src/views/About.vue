@@ -5,18 +5,18 @@
       <div class="about-header">
         <img src="/logo.png" class="about-logo" alt="校徽" />
         <div>
-          <h2 style="margin: 0 0 6px 0;">统26-1班</h2>
+          <h2 style="margin: 0 0 6px 0;">{{ SITE.shortName }}</h2>
           <p style="margin: 0; color: #909399; font-size: 14px;">
-            北方工业大学理学院 · 统计学
+            {{ SITE.subtitle }}
           </p>
         </div>
       </div>
 
       <el-descriptions :column="isMobile ? 1 : 2" border style="margin-top: 20px;">
-        <el-descriptions-item label="班级名称">统26-1班</el-descriptions-item>
+        <el-descriptions-item label="班级名称">{{ SITE.shortName }}</el-descriptions-item>
         <el-descriptions-item label="学生人数">{{ stats?.total || '-' }} 人</el-descriptions-item>
-        <el-descriptions-item label="所属学院">理学院</el-descriptions-item>
-        <el-descriptions-item label="所属专业">统计学</el-descriptions-item>
+        <el-descriptions-item label="所属学院">{{ SITE.college }}</el-descriptions-item>
+        <el-descriptions-item label="所属专业">{{ SITE.major }}</el-descriptions-item>
         <el-descriptions-item label="男生人数">{{ stats?.gender?.['男'] || 0 }} 人</el-descriptions-item>
         <el-descriptions-item label="女生人数">{{ stats?.gender?.['女'] || 0 }} 人</el-descriptions-item>
       </el-descriptions>
@@ -39,6 +39,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getAbout } from '@/api/about'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { SITE } from '@/utils/site'
 
 // 手机上两列太挤，收成一列
 const isMobile = useIsMobile()

@@ -9,8 +9,8 @@
         <el-icon class="menu-toggle" @click="drawerOpen = true"><Menu /></el-icon>
         <img src="/logo.png" class="logo-img" alt="校徽" />
         <div class="title-group">
-          <span class="app-title">统26-1班信息管理系统</span>
-          <span class="app-subtitle">北方工业大学理学院统计学系</span>
+          <span class="app-title">{{ SITE.name }}</span>
+          <span class="app-subtitle">{{ SITE.subtitle }}</span>
         </div>
       </div>
       <div class="header-right">
@@ -63,6 +63,7 @@
           <el-menu-item v-for="item in visibleMenu" :key="item.path" :index="item.path">
             <el-icon><component :is="item.icon" /></el-icon>
             <span>{{ item.title }}</span>
+            <span v-if="badgeOf(item)" class="menu-item-badge">{{ badgeOf(item) }}</span>
           </el-menu-item>
         </el-menu>
       </el-aside>
@@ -75,9 +76,11 @@
       </el-main>
     </el-container>
 
-    <!-- 版权脚栏：所有登录后的页面都带，登录页是整屏布局、没有脚栏 -->
+    <!-- 版权脚栏：所有登录后的页面都带，登录页是整屏布局、没有脚栏。
+         内容是 HTML（.env 的 SITE_FOOTER，运维自己写，可以放链接），所以用 v-html；
+         包一层 span 是因为 v-html 写在组件上会作用到它的根元素，容易踩坑 -->
     <el-footer class="layout-footer">
-      © 2026 北方工业大学理学院统26-1班委员会
+      <span v-html="COPYRIGHT_HTML"></span>
     </el-footer>
 
     <!-- 首次登录强制设置密码：不允许关闭 -->
@@ -138,36 +141,57 @@ import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import IosInstallGuide from '@/components/IosInstallGuide.vue'
 import NotifySettingDialog from '@/components/NotifySettingDialog.vue'
 import { useUserStore } from '@/store/user'
+import { useBadgeStore } from '@/store/badge'
 import { rankOf } from '@/utils/roles'
+import { SITE, COPYRIGHT_HTML } from '@/utils/site'
 import { saveWebpushSubscription } from '@/api/webpush'
 import { captureInstallPrompt, currentSubscription, unsubscribe } from '@/utils/webpush'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const badgeStore = useBadgeStore()
 
 const activeMenu = computed(() => route.path)
 
 // 手机端的菜单抽屉：桌面端侧边栏常驻，这个开关不起作用
 const drawerOpen = ref(false)
-watch(() => route.path, () => { drawerOpen.value = false })
+
+// 换页时顺手把红点重算一次（一次 COUNT 查询的代价），同时收起手机端抽屉
+watch(() => route.path, () => {
+  drawerOpen.value = false
+  if (userStore.isLogin) badgeStore.refresh()
+})
 
 // 侧边菜单。role = 可见的最低角色，不写则登录即可见；public = 未登录也可见。
 // studentOnly = 只有学生账号可见（域外账号没有学生记录，这些页面用不了）。
+// badge = 右上角红点取哪个计数，键名对应后端 /api/badges 的返回字段。
 // 和 router 的 meta 保持一致（那里是防手敲地址，这里是控制显示）
 const MENU = [
   { path: '/dashboard', title: '首页', icon: 'HomeFilled', public: true },
   { path: '/my-info', title: '我的信息', icon: 'UserFilled', studentOnly: true },
   { path: '/students', title: '学生信息', icon: 'List', role: 'committee' },
   { path: '/statistics', title: '分类统计', icon: 'PieChart', role: 'committee' },
-  { path: '/review', title: '审核审批', icon: 'Checked', role: 'committee' },
-  { path: '/notices', title: '通知公告', icon: 'Bell', public: true },
+  { path: '/review', title: '审核审批', icon: 'Checked', role: 'committee', badge: 'review_pending' },
+  { path: '/notices', title: '通知公告', icon: 'Bell', public: true, badge: 'notice_unread' },
   { path: '/announcements', title: '文件公开', icon: 'Files' },
   { path: '/service', title: '办事中心', icon: 'Postcard', studentOnly: true },
   { path: '/downloads', title: '资料下载', icon: 'Download' },
   { path: '/about', title: '关于班级', icon: 'InfoFilled' },
   { path: '/admin', title: '系统管理', icon: 'Setting', role: 'admin' }
 ]
+
+/** 菜单项右上角要显示的红点文字；不显示时返回空串
+ *
+ * 未登录一律不显示（游客逛通知公告时不该被提示有未读），
+ * 0 也不显示，超过 99 收成 99+ 免得把菜单项撑变形。
+ */
+function badgeOf(item) {
+  if (!item.badge || !userStore.isLogin) return ''
+  const count = badgeStore.counts[item.badge] || 0
+  if (!count) return ''
+  return count > 99 ? '99+' : String(count)
+}
 
 const visibleMenu = computed(() =>
   MENU.filter((item) => {
@@ -198,6 +222,11 @@ const notifyRef = ref(null)
 watch(
   () => userStore.isLogin,
   async (now) => {
+    // 红点与推送无关，所以放在 try 外面：推送这套失败不该连累红线
+    // （只在登录时拉一次，未登录的游客不会去碰这个必然 401 的接口）
+    if (now) badgeStore.refresh()
+    else badgeStore.clear()
+
     try {
       if (now) {
         // 本机没有订阅就什么都不用做；有的话把 endpoint 改绑到当前账号。
@@ -430,6 +459,25 @@ onMounted(async () => {
 :deep(.el-menu-item.is-active) {
   background: rgba(64, 158, 255, 0.1) !important;
   border-left: 3px solid #409EFF;
+}
+
+/* 菜单项右端的未读红点。手写一个 span 而不是用 el-badge：el-badge 的小红点节点
+   在组件内部，scoped 样式得写 :deep() 才生效，还得操心它套在图标上会不会
+   挤压 50px 的行高。el-menu-item 本身是 display:flex，margin-left:auto
+   就能把这个 span 推到最右端 */
+.menu-item-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: #f56c6c;
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
 }
 
 .layout-main {
