@@ -11,7 +11,7 @@
 
 <script setup>
 defineProps({
-  /** 水印字样，形如「张三@示例 9月24日 14:30」 */
+  /** 水印字样，形如「张三@示例班 9月24日 14:30」 */
   text: { type: String, required: true }
 })
 

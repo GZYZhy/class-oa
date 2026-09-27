@@ -10,7 +10,7 @@ from .student import (
     student_response,
 )
 from .announcement import AnnouncementResponse
-from .notice import NoticeCreate, NoticeResponse
+from .notice import NoticeCreate, NoticeResponse, NoticeReadRow, NoticeReadStatus
 from .auth import (
     LoginRequest,
     ChangePasswordRequest,
@@ -48,6 +48,8 @@ __all__ = [
     "AnnouncementResponse",
     "NoticeCreate",
     "NoticeResponse",
+    "NoticeReadRow",
+    "NoticeReadStatus",
     "LoginRequest",
     "ChangePasswordRequest",
     "SetInitialPasswordRequest",

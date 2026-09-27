@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { rankOf } from '@/utils/roles'
+import { SITE } from '@/utils/site'
 
 // meta 说明：
 //   public: true     无需登录（首页、通知公告）
@@ -101,7 +102,7 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  document.title = `${to.meta.title || '首页'} - 示例班`
+  document.title = `${to.meta.title || '首页'} - ${SITE.shortName}`
 
   if (to.meta.public) return true
 

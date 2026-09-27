@@ -1,6 +1,6 @@
 {
-  "name": "示例班信息管理系统",
-  "short_name": "示例班",
+  "name": "${SITE_NAME}",
+  "short_name": "${SITE_SHORT_NAME}",
   "description": "班级通讯录、请假、通知公告与资料下载",
   "lang": "zh-CN",
   "start_url": "/",
@@ -10,19 +10,19 @@
   "theme_color": "#409EFF",
   "icons": [
     {
-      "src": "/icons/icon-192.png?v=1",
+      "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.png?v=1",
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-maskable-512.png?v=1",
+      "src": "/icons/icon-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

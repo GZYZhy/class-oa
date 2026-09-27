@@ -81,6 +81,29 @@ if [ -n "$NGINX_SSL_CERT" ] && [ -n "$NGINX_SSL_KEY" ]; then
         add_header Cache-Control \"no-cache\";
     }
 
+    # 运行时注入的品牌文件与可替换的品牌图片，绝不能落进下面那条按扩展名的
+    # 1 年 immutable 规则，否则改了 .env 里的班级名或换了校徽，老访客一年都看不到。
+    # 精确匹配（=）和 ^~ 前缀的优先级都高于正则，写在哪一行都生效。
+    location = /site-config.js {
+        add_header Cache-Control \"no-cache\";
+    }
+
+    location = /manifest.webmanifest {
+        add_header Cache-Control \"no-cache\";
+    }
+
+    location = /logo.png {
+        add_header Cache-Control \"no-cache\";
+    }
+
+    location = /favicon.png {
+        add_header Cache-Control \"no-cache\";
+    }
+
+    location ^~ /icons/ {
+        add_header Cache-Control \"no-cache\";
+    }
+
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         expires 1y;
         add_header Cache-Control \"public, immutable\";
@@ -126,5 +149,130 @@ envsubst '${NGINX_SERVER_NAME} ${NGINX_CLIENT_MAX_BODY_SIZE} ${TRUST_PROXY_BLOCK
 
 # 去掉模板文件，避免混淆
 rm -f /etc/nginx/conf.d/default.conf.template
+
+# ==================== 品牌信息注入 ====================
+# 前端镜像是 CI 预构建的，Vite 的构建期变量在部署侧不存在 —— 品牌只能在这里注入。
+# 值来自项目根的 .env（docker compose 插值成容器环境变量），本脚本不含任何品牌默认值：
+# 没配就是空字符串，页面上会显示成空白。空白一眼能看见，比悄悄用回旧值好排查。
+# 字段清单和说明见项目根 .env.example 的「前端品牌」一段。
+WEBROOT=/usr/share/nginx/html
+
+# envsubst 不做任何转义，值里出现引号 / 反斜杠 / 尖括号会写坏 JS 字符串或 HTML 属性。
+# 拦下来按空值处理，总比生成一个坏文件好。
+# 值里的 $ 归 docker compose 管（插值阶段就会报错），这里拦不住也不用拦。
+#
+# 传了 html 就放宽：允许 < > "。目前只有页脚 SITE_FOOTER 用它 —— 那个值按 HTML 渲染，
+# 要能写 <a href="...">。它只进 site-config.js 的 JS 字符串，不进 index.html 的属性，
+# 所以尖括号伤不到别的字段。单引号/反斜杠依然不行：JS 字符串就是用单引号括的。
+brand() {
+    # $1=值  $2=变量名（只为了打日志）  $3=html 表示这个值要按 HTML 渲染
+    case "$1" in
+        *"'"*) BAD="单引号" ;;
+        *\\*) BAD="反斜杠" ;;
+        *'"'* | *'<'* | *'>'*)
+            if [ "$3" = "html" ]; then BAD=""; else BAD="双引号或尖括号"; fi
+            ;;
+        *) BAD="" ;;
+    esac
+
+    if [ -n "$BAD" ]; then
+        # 花括号不能省：$BAD 紧跟中文标点时，标点的首字节会被当成变量名的一部分吃掉
+        echo "[品牌] $2 的值里有 ${BAD}，已按空值处理（该处会显示为空白）" >&2
+        printf '%s' ''
+    else
+        printf '%s' "$1"
+    fi
+}
+
+SITE_NAME="$(brand "${SITE_NAME:-}" SITE_NAME)"
+SITE_SHORT_NAME="$(brand "${SITE_SHORT_NAME:-}" SITE_SHORT_NAME)"
+SITE_SUBTITLE="$(brand "${SITE_SUBTITLE:-}" SITE_SUBTITLE)"
+SITE_COLLEGE="$(brand "${SITE_COLLEGE:-}" SITE_COLLEGE)"
+SITE_MAJOR="$(brand "${SITE_MAJOR:-}" SITE_MAJOR)"
+SITE_FOOTER="$(brand "${SITE_FOOTER:-}" SITE_FOOTER html)"
+# SEO 描述留空时取站名（唯一一处兜底）
+SITE_DESCRIPTION="$(brand "${SITE_DESCRIPTION:-$SITE_NAME}" SITE_DESCRIPTION)"
+export SITE_NAME SITE_SHORT_NAME SITE_SUBTITLE SITE_COLLEGE SITE_MAJOR SITE_FOOTER SITE_DESCRIPTION
+
+# 白名单只列这 7 个 SITE_*，页面里别的 $ 一律不动。
+# 先写 .tmp 再 mv：envsubst 中途失败也不会把 index.html 截断成半个文件
+# （此时 nginx 还没启动，也不会有人请求到 .tmp）。
+render_brand() {
+    # $1=源文件  $2=输出文件
+    if envsubst '${SITE_NAME} ${SITE_SHORT_NAME} ${SITE_SUBTITLE} ${SITE_COLLEGE} ${SITE_MAJOR} ${SITE_FOOTER} ${SITE_DESCRIPTION}' \
+        < "$1" \
+        > "$2.tmp"; then
+        mv -f "$2.tmp" "$2"
+    else
+        rm -f "$2.tmp"
+        echo "[品牌] 渲染 $2 失败，沿用镜像内置内容" >&2
+    fi
+}
+
+# 渲染的源文件一律取 /etc/nginx/orig/ 里的原始副本，绝不拿上一次的结果再渲染一次。
+# 理由和上面 nginx 模板的 .orig 完全一样，而且这里是实打实会出错的：
+# 渲染过的文件里已经没有 ${SITE_*} 了，再渲染是空操作 —— 于是
+# 「改了 .env 里的班名 → docker compose restart」时 index.html 原地不动，
+# 而 site-config.js（每次从模板生成）变了，标签页标题和页面上的班名就对不上。
+# 每次都从原始副本出发，渲染才真的幂等。
+ORIG_DIR=/etc/nginx/orig
+
+# site-config.js 不在镜像的 webroot 里，从模板现场生成
+render_brand /etc/nginx/templates/site-config.js.template "$WEBROOT/site-config.js"
+echo "[品牌] 已生成 $WEBROOT/site-config.js"
+
+for BRAND_FILE in index.html manifest.webmanifest; do
+    if [ -f "$ORIG_DIR/$BRAND_FILE" ]; then
+        render_brand "$ORIG_DIR/$BRAND_FILE" "$WEBROOT/$BRAND_FILE"
+        echo "[品牌] 已渲染 $WEBROOT/$BRAND_FILE"
+    else
+        echo "[品牌] 警告：$ORIG_DIR/$BRAND_FILE 不存在，跳过（$BRAND_FILE 保持镜像内置内容）" >&2
+    fi
+done
+
+# ==================== 校徽 / PWA 图标：运行时替换 ====================
+# 把图放进 data/frontend/branding/（容器内就是 /app/custom/branding/），重启前端容器即可：
+#   branding/logo.png      顶栏、登录页、首页、关于班级的校徽
+#   branding/favicon.png   标签页图标（只放 logo.png 时跟着用同一张）
+#   branding/icons/*.png   PWA 图标 4 张 —— 容器里生成不了，要在本机先跑
+#                          scripts/make_pwa_icons.py（见 README）
+BRANDING_DIR=/app/custom/branding
+
+# 先无条件还原成镜像内置的图。必须"无条件"：docker compose restart 不重建容器文件系统，
+# 上次 cp 进去的自定义图会一直留着，"删掉自定义图再重启"就回不到内置校徽了。
+# 逐个判断再拷：set -e 下一条 cp 失败会让容器起不来，宁可少还原一张图也不能这样
+for IMG in logo.png favicon.png; do
+    if [ -f "$ORIG_DIR/$IMG" ]; then
+        cp -f "$ORIG_DIR/$IMG" "$WEBROOT/$IMG"
+    fi
+done
+if [ -d "$ORIG_DIR/icons" ]; then
+    mkdir -p "$WEBROOT/icons"
+    cp -f "$ORIG_DIR/icons"/*.png "$WEBROOT/icons/" 2>/dev/null || true
+fi
+
+if [ -d "$BRANDING_DIR" ]; then
+    for IMG in logo.png favicon.png; do
+        if [ -f "$BRANDING_DIR/$IMG" ]; then
+            cp -f "$BRANDING_DIR/$IMG" "$WEBROOT/$IMG"
+            echo "[品牌] 已使用自定义 $IMG"
+        fi
+    done
+
+    # 只放了 logo.png 时 favicon 跟着用同一张（这两张本来就是同一张图）
+    if [ -f "$BRANDING_DIR/logo.png" ] && [ ! -f "$BRANDING_DIR/favicon.png" ]; then
+        cp -f "$BRANDING_DIR/logo.png" "$WEBROOT/favicon.png"
+    fi
+
+    if [ -d "$BRANDING_DIR/icons" ]; then
+        mkdir -p "$WEBROOT/icons"
+        for IMG in "$BRANDING_DIR/icons"/*.png; do
+            if [ -f "$IMG" ]; then
+                cp -f "$IMG" "$WEBROOT/icons/"
+                echo "[品牌] 已使用自定义 icons/$(basename "$IMG")"
+            fi
+        done
+    fi
+fi
 
 exec "$@"

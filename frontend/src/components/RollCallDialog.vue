@@ -205,7 +205,7 @@ async function reportResult() {
       absent: absentList.value.map((s) => ({ student_no: s.student_no, name: s.name }))
     })
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '点名结果未能记入操作日志')
+    ElMessage.error(e?.response?.data?.detail || '点名结果保存失败')
   }
 }
 

@@ -4,8 +4,8 @@
     <div class="welcome-banner">
       <div class="banner-content">
         <div>
-          <h1>欢迎来到示例班</h1>
-          <p>示例大学示例学院示例专业系 · 共{{ stats?.total || 0 }}名同学</p>
+          <h1>欢迎来到{{ SITE.shortName }}</h1>
+          <p>{{ SITE.subtitle }} · 共{{ stats?.total || 0 }}名同学</p>
         </div>
         <img src="/logo.png" class="banner-logo" alt="校徽" />
       </div>
@@ -85,6 +85,7 @@ import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { getPublicSummary } from '@/api/auth'
 import { useUserStore } from '@/store/user'
+import { SITE } from '@/utils/site'
 
 const router = useRouter()
 const userStore = useUserStore()

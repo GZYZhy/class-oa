@@ -307,7 +307,7 @@ function reset() {
 // ---------- 浏览器通知的几个动作 ----------
 
 async function handleWebEnable() {
-  if (!vapidKey.value) return ElMessage.error('还没取到推送公钥，请稍后重试')
+  if (!vapidKey.value) return ElMessage.error('推送服务还没准备好，请稍后重试')
 
   webBusy.value = true
   try {

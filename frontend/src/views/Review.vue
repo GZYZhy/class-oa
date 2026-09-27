@@ -58,13 +58,12 @@
 
           <el-table-column label="操作" width="150" align="center">
             <template #default="{ row }">
-              <template v-if="row.status === 'pending' && userStore.isAdmin">
+              <!-- 与后端一致：修改申请班委就能批（change_requests.py 用的是
+                   committee_required）。能进这个页面的人本来就都是班委及以上 -->
+              <template v-if="row.status === 'pending'">
                 <el-button type="success" link @click="handleApproveChange(row)">通过</el-button>
                 <el-button type="danger" link @click="handleRejectChange(row)">驳回</el-button>
               </template>
-              <span v-else-if="row.status === 'pending'" style="color: #909399; font-size: 12px;">
-                需管理员审批
-              </span>
               <span v-else style="color: #c0c4cc;">已处理</span>
             </template>
           </el-table-column>
@@ -289,8 +288,10 @@ import { formatDate, formatDateTime, formatFileSize } from '@/utils/format'
 import Watermark from '@/components/Watermark.vue'
 import { useWatermark } from '@/composables/useWatermark'
 import { useUserStore } from '@/store/user'
+import { useBadgeStore } from '@/store/badge'
 
 const userStore = useUserStore()
+const badgeStore = useBadgeStore()
 const watermarkText = useWatermark()
 
 const route = useRoute()
@@ -313,6 +314,7 @@ async function fetchChangeList() {
     ElMessage.error('申请列表加载失败')
   } finally {
     loading.value = false
+    badgeStore.refresh()
   }
 }
 
@@ -369,6 +371,7 @@ async function fetchLeaveList() {
     ElMessage.error('请假列表加载失败')
   } finally {
     loading.value = false
+    badgeStore.refresh()
   }
 }
 
@@ -444,6 +447,9 @@ async function fetchFeedbackList() {
     ElMessage.error('反馈列表加载失败')
   } finally {
     loading.value = false
+    // 红点刷新统一挂在三个列表的 finally 里：每个审核操作成功之后本来就都会重拉列表，
+    // 这样将来新增操作时漏掉刷新的概率是零。代价是切 tab 会多发一次请求，可以接受
+    badgeStore.refresh()
   }
 }
 

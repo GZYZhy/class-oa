@@ -64,6 +64,22 @@ services:
       - ./data/frontend:/app/custom
     environment:
       - TZ=Asia/Shanghai
+      # ---- 站点品牌（班级名 / 院系名 / 页脚署名）----
+      # 前端镜像是 CI 预构建的，Vite 的构建期变量在部署侧不存在，所以品牌只能由
+      # 容器启动时注入（entrypoint 用 envsubst 写进 site-config.js / index.html /
+      # manifest.webmanifest）。值由 compose 从项目根 .env 插值，这里不给兜底值 ——
+      # 没配就是空白，详见 .env.example 的「前端品牌」一段。
+      # 刻意不用 env_file：那会把 MASTER_PASSWORD 之类的机密一起灌进 nginx 容器。
+      # 改完要 `docker compose up -d frontend`，restart 不会重新注入环境变量。
+      - SITE_NAME=${SITE_NAME:-}
+      - SITE_SHORT_NAME=${SITE_SHORT_NAME:-}
+      - SITE_SUBTITLE=${SITE_SUBTITLE:-}
+      - SITE_COLLEGE=${SITE_COLLEGE:-}
+      - SITE_MAJOR=${SITE_MAJOR:-}
+      # 页脚署名，支持 HTML（页面上按 HTML 渲染）
+      - SITE_FOOTER=${SITE_FOOTER:-}
+      # SEO 描述；留空时由 entrypoint 取 SITE_NAME
+      - SITE_DESCRIPTION=${SITE_DESCRIPTION:-}
       # 监听的域名，默认 _（所有域名）
       # - NGINX_SERVER_NAME=example.com
       # 是否信任反向代理的 X-Forwarded-* 头（on/off），默认 on
