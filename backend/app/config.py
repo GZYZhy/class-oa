@@ -31,6 +31,37 @@ class Settings(BaseSettings):
     turnstile_site_key: str = ""
     turnstile_secret_key: str = ""
 
+    # ---------- 登录安全 ----------
+    # 同一个 IP 在 login_fail_window_minutes 分钟内登录失败满多少次就自动封禁它。
+    # 0 = 关闭自动封禁。改成负数没有意义，启动时会警告并按关闭处理。
+    login_ban_threshold: int = 20
+    # 失败计数的统计窗口（分钟）。**验证码和自动封禁共用这一个数** ——
+    # 各配一个的话，计数会在较短的那个窗口先被清零，长窗口的阈值永远达不到。
+    login_fail_window_minutes: int = 10
+    # 自动封禁多少分钟
+    login_ban_minutes: int = 60
+
+    # 可信反向代理的网段（逗号或空格分隔的 CIDR）。
+    # 只有直连来源落在这里面时，才采信它带来的 X-Forwarded-For；
+    # 否则一律只看直连来源的地址 —— 否则任何人都能伪造 XFF 绕过封禁。
+    #
+    # 默认值覆盖单机 Docker 下所有可能的容器 / 本机来源：
+    #   172.16.0.0/12  docker0（172.17/16）+ 用默认地址池建的 compose 网络
+    #   127.0.0.0/8    宿主机本地（network_mode: host、本机 nginx、本地开发）
+    #   ::1/128        本机 IPv6
+    #   fc00::/7       IPv6 私有段（Docker 默认 IPv6 池 fd00::/8 在其中）
+    #   fe80::/10      IPv6 链路本地
+    # **故意不含 10.0.0.0/8 和 192.168.0.0/16** —— 那是局域网本身，
+    # 信任它们等于「局域网里任何人直连后端都能伪造 XFF」。Docker 默认也不拿这两段建网络。
+    # 要是你的 Docker 配了落在 10.x 的自定义地址池，把它加到这里（启动横幅会打印生效列表）。
+    trusted_proxies: str = "172.16.0.0/12,127.0.0.0/8,::1/128,fc00::/7,fe80::/10"
+
+    # 允许使用通开密码的 IP 网段（逗号或空格分隔的 CIDR）。
+    # **留空 = 不限制**，任何 IP 都能用通开密码（也就是加这个功能之前的行为）。
+    # 配了就是白名单制：名单外的 IP 用通开密码登录会被当成密码错误。
+    # 注意它只管通开密码的**使用**，不豁免 IP 封禁。
+    master_password_allow_ips: str = ""
+
     # 会话 Cookie：签名密钥。留空则自动生成并保存到 data/.session_secret
     # 也可以用环境变量 SESSION_SECRET_KEY 显式指定
     session_secret_key: str = ""
@@ -80,6 +111,47 @@ def turnstile_enabled() -> bool:
     main.py 启动时会为这种情况打一行警告。
     """
     return bool(settings.turnstile_site_key and settings.turnstile_secret_key)
+
+
+def fail_window_minutes() -> int:
+    """失败计数的统计窗口（分钟）。
+
+    验证码闸门和自动封禁**共用**这一个窗口。配成非正数时回落到默认的 10 分钟，
+    而不是让它变成「窗口恒为空、计数永远不生效」。
+    """
+    if settings.login_fail_window_minutes > 0:
+        return settings.login_fail_window_minutes
+    return 10
+
+
+def login_ban_values() -> tuple[int, int]:
+    """自动封禁的两项配置：(失败阈值, 封禁分钟)；配坏了就是 (0, 0) 即关闭。
+
+    负数阈值特别危险：threshold=-1 会让 count >= -1 恒真，
+    变成「第一次失败就封」。所以这里直接把非法值收敛成「关闭」，
+    启动横幅（main.warn_security_config）负责把这件事说给运维听。
+    """
+    if settings.login_ban_threshold <= 0 or settings.login_ban_minutes <= 0:
+        return 0, 0
+    return settings.login_ban_threshold, settings.login_ban_minutes
+
+
+def master_password_allowed_from(ip: str) -> bool:
+    """这个 IP 允许使用通开密码吗。
+
+    没配白名单 = 谁都允许（默认行为不变）；配了就是白名单制（fail-closed，
+    名单外的 IP 一律不允许 —— 包括解析不出来的地址）。
+
+    注意它只管通开密码的**使用**，不豁免 IP 封禁。
+
+    导入放在函数里是为了避开循环 import：utils.ip 不依赖 config，
+    但 config 在模块顶层 import 它的话，utils 那边一旦哪天反过来引 config 就成环了。
+    """
+    from .utils.ip import ip_in_cidrs, parse_cidrs
+
+    if not settings.master_password_allow_ips.strip():
+        return True
+    return ip_in_cidrs(ip, parse_cidrs(settings.master_password_allow_ips))
 
 
 def resolve_session_secret() -> str:

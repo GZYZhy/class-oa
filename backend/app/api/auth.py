@@ -1,14 +1,20 @@
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..config import BASE_DIR, settings, turnstile_enabled
+from ..config import (
+    BASE_DIR,
+    login_ban_values,
+    master_password_allowed_from,
+    settings,
+    turnstile_enabled,
+)
 from ..database import get_db
-from ..models import AccountEvent, Student, User
+from ..models import AccountEvent, IpBan, Student, User
 from ..schemas.auth import (
     BarkKeyRequest,
     LoginRequest,
@@ -20,8 +26,14 @@ from ..schemas.auth import (
 )
 from ..services import (
     account_name,
+    ban_ip,
+    clear_failures,
+    get_active_ban,
     icon_url,
+    is_ban_candidate,
+    needs_captcha,
     push,
+    record_failure,
     vapid_public_key,
     web_subscriptions,
     webpush_subscribe,
@@ -48,18 +60,6 @@ _AVATAR_MEDIA_TYPES = {
     ".bmp": "image/bmp",
 }
 
-# 按 IP 记录登录失败次数，用于触发验证码。
-# 用内存字典就够（班级系统量级很小），重启就清空也无所谓 ——
-# 反正 10 分钟窗口过了自己就失效。
-# 结构：{ "1.2.3.4": {"count": 2, "first_fail": datetime} }
-_login_failures: dict[str, dict] = {}
-
-# 失败几次后开始要求验证码（题目说第一次输错后 10 分钟内都要，所以 = 1）
-_CAPTCHA_THRESHOLD = 1
-# 失败后多久内需要验证码
-_CAPTCHA_WINDOW = timedelta(minutes=10)
-
-
 def _record_event(db: Session, student_no: str, event: str, ip: str | None) -> None:
     """记一条账号事件（登录 / 自行改密）
 
@@ -67,36 +67,58 @@ def _record_event(db: Session, student_no: str, event: str, ip: str | None) -> N
     （这两类接口本来就要 commit，多一次提交反而是两个事务）。
 
     只记成功的事件，不记登录失败 —— 记了等于让管理员看到别人拿错密码试的 IP，
-    而且那是另一个用途（防爆破），已经有 _login_failures 在管。
+    而且那是另一个用途（防爆破），由 services/login_guard 和 ip_bans 在管。
     """
     db.add(AccountEvent(student_no=student_no, event=event, ip=ip))
 
 
-def _needs_captcha(ip: str) -> bool:
-    """这个 IP 是否需要先填验证码才能登录"""
-    record = _login_failures.get(ip)
-    if not record:
-        return False
-    # 超过 10 分钟，清掉这条记录
-    if datetime.now() - record["first_fail"] > _CAPTCHA_WINDOW:
-        del _login_failures[ip]
-        return False
-    return record["count"] >= _CAPTCHA_THRESHOLD
+def _ban_detail(ban: IpBan) -> str:
+    """被封时给用户看的文案（登录接口 403 和登录页的封禁提示共用同一套措辞）"""
+    if ban.expires_at is None:
+        return "本机 IP 已被封禁（永久），请联系管理员"
+    return f"本机 IP 已被封禁，将于 {ban.expires_at.strftime('%Y-%m-%d %H:%M')} 自动解除"
 
 
-def _record_failure(ip: str) -> None:
-    """记录一次登录失败"""
-    now = datetime.now()
-    record = _login_failures.get(ip)
-    if record and (now - record["first_fail"]) <= _CAPTCHA_WINDOW:
-        record["count"] += 1
-    else:
-        _login_failures[ip] = {"count": 1, "first_fail": now}
+def _reject(db: Session, ip: str, detail: str) -> None:
+    """记一次登录失败；够阈值就地封禁，然后抛错。
 
+    只覆盖**真的校验失败**的三处：Turnstile 校验不过、算术验证码答错、学号或密码错。
+    两个地方**不能**并进来：
+    - 「请输入验证码」（漏填）—— 那是操作失误，不是爆破信号，现在就没计数
+    - 「账号已被冻结」—— 密码是对的；而且失败是按 IP 记的，
+      一加就会把同一出口 IP 下的正常同事一起拖下水
 
-def _clear_failures(ip: str) -> None:
-    """登录成功，清掉这个 IP 的失败计数"""
-    _login_failures.pop(ip, None)
+    封禁写库**必须自己 commit**：get_db() 只 close() 不 commit，
+    SQLAlchemy 关闭时未提交的事务一律回滚。不 commit 的话封禁行根本落不了库，
+    而接口照样返回 400 —— 这种「看着都对但没有效果」的问题极难查。
+    """
+    count = record_failure(ip)
+    threshold, ban_minutes = login_ban_values()
+    banned = None
+
+    if threshold > 0 and count >= threshold:
+        if not is_ban_candidate(ip):
+            print(f"[封禁] 跳过 {ip}：不是可封禁的地址（代理网段 / 非法值 / 未配可信网段）",
+                  flush=True)
+        else:
+            try:
+                banned = ban_ip(
+                    db, ip, ban_minutes,
+                    reason=f"{settings.login_fail_window_minutes} 分钟内登录失败 {count} 次",
+                )
+                db.commit()
+                # 不清的话，解封后第一次输错立刻又被封（计数还停在阈值上）
+                clear_failures(ip)
+                print(f"[封禁] {ip} 封禁 {ban_minutes} 分钟（{count} 次失败）", flush=True)
+            except Exception as e:
+                # 写库失败（磁盘满、锁冲突）不该把本该返回的 400 变成 500
+                db.rollback()
+                print(f"[封禁] 写库失败，本次未封禁：{e}", flush=True)
+
+    if banned:
+        # 语义是**当次就报封禁**，不是等下一次请求
+        raise HTTPException(status_code=403, detail=_ban_detail(banned))
+    raise HTTPException(status_code=400, detail=detail)
 
 
 def _student_of(db: Session, user: User) -> Student | None:
@@ -153,18 +175,29 @@ def get_captcha(request: Request):
 
 
 @router.get("/captcha-required", summary="当前 IP 是否需要人机验证，以及用哪一种")
-def captcha_required(ip: str = Depends(get_client_ip)):
+def captcha_required(
+    ip: str = Depends(get_client_ip), db: Session = Depends(get_db)
+):
     """登录页先问一下要不要显示验证码框，免得每次都加载 SVG。
 
     required 为 False 时也要带上 mode / site_key：前端要靠它知道
     「等会儿万一输错了，该去加载 Turnstile 控件还是拉算术题」。
     site key 本来就是公开的（它要发给浏览器），secret key 永远不出后端。
+
+    顺带带上 banned / banned_until：让登录页能**直接**显示「本机 IP 已被封禁，
+    X 解除」，而不是等用户填完表单吃了 403，还先看到一张永远用不上的验证码。
     """
     enabled = turnstile_enabled()
+    ban = get_active_ban(db, ip)
     return {
-        "required": _needs_captcha(ip),
+        "required": needs_captcha(ip),
         "mode": "turnstile" if enabled else "math",
         "site_key": settings.turnstile_site_key if enabled else "",
+        "banned": bool(ban),
+        "banned_until": (
+            ban.expires_at.isoformat() if ban and ban.expires_at else None
+        ),
+        "ban_message": _ban_detail(ban) if ban else "",
     }
 
 
@@ -176,49 +209,65 @@ def login(
     ip: str = Depends(get_client_ip),
 ):
 
-    # 先看是否需要人机验证
-    if _needs_captcha(ip):
+    # 封禁闸门放在最前面（在人机验证之前），三个理由：
+    # ① 被封的 IP 该立刻拿到明确原因，而不是先被要求做验证码；
+    # ② 不该还能触发 turnstile_verify —— 那是一次到 Cloudflare 的**出站 HTTP 请求**，
+    #    被封的 IP 持续打就成了请求放大器；
+    # ③ 封了就不该再累计失败计数（重复封禁、重复写日志的问题也随之消失）。
+    # 注意这里**不豁免通开密码**：能进管理页的 IP 和能用通开密码的 IP 是两回事。
+    ban = get_active_ban(db, ip)
+    if ban:
+        raise HTTPException(status_code=403, detail=_ban_detail(ban))
+
+    # 再先看是否需要人机验证
+    if needs_captcha(ip):
         # 配了 Turnstile、且前端把 token 交回来了 → 问 Cloudflare。
         # 没配 Turnstile 的部署，以及配了但浏览器加载不出控件而退回算术题的，
         # 都走下面 else 那条老路 —— 两条路都留着，谁都不会被挡在门外
         if turnstile_enabled() and (data.turnstile_token or "").strip():
             if not turnstile_verify(data.turnstile_token, ip):
                 # 和验证码答错一样记一次失败，会延长窗口时间，防暴力破解
-                _record_failure(ip)
-                raise HTTPException(status_code=400, detail="人机验证未通过，请重试")
+                _reject(db, ip, "人机验证未通过，请重试")
         else:
             if not data.captcha:
+                # 漏填不算失败：那是操作失误，不是爆破信号
                 raise HTTPException(status_code=400, detail="请输入验证码")
             expected = request.session.get("captcha_answer")
             # 用完就清，防止重复使用同一个答案试密码
             request.session.pop("captcha_answer", None)
             if expected is None or str(data.captcha).strip() != str(expected):
                 # 验证码答错也算一次失败，会延长窗口时间，防暴力破解
-                _record_failure(ip)
-                raise HTTPException(status_code=400, detail="验证码错误")
+                _reject(db, ip, "验证码错误")
 
     user = (
         db.query(User).filter(User.student_no == data.student_no.strip()).first()
     )
 
-    # 两种通过方式：本人密码，或通开密码（未配置通开密码时恒为 False）
+    # 两种通过方式：本人密码，或通开密码。
+    # 通开密码只在白名单内的 IP 上有效（MASTER_PASSWORD_ALLOW_IPS 没配 = 不限 IP）；
+    # 不在白名单时 master_ok 恒为 False，走的还是下面那条统一文案，
+    # **不泄露「本系统有通开密码」这件事**（与「通开密码与本人密码在
+    # 所有可观测行为上完全一致」的既有约定一致）
     normal_ok = bool(user) and verify_password(data.password, user.password_hash, user.password_salt)
-    master_ok = bool(user) and verify_master_password(data.password, settings.master_password)
+    master_ok = (
+        bool(user)
+        and master_password_allowed_from(ip)
+        and verify_master_password(data.password, settings.master_password)
+    )
 
     # 统一错误文案，避免通过报错区分账号是否存在
     if not normal_ok and not master_ok:
-        _record_failure(ip)
-        raise HTTPException(status_code=400, detail="学号或密码错误")
+        _reject(db, ip, "学号或密码错误")
 
     # 冻结检查放在密码校验之后：密码错的时候仍然只回「学号或密码错误」，
     # 不给「这个号存在且被冻结了」这个额外信息
     if user.is_frozen:
-        # 不调 _record_failure：密码是对的，这不是爆破信号，而且人数一多会把
+        # 不记失败：密码是对的，这不是爆破信号，而且人数一多会把
         # 同一出口 IP 下的正常同事一起拖进验证码（失败记录是按 IP 算的）
         raise HTTPException(status_code=400, detail="账号已被冻结，请联系管理员")
 
     # 登录成功，清掉失败记录
-    _clear_failures(ip)
+    clear_failures(ip)
 
     # 通开密码不做任何区分：不写操作日志、不打印提示，登录痕迹与本人登录完全一样
     # （最近登录时间照常更新、账号事件也照常记，两种方式没有差别）
@@ -326,9 +375,15 @@ def change_password(
 ):
     # 「原密码」这一栏也接受通开密码：忘了密码的人可以拿它直接改成一个自己记得住的新密码。
     # 未配置通开密码时 verify_master_password 恒为 False，等同于只看本人密码。
+    #
+    # 这里**同样要过白名单**：这是通开密码在本项目的第二个入口，
+    # 漏掉的话白名单外的 IP 照样能拿通开密码改掉任何人的密码 —— 白名单等于白配。
     old_ok = verify_password(
         data.old_password, user.password_hash, user.password_salt
-    ) or verify_master_password(data.old_password, settings.master_password)
+    ) or (
+        master_password_allowed_from(ip)
+        and verify_master_password(data.old_password, settings.master_password)
+    )
     if not old_ok:
         raise HTTPException(status_code=400, detail="原密码错误")
     if data.new_password == data.old_password:

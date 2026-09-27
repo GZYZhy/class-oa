@@ -27,6 +27,14 @@ from .user_service import (
     ensure_default_users,
 )
 from .log_service import log_operation, display_name
+from .login_guard import clear_failures, needs_captcha, record_failure
+from .ban_service import (
+    ban_ip,
+    get_active_ban,
+    is_ban_candidate,
+    purge_expired,
+    unban_ip,
+)
 from .resource_service import (
     add_resource,
     delete_resource,
@@ -69,6 +77,14 @@ __all__ = [
     "ensure_default_users",
     "log_operation",
     "display_name",
+    "clear_failures",
+    "needs_captcha",
+    "record_failure",
+    "ban_ip",
+    "get_active_ban",
+    "is_ban_candidate",
+    "purge_expired",
+    "unban_ip",
     "add_resource",
     "bark_keys",
     "clip",
