@@ -38,6 +38,7 @@ from ..services import (
     notify,
     recipients,
 )
+from ..utils.media_type import guess_media_type
 from .deps import (
     committee_required,
     get_client_ip,
@@ -174,10 +175,16 @@ def download_attachment(
         raise HTTPException(status_code=404, detail="附件文件不存在")
 
     display_name = item.get("name", safe_name)
+    # 文件名交给 FileResponse 按 RFC 5987 编码，别手拼 Content-Disposition：
+    # HTTP 头只装得下 latin-1，中文名塞进 filename="..." 会当场 UnicodeEncodeError，
+    # 整个接口 500 —— feedback.py 里那句「别手拼」说的就是这个坑。
+    # 类型也显式给（它认识白名单里的全部后缀），原先写死 octet-stream，
+    # 图片 / PDF 附件在新标签页预览时会变成下载。
     return FileResponse(
         str(file_path),
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{display_name}"'},
+        media_type=guess_media_type(display_name, safe_name),
+        filename=display_name,
+        content_disposition_type="attachment",
     )
 
 
