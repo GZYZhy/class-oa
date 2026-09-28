@@ -11,6 +11,19 @@
     <!-- 第一步：选范围 -->
     <div v-if="step === 'scope'" v-loading="loading" class="rc-scope">
       <p class="rc-tip">选择本次点名的范围：</p>
+
+      <!-- 排除名单要说清楚是谁、为什么，不然「全班 34 人」对不上花名册会让人怀疑数字错了 -->
+      <el-alert v-if="excluded.length" type="info" :closable="false" class="rc-excluded">
+        <template #title>
+          已排除 {{ excluded.length }} 名在校状态非「正常」的同学，不参与点名
+        </template>
+        <div class="rc-excluded-list">
+          <span v-for="s in excluded" :key="s.student_no" class="rc-excluded-item">
+            {{ s.name }}（{{ s.school_status || '未填' }}）
+          </span>
+        </div>
+      </el-alert>
+
       <div class="rc-scope-btns">
         <el-button size="large" :disabled="!counts.male" @click="startCall('男生')">
           <el-icon><Male /></el-icon>男生（{{ counts.male }}）
@@ -100,10 +113,16 @@ const loading = ref(false)
 // scope=选范围，calling=逐个点名，result=汇总
 const step = ref('scope')
 const scope = ref('全班')
-const roster = ref([])   // 全班名单（open 时一次性拉回）
+const roster = ref([])   // 能参与点名的名单（open 时一次性拉回，已滤掉在校状态非正常的）
+const excluded = ref([]) // 被滤掉的人，只用来在第一步提示一句
 const queue = ref([])    // 本次要点的人
 const answers = ref([])  // 与 queue 一一对应的结果，true=到，false=无应答
 const photoBroken = ref(false)
+
+/** 在校状态为这个值才参与点名。
+    休学/退学/保留学籍这些叫到了也没意义 —— 人不在校，答不上来等于天天误报。
+    比对的是「不等于它就不参与」，所以字段为空也按不参与处理（空值在提示里显示「未填」） */
+const NORMAL_SCHOOL_STATUS = '正常'
 
 /** 范围名 → 学生表 gender 字段里的实际取值。
     按钮上和日志里都写「男生」，但库里存的是「男」，这两个必须对上。
@@ -146,6 +165,7 @@ function reset() {
   step.value = 'scope'
   scope.value = '全班'
   roster.value = []   // 一并清掉，否则拉取失败时会拿着上一轮的人数误报
+  excluded.value = []
   queue.value = []
   answers.value = []
   photoBroken.value = false
@@ -161,7 +181,11 @@ async function fetchRoster() {
       sort_by: 'student_no',
       sort_order: 'asc'
     })
-    roster.value = res.items || []
+    // 过滤只在这里做一次，roster 只装能点名的人。counts 和 queue 都是从 roster
+    // 出来的，所以按钮上的数字和实际叫到的人不会对不上
+    const all = res.items || []
+    roster.value = all.filter((s) => s.school_status === NORMAL_SCHOOL_STATUS)
+    excluded.value = all.filter((s) => s.school_status !== NORMAL_SCHOOL_STATUS)
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '读取学生名单失败')
   } finally {
@@ -274,6 +298,22 @@ defineExpose({ open })
   margin: 0 0 14px 0;
   font-size: 14px;
   color: #606266;
+}
+
+.rc-excluded {
+  margin-bottom: 14px;
+}
+
+/* 手机上一行长名字会溢出，用 inline 元素自然折行 */
+.rc-excluded-list {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.rc-excluded-item {
+  margin-right: 10px;
+  white-space: nowrap;
 }
 
 .rc-scope-btns {

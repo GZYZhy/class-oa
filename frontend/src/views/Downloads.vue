@@ -79,7 +79,9 @@ async function download(item) {
     return
   }
   try {
-    await downloadFile(item.url, item.file)
+    // 存盘名用后端的 download_name（展示名 + 扩展名），**不是** item.file ——
+    // 那是磁盘上的 UUID 名，管理员后台上传的资料会存成 4cc9f361....docx
+    await downloadFile(item.url, item.download_name || item.name)
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
   }

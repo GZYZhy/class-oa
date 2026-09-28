@@ -22,6 +22,22 @@ RESOURCE_DIR.mkdir(parents=True, exist_ok=True)
 URL_PREFIX = "/api/resources/file"
 
 
+def download_name(row: Resource) -> str:
+    """下载/预览时用的文件名：列表里显示什么名，存下来就叫什么名
+
+    取展示名（name）而不是上传时的原始文件名：管理员在后台改名的目的就是让
+    下载下来的文件叫这个名字。扩展名从磁盘文件名上取（存盘名是 UUID + 原扩展名），
+    这样改名不会把文件类型改掉。
+
+    name 可能已经被管理员连扩展名一起写了（「电动车承诺书.docx」），
+    这时不再重复追加，否则会变成 x.docx.docx。
+    """
+    ext = Path(row.file_name).suffix
+    if ext and row.name.lower().endswith(ext.lower()):
+        return row.name
+    return f"{row.name}{ext}"
+
+
 def list_resources(db: Session) -> list[dict]:
     """按分类分组返回资料列表（旧版 RESOURCE_CATALOG 的形状）
 
@@ -42,6 +58,9 @@ def list_resources(db: Session) -> list[dict]:
             "id": r.id,
             "name": r.name,
             "file": r.file_name,
+            # 前端存盘用的名字。file 是磁盘上的 UUID 名，直接拿它存盘就是
+            # 一串乱码似的文件名 —— 别让前端自己拼，就这一处口径
+            "download_name": download_name(r),
             "original_name": r.original_name,
             "size": size,
             "url": url,
