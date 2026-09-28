@@ -21,7 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 
 # 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 主源用清华镜像（国内快），加 --extra-index-url 指向官方 PyPI 作为兜底：
+# 清华源偶尔会出现「某个版本同步丢了」的情况（比如 fastapi 0.115.0 就出现过），
+# 有兜底源就不会因为一个包找不到导致整个构建挂掉
+RUN pip install --no-cache-dir -r requirements.txt \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    --extra-index-url https://pypi.org/simple
 
 # 复制应用代码
 COPY . .
