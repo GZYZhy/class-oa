@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import ChangeRequest, EvPassRequest, Feedback, LeaveRequest, User
+from ..models import ChangeRequest, EvPassRequest, ExportRequest, Feedback, LeaveRequest, User
 from ..services import unread_count
 from .deps import get_current_user
 
@@ -33,6 +33,8 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
         review_pending += _count(db, LeaveRequest, "pending")
         # 电动车通行证也走管理员审批（ev_passes.py 的 approve/reject 都是 admin_required）
         review_pending += _count(db, EvPassRequest, "pending")
+        # 导出申请：管理员审批
+        review_pending += _count(db, ExportRequest, "pending")
 
     return {
         "notice_unread": unread_count(db, user.student_no),

@@ -101,6 +101,9 @@ class WatermarkExtractResponse(BaseModel):
     accessed_at 而不是 downloaded_at：自从改成「一律打水印」之后，在线查看
     拿到的副本也带水印，一份流传出来的 PDF 未必是下载出去的。动作到底是查看
     还是下载，靠下面的 action 字段去日志里核对，不靠这里猜。
+
+    水印的 file_id 可能对应公告文件（announcement），也可能对应导出申请
+    （export_request），用 source_type 区分。
     """
     found: bool
     token: Optional[str] = None
@@ -109,7 +112,14 @@ class WatermarkExtractResponse(BaseModel):
     user_name: Optional[str] = None
     file_title: Optional[str] = None
     accessed_at: Optional[datetime] = None
-    # 和 file_access_logs 核对上的那条记录：动作、IP
+    # 水印来源：announcement（公告文件） / export（导出申请）
+    source_type: Optional[str] = None
+    # 导出申请相关（source_type = "export" 时有值）
+    export_type: Optional[str] = None
+    export_scope: Optional[str] = None
+    export_status: Optional[str] = None
+    export_reviewer: Optional[str] = None
+    # 和 file_access_logs 核对上的那条记录：动作、IP（仅公告文件有）
     action: Optional[str] = None
     ip: Optional[str] = None
     # 有没有在日志里核到。核不到就不能说人家「下载」了，只能如实说不确定
