@@ -212,8 +212,9 @@ def create_request(
     db.flush()
 
     log_operation(
-        db, user.student_no, user.display_name or user.student_no,
+        db, user,
         "提交导出申请",
+        f"{req.student_no} {req.student_name}",
         f"{_display_name_for_type(body.export_type)}，范围：{body.scope_type}",
     )
 
@@ -340,9 +341,10 @@ def approve_request(
     _generate_and_save(req, db)
 
     log_operation(
-        db, user.student_no, user.display_name or user.student_no,
+        db, user,
         "通过导出申请",
-        f"{req.student_name} 的{_display_name_for_type(req.export_type)}申请",
+        f"{req.student_no} {req.student_name}",
+        f"{_display_name_for_type(req.export_type)}",
     )
 
     # 通知申请人
@@ -382,9 +384,10 @@ def reject_request(
     db.refresh(req)
 
     log_operation(
-        db, user.student_no, user.display_name or user.student_no,
+        db, user,
         "驳回导出申请",
-        f"{req.student_name} 的{_display_name_for_type(req.export_type)}申请，理由：{body.reason}",
+        f"{req.student_no} {req.student_name}",
+        f"{_display_name_for_type(req.export_type)}，理由：{body.reason}",
     )
 
     notify(
