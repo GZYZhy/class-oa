@@ -12,6 +12,7 @@ from io import BytesIO
 
 from docx import Document
 from docx.shared import Pt
+from docx.oxml.ns import qn
 
 from ..config import BASE_DIR
 from ..models import Student, LeaveRequest
@@ -32,7 +33,7 @@ TEMPLATE_PATH = BASE_DIR / "data" / "downloads" / "请假审批表.docx"
 # 行7: 去向地址(7,0) 值(7,1~7,2) 去向联系电话(7,3) 值(7,4~7,5)
 
 
-def _set_cell_text(cell, text: str, font_size: int = 11) -> None:
+def _set_cell_text(cell, text: str, font_size: float = 11) -> None:
     """把单元格内容替换成指定文字（保留第一个段落，其余删掉）"""
     # 清空原有内容
     for p in cell.paragraphs[1:]:
@@ -49,6 +50,22 @@ def _set_cell_text(cell, text: str, font_size: int = 11) -> None:
         else:
             run = p.add_run(text)
             run.font.size = Pt(font_size)
+
+
+def _adaptive_font_size(text: str, base_size: float = 11, min_size: float = 8) -> float:
+    """根据文本长度自适应字号，长文本缩小以避免换页
+
+    以中文每个字约占 2 个英文字符宽度来估算。
+    每超过阈值就缩小 1pt，直到 min_size。
+    """
+    if not text:
+        return base_size
+    # 估算「等效字符数」：中文算 2，英文/数字算 1
+    length = sum(2 if ord(c) > 127 else 1 for c in text)
+    # 单元格大约能容纳 40 个等效字符不换行（按 11pt 估算）
+    # 每多 15 个字符缩小 1pt
+    shrink = max(0, (length - 40) // 15)
+    return max(min_size, base_size - shrink)
 
 
 def generate_leave_docx(student: Student, leave: LeaveRequest) -> bytes:
@@ -77,7 +94,9 @@ def generate_leave_docx(student: Student, leave: LeaveRequest) -> bytes:
     _set_cell_text(table.cell(2, 4), student.qq or "")
 
     # —— 第 3 行：家庭地址 / 家人联系电话 ——
-    _set_cell_text(table.cell(3, 1), student.family_address or "")
+    # 地址经常很长，用自适应字号，避免撑高单元格导致换页
+    addr_size = _adaptive_font_size(student.family_address or "", base_size=10)
+    _set_cell_text(table.cell(3, 1), student.family_address or "", font_size=addr_size)
     _set_cell_text(table.cell(3, 4), student.family_phone or "")
 
     # —— 第 4 行：请假时间（精确到「时」，与模板「年 月 日 时」一致）——
@@ -98,14 +117,18 @@ def generate_leave_docx(student: Student, leave: LeaveRequest) -> bytes:
 
     # —— 第 5 行：请假事由 ——
     reason_text = f"[{leave.leave_type}] {leave.reason}" if leave.leave_type else leave.reason
-    _set_cell_text(table.cell(5, 1), reason_text or "")
+    # 事由也可能很长，同样自适应字号
+    reason_size = _adaptive_font_size(reason_text or "", base_size=10.5)
+    _set_cell_text(table.cell(5, 1), reason_text or "", font_size=reason_size)
 
     # —— 第 6 行：出行方式 / 行程 ——
     _set_cell_text(table.cell(6, 1), leave.travel_mode or "")
     _set_cell_text(table.cell(6, 4), leave.travel_detail or "")
 
     # —— 第 7 行：去向地址 / 去向联系电话 ——
-    _set_cell_text(table.cell(7, 1), leave.destination or "")
+    # 去向地址也可能很长，自适应字号
+    dest_size = _adaptive_font_size(leave.destination or "", base_size=10)
+    _set_cell_text(table.cell(7, 1), leave.destination or "", font_size=dest_size)
     _set_cell_text(table.cell(7, 4), leave.destination_phone or "")
 
     # 班导师意见、学院意见、销假记录 这三块留空，管理员下载后手签
