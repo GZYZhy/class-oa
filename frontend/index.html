@@ -25,8 +25,12 @@
     <!-- iOS 不认 manifest 里的 icons，主屏图标只认这一行 -->
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="theme-color" content="#409EFF" />
-    <!-- 没有这一行，iOS 添加到主屏后点开还是带地址栏的浏览器视图 -->
+    <!-- 没有这一行，iOS 添加到主屏后点开还是带地址栏的浏览器视图。
+         前缀 apple- 的那个已被标准废弃，Chrome / Edge 控制台会警告，
+         所以两条都留着：iOS 只认 apple- 的，Chromium 系认下面这条标准写法。
+         用 content="yes" 是历史写法，规范里的值是 "webapp"，浏览器两个都认 -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="${SITE_SHORT_NAME}" />
 

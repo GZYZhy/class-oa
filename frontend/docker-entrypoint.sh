@@ -60,9 +60,14 @@ if [ -n "$NGINX_SSL_CERT" ] && [ -n "$NGINX_SSL_KEY" ]; then
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \"upgrade\";
 
+        # 超时设置。这几个 nginx 自己的超时都是「两次相邻读写之间」的间隔，
+        # 不是整个请求的总时长 —— 稳步上传的慢网络不会触发，但手机信号断一下
+        # 超过 60 秒就断了。放宽到 5 分钟，和前端给文件传输的超时对齐。
         proxy_connect_timeout 60s;
-        proxy_read_timeout 60s;
-        proxy_send_timeout 60s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        client_body_timeout 300s;
+        send_timeout 300s;
 
         add_header Cache-Control \"no-store\";
     }
@@ -102,6 +107,18 @@ if [ -n "$NGINX_SSL_CERT" ] && [ -n "$NGINX_SSL_KEY" ]; then
 
     location ^~ /icons/ {
         add_header Cache-Control \"no-cache\";
+    }
+
+    # ES Module 的 .mjs：nginx 自带 mime.types 里没有这条，会落到 application/octet-stream，
+    # 而浏览器对 module worker 强制校验 MIME，pdf.js 的 worker 就加载不了、只能退回主线程。
+    # 类型只能在 types 块里补，types 块又会整份替换掉继承来的 mime.types，
+    # 所以单开一个只匹配 .mjs 的 location（完整说明见 nginx.conf.template）
+    location ~* \.mjs$ {
+        types {
+            application/javascript mjs;
+        }
+        expires 1y;
+        add_header Cache-Control \"public, immutable\";
     }
 
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
