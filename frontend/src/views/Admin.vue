@@ -218,8 +218,24 @@
               <el-icon><CircleCheck /></el-icon>
               检测到水印：
               <strong>{{ watermarkResult.user_name || watermarkResult.user_no }}</strong>
-              于 <strong>{{ formatDateTime(watermarkResult.downloaded_at) }}</strong>
-              下载「{{ watermarkResult.file_title || '文件#' + watermarkResult.file_id }}」
+              于 <strong>{{ formatDateTime(watermarkResult.accessed_at) }}</strong>
+              <!-- 动作从日志里核对，不能写死「下载」：一律打水印之后，
+                   学生在线查看拿到的副本也带水印，一份流出的 PDF 未必是下载的 -->
+              <template v-if="watermarkResult.log_matched">
+                <el-tag :type="watermarkResult.action === 'download' ? 'danger' : 'primary'" size="small">
+                  {{ watermarkResult.action === 'download' ? '下载' : '在线查看' }}
+                </el-tag>
+              </template>
+              <template v-else>
+                <el-tag type="info" size="small">动作未知</el-tag>
+              </template>
+              「{{ watermarkResult.file_title || '文件#' + watermarkResult.file_id }}」
+              <span v-if="watermarkResult.ip" class="extract-ip">IP {{ watermarkResult.ip }}</span>
+              <!-- 核不到就直说核不到，别让人以为是「查无此人」 -->
+              <div v-if="!watermarkResult.log_matched" class="extract-hint">
+                访问日志里没找到对应的记录（日志可能已被清理，或是本功能上线前取的文件），
+                只能确定「谁、何时、取了哪个文件」，不能确定是查看还是下载
+              </div>
             </template>
             <template v-else>
               <el-icon><Warning /></el-icon>
@@ -1518,7 +1534,24 @@ onMounted(() => {
   font-size: 13px;
   display: flex;
   align-items: center;
+  /* 允许换行：核不到日志时下面那行说明要独占一行 */
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+.extract-ip {
+  color: #909399;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+/* 独占一行（父级是 flex 且已 flex-wrap） */
+.extract-hint {
+  width: 100%;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #909399;
 }
 
 .extract-result.found {
