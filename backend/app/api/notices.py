@@ -1,12 +1,26 @@
+import json
 import re
+import uuid
+from datetime import date
+from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+)
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from ..config import BASE_DIR
 from ..database import get_db
 from ..models import Notice, User
 from ..schemas import (
-    NoticeCreate,
     NoticeResponse,
     NoticeReadStatus,
 )
@@ -32,6 +46,34 @@ from .deps import (
 )
 
 router = APIRouter(prefix="/api/notices", tags=["通知公告"])
+
+# 通知附件存放目录
+NOTICE_ATTACH_DIR = BASE_DIR / "data" / "notices"
+NOTICE_ATTACH_DIR.mkdir(parents=True, exist_ok=True)
+
+# 允许的附件类型：复用反馈附件的白名单（图片 / 视频 / 音频 / 文档）
+# 不收压缩包、不收 svg/html/js、不收带宏的 docm/xlsm/pptm。
+ALLOWED_ATTACHMENT_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".heif",
+    ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm",
+    ".mp3", ".m4a", ".wav",
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".pdf", ".txt", ".md", ".wps", ".et", ".dps",
+}
+
+MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024  # 单文件 20MB
+MAX_ATTACHMENTS = 3  # 一条通知最多带几个附件
+
+
+def _safe_attach_name(original: str) -> str:
+    """校验后缀并生成安全存盘名（UUID + 后缀）；不合法抛 400"""
+    ext = Path(original).suffix.lower() if original else ""
+    if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的附件类型：{ext or '（无后缀）'}，仅支持图片 / 视频 / 音频 / 文档",
+        )
+    return f"{uuid.uuid4().hex}{ext}"
 
 
 def _preview(markdown: str) -> str:
@@ -96,26 +138,114 @@ def get_reads(
     return read_status(db, notice_id)
 
 
-# 以下管理操作需要班委及以上
+def _attachments_from_db(notice: Notice) -> list:
+    """把库里存的 JSON 串读成附件列表；读不出来就当没有"""
+    if not notice.attachments:
+        return []
+    try:
+        items = json.loads(notice.attachments or "")
+    except (ValueError, TypeError):
+        return []
+    return items if isinstance(items, list) else []
+
+
+# ---------- 附件下载（无需登录即可下载，通知是公开的） ----------
+@router.get("/{notice_id}/attachments/{index}", summary="下载通知附件")
+def download_attachment(
+    notice_id: int,
+    index: int,
+    db: Session = Depends(get_db),
+):
+    """按通知 id 和附件下标下载；通知是公开的，所有人（含未登录）都能下载"""
+    notice = db.query(Notice).filter(Notice.id == notice_id).first()
+    if not notice:
+        raise HTTPException(status_code=404, detail="通知不存在")
+
+    items = _attachments_from_db(notice)
+    if index < 0 or index >= len(items):
+        raise HTTPException(status_code=404, detail="附件不存在")
+
+    item = items[index]
+    store_name = item.get("file", "")
+    # 防路径穿越：只取文件名部分
+    safe_name = Path(store_name).name
+    file_path = NOTICE_ATTACH_DIR / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="附件文件不存在")
+
+    display_name = item.get("name", safe_name)
+    return FileResponse(
+        str(file_path),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{display_name}"'},
+    )
+
+
+# ---------- 以下管理操作需要班委及以上 ----------
 @router.post("", response_model=NoticeResponse, summary="发布通知（班委及以上）")
-def publish(
-    notice: NoticeCreate,
+async def publish(
     background: BackgroundTasks,
+    title: str = Form(..., min_length=1, max_length=200, description="标题"),
+    publish_date: date = Form(..., description="发布时间"),
+    content: str = Form(..., description="正文（Markdown）"),
+    attachments: list[UploadFile] = File(default=[], description="附件，最多 3 个"),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
-    data = notice.model_dump()
-    # 发布人一律取当前登录账号的展示名，前端即便传了 publisher 也不作数。
-    # 用 account_name 而不是学生表：域外账号（老师）也可能有班委权限
-    data["publisher"] = account_name(db, user)
-    created = create_notice(db, data)
-    log_operation(db, user, "发布通知", target=created.title, ip=ip)
-    # 先取收件人：下面 commit 之后才算真的发出去了
+    """发布通知（multipart form：正文 + 附件一起发）"""
+    if not title.strip():
+        raise HTTPException(status_code=400, detail="标题不能为空")
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="正文不能为空")
+    if len(attachments) > MAX_ATTACHMENTS:
+        raise HTTPException(status_code=400, detail=f"附件最多 {MAX_ATTACHMENTS} 个")
+
+    # 先校验并保存所有附件（全部校验通过再落盘，避免半截文件）
+    attach_meta = []
+    saved_files = []  # 已经存了的，失败时回滚用
+    for f in attachments:
+        if not f.filename:
+            raise HTTPException(status_code=400, detail="附件文件名不能为空")
+        safe_name = _safe_attach_name(f.filename)
+        file_content = await f.read()
+        if len(file_content) > MAX_ATTACHMENT_SIZE:
+            # 回滚已经存了的
+            for p in saved_files:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+            raise HTTPException(
+                status_code=400,
+                detail=f"附件「{f.filename}」超过 {MAX_ATTACHMENT_SIZE // 1024 // 1024}MB",
+            )
+        save_path = NOTICE_ATTACH_DIR / safe_name
+        with open(save_path, "wb") as fp:
+            fp.write(file_content)
+        saved_files.append(save_path)
+        attach_meta.append({
+            "file": safe_name,
+            "name": f.filename,
+            "size": len(file_content),
+        })
+
+    data = {
+        "title": title.strip(),
+        "publish_date": publish_date,
+        "content": content,
+        "publisher": account_name(db, user),
+        "attachments": json.dumps(attach_meta, ensure_ascii=False) if attach_meta else "",
+    }
+    created = create_notice(db, data, user=user)
+    log_operation(
+        db, user, "发布通知", target=created.title,
+        detail=f"带 {len(attach_meta)} 个附件" if attach_meta else "",
+        ip=ip,
+    )
     targets = recipients(db, exclude_no=user.student_no)
     db.commit()
 
-    # 通知人人可见，所以推给全体（发布者自己不用收）。只是知会，active 就够
     notify(
         background, targets, f"新通知：{created.title}",
         _preview(created.content or ""), level="active", page="/notices",
@@ -124,17 +254,109 @@ def publish(
 
 
 @router.put("/{notice_id}", response_model=NoticeResponse, summary="编辑通知（班委及以上）")
-def edit(
+async def edit(
     notice_id: int,
-    notice: NoticeCreate,
+    title: str = Form(..., min_length=1, max_length=200, description="标题"),
+    publish_date: date = Form(..., description="发布时间"),
+    content: str = Form(..., description="正文（Markdown）"),
+    attachments: list[UploadFile] = File(default=[], description="新增附件，最多 3 个（含原有）"),
+    # 原有附件的下标列表（JSON 串），前端把要保留的原附件下标传过来
+    keep_attachments: str = Form("", description="保留的原附件下标（JSON 数组，如 [0,2]）"),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
-    updated = update_notice(db, notice_id, notice.model_dump())
+    """编辑通知：正文和附件都能改。
+
+    附件处理逻辑：
+    - keep_attachments: 要保留的原附件下标（JSON 数组字符串），不传或为空表示全部保留
+    - attachments: 新上传的附件
+    - 最终附件列表 = 保留的原附件 + 新上传的附件，总数不超过 MAX_ATTACHMENTS
+    - 被去掉的原附件文件会被删除
+    """
+    if not title.strip():
+        raise HTTPException(status_code=400, detail="标题不能为空")
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="正文不能为空")
+
+    notice = db.query(Notice).filter(Notice.id == notice_id).first()
+    if not notice:
+        raise HTTPException(status_code=404, detail="通知不存在")
+
+    # 解析要保留的原附件下标
+    old_items = _attachments_from_db(notice)
+    keep_indices = set()
+    if keep_attachments.strip():
+        try:
+            keep_indices = set(int(x) for x in json.loads(keep_attachments))
+        except (ValueError, TypeError, json.JSONDecodeError):
+            raise HTTPException(status_code=400, detail="keep_attachments 格式错误")
+
+    # 保留的原附件
+    kept = [old_items[i] for i in sorted(keep_indices) if 0 <= i < len(old_items)]
+
+    # 校验总数（保留的 + 新增的）
+    if len(kept) + len(attachments) > MAX_ATTACHMENTS:
+        raise HTTPException(status_code=400, detail=f"附件最多 {MAX_ATTACHMENTS} 个")
+
+    # 保存新附件
+    new_meta = []
+    saved_files = []
+    for f in attachments:
+        if not f.filename:
+            raise HTTPException(status_code=400, detail="附件文件名不能为空")
+        safe_name = _safe_attach_name(f.filename)
+        file_content = await f.read()
+        if len(file_content) > MAX_ATTACHMENT_SIZE:
+            for p in saved_files:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+            raise HTTPException(
+                status_code=400,
+                detail=f"附件「{f.filename}」超过 {MAX_ATTACHMENT_SIZE // 1024 // 1024}MB",
+            )
+        save_path = NOTICE_ATTACH_DIR / safe_name
+        with open(save_path, "wb") as fp:
+            fp.write(file_content)
+        saved_files.append(save_path)
+        new_meta.append({
+            "file": safe_name,
+            "name": f.filename,
+            "size": len(file_content),
+        })
+
+    # 最终附件列表
+    final_attachments = kept + new_meta
+
+    # 删掉被移除的旧附件文件
+    removed_indices = set(range(len(old_items))) - keep_indices
+    for i in removed_indices:
+        store_name = old_items[i].get("file", "")
+        if store_name:
+            p = NOTICE_ATTACH_DIR / Path(store_name).name
+            if p.exists():
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
+    data = {
+        "title": title.strip(),
+        "publish_date": publish_date,
+        "content": content,
+        "attachments": json.dumps(final_attachments, ensure_ascii=False) if final_attachments else "",
+    }
+    updated = update_notice(db, notice_id, data, user=user)
     if not updated:
         raise HTTPException(status_code=404, detail="通知不存在")
-    log_operation(db, user, "编辑通知", target=updated.title, detail=f"原发布人：{updated.publisher}", ip=ip)
+
+    log_operation(
+        db, user, "编辑通知", target=updated.title,
+        detail=f"原发布人：{updated.publisher}；附件 {len(final_attachments)} 个",
+        ip=ip,
+    )
     db.commit()
     return updated
 
@@ -149,7 +371,20 @@ def remove(
     notice = db.query(Notice).filter(Notice.id == notice_id).first()
     if not notice:
         raise HTTPException(status_code=404, detail="通知不存在")
-    title = notice.title  # 先取出来：删除并 commit 后再访问属性会报 ObjectDeletedError
+    title = notice.title
+
+    # 先删附件文件（删不掉也不影响主流程）
+    items = _attachments_from_db(notice)
+    for item in items:
+        store_name = item.get("file", "")
+        if store_name:
+            p = NOTICE_ATTACH_DIR / Path(store_name).name
+            if p.exists():
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
     delete_notice(db, notice_id)
     log_operation(db, user, "删除通知", target=title, ip=ip)
     db.commit()

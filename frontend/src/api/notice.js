@@ -8,17 +8,30 @@ export function getNotices(params) {
 }
 
 /**
- * 发布通知
+ * 发布通知（multipart form，支持附件）
+ * @param {FormData} formData - 包含 title / publish_date / content / attachments(多个file)
  */
-export function createNotice(data) {
-  return request({ url: '/notices', method: 'post', data })
+export function createNotice(formData) {
+  return request({
+    url: '/notices',
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
 }
 
 /**
- * 编辑通知（后端会自动记录更新时间）
+ * 编辑通知（multipart form，支持修改附件）
+ * @param {number} id
+ * @param {FormData} formData - 包含 title / publish_date / content / 新附件 / keep_attachments
  */
-export function updateNotice(id, data) {
-  return request({ url: `/notices/${id}`, method: 'put', data })
+export function updateNotice(id, formData) {
+  return request({
+    url: `/notices/${id}`,
+    method: 'put',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
 }
 
 /**

@@ -182,6 +182,92 @@
         </div>
       </el-tab-pane>
 
+      <!-- ============ 文件访问日志 ============ -->
+      <el-tab-pane label="文件访问日志" name="file-access">
+        <el-form :inline="true">
+          <el-form-item label="访问人">
+            <el-input v-model="fileAccessFilter.user" placeholder="姓名或学号" clearable style="width: 160px" />
+          </el-form-item>
+          <el-form-item label="文件">
+            <el-input v-model="fileAccessFilter.file" placeholder="按标题搜索" clearable style="width: 180px" />
+          </el-form-item>
+          <el-form-item label="动作">
+            <el-select v-model="fileAccessFilter.action" placeholder="全部" clearable style="width: 120px">
+              <el-option label="查看" value="view" />
+              <el-option label="下载" value="download" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="handleFileAccessSearch">查询</el-button>
+            <el-button @click="handleFileAccessReset">重置</el-button>
+          </el-form-item>
+        </el-form>
+
+        <!-- 水印提取工具 -->
+        <div class="watermark-extract-box">
+          <span class="extract-label">水印溯源：</span>
+          <input
+            ref="watermarkFileInput"
+            type="file"
+            accept=".pdf,application/pdf"
+            class="extract-file-input"
+            @change="handleWatermarkExtract"
+          />
+          <div v-if="watermarkResult" class="extract-result" :class="watermarkResult.found ? 'found' : 'not-found'">
+            <template v-if="watermarkResult.found">
+              <el-icon><CircleCheck /></el-icon>
+              检测到水印：
+              <strong>{{ watermarkResult.user_name || watermarkResult.user_no }}</strong>
+              于 <strong>{{ formatDateTime(watermarkResult.downloaded_at) }}</strong>
+              下载「{{ watermarkResult.file_title || '文件#' + watermarkResult.file_id }}」
+            </template>
+            <template v-else>
+              <el-icon><Warning /></el-icon>
+              {{ watermarkResult.message || '未检测到水印' }}
+            </template>
+          </div>
+        </div>
+
+        <el-table :data="fileAccessLogs" v-loading="loadingFileAccess" stripe border style="width: 100%;">
+          <el-table-column label="时间" width="160" align="center">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="访问人" width="140" align="center">
+            <template #default="{ row }">
+              {{ row.user_name || '-' }}
+              <div style="font-size: 12px; color: #909399;">{{ row.user_no }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="动作" width="90" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.action === 'download'" type="danger" size="small">下载</el-tag>
+              <el-tag v-else-if="row.action === 'view'" type="primary" size="small">查看</el-tag>
+              <span v-else style="color: #c0c4cc;">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="file_title" label="文件" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="ip" label="IP" width="140" align="center">
+            <template #default="{ row }">
+              <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
+              <span v-else style="color: #c0c4cc;">-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="pagination-wrap">
+          <el-pagination
+            v-model:current-page="fileAccessPage"
+            v-model:page-size="fileAccessPageSize"
+            :page-sizes="[20, 50, 100, 200]"
+            :total="fileAccessTotal"
+            layout="total, sizes, prev, pager, next"
+            background
+            @size-change="fetchFileAccessLogs"
+            @current-change="fetchFileAccessLogs"
+          />
+        </div>
+      </el-tab-pane>
+
       <!-- ============ IP 封禁 ============ -->
       <el-tab-pane label="IP 封禁" name="bans">
         <!-- 手机上和账号管理那边的做法一致：竖排、每个控件占满一行 -->
@@ -544,7 +630,9 @@ import {
   uploadResource,
   updateResource,
   reorderResources,
-  deleteResource
+  deleteResource,
+  getFileAccessLogs,
+  extractWatermark
 } from '@/api/admin'
 import { ROLE_LABELS } from '@/utils/roles'
 import { formatDateTime } from '@/utils/format'
@@ -994,6 +1082,71 @@ async function handleClearLogs() {
   }
 }
 
+// ---------- 文件访问日志 ----------
+const fileAccessLogs = ref([])
+const loadingFileAccess = ref(false)
+const fileAccessTotal = ref(0)
+const fileAccessPage = ref(1)
+const fileAccessPageSize = ref(50)
+const fileAccessFilter = reactive({ user: '', file: '', action: '' })
+// 水印提取结果
+const watermarkResult = ref(null)
+const watermarkFileInput = ref(null)
+const extractingWatermark = ref(false)
+
+async function fetchFileAccessLogs() {
+  loadingFileAccess.value = true
+  try {
+    const res = await getFileAccessLogs({
+      user: fileAccessFilter.user || undefined,
+      file: fileAccessFilter.file || undefined,
+      action: fileAccessFilter.action || undefined,
+      page: fileAccessPage.value,
+      page_size: fileAccessPageSize.value
+    })
+    fileAccessLogs.value = res.items
+    fileAccessTotal.value = res.total
+  } catch (e) {
+    ElMessage.error('文件访问日志加载失败')
+  } finally {
+    loadingFileAccess.value = false
+  }
+}
+
+function handleFileAccessSearch() {
+  fileAccessPage.value = 1
+  fetchFileAccessLogs()
+}
+
+function handleFileAccessReset() {
+  fileAccessFilter.user = ''
+  fileAccessFilter.file = ''
+  fileAccessFilter.action = ''
+  handleFileAccessSearch()
+}
+
+async function handleWatermarkExtract(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    ElMessage.warning('只支持 PDF 文件')
+    e.target.value = ''
+    return
+  }
+  extractingWatermark.value = true
+  watermarkResult.value = null
+  try {
+    const res = await extractWatermark(file)
+    watermarkResult.value = res
+  } catch (e) {
+    ElMessage.error('提取失败：' + (e.response?.data?.detail || e.message))
+  } finally {
+    extractingWatermark.value = false
+    // 重置 input，方便下次选同一个文件也能触发 change
+    e.target.value = ''
+  }
+}
+
 // ---------- IP 封禁 ----------
 // 时长走预设：手填分钟数既容易填错，也不好判断「到底封了多久」
 // 「永久」用 0 当哨兵值，**不能写 null** —— el-select 把 null 当成「没选」，
@@ -1038,8 +1191,13 @@ async function fetchIpBans() {
   }
 }
 
+let fileAccessLoaded = false
 function handleTabChange(name) {
   if (name === 'bans' && !bansLoaded.value) fetchIpBans()
+  if (name === 'file-access' && !fileAccessLoaded) {
+    fileAccessLoaded = true
+    fetchFileAccessLogs()
+  }
 }
 
 async function handleCreateBan() {
@@ -1312,6 +1470,67 @@ onMounted(() => {
 
 .ban-self-tip {
   margin-bottom: 12px;
+}
+
+/* ---------- 文件访问日志 ---------- */
+.watermark-extract-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: #f0f9eb;
+  border: 1px solid #e1f3d8;
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.extract-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #67c23a;
+  flex-shrink: 0;
+}
+
+.extract-file-input {
+  font-size: 12px;
+  color: #606266;
+}
+
+.extract-file-input::file-selector-button {
+  padding: 4px 12px;
+  margin-right: 8px;
+  border: 1px solid #67c23a;
+  border-radius: 4px;
+  background: #fff;
+  color: #67c23a;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.extract-file-input::file-selector-button:hover {
+  background: #67c23a;
+  color: #fff;
+}
+
+.extract-result {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.extract-result.found {
+  color: #67c23a;
+}
+
+.extract-result.not-found {
+  color: #e6a23c;
+}
+
+.extract-result strong {
+  color: #303133;
+  margin: 0 2px;
 }
 
 /* ---------- 资料下载管理 ---------- */
