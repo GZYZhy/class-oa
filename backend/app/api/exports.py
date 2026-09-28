@@ -211,10 +211,19 @@ def create_request(
     db.add(req)
     db.flush()
 
+    # 操作日志的 target 写「被导出的人」：写人数 + 第一个人的学号姓名，
+    # 反查被操作记录时能按代表的学号查到这条日志（显示「张三等 N 人」）
+    students = resolve_students(db, body.scope_type, body.scope_param)
+    if students:
+        first = students[0]
+        log_target = f"{first.student_no} {first.name}等{len(students)}人"
+    else:
+        log_target = "无匹配学生"
+
     log_operation(
         db, user,
         "提交导出申请",
-        f"{req.student_no} {req.student_name}",
+        log_target,
         f"{_display_name_for_type(body.export_type)}，范围：{body.scope_type}",
     )
 
@@ -340,10 +349,19 @@ def approve_request(
     # 同步生成文件（班级体量小，秒级完成）
     _generate_and_save(req, db)
 
+    # 操作日志 target：被导出的学生代表
+    scope_param = json.loads(req.scope_param) if req.scope_param else None
+    students = resolve_students(db, req.scope_type, scope_param)
+    if students:
+        first = students[0]
+        log_target = f"{first.student_no} {first.name}等{len(students)}人"
+    else:
+        log_target = "无匹配学生"
+
     log_operation(
         db, user,
         "通过导出申请",
-        f"{req.student_no} {req.student_name}",
+        log_target,
         f"{_display_name_for_type(req.export_type)}",
     )
 
@@ -383,10 +401,19 @@ def reject_request(
     db.commit()
     db.refresh(req)
 
+    # 操作日志 target：被导出的学生代表
+    scope_param = json.loads(req.scope_param) if req.scope_param else None
+    students = resolve_students(db, req.scope_type, scope_param)
+    if students:
+        first = students[0]
+        log_target = f"{first.student_no} {first.name}等{len(students)}人"
+    else:
+        log_target = "无匹配学生"
+
     log_operation(
         db, user,
         "驳回导出申请",
-        f"{req.student_no} {req.student_name}",
+        log_target,
         f"{_display_name_for_type(req.export_type)}，理由：{body.reason}",
     )
 
