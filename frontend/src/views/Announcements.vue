@@ -288,7 +288,11 @@ function handleView(row) {
 async function handleDownload(row) {
   downloadingId.value = row.id
   try {
-    await downloadFile(row.file_path, row.file_name || `${row.title}.pdf`)
+    // download=true 不能省：后端靠它区分「下载」和「在线查看」——
+    // 少了它，日志里记成查看（水印溯源那里也就查不到下载记录），
+    // 而且班委拿到的还是没有水印的原文件，流出去没法溯源
+    const sep = row.file_path.includes('?') ? '&' : '?'
+    await downloadFile(`${row.file_path}${sep}download=true`, row.file_name || `${row.title}.pdf`)
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
   } finally {

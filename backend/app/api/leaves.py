@@ -26,6 +26,7 @@ from ..models import LeaveRequest, Student, User
 from ..schemas import LeaveRequestCreate, LeaveRequestResponse, LeaveRejectRequest
 from ..services import clip, display_name, log_operation, notify, recipients
 from ..utils.leave_docx import generate_leave_docx
+from ..utils.media_type import guess_media_type
 from .deps import (
     admin_required,
     committee_required,
@@ -175,6 +176,9 @@ def my_proof(
         raise HTTPException(status_code=404, detail="证明文件不存在")
     return FileResponse(
         str(file_path),
+        # 显式给类型：猜不出来时 Starlette 兜底成 text/plain，
+        # 存成 .txt 的证明材料是打不开的（见 utils/media_type.py）
+        media_type=guess_media_type(leave.proof_original_name, leave.proof_file),
         filename=leave.proof_original_name or leave.proof_file,
     )
 
@@ -246,6 +250,9 @@ def admin_proof(
         raise HTTPException(status_code=404, detail="证明文件不存在")
     return FileResponse(
         str(file_path),
+        # 显式给类型：猜不出来时 Starlette 兜底成 text/plain，
+        # 存成 .txt 的证明材料是打不开的（见 utils/media_type.py）
+        media_type=guess_media_type(leave.proof_original_name, leave.proof_file),
         filename=leave.proof_original_name or leave.proof_file,
     )
 

@@ -23,6 +23,7 @@ from ..database import get_db
 from ..models import Feedback, Student, User
 from ..schemas import FeedbackReply, FeedbackResponse
 from ..services import display_name
+from ..utils.media_type import guess_media_type
 from .deps import (
     committee_required,
     get_current_student,
@@ -236,7 +237,13 @@ def download_attachment(
 
     # 交给 FileResponse 处理文件名：它会按 RFC 5987 编码，中文名才不会炸
     # （别手拼 Content-Disposition，announcements.py 那个写法在这个项目踩过坑）
-    return FileResponse(str(file_path), filename=item.get("name") or store_name)
+    return FileResponse(
+        str(file_path),
+        # 显式给类型，别让 Starlette 去猜：猜不出来时它兜底成 text/plain，
+        # 附件里的 Word 会被浏览器存成 .txt（见 utils/media_type.py）
+        media_type=guess_media_type(item.get("name"), store_name),
+        filename=item.get("name") or store_name,
+    )
 
 
 # ---------- 班委端 ----------
