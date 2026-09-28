@@ -30,6 +30,7 @@ from .deps import (
     is_committee,
 )
 from ..utils.ev_pass_docx import generate_pass_docx, generate_promise_docx
+from ..utils.media_type import guess_media_type
 
 router = APIRouter(prefix="/api/ev-passes", tags=["电动车通行证"])
 
@@ -175,6 +176,8 @@ def my_license(
     # （别手拼 Content-Disposition，HTTP 头只装得下 latin-1）
     return FileResponse(
         str(file_path),
+        # 显式给类型：猜不出来时 Starlette 兜底成 text/plain（见 utils/media_type.py）
+        media_type=guess_media_type(req.license_original_name, req.license_file),
         filename=req.license_original_name or req.license_file,
         content_disposition_type="inline",
     )
@@ -358,6 +361,8 @@ def admin_license(
         raise HTTPException(status_code=404, detail="行驶证文件不存在")
     return FileResponse(
         str(file_path),
+        # 显式给类型：猜不出来时 Starlette 兜底成 text/plain（见 utils/media_type.py）
+        media_type=guess_media_type(req.license_original_name, req.license_file),
         filename=req.license_original_name or req.license_file,
         content_disposition_type="inline",
     )
