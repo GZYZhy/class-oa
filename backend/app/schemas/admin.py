@@ -103,7 +103,12 @@ class WatermarkExtractResponse(BaseModel):
     还是下载，靠下面的 action 字段去日志里核对，不靠这里猜。
 
     水印的 file_id 可能对应公告文件（announcement），也可能对应导出申请
-    （export_request），用 source_type 区分。
+    （export_request），用 source_type 区分。两边的 id 各自编号会撞号，
+    靠令牌里的来源段区分（见 pdf_watermark_service）。
+
+    导出文件（source_type = "export"）不在文件访问日志里，accessed_at 是它的
+    **生成时间**而不是访问时间，也没有 action / ip 可核 —— 前端要照着这个区别
+    调整措辞，别写成「某人于某时下载了这份文件」。
     """
     found: bool
     token: Optional[str] = None

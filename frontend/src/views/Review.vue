@@ -249,8 +249,15 @@
           <el-table-column label="操作" width="260" align="center">
             <template #default="{ row }">
               <template v-if="(row.status === 'generated' || row.status === 'approved') && (userStore.isAdmin || row.student_no === userStore.userInfo?.student_no)">
-                <el-button size="small" link type="success" @click="handleDownloadExport(row)">
-                  下载
+                <el-button
+                  size="small"
+                  link
+                  type="success"
+                  :loading="exportDownloadingId === row.id"
+                  @click="handleDownloadExport(row)"
+                >
+                  {{ exportDownloadingId === row.id && exportDownloadPercent
+                      ? exportDownloadPercent + '%' : '下载' }}
                 </el-button>
               </template>
               <template v-if="row.status === 'failed'">
@@ -408,6 +415,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { blobErrorDetail } from '@/utils/download'
 import { Right, ChatDotRound, Paperclip } from '@element-plus/icons-vue'
 import {
   getChangeRequests,
@@ -689,6 +697,9 @@ function handleRejectEvPass(row) {
 const exportList = ref([])
 const exportStatus = ref('pending')
 const exportLoading = ref(false)
+// 正在下载的那条申请：按钮转圈 + 显示百分比
+const exportDownloadingId = ref(null)
+const exportDownloadPercent = ref(0)
 
 async function fetchExportList() {
   exportLoading.value = true
@@ -771,8 +782,13 @@ async function handleRejectExport(row) {
 }
 
 async function handleDownloadExport(row) {
+  // 导出的 zip 可能几十 MB，按钮上显示百分比（同「资料下载」的做法）
+  exportDownloadingId.value = row.id
+  exportDownloadPercent.value = 0
   try {
-    const blob = await downloadExportFile(row.id)
+    const blob = await downloadExportFile(row.id, (loaded, total) => {
+      exportDownloadPercent.value = total ? Math.round((loaded / total) * 100) : 0
+    })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -783,7 +799,10 @@ async function handleDownloadExport(row) {
     URL.revokeObjectURL(url)
     ElMessage.success('下载完成')
   } catch (e) {
-    ElMessage.error('下载失败：' + (e.message || '未知错误'))
+    // 响应是 blob，后端的 detail 也被包成了 Blob，得专门解一下
+    ElMessage.error(await blobErrorDetail(e, '下载失败'))
+  } finally {
+    exportDownloadingId.value = null
   }
 }
 

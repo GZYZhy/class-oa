@@ -153,6 +153,23 @@ def get_default_fields():
     return DEFAULT_FIELDS
 
 
+# 导出范围的中文名。日志、审核列表、水印溯源都要展示，
+# 集中在这里，免得几个地方各写一份对不上（把 scope_type 原样抛出去，
+# 用户看到的就是「selected」这种内部代号）
+SCOPE_LABELS = {
+    "all": "全部",
+    "filtered": "当前筛选",
+    "selected": "手动勾选",
+    "id_range": "学号范围",
+}
+
+
+def scope_label(scope_type: str, count: int | None = None) -> str:
+    """范围的中文描述，给了人数就带上：手动勾选（3 人）"""
+    label = SCOPE_LABELS.get(scope_type, scope_type or "未知")
+    return f"{label}（{count} 人）" if count is not None else label
+
+
 def _get_student_value(student: Student, prop: str) -> str:
     """从 Student 对象取字段值，格式化后返回字符串"""
     info = FIELD_MAP.get(prop)
