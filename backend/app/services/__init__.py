@@ -42,6 +42,7 @@ from .ban_service import (
 from .resource_service import (
     add_resource,
     delete_resource,
+    download_name,
     get_by_file_name,
     list_all as list_all_resources,
     list_resources,
