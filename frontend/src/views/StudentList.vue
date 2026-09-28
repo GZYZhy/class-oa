@@ -128,6 +128,17 @@
             点名
           </el-button>
 
+          <!-- 导出：班委及以上可用，提交申请后管理员审批 -->
+          <el-button
+            v-if="userStore.isCommittee || userStore.isAdmin"
+            type="success"
+            style="margin-left: 8px;"
+            @click="exportDialogVisible = true"
+          >
+            <el-icon><Download /></el-icon>
+            导出
+          </el-button>
+
           <!-- 新增/删除学生都会连带处理登录账号，只给管理员 -->
           <el-button
             v-if="userStore.isAdmin"
@@ -153,14 +164,22 @@
       </div>
 
       <el-table
+        ref="tableRef"
         :data="tableData"
         v-loading="loading"
         stripe
         border
+        @selection-change="handleSelectionChange">
         style="width: 100%; margin-top: 16px;"
         @row-click="handleView"
         :row-style="{ cursor: 'pointer' }"
       >
+        <el-table-column
+          v-if="userStore.isCommittee || userStore.isAdmin"
+          type="selection"
+          width="50"
+          align="center"
+        />
         <el-table-column type="index" label="序号" width="60" align="center" />
         <el-table-column label="照片" width="70" align="center">
           <template #default="{ row }">
@@ -672,6 +691,157 @@
       @close="viewerVisible = false"
     />
 
+    <!-- 导出弹框 -->
+    <el-dialog
+      v-model="exportDialogVisible"
+      title="导出学生信息"
+      width="560px"
+      @open="onExportDialogOpen"
+    >
+      <el-tabs v-model="exportTab" @tab-change="handleExportTabChange">
+        <!-- 新建申请 -->
+        <el-tab-pane label="新建申请" name="new">
+          <el-form label-position="top">
+            <el-form-item label="导出类型">
+              <el-radio-group v-model="exportForm.export_type">
+                <el-radio value="excel_list">名单 Excel</el-radio>
+                <el-radio value="pdf_individual">个人信息表 PDF</el-radio>
+              </el-radio-group>
+              <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+                <template v-if="exportForm.export_type === 'excel_list'">
+                  一张 Excel 表，可选导出哪些列
+                </template>
+                <template v-else>
+                  每人一份一页 PDF，打包成 zip，PDF 自动打不可见溯源水印
+                </template>
+              </div>
+            </el-form-item>
+
+            <el-form-item label="学生范围">
+              <el-radio-group v-model="exportForm.scope_type">
+                <el-radio value="all">全部学生</el-radio>
+                <el-radio value="filtered">当前筛选结果</el-radio>
+                <el-radio value="selected">手动勾选</el-radio>
+                <el-radio value="id_range">学号范围</el-radio>
+              </el-radio-group>
+
+              <div v-if="exportForm.scope_type === 'selected'" style="font-size: 13px; color: #606266; margin-top: 8px;">
+                已选中 <b>{{ selectedStudents.length }}</b> 人（在下方表格里勾选）
+              </div>
+
+              <div v-if="exportForm.scope_type === 'id_range'" style="display: flex; gap: 8px; margin-top: 8px;">
+                <el-input
+                  v-model="exportForm.start_no"
+                  placeholder="起始学号"
+                  style="flex: 1;"
+                />
+                <span style="align-self: center; color: #909399;">至</span>
+                <el-input
+                  v-model="exportForm.end_no"
+                  placeholder="结束学号"
+                  style="flex: 1;"
+                />
+              </div>
+            </el-form-item>
+
+            <!-- 仅 Excel 导出显示字段选择 -->
+            <el-form-item v-if="exportForm.export_type === 'excel_list'" label="导出字段">
+              <div class="export-field-groups">
+                <div v-for="g in fieldGroups" :key="g.key" class="field-group">
+                  <div class="field-group-title">{{ g.label }}</div>
+                  <el-checkbox-group v-model="exportForm.fields">
+                    <el-checkbox
+                      v-for="f in g.fields"
+                      :key="f.prop"
+                      :value="f.prop"
+                      :label="f.prop"
+                    >
+                      {{ f.label }}
+                    </el-checkbox>
+                  </el-checkbox-group>
+                </div>
+              </div>
+              <div style="margin-top: 8px;">
+                <el-button
+                  size="small"
+                  link
+                  type="primary"
+                  @click="exportForm.fields = defaultFields"
+                >
+                  恢复默认
+                </el-button>
+                <el-button
+                  size="small"
+                  link
+                  type="primary"
+                  @click="exportForm.fields = fieldGroups.flatMap(g => g.fields.map(f => f.prop))"
+                >
+                  全选
+                </el-button>
+                <el-button
+                  size="small"
+                  link
+                  type="primary"
+                  @click="exportForm.fields = []"
+                >
+                  清空
+                </el-button>
+              </div>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
+        <!-- 我的申请 -->
+        <el-tab-pane label="我的申请" name="history">
+          <el-table :data="myRequests" v-loading="myRequestsLoading" stripe size="small">
+            <el-table-column prop="created_at" label="申请时间" width="160">
+              <template #default="{ row }">
+                {{ new Date(row.created_at).toLocaleString() }}
+              </template>
+            </el-table-column>
+            <el-table-column label="类型" width="130">
+              <template #default="{ row }">{{ typeLabel(row.export_type) }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="statusTagType(row.status)" size="small">
+                  {{ statusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="100">
+              <template #default="{ row }">
+                <el-button
+                  v-if="row.status === 'generated' || row.status === 'approved'"
+                  type="primary"
+                  size="small"
+                  link
+                  @click="handleDownload(row)"
+                >
+                  下载
+                </el-button>
+                <span v-else-if="row.status === 'rejected'" style="font-size: 12px; color: #909399;">
+                  {{ row.reject_reason }}
+                </span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
+
+      <template #footer>
+        <el-button @click="exportDialogVisible = false">取消</el-button>
+        <el-button
+          v-if="exportTab === 'new'"
+          type="primary"
+          :loading="submitting"
+          @click="handleSubmitExport"
+        >
+          提交申请
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 点名弹窗 -->
     <RollCallDialog ref="rollCallRef" />
 
@@ -693,6 +863,12 @@ import {
   uploadStudentPhoto,
   deleteStudentPhoto
 } from '@/api/student'
+import {
+  createExportRequest,
+  getMyExportRequests,
+  getExportFieldGroups,
+  downloadExportFile
+} from '@/api/export'
 import { useUserStore } from '@/store/user'
 import Watermark from '@/components/Watermark.vue'
 import RollCallDialog from '@/components/RollCallDialog.vue'
@@ -1096,6 +1272,197 @@ async function handleSaveRemark() {
   }
 }
 
+// ==================== 导出 ====================
+
+const tableRef = ref(null)
+const selectedStudents = ref([])
+const exportDialogVisible = ref(false)
+const exportTab = ref('new') // new / history
+const submitting = ref(false)
+const downloadProgress = ref(null)
+const myRequests = ref([])
+const myRequestsLoading = ref(false)
+
+// 导出表单
+const exportForm = reactive({
+  export_type: 'excel_list', // excel_list / pdf_individual
+  scope_type: 'all', // all / filtered / selected / id_range
+  start_no: '',
+  end_no: '',
+  fields: [] // 选中的字段（excel 用）
+})
+
+// 字段分组（从后端拿）
+const fieldGroups = ref([])
+const defaultFields = ref([])
+
+function handleSelectionChange(selection) {
+  selectedStudents.value = selection
+}
+
+async function loadFieldGroups() {
+  if (fieldGroups.value.length) return
+  try {
+    const res = await getExportFieldGroups()
+    fieldGroups.value = res.groups
+    defaultFields.value = res.default_fields
+    if (!exportForm.fields.length) {
+      exportForm.fields = [...res.default_fields]
+    }
+  } catch (e) {
+    console.error('加载导出字段失败', e)
+  }
+}
+
+async function loadMyRequests() {
+  myRequestsLoading.value = true
+  try {
+    const res = await getMyExportRequests({ page: 1, page_size: 20 })
+    myRequests.value = res.items
+  } catch (e) {
+    console.error('加载我的申请失败', e)
+  } finally {
+    myRequestsLoading.value = false
+  }
+}
+
+// 当用户切到「我的申请」tab 时加载
+function handleExportTabChange(tab) {
+  if (tab === 'history') {
+    loadMyRequests()
+  }
+}
+
+// 构造 scope_param
+function buildScopeParam() {
+  const t = exportForm.scope_type
+  if (t === 'all') return null
+  if (t === 'selected') {
+    return { ids: selectedStudents.value.map(s => s.id) }
+  }
+  if (t === 'id_range') {
+    return { start_no: exportForm.start_no, end_no: exportForm.end_no }
+  }
+  if (t === 'filtered') {
+    // 当前筛选条件
+    return {
+      keyword: filterForm.keyword,
+      gender: filterForm.gender,
+      ethnicity: filterForm.ethnicity,
+      political_status: filterForm.political_status,
+      dormitory: filterForm.dormitory,
+      is_poor: filterForm.is_poor,
+      sort_by: sortBy.value,
+      sort_order: sortOrder.value
+    }
+  }
+  return null
+}
+
+async function handleSubmitExport() {
+  // 校验
+  if (exportForm.scope_type === 'selected' && !selectedStudents.value.length) {
+    ElMessage.warning('请先在表格里勾选要导出的学生')
+    return
+  }
+  if (exportForm.scope_type === 'id_range' && !exportForm.start_no && !exportForm.end_no) {
+    ElMessage.warning('请输入至少一个学号边界')
+    return
+  }
+  if (exportForm.export_type === 'excel_list' && !exportForm.fields.length) {
+    ElMessage.warning('请至少选择一个导出字段')
+    return
+  }
+
+  submitting.value = true
+  try {
+    const body = {
+      export_type: exportForm.export_type,
+      scope_type: exportForm.scope_type,
+      scope_param: buildScopeParam(),
+      fields: exportForm.export_type === 'excel_list' ? exportForm.fields : null
+    }
+    await createExportRequest(body)
+    ElMessage.success('申请已提交，等待管理员审核')
+    exportDialogVisible.value = false
+    // 切到历史 tab 能看到刚提交的
+  } catch (e) {
+    ElMessage.error('提交失败：' + (e.message || '未知错误'))
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function handleDownload(req) {
+  downloadProgress.value = { reqId: req.id, loaded: 0, total: 0 }
+  let abortCtrl = null
+  try {
+    abortCtrl = new AbortController()
+    const blob = await downloadExportFile(
+      req.id,
+      (loaded, total) => {
+        downloadProgress.value = { reqId: req.id, loaded, total }
+      },
+      abortCtrl.signal
+    )
+    // 保存文件
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    // 从 Content-Disposition 拿文件名太麻烦，直接用展示名 + 后缀
+    const ext = req.export_type === 'excel_list' ? 'xlsx' : 'zip'
+    a.download = `${req.file_original_name || ('学生信息导出.' + ext)}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    ElMessage.success('下载完成')
+  } catch (e) {
+    if (e?.code !== 'ERR_CANCELED' && e?.name !== 'CanceledError') {
+      ElMessage.error('下载失败：' + (e.message || '未知错误'))
+    }
+  } finally {
+    downloadProgress.value = null
+  }
+}
+
+// 弹框打开时加载字段分组
+function onExportDialogOpen() {
+  loadFieldGroups()
+  // 重置表单
+  exportForm.export_type = 'excel_list'
+  exportForm.scope_type = 'all'
+  exportForm.start_no = ''
+  exportForm.end_no = ''
+  exportForm.fields = defaultFields.value.length ? [...defaultFields.value] : []
+  exportTab.value = 'new'
+}
+
+// 状态 tag 颜色
+function statusTagType(status) {
+  return {
+    pending: 'warning',
+    approved: 'success',
+    generated: 'success',
+    rejected: 'danger',
+    failed: 'info'
+  }[status] || 'info'
+}
+
+function statusLabel(status) {
+  return {
+    pending: '待审核',
+    approved: '已通过',
+    generated: '已生成',
+    rejected: '已驳回',
+    failed: '生成失败'
+  }[status] || status
+}
+
+function typeLabel(t) {
+  return { excel_list: '名单 Excel', pdf_individual: '个人信息表 PDF' }[t] || t
+}
+
 onMounted(() => {
   fetchData()
   fetchFilterOptions()
@@ -1307,5 +1674,29 @@ onMounted(() => {
     justify-content: flex-end;
     row-gap: 8px;
   }
+}
+
+/* 导出弹框：字段分组 */
+.export-field-groups {
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  padding: 12px 16px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.field-group + .field-group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed #ebeef5;
+}
+.field-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+  margin-bottom: 8px;
+}
+.field-group .el-checkbox {
+  margin-right: 16px;
+  margin-bottom: 6px;
 }
 </style>

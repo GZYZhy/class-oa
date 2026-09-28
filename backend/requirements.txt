@@ -10,3 +10,4 @@ itsdangerous==2.2.0
 # 浏览器推送（Web Push）。必须锁定 2.5.0
 pywebpush==2.5.0
 pymupdf==1.28.2
+reportlab==4.2.2

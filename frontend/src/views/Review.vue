@@ -202,6 +202,82 @@
         <el-empty v-if="!loading && !evPassList.length" description="暂无申请" style="margin-top: 20px;" />
       </el-tab-pane>
 
+      <!-- ============ 导出申请 ============ -->
+      <el-tab-pane label="导出申请" name="export">
+        <div class="tab-toolbar">
+          <el-radio-group v-model="exportStatus" size="small" @change="fetchExportList">
+            <el-radio-button value="pending">待审核</el-radio-button>
+            <el-radio-button value="generated">已通过</el-radio-button>
+            <el-radio-button value="rejected">已驳回</el-radio-button>
+            <el-radio-button value="failed">生成失败</el-radio-button>
+            <el-radio-button value="">全部</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <el-table :data="exportList" v-loading="exportLoading" stripe border style="width: 100%; margin-top: 12px;">
+          <el-table-column label="申请人" width="150" align="center">
+            <template #default="{ row }">
+              {{ row.student_name }}
+              <div style="font-size: 12px; color: #909399;">{{ row.student_no }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="类型" width="140" align="center">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.export_type === 'excel_list' ? '' : 'primary'">
+                {{ row.export_type === 'excel_list' ? '名单 Excel' : '个人信息表 PDF' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="范围" width="120" align="center">
+            <template #default="{ row }">{{ scopeLabel(row.scope_type) }}</template>
+          </el-table-column>
+          <el-table-column label="字段数" width="90" align="center">
+            <template #default="{ row }">
+              {{ row.export_type === 'excel_list' ? (row.fields?.length || 0) : '全部' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="110" align="center">
+            <template #default="{ row }">
+              <el-tag :type="exportStatusTag(row.status)" size="small">
+                {{ exportStatusLabel(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="申请时间" width="160" align="center">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="260" align="center">
+            <template #default="{ row }">
+              <template v-if="row.status === 'generated' || row.status === 'approved'">
+                <el-button size="small" link type="success" @click="handleDownloadExport(row)">
+                  下载
+                </el-button>
+              </template>
+              <template v-if="row.status === 'failed'">
+                <el-tooltip :content="row.error_msg" placement="top">
+                  <span style="font-size: 12px; color: #909399; cursor: help;">失败原因</span>
+                </el-tooltip>
+              </template>
+              <template v-if="row.status === 'rejected'">
+                <el-tooltip :content="row.reject_reason" placement="top">
+                  <span style="font-size: 12px; color: #909399; cursor: help;">驳回理由</span>
+                </el-tooltip>
+              </template>
+              <template v-if="row.status === 'pending' && userStore.isAdmin">
+                <el-button size="small" link type="success" @click="handleApproveExport(row)">
+                  通过
+                </el-button>
+                <el-button size="small" link type="danger" @click="handleRejectExport(row)">
+                  驳回
+                </el-button>
+              </template>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-empty v-if="!exportLoading && !exportList.length" description="暂无导出申请" style="margin-top: 20px;" />
+      </el-tab-pane>
+
       <!-- ============ 意见反馈 ============ -->
       <el-tab-pane label="意见反馈" name="feedback">
         <div class="tab-toolbar">
@@ -366,6 +442,12 @@ import FileViewer from '@/components/FileViewer.vue'
 import { useWatermark } from '@/composables/useWatermark'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
+import {
+  getExportRequests,
+  approveExportRequest,
+  rejectExportRequest,
+  downloadExportFile
+} from '@/api/export'
 
 const userStore = useUserStore()
 const badgeStore = useBadgeStore()
@@ -376,7 +458,7 @@ const route = useRoute()
 const loading = ref(false)
 // 从推送点进来时带着 ?tab=leave 之类的参数，直接落到对应分类；
 // 不带参数（正常从菜单进）就还是老样子，停在信息修改申请
-const TABS = ['change', 'leave', 'evpass', 'feedback']
+const TABS = ['change', 'leave', 'evpass', 'export', 'feedback']
 const activeTab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'change')
 
 // —— 信息修改申请 ——
@@ -603,6 +685,108 @@ function handleRejectEvPass(row) {
   }).catch(() => {})
 }
 
+// —— 导出申请 ——
+const exportList = ref([])
+const exportStatus = ref('pending')
+const exportLoading = ref(false)
+
+async function fetchExportList() {
+  exportLoading.value = true
+  try {
+    const res = await getExportRequests({
+      status: exportStatus.value || undefined,
+      page: 1,
+      page_size: 100
+    })
+    exportList.value = res.items || []
+  } catch (e) {
+    ElMessage.error('加载导出申请列表失败')
+    console.error(e)
+  } finally {
+    exportLoading.value = false
+  }
+}
+
+function scopeLabel(type) {
+  return {
+    all: '全部学生',
+    filtered: '筛选结果',
+    selected: '手动勾选',
+    id_range: '学号范围'
+  }[type] || type
+}
+
+function exportStatusTag(status) {
+  return {
+    pending: 'warning',
+    approved: 'success',
+    generated: 'success',
+    rejected: 'danger',
+    failed: 'info'
+  }[status] || 'info'
+}
+
+function exportStatusLabel(status) {
+  return {
+    pending: '待审核',
+    approved: '已通过',
+    generated: '已生成',
+    rejected: '已驳回',
+    failed: '生成失败'
+  }[status] || status
+}
+
+async function handleApproveExport(row) {
+  ElMessageBox.confirm(
+    `确定通过 ${row.student_name} 的导出申请？\n通过后会自动生成文件。`,
+    '通过申请',
+    { type: 'success', confirmButtonText: '通过', cancelButtonText: '取消' }
+  ).then(async () => {
+    try {
+      await approveExportRequest(row.id)
+      ElMessage.success('已通过，文件生成中…')
+      fetchExportList()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
+async function handleRejectExport(row) {
+  ElMessageBox.prompt('请输入驳回理由', '驳回申请', {
+    confirmButtonText: '驳回',
+    cancelButtonText: '取消',
+    type: 'warning',
+    inputPattern: /.+/,
+    inputErrorMessage: '请填写驳回理由'
+  }).then(async ({ value }) => {
+    try {
+      await rejectExportRequest(row.id, value)
+      ElMessage.success('已驳回')
+      fetchExportList()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
+async function handleDownloadExport(row) {
+  try {
+    const blob = await downloadExportFile(row.id)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = row.file_original_name || '学生信息导出'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    ElMessage.success('下载完成')
+  } catch (e) {
+    ElMessage.error('下载失败：' + (e.message || '未知错误'))
+  }
+}
+
 // —— 意见反馈 ——
 const feedbackList = ref([])
 const feedbackStatus = ref('unread')
@@ -686,6 +870,8 @@ function handleTabChange() {
     fetchLeaveList()
   } else if (activeTab.value === 'evpass') {
     fetchEvPassList()
+  } else if (activeTab.value === 'export') {
+    fetchExportList()
   } else if (activeTab.value === 'feedback') {
     fetchFeedbackList()
   }
