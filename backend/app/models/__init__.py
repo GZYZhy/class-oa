@@ -13,5 +13,6 @@ from .push_subscription import PushSubscription
 from .resource import Resource
 from .file_access_log import FileAccessLog
 from .ev_pass_request import EvPassRequest
+from .export_request import ExportRequest
 
-__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog", "EvPassRequest"]
+__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog", "EvPassRequest", "ExportRequest"]
