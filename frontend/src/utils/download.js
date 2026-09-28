@@ -20,9 +20,35 @@ function toApiPath(url) {
   return url.startsWith('/api/') ? url.slice(4) : url
 }
 
-/** 取回受保护文件的 blob（带登录态、会被 401 拦截器接住） */
-export function fetchBlob(url) {
-  return request({ url: toApiPath(url), method: 'get', responseType: 'blob' })
+/**
+ * 取文件专用的超时时间。
+ *
+ * 全局的 15 秒是给普通接口（查列表、提交表单）的，那类请求慢到 15 秒本来也该报错。
+ * 但文件不一样：公告 PDF 大的有 5MB 以上，手机信号差的时候光传输就要几分钟，
+ * 照 15 秒算必定中断，用户看到的是「下载失败」，而不是「慢慢下完了」。
+ * 给 5 分钟，并且把进度显示出来（onProgress），让人看得见它没卡死。
+ */
+const FILE_TIMEOUT = 5 * 60 * 1000
+
+/**
+ * 取回受保护文件的 blob（带登录态、会被 401 拦截器接住）
+ *
+ * onProgress(loaded, total)：已下载字节数和总字节数（后端没给 Content-Length 时
+ * total 为 0，调用方按「未知」处理就行）
+ */
+export function fetchBlob(url, onProgress, signal) {
+  return request({
+    url: toApiPath(url),
+    method: 'get',
+    responseType: 'blob',
+    timeout: FILE_TIMEOUT,
+    // 关掉弹框/离开页面时把还在传的请求掐掉：大文件在慢网络下要传好几分钟，
+    // 不掐的话它会一直占着带宽，用户重开一次就是两份在下
+    signal,
+    onDownloadProgress: (e) => {
+      if (onProgress) onProgress(e.loaded || 0, e.total || 0)
+    },
+  })
 }
 
 /**
@@ -43,9 +69,12 @@ export async function blobErrorDetail(e, fallback = '下载失败') {
   return data?.detail || fallback
 }
 
-/** 下载：拉成 blob 再用隐藏 a 标签存盘，保留原文件名 */
-export async function downloadFile(url, filename) {
-  const blob = await fetchBlob(url)
+/** 下载：拉成 blob 再用隐藏 a 标签存盘，保留原文件名
+ *
+ * onProgress 透传给 fetchBlob，按钮上显示百分比用（大文件下得慢，得让人看见在动）
+ */
+export async function downloadFile(url, filename, onProgress) {
+  const blob = await fetchBlob(url, onProgress)
   const objectUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = objectUrl

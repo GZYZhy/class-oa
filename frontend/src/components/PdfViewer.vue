@@ -55,10 +55,12 @@
 
     <!-- 渲染区：外层是定位基准，canvas 放内容，watermark 盖在上面。
          loading 交给 el-loading 挂在容器上——它只在加载时插一层遮罩，
-         加载完就撤掉；自己写死的遮罩会一直盖在画布上，整页看着灰蒙蒙的 -->
+         加载完就撤掉；自己写死的遮罩会一直盖在画布上，整页看着灰蒙蒙的。
+         遮罩上的文字带下载进度：大文件 + 慢网络时，光看转圈分不清「在下」和「卡死」 -->
     <div
       ref="containerRef"
       v-loading="loading"
+      :element-loading-text="loadingText"
       class="pdf-container"
       @contextmenu.prevent="onContextMenu"
     >
@@ -75,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as pdfjsLib from 'pdfjs-dist'
 // Vite 打包时 worker 走 ?url 形式，避免额外配置
@@ -105,8 +107,21 @@ const loading = ref(false)
 const currentPage = ref(1)
 const totalPages = ref(0)
 const scale = ref(1.2)
+// 下载进度 { loaded, total }，还没拿到 Content-Length 时 total 为 0
+const progress = ref(null)
 
 let pdfDoc = null
+// 当前这次取文件的请求（关弹框时要把它掐掉，见 handleClosed）
+let abortCtrl = null
+
+// 遮罩上的文字。后端给了 Content-Length 就写清楚「下到哪了」，
+// 没给就只说在加载 —— 编不出进度就别编
+const loadingText = computed(() => {
+  const p = progress.value
+  if (!p || !p.total) return '正在加载…'
+  const mb = (n) => (n / 1048576).toFixed(1)
+  return `正在加载 ${mb(p.loaded)} / ${mb(p.total)} MB（${Math.round((p.loaded / p.total) * 100)}%）`
+})
 
 // 监听弹框打开：加载 PDF
 watch(() => props.modelValue, async (val) => {
@@ -120,10 +135,14 @@ async function loadPdf() {
   if (!props.fileUrl) return
   loading.value = true
   currentPage.value = 1
+  progress.value = null
   try {
     // 经 axios 取回 blob（这样带登录态、能被 401 拦截器接住），
-    // 再转成 ArrayBuffer 喂给 PDF.js
-    const blob = await fetchBlob(props.fileUrl)
+    // 再转成 ArrayBuffer 喂给 PDF.js。回调把进度写进 loadingText
+    abortCtrl = new AbortController()
+    const blob = await fetchBlob(props.fileUrl, (loaded, total) => {
+      progress.value = { loaded, total }
+    }, abortCtrl.signal)
     const arrayBuffer = await blob.arrayBuffer()
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
     pdfDoc = await loadingTask.promise
@@ -132,6 +151,8 @@ async function loadPdf() {
     await nextTick()
     await fitWidth()
   } catch (e) {
+    // 自己掐掉的（关弹框）不算失败：别弹红字，也别再去关一次已经关了的弹框
+    if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') return
     ElMessage.error('文件加载失败：' + (e.message || '未知错误'))
     emit('update:modelValue', false)
   } finally {
@@ -223,6 +244,13 @@ function handleClosed() {
   totalPages.value = 0
   currentPage.value = 1
   scale.value = 1.2
+  progress.value = null
+  // 文件还在传就掐掉它：慢网络下大文件能传好几分钟，
+  // 用户已经关掉弹框了，没必要继续占着带宽
+  if (abortCtrl) {
+    abortCtrl.abort()
+    abortCtrl = null
+  }
   if (canvasRef.value) {
     const ctx = canvasRef.value.getContext('2d')
     ctx.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height)
@@ -236,6 +264,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   if (pdfDoc) pdfDoc = null
+  // 离开页面时同理：别把一个还在传的大文件留在后台
+  if (abortCtrl) abortCtrl.abort()
 })
 </script>
 
