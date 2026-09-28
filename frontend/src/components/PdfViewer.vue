@@ -71,6 +71,39 @@
         <canvas ref="canvasRef" class="pdf-canvas" />
       </div>
       <Watermark :text="watermarkText" />
+
+      <!-- 左右两侧点击热区：手机上点左右半页就能翻页，不用够顶部工具栏 -->
+      <div
+        class="page-hit page-hit-left"
+        :class="{ disabled: currentPage <= 1 }"
+        @click="prevPage"
+        aria-label="上一页"
+      >
+        <el-icon v-if="totalPages > 1" class="hit-icon"><ArrowLeft /></el-icon>
+      </div>
+      <div
+        class="page-hit page-hit-right"
+        :class="{ disabled: currentPage >= totalPages }"
+        @click="nextPage"
+        aria-label="下一页"
+      >
+        <el-icon v-if="totalPages > 1" class="hit-icon"><ArrowRight /></el-icon>
+      </div>
+
+      <!-- 底部浮动翻页栏：阅读时手在下方，不用挪到顶部去点 -->
+      <div v-if="totalPages > 1" class="bottom-bar">
+        <el-button size="small" :disabled="currentPage <= 1" @click="prevPage">
+          <el-icon><ArrowLeft /></el-icon>
+          上一页
+        </el-button>
+        <span class="bottom-page-text">
+          {{ currentPage }} / {{ totalPages }}
+        </span>
+        <el-button size="small" :disabled="currentPage >= totalPages" @click="nextPage">
+          下一页
+          <el-icon><ArrowRight /></el-icon>
+        </el-button>
+      </div>
     </div>
 
     <template #footer>
@@ -232,12 +265,62 @@ function onContextMenu() {
   // 静默阻止，不弹提示，免得用户觉得此地无银
 }
 
-/** 阻止一些常见的保存/打印快捷键 */
+/** 全局键盘：阻止保存/打印，再加翻页快捷键 */
 function onKeydown(e) {
   if (!props.modelValue) return
+
   // Ctrl/Cmd + S 保存、Ctrl/Cmd + P 打印
   if ((e.ctrlKey || e.metaKey) && ['s', 'p', 'S', 'P'].includes(e.key)) {
     e.preventDefault()
+    return
+  }
+
+  // 翻页快捷键：弹框打开时生效
+  // 左箭头 / PageUp / Backspace → 上一页
+  // 右箭头 / 空格 / PageDown / Enter → 下一页
+  // Home → 第一页，End → 最后一页
+  switch (e.key) {
+    case 'ArrowLeft':
+    case 'PageUp':
+    case 'Backspace':
+      if (currentPage.value > 1) {
+        e.preventDefault()
+        prevPage()
+      }
+      break
+    case 'ArrowRight':
+    case ' ':
+    case 'PageDown':
+    case 'Enter':
+      if (currentPage.value < totalPages.value) {
+        e.preventDefault()
+        nextPage()
+      }
+      break
+    case 'Home':
+      if (currentPage.value !== 1) {
+        e.preventDefault()
+        currentPage.value = 1
+        renderPage(1)
+      }
+      break
+    case 'End':
+      if (currentPage.value !== totalPages.value) {
+        e.preventDefault()
+        currentPage.value = totalPages.value
+        renderPage(totalPages.value)
+      }
+      break
+    case '+':
+    case '=':
+      e.preventDefault()
+      zoomIn()
+      break
+    case '-':
+    case '_':
+      e.preventDefault()
+      zoomOut()
+      break
   }
 }
 
@@ -331,6 +414,69 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
+/* ---- 左右两侧点击热区：手机上点左/右半页翻页 ---- */
+.page-hit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 25%;
+  z-index: 10;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  /* 不挡文字选择，但能接收点击 —— 实际全透明，hover 时才出现箭头提示 */
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.page-hit:hover {
+  opacity: 1;
+}
+.page-hit.disabled {
+  cursor: default;
+  opacity: 0 !important;
+  pointer-events: none;
+}
+.page-hit-left {
+  left: 0;
+  justify-content: flex-start;
+  padding-left: 12px;
+}
+.page-hit-right {
+  right: 0;
+  justify-content: flex-end;
+  padding-right: 12px;
+}
+.hit-icon {
+  font-size: 32px;
+  color: rgba(0, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  padding: 8px;
+}
+
+/* ---- 底部浮动翻页栏 ---- */
+.bottom-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  border-radius: 24px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+.bottom-page-text {
+  font-size: 13px;
+  color: #606266;
+  min-width: 60px;
+  text-align: center;
+}
+
 /* 窄屏 / 手机：工具栏挤的时候，把「适应宽度」文字收起来只留图标，
    再把左右两组的间距收一收，避免溢出弹框 */
 @media (max-width: 640px) {
@@ -347,6 +493,19 @@ onBeforeUnmount(() => {
   .scale-text {
     font-size: 12px;
     min-width: 40px;
+  }
+  /* 手机上点击热区留一点可见提示，不然用户不知道能点 */
+  .page-hit {
+    opacity: 0.4;
+  }
+  .hit-icon {
+    font-size: 24px;
+    padding: 6px;
+  }
+  .bottom-bar {
+    bottom: 10px;
+    gap: 8px;
+    padding: 4px 8px;
   }
 }
 </style>
