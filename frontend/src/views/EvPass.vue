@@ -39,7 +39,7 @@
                 </template>
               </el-upload>
             </el-form-item>
-            <el-form-item prop="confirmed">
+            <el-form-item prop="confirmed" class="confirm-item">
               <el-checkbox v-model="form.confirmed">
                 我确认信息真实，遵守学校规定，车辆本人使用，提交前已与班委联系
               </el-checkbox>
@@ -71,7 +71,9 @@
               <template #default="{ row }">
                 <el-button type="primary" link size="small" @click="viewLicense(row)">行驶证</el-button>
                 <template v-if="row.status === 'approved'">
-                  <el-button type="success" link size="small" @click="downloadPass(row)">通行证</el-button>
+                  <!-- 这份文档的表头写的是「电动车通行证补办登记表」，但学生拿到手
+                       要交上去，按「申请表」称呼更贴合用途 -->
+                  <el-button type="success" link size="small" @click="downloadPass(row)">申请表</el-button>
                   <el-button type="success" link size="small" @click="downloadPromise(row)">承诺书</el-button>
                 </template>
               </template>
@@ -96,8 +98,8 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getMyEvPasses, submitEvPass } from '@/api/evPass'
-import { formatDateTime } from '@/utils/format'
-import { downloadFile } from '@/utils/download'
+import { formatDate, formatDateTime } from '@/utils/format'
+import { blobErrorDetail, downloadFile } from '@/utils/download'
 import FileViewer from '@/components/FileViewer.vue'
 
 const activeTab = ref('apply')
@@ -187,22 +189,27 @@ function viewLicense(row) {
   licenseViewerVisible.value = true
 }
 
-// 下载通行证 / 承诺书
+// 下载申请表 / 承诺书。
+// 存盘名要自己拼（downloadFile 走 blob，拿不到响应头里的名字），
+// 命名沿用请假证明的模式：姓名_材料名_日期 —— 同一个人可能申请过不止一次
+function docxName(row, label) {
+  const dateStr = formatDate(row.created_at).replace(/-/g, '')
+  return `${row.student_name}_${label}_${dateStr}.docx`
+}
+
 async function downloadPass(row) {
-  const name = `${row.student_name}_电动车通行证.docx`
   try {
-    await downloadFile(`/api/ev-passes/${row.id}/pass-docx`, name)
+    await downloadFile(`/api/ev-passes/${row.id}/pass-docx`, docxName(row, '电动车通行证申请表'))
   } catch (e) {
-    ElMessage.error('下载失败')
+    ElMessage.error(await blobErrorDetail(e))
   }
 }
 
 async function downloadPromise(row) {
-  const name = `${row.student_name}_电动车承诺书.docx`
   try {
-    await downloadFile(`/api/ev-passes/${row.id}/promise-docx`, name)
+    await downloadFile(`/api/ev-passes/${row.id}/promise-docx`, docxName(row, '电动车承诺书'))
   } catch (e) {
-    ElMessage.error('下载失败')
+    ElMessage.error(await blobErrorDetail(e))
   }
 }
 
@@ -228,5 +235,23 @@ onMounted(fetchList)
 .alert-text {
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* 确认框这段字在手机上会顶出屏幕右边：el-checkbox 的文本默认
+   white-space: nowrap（左右两栏的表单里这是对的，可这里是一整句话）。
+   放开折行，并把勾选框留在第一行的位置，而不是垂直居中到两行中间。
+   行高也要一并放开 —— 表单控件默认的 32px 行高撑不住两行文字 */
+.confirm-item :deep(.el-form-item__content) {
+  line-height: 1.5;
+}
+
+.confirm-item :deep(.el-checkbox) {
+  align-items: flex-start;
+  height: auto;
+  white-space: normal;
+}
+
+.confirm-item :deep(.el-checkbox__input) {
+  margin-top: 2px;
 }
 </style>
