@@ -5,9 +5,12 @@
 - 肉眼完全不可见，但 page.get_text() 可以直接提取
 - 纯文本 PDF 有效，原文流转可靠（重存盘不丢）
 
-令牌格式：OA-WM:<file_id>:<user_no>:<timestamp_unix>
+令牌格式：OA-WM:<source>:<file_id>:<user_no>:<timestamp_unix>
 - 纯 ASCII，避开中文字体嵌入/ToUnicode 乱码问题
 - 用固定前缀 OA-WM: 方便提取时正则匹配
+- source 说明 file_id 是哪张表的主键：ann=公告文件、exp=导出文件。
+  两边的 id 各自从 1 开始编号、必然撞号，只凭 id 去查会溯源到别的文件上；
+  上线前写的令牌没有这一段，那时只有公告会打水印，按公告处理。
 
 额外冗余层：同令牌也写入 PDF 元数据 /Info 的 Keywords 字段。
 （元数据容易被清除，只作为辅助，不作为唯一依据）
@@ -22,14 +25,28 @@ import pymupdf as fitz  # PyMuPDF（新版本包名是 pymupdf，fitz 作为别�
 
 # 水印令牌前缀，提取时按此前缀捞
 TOKEN_PREFIX = "OA-WM:"
-# 令牌正则：OA-WM:文件ID:账号:时间戳
+
+# 令牌里的来源短码，一个字母都别多 —— 每页要重复写 12 次
+# （和 file_access_logs.source 用长名是两个概念：那边给人看，这边尽量短）
+TOKEN_SOURCE_ANNOUNCEMENT = "ann"
+TOKEN_SOURCE_EXPORT = "exp"
+
+# 令牌正则：OA-WM:[来源:]文件ID:账号:时间戳
+# 来源那段的两个值都是字母开头，不可能和后面的数字抢位，
+# 所以旧令牌（没有来源段）照样能被这一条正则吃下来，来源留空
+#
 # 账号那段用 [^:]+ 而不是 \w+：域外账号的登录名只禁空格，「T-001」「zhang.san」
 # 都合法，而 \w 匹配不到 - 和 . —— 那样会把已经写进 PDF 的水印认成「没水印」，
 # 管理员在溯源页看到的还是「未检测到水印」。账号经百分号编码后不含 :，不会有歧义
-TOKEN_PATTERN = re.compile(rf"{TOKEN_PREFIX}(\d+):([^:]+):(\d+)")
+TOKEN_PATTERN = re.compile(
+    rf"{TOKEN_PREFIX}(?:({TOKEN_SOURCE_ANNOUNCEMENT}|{TOKEN_SOURCE_EXPORT}):)?(\d+):([^:]+):(\d+)"
+)
 
 
-def make_watermark_token(file_id: int, user_no: str, timestamp: int | None = None) -> str:
+def make_watermark_token(
+    file_id: int, user_no: str, timestamp: int | None = None,
+    source: str = TOKEN_SOURCE_ANNOUNCEMENT,
+) -> str:
     """构造水印令牌
 
     账号（学号 / 域外账号登录名）做一次百分号编码，令牌保证是纯 ASCII：
@@ -38,21 +55,25 @@ def make_watermark_token(file_id: int, user_no: str, timestamp: int | None = Non
     """
     if timestamp is None:
         timestamp = int(time.time())
-    return f"{TOKEN_PREFIX}{file_id}:{quote(user_no, safe='')}:{timestamp}"
+    return f"{TOKEN_PREFIX}{source}:{file_id}:{quote(user_no, safe='')}:{timestamp}"
 
 
 def parse_watermark_token(token: str) -> dict | None:
-    """解析水印令牌，返回 {file_id, user_no, timestamp}，解析失败返回 None
+    """解析水印令牌，返回 {source, file_id, user_no, timestamp}，解析失败返回 None
 
     user_no 解回编码前的样子，调用方拿它去查账号，不用关心编码的事。
+    source 是令牌里的来源短码；旧令牌没有这一段，返回 None
+    （那时只有公告会打水印，但升级前生成的导出 PDF 也长这样，
+    调用方可以拿 None 当「先按公告查，查不到再按导出查」的信号）。
     """
     m = TOKEN_PATTERN.search(token)
     if not m:
         return None
     return {
-        "file_id": int(m.group(1)),
-        "user_no": unquote(m.group(2)),
-        "timestamp": int(m.group(3)),
+        "source": m.group(1),
+        "file_id": int(m.group(2)),
+        "user_no": unquote(m.group(3)),
+        "timestamp": int(m.group(4)),
     }
 
 

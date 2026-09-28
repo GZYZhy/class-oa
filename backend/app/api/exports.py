@@ -30,10 +30,12 @@ from ..schemas.export import (
     ExportRejectRequest,
 )
 from ..services import (
+    TOKEN_SOURCE_EXPORT,
     log_operation,
     make_watermark_token,
     notify,
     recipients,
+    scope_label,
 )
 from ..services.export_service import (
     DEFAULT_FIELDS,
@@ -44,7 +46,7 @@ from ..services.export_service import (
     get_field_groups,
     resolve_students,
 )
-from .deps import admin_required, committee_required, get_current_user
+from .deps import admin_required, committee_required, get_client_ip, get_current_user
 
 router = APIRouter(prefix="/api/export-requests", tags=["学生信息导出"])
 
@@ -111,6 +113,33 @@ def _display_name_for_type(export_type: str) -> str:
     return {"excel_list": "学生名单", "pdf_individual": "个人信息表"}.get(export_type, "导出文件")
 
 
+def _log_target(students: list[Student]) -> tuple[str, list[str]]:
+    """操作日志的对象展示名 + 全部学号
+
+    一条日志写「第一人 等N人」，日志列表才不会被几十条同源记录刷屏；
+    全部学号另外存进 target_student_nos，每个人查自己的「被操作记录」又都查得到。
+    """
+    if not students:
+        return "无匹配学生", []
+    first = students[0]
+    return f"{first.student_no} {first.name}等{len(students)}人", [s.student_no for s in students]
+
+
+def _log_detail(export_type: str, scope_type: str, count: int, fields: list[str] | None) -> str:
+    """日志里的「导出了什么」
+
+    学生范围和信息范围分开写：个人信息表每人一份完整信息、没有选字段这一步，
+    信息范围恒为「全部」；名单 Excel 就是勾选的那些列。
+    """
+    parts = [f"学生范围：{scope_label(scope_type, count)}"]
+    if export_type == TYPE_PDF:
+        parts.append("信息范围：全部")
+    else:
+        labels = [FIELD_MAP.get(f, {}).get("label", f) for f in (fields or DEFAULT_FIELDS)]
+        parts.append("信息范围：" + "、".join(labels))
+    return f"{_display_name_for_type(export_type)}，" + "，".join(parts)
+
+
 def _generate_and_save(req: ExportRequest, db: Session) -> None:
     """生成导出文件并存盘，更新 request 状态。
 
@@ -125,8 +154,9 @@ def _generate_and_save(req: ExportRequest, db: Session) -> None:
             db.commit()
             return
 
-        # 水印 token：file_id 用导出申请 ID
-        token = make_watermark_token(req.id, req.student_no)
+        # 水印 token：file_id 用导出申请 ID，来源标 exp —— 公告和导出申请
+        # 的 id 各自编号会撞号，不标来源的话溯源报告会指到别的文件上
+        token = make_watermark_token(req.id, req.student_no, source=TOKEN_SOURCE_EXPORT)
 
         if req.export_type == TYPE_EXCEL:
             fields = json.loads(req.fields) if req.fields else DEFAULT_FIELDS
@@ -189,6 +219,7 @@ def create_request(
     background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(committee_required),
+    ip: str = Depends(get_client_ip),
 ):
     if body.export_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail="不支持的导出类型")
@@ -214,27 +245,16 @@ def create_request(
     # 操作日志：记一条，但 target_student_nos 写入全部学号，
     # 这样操作日志列表不刷屏，每个人查被操作记录时又都能查到
     students = resolve_students(db, body.scope_type, body.scope_param)
-    if students:
-        # 展示名：第一个人 + 等N人
-        first = students[0]
-        log_target = f"{first.student_no} {first.name}等{len(students)}人"
+    log_target, target_nos = _log_target(students)
 
-        # detail 写清楚导了什么（类型+范围+字段）
-        detail_parts = [_display_name_for_type(body.export_type), f"范围：{body.scope_type}"]
-        if body.export_type == TYPE_EXCEL and body.fields:
-            field_labels = [FIELD_MAP.get(f, {}).get("label", f) for f in body.fields]
-            detail_parts.append(f"字段：{', '.join(field_labels)}")
-        detail = "，".join(detail_parts)
-
-        target_nos = [s.student_no for s in students]
-
-        log_operation(
-            db, user,
-            "导出学生信息",
-            log_target,
-            detail,
-            target_student_nos=target_nos,
-        )
+    log_operation(
+        db, user,
+        "导出学生信息",
+        log_target,
+        _log_detail(body.export_type, body.scope_type, len(students), body.fields),
+        ip=ip,
+        target_student_nos=target_nos,
+    )
 
     # 推送给管理员
     notify(
@@ -347,6 +367,7 @@ def approve_request(
     background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(admin_required),
+    ip: str = Depends(get_client_ip),
 ):
     req = db.query(ExportRequest).filter(ExportRequest.id == req_id).first()
     if not req:
@@ -366,17 +387,20 @@ def approve_request(
     # 操作日志：记一条，target_student_nos 写入全部学号
     scope_param = json.loads(req.scope_param) if req.scope_param else None
     students = resolve_students(db, req.scope_type, scope_param)
-    if students:
-        first = students[0]
-        log_target = f"{first.student_no} {first.name}等{len(students)}人"
-        target_nos = [s.student_no for s in students]
-        log_operation(
-            db, user,
-            "通过导出申请",
-            log_target,
-            _display_name_for_type(req.export_type),
-            target_student_nos=target_nos,
-        )
+    log_target, target_nos = _log_target(students)
+    log_operation(
+        db, user,
+        "通过导出申请",
+        log_target,
+        _log_detail(req.export_type, req.scope_type, len(students),
+                    json.loads(req.fields) if req.fields else None),
+        ip=ip,
+        target_student_nos=target_nos,
+    )
+
+    # 日志和上面那批改动一起提交。别省这一步：log_operation 只 add 不 commit，
+    # 请求结束时 session 直接关掉，日志会被回滚掉（通过/驳回两处的日志曾经就这么丢的）
+    db.commit()
 
     # 通知申请人
     notify(
@@ -399,6 +423,7 @@ def reject_request(
     background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(admin_required),
+    ip: str = Depends(get_client_ip),
 ):
     req = db.query(ExportRequest).filter(ExportRequest.id == req_id).first()
     if not req:
@@ -411,27 +436,23 @@ def reject_request(
     req.reviewer_no = user.student_no
     req.reject_reason = body.reason
     req.reviewed_at = datetime.now()
-    db.commit()
-    db.refresh(req)
 
     # 操作日志：记一条，target_student_nos 写入全部学号
     scope_param = json.loads(req.scope_param) if req.scope_param else None
     students = resolve_students(db, req.scope_type, scope_param)
-    if students:
-        first = students[0]
-        log_target = f"{first.student_no} {first.name}等{len(students)}人"
-        target_nos = [s.student_no for s in students]
-    else:
-        log_target = "无匹配学生"
-        target_nos = []
-
+    log_target, target_nos = _log_target(students)
     log_operation(
         db, user,
         "驳回导出申请",
         log_target,
-        f"{_display_name_for_type(req.export_type)}，理由：{body.reason}",
+        _log_detail(req.export_type, req.scope_type, len(students),
+                    json.loads(req.fields) if req.fields else None)
+        + f"，理由：{body.reason}",
+        ip=ip,
         target_student_nos=target_nos,
     )
+    # 状态改动和日志一起提交（log_operation 只 add 不 commit，见 approve 里的说明）
+    db.commit()
 
     notify(
         background,

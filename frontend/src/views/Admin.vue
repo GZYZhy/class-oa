@@ -221,27 +221,52 @@
           </span>
           <div v-if="watermarkResult" class="extract-result" :class="watermarkResult.found ? 'found' : 'not-found'">
             <template v-if="watermarkResult.found">
-              <el-icon><CircleCheck /></el-icon>
-              检测到水印：
-              <strong>{{ watermarkResult.user_name || watermarkResult.user_no }}</strong>
-              于 <strong>{{ formatDateTime(watermarkResult.accessed_at) }}</strong>
-              <!-- 动作从日志里核对，不能写死「下载」：一律打水印之后，
-                   学生在线查看拿到的副本也带水印，一份流出的 PDF 未必是下载的 -->
-              <template v-if="watermarkResult.log_matched">
-                <el-tag :type="watermarkResult.action === 'download' ? 'danger' : 'primary'" size="small">
-                  {{ watermarkResult.action === 'download' ? '下载' : '在线查看' }}
-                </el-tag>
+              <!-- 导出文件走另一套说法：它不是公告、没进文件访问日志，
+                   水印里只有「这份文件是谁申请的、什么时候生成的」 -->
+              <template v-if="watermarkResult.source_type === 'export'">
+                <el-icon><CircleCheck /></el-icon>
+                检测到水印：导出文件「{{ watermarkResult.file_title }}」
+                <el-tag size="small" type="primary">{{ exportTypeText(watermarkResult.export_type) }}</el-tag>
+                <el-tag size="small" type="info">{{ exportStatusText(watermarkResult.export_status) }}</el-tag>
+                <div class="extract-hint">
+                  申请人 <strong>{{ watermarkResult.user_name || watermarkResult.user_no }}</strong>
+                  于 <strong>{{ formatDateTime(watermarkResult.accessed_at) }}</strong> 生成
+                  <template v-if="watermarkResult.export_reviewer">
+                    （{{ watermarkResult.export_reviewer }} 审核通过）
+                  </template>
+                  <template v-if="watermarkResult.export_scope">
+                    ，导出范围：{{ watermarkResult.export_scope }}
+                  </template>
+                </div>
+                <div class="extract-hint">
+                  导出文件不进文件访问日志，只能确定「谁申请的、何时生成的」，
+                  不能确定是谁下载走的
+                </div>
               </template>
+
               <template v-else>
-                <el-tag type="info" size="small">动作未知</el-tag>
+                <el-icon><CircleCheck /></el-icon>
+                检测到水印：
+                <strong>{{ watermarkResult.user_name || watermarkResult.user_no }}</strong>
+                于 <strong>{{ formatDateTime(watermarkResult.accessed_at) }}</strong>
+                <!-- 动作从日志里核对，不能写死「下载」：一律打水印之后，
+                     学生在线查看拿到的副本也带水印，一份流出的 PDF 未必是下载的 -->
+                <template v-if="watermarkResult.log_matched">
+                  <el-tag :type="watermarkResult.action === 'download' ? 'danger' : 'primary'" size="small">
+                    {{ watermarkResult.action === 'download' ? '下载' : '在线查看' }}
+                  </el-tag>
+                </template>
+                <template v-else>
+                  <el-tag type="info" size="small">动作未知</el-tag>
+                </template>
+                「{{ watermarkResult.file_title || '文件#' + watermarkResult.file_id }}」
+                <span v-if="watermarkResult.ip" class="extract-ip">IP {{ watermarkResult.ip }}</span>
+                <!-- 核不到就直说核不到，别让人以为是「查无此人」 -->
+                <div v-if="!watermarkResult.log_matched" class="extract-hint">
+                  访问日志里没找到对应的记录（日志可能已被清理，或是本功能上线前取的文件），
+                  只能确定「谁、何时、取了哪个文件」，不能确定是查看还是下载
+                </div>
               </template>
-              「{{ watermarkResult.file_title || '文件#' + watermarkResult.file_id }}」
-              <span v-if="watermarkResult.ip" class="extract-ip">IP {{ watermarkResult.ip }}</span>
-              <!-- 核不到就直说核不到，别让人以为是「查无此人」 -->
-              <div v-if="!watermarkResult.log_matched" class="extract-hint">
-                访问日志里没找到对应的记录（日志可能已被清理，或是本功能上线前取的文件），
-                只能确定「谁、何时、取了哪个文件」，不能确定是查看还是下载
-              </div>
             </template>
             <template v-else>
               <el-icon><Warning /></el-icon>
@@ -1182,6 +1207,19 @@ async function handleWatermarkExtract(e) {
     // 重置 input，方便下次选同一个文件也能触发 change
     e.target.value = ''
   }
+}
+
+/** 导出文件溯源用到的两个中文名。溯源接口返回的是内部代号，
+ *  页面上照搬会写成「pdf_individual 已生成」，看不懂 */
+function exportTypeText(type) {
+  return { excel_list: '名单 Excel', pdf_individual: '个人信息表 PDF' }[type] || '导出文件'
+}
+
+function exportStatusText(status) {
+  return {
+    pending: '待审核', approved: '已通过', generated: '文件已生成',
+    rejected: '已驳回', failed: '生成失败'
+  }[status] || status || ''
 }
 
 // ---------- IP 封禁 ----------

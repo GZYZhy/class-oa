@@ -43,11 +43,14 @@ from ..services import (
     clear_failures,
     default_password,
     delete_resource,
+    TOKEN_SOURCE_ANNOUNCEMENT,
+    TOKEN_SOURCE_EXPORT,
     extract_watermark,
     list_all_resources,
     log_operation,
     parse_watermark_token,
     reorder_category,
+    scope_label,
     unban_ip,
     update_resource,
 )
@@ -1010,11 +1013,21 @@ async def extract_watermark_from_pdf(
 
     accessed_at = datetime.fromtimestamp(parsed["timestamp"])
 
-    # file_id 可能是公告文件（announcement），也可能是导出申请（export_request），
-    # 先查公告，查不到再查导出申请
+    # file_id 是哪张表的主键，由令牌里的来源段决定 —— 公告和导出申请的 id
+    # 各自从 1 编号、必然撞号，只按 id 查会把导出文件溯到同号的公告文件上。
+    # 来源段是后加的，旧令牌没有：那时只有公告会打水印，但升级前生成的导出 PDF
+    # 也长这样，所以按「先公告、查不到再导出」兜底
     from ..models import Announcement, ExportRequest
 
-    file_row = db.query(Announcement).filter(Announcement.id == parsed["file_id"]).first()
+    source_code = parsed["source"]
+    file_row = None
+    export_row = None
+
+    if source_code != TOKEN_SOURCE_EXPORT:
+        file_row = db.query(Announcement).filter(Announcement.id == parsed["file_id"]).first()
+    if file_row is None and source_code != TOKEN_SOURCE_ANNOUNCEMENT:
+        export_row = db.query(ExportRequest).filter(ExportRequest.id == parsed["file_id"]).first()
+
     if file_row:
         source_type = "announcement"
         file_title = file_row.title
@@ -1041,13 +1054,13 @@ async def extract_watermark_from_pdf(
         export_reviewer = None
 
     else:
-        # 不是公告文件，看看是不是导出申请
-        export_row = db.query(ExportRequest).filter(ExportRequest.id == parsed["file_id"]).first()
         if export_row:
+            # 导出文件不进文件访问日志（它只在「学生信息」页下载，不在文件公开里），
+            # 所以这里没有动作和 IP 可核，只能报「谁申请的、什么时候生成的」
             source_type = "export"
-            file_title = f"{export_row.student_name} 的导出申请"
+            file_title = export_row.file_original_name or "导出文件"
             export_type = export_row.export_type
-            export_scope = export_row.scope_type
+            export_scope = scope_label(export_row.scope_type)
             export_status = export_row.status
             export_reviewer = export_row.reviewer_name or None
             action = None
