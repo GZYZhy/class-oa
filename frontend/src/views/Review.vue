@@ -7,7 +7,9 @@
 
     <el-tabs v-model="activeTab" @tab-change="handleTabChange">
       <!-- ============ 信息修改申请 ============ -->
-      <el-tab-pane label="信息修改申请" name="change">
+      <!-- 标签用 #label 插槽写而不是 label 属性：属性里放不下红点这个元素 -->
+      <el-tab-pane name="change">
+        <template #label>信息修改申请<span v-if="tabBadge('change')" class="tab-badge">{{ tabBadge('change') }}</span></template>
         <div class="tab-toolbar">
           <el-radio-group v-model="changeStatus" size="small" @change="fetchChangeList">
             <el-radio-button value="pending">待审核</el-radio-button>
@@ -73,7 +75,8 @@
       </el-tab-pane>
 
       <!-- ============ 请假申请 ============ -->
-      <el-tab-pane label="请假申请" name="leave">
+      <el-tab-pane name="leave">
+        <template #label>请假申请<span v-if="tabBadge('leave')" class="tab-badge">{{ tabBadge('leave') }}</span></template>
         <div class="tab-toolbar">
           <el-radio-group v-model="leaveStatus" size="small" @change="fetchLeaveList">
             <el-radio-button value="pending">待审核</el-radio-button>
@@ -152,7 +155,8 @@
       </el-tab-pane>
 
       <!-- ============ 电动车通行证 ============ -->
-      <el-tab-pane label="电动车通行证" name="evpass">
+      <el-tab-pane name="evpass">
+        <template #label>电动车通行证<span v-if="tabBadge('evpass')" class="tab-badge">{{ tabBadge('evpass') }}</span></template>
         <div class="tab-toolbar">
           <el-radio-group v-model="evPassStatus" size="small" @change="fetchEvPassList">
             <el-radio-button value="pending">待审核</el-radio-button>
@@ -203,7 +207,8 @@
       </el-tab-pane>
 
       <!-- ============ 导出申请 ============ -->
-      <el-tab-pane label="导出申请" name="export">
+      <el-tab-pane name="export">
+        <template #label>导出申请<span v-if="tabBadge('export')" class="tab-badge">{{ tabBadge('export') }}</span></template>
         <div class="tab-toolbar">
           <el-radio-group v-model="exportStatus" size="small" @change="fetchExportList">
             <el-radio-button value="pending">待审核</el-radio-button>
@@ -286,7 +291,8 @@
       </el-tab-pane>
 
       <!-- ============ 意见反馈 ============ -->
-      <el-tab-pane label="意见反馈" name="feedback">
+      <el-tab-pane name="feedback">
+        <template #label>意见反馈<span v-if="tabBadge('feedback')" class="tab-badge">{{ tabBadge('feedback') }}</span></template>
         <div class="tab-toolbar">
           <el-radio-group v-model="feedbackStatus" size="small" @change="fetchFeedbackList">
             <el-radio-button value="unread">未读</el-radio-button>
@@ -468,6 +474,18 @@ const loading = ref(false)
 // 不带参数（正常从菜单进）就还是老样子，停在信息修改申请
 const TABS = ['change', 'leave', 'evpass', 'export', 'feedback']
 const activeTab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'change')
+
+/**
+ * tab 上的待办红点数字，0 返回空串（不渲染红点）
+ *
+ * 数量取自 /api/badges 的 review_tabs，和侧边菜单的红点同一个接口、同一个口径。
+ * 超过 99 收成 99+，同 App.vue 侧边菜单的做法。
+ */
+function tabBadge(tab) {
+  const count = badgeStore.counts.review_tabs?.[tab] || 0
+  if (!count) return ''
+  return count > 99 ? '99+' : String(count)
+}
 
 // —— 信息修改申请 ——
 const changeList = ref([])
@@ -715,6 +733,8 @@ async function fetchExportList() {
     console.error(e)
   } finally {
     exportLoading.value = false
+    // 顺手刷一下红点，原因同 fetchFeedbackList 里的说明
+    badgeStore.refresh()
   }
 }
 
@@ -822,8 +842,9 @@ async function fetchFeedbackList() {
     ElMessage.error('反馈列表加载失败')
   } finally {
     loading.value = false
-    // 红点刷新统一挂在三个列表的 finally 里：每个审核操作成功之后本来就都会重拉列表，
-    // 这样将来新增操作时漏掉刷新的概率是零。代价是切 tab 会多发一次请求，可以接受
+    // 红点刷新统一挂在各列表的 finally 里：每个审核操作成功之后本来就都会重拉列表，
+    // 这样将来新增操作时漏掉刷新的概率是零（红点里的数字会跟着立刻减下去）。
+    // 代价是切 tab 会多发一次请求，可以接受
     badgeStore.refresh()
   }
 }
@@ -904,6 +925,25 @@ onMounted(handleTabChange)
 .page-card {
   /* 水印的定位基准 */
   position: relative;
+}
+
+/* tab 标签上的待办红点。手写一个 span 而不用 el-badge：
+   el-badge 会多套一层绝对定位的节点，位置不好控（同 App.vue 侧边菜单的做法） */
+.tab-badge {
+  display: inline-block;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 5px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: #f56c6c;
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  /* 红点比标签文字矮一点，抬 1px 让它跟文字的中线对齐 */
+  vertical-align: 1px;
 }
 
 .tab-toolbar {
