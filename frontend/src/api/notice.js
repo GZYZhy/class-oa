@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request, { progressHandler } from '@/utils/request'
 
 /**
  * 通知列表（支持标题、发布时间搜索）
@@ -10,13 +10,15 @@ export function getNotices(params) {
 /**
  * 发布通知（multipart form，支持附件）
  * @param {FormData} formData - 包含 title / publish_date / content / attachments(多个file)
+ * @param {(loaded: number, total: number) => void} [onProgress] 上传进度
  */
-export function createNotice(formData) {
+export function createNotice(formData, onProgress) {
   return request({
     url: '/notices',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
   })
 }
 
@@ -24,13 +26,15 @@ export function createNotice(formData) {
  * 编辑通知（multipart form，支持修改附件）
  * @param {number} id
  * @param {FormData} formData - 包含 title / publish_date / content / 新附件 / keep_attachments
+ * @param {(loaded: number, total: number) => void} [onProgress] 上传进度
  */
-export function updateNotice(id, formData) {
+export function updateNotice(id, formData, onProgress) {
   return request({
     url: `/notices/${id}`,
     method: 'put',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
   })
 }
 

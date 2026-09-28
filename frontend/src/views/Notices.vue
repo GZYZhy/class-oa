@@ -243,7 +243,8 @@
       <template #footer>
         <el-button @click="publishVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="handleSubmit">
-          {{ editingId ? '保存' : '发布' }}
+          <!-- 通知可以带多个附件，慢网络下把上传进度显示出来 -->
+          {{ editingId ? '保存' : '发布' }}{{ submitting && uploadProgress ? ` ${uploadProgress}%` : '' }}
         </el-button>
       </template>
     </el-dialog>
@@ -315,6 +316,8 @@ const searchForm = reactive({ title: '', dateRange: [] })
 
 const publishVisible = ref(false)
 const submitting = ref(false)
+// 上传进度百分比（算不出总大小时为 0，就不显示数字）
+const uploadProgress = ref(0)
 const form = reactive({ title: '', publisher: '', publish_date: '', content: '', editors: [] })
 // 非空表示当前是编辑模式
 const editingId = ref(null)
@@ -507,12 +510,17 @@ async function handleSubmit() {
   }
 
   submitting.value = true
+  uploadProgress.value = 0
+  // 附件可能几十 MB，上传期间的进度回调（两个接口共用一份）
+  const onProgress = (loaded, total) => {
+    uploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+  }
   try {
     if (editingId.value) {
-      await updateNotice(editingId.value, fd)
+      await updateNotice(editingId.value, fd, onProgress)
       ElMessage.success('已保存，并标记更新')
     } else {
-      const created = await createNotice(fd)
+      const created = await createNotice(fd, onProgress)
       // 自己刚发的通知不该再给自己亮红点
       await markRead([created])
       ElMessage.success('发布成功')

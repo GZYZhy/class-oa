@@ -213,6 +213,12 @@
             class="extract-file-input"
             @change="handleWatermarkExtract"
           />
+          <!-- 要溯源的 PDF 可能几十 MB，慢网络下传好几分钟：
+               没有进度的话，管理员只会以为点了没反应，然后重复上传 -->
+          <span v-if="extractingWatermark" class="extract-progress">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            正在上传 {{ extractLabel }}
+          </span>
           <div v-if="watermarkResult" class="extract-result" :class="watermarkResult.found ? 'found' : 'not-found'">
             <template v-if="watermarkResult.found">
               <el-icon><CircleCheck /></el-icon>
@@ -397,7 +403,9 @@
       <el-tab-pane label="资料下载管理" name="resources">
         <div class="resource-toolbar">
           <el-button type="primary" :loading="uploading" @click="handleUploadClick">
-            <el-icon><Upload /></el-icon>上传新资料
+            <el-icon v-if="!uploading"><Upload /></el-icon>
+            <!-- 资料里有几十 MB 的压缩包，慢网络下把百分比显示出来 -->
+            上传新资料{{ uploading && uploadProgress ? ` ${uploadProgress}%` : '' }}
           </el-button>
           <input
             ref="fileInputRef"
@@ -1110,6 +1118,8 @@ const fileAccessFilter = reactive({ user: '', file: '', action: '' })
 const watermarkResult = ref(null)
 const watermarkFileInput = ref(null)
 const extractingWatermark = ref(false)
+// 上传进度百分比（浏览器算不出总大小时为 0，此时只显示「正在上传」不显示数字）
+const extractProgress = ref(0)
 
 async function fetchFileAccessLogs() {
   loadingFileAccess.value = true
@@ -1142,6 +1152,11 @@ function handleFileAccessReset() {
   handleFileAccessSearch()
 }
 
+/** 上传阶段显示的文字：有总大小就写百分比，没有就只说在传 */
+const extractLabel = computed(() =>
+  extractProgress.value ? `${extractProgress.value}%` : '…'
+)
+
 async function handleWatermarkExtract(e) {
   const file = e.target.files?.[0]
   if (!file) return
@@ -1151,9 +1166,14 @@ async function handleWatermarkExtract(e) {
     return
   }
   extractingWatermark.value = true
+  extractProgress.value = 0
   watermarkResult.value = null
   try {
-    const res = await extractWatermark(file)
+    // 传进度：要溯源的 PDF 可能是刚下发出去的几十 MB 的公告，
+    // 慢网络下光上传就要几分钟，不给进度会被当成「点了没反应」
+    const res = await extractWatermark(file, (loaded, total) => {
+      extractProgress.value = total ? Math.round((loaded / total) * 100) : 0
+    })
     watermarkResult.value = res
   } catch (e) {
     ElMessage.error('提取失败：' + (e.response?.data?.detail || e.message))
@@ -1289,6 +1309,8 @@ async function handleUnban(row) {
 const resources = ref([])
 const loadingResources = ref(false)
 const uploading = ref(false)
+// 上传进度百分比（算不出总大小时为 0，就不显示数字）
+const uploadProgress = ref(0)
 const fileInputRef = ref(null)
 
 // 按分类分组给展示
@@ -1349,8 +1371,11 @@ async function handleFileSelected(e) {
     formData.append('file', file)
 
     uploading.value = true
+    uploadProgress.value = 0
     try {
-      await uploadResource(formData)
+      await uploadResource(formData, (loaded, total) => {
+        uploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+      })
       ElMessage.success('上传成功')
       fetchResources()
     } catch (err) {
@@ -1507,6 +1532,15 @@ onMounted(() => {
   font-weight: 600;
   color: #67c23a;
   flex-shrink: 0;
+}
+
+/* 上传中的提示：和 .extract-result 一样是这条绿色横条里的一格 */
+.extract-progress {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #606266;
 }
 
 .extract-file-input {

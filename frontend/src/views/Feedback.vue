@@ -48,7 +48,8 @@
 
             <el-form-item>
               <el-button type="primary" :loading="submitting" @click="handleSubmit">
-                提交反馈
+                <!-- 附件单个上限 20MB、最多 3 个，慢网络下把进度显示出来 -->
+                提交反馈{{ submitting && uploadProgress ? ` ${uploadProgress}%` : '' }}
               </el-button>
             </el-form-item>
           </el-form>
@@ -148,6 +149,8 @@ const maxCount = 3
 
 const activeTab = ref('submit')
 const submitting = ref(false)
+// 上传进度百分比（算不出总大小时为 0，就不显示数字）
+const uploadProgress = ref(0)
 const loading = ref(false)
 const list = ref([])
 const formRef = ref(null)
@@ -209,8 +212,11 @@ async function handleSubmit() {
   fileList.value.forEach((f) => fd.append('attachments', f.raw || f))
 
   submitting.value = true
+  uploadProgress.value = 0
   try {
-    await submitFeedback(fd)
+    await submitFeedback(fd, (loaded, total) => {
+      uploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+    })
     ElMessage.success('反馈已提交，感谢您的宝贵意见')
     form.title = ''
     form.content = ''
