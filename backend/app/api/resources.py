@@ -11,7 +11,6 @@
 """
 
 import os
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -19,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import User
-from ..services import get_by_file_name, list_resources
+from ..services import download_name, get_by_file_name, list_resources
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/resources", tags=["资料下载"])
@@ -63,18 +62,15 @@ def serve_resource(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="资料文件丢失")
 
-    # 展示用原始文件名，不是磁盘上的 UUID 名
-    display_name = row.original_name or row.name + file_path.suffix
-
-    # 文件名含中文，HTTP 头只允许 latin-1，必须按 RFC 5987 做百分号编码
-    disposition = "attachment" if download else "inline"
-    encoded = quote(display_name)
+    # 文件名含中文，HTTP 头只允许 latin-1，交给 FileResponse 按 RFC 5987 处理：
+    # 名字里有非 ASCII 时它只发 filename*=utf-8''中文百分号编码，
+    # 纯 ASCII 时才发 filename="..."。两种都合法，浏览器也都认。
+    #
+    # 别改回手拼那个头：把百分号编码串塞进普通 filename= 是错的 ——
+    # 认这个参数而不认 filename* 的客户端会把
+    # %E8%B5%84%E6%96%99.docx 原样存成文件名
     return FileResponse(
         str(file_path),
-        headers={
-            "Content-Disposition": (
-                f"{disposition}; filename=\"{encoded}\"; "
-                f"filename*=UTF-8''{encoded}"
-            )
-        },
+        filename=download_name(row),
+        content_disposition_type="attachment" if download else "inline",
     )
