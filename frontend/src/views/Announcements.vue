@@ -93,7 +93,8 @@
               :loading="downloadingId === row.id"
               @click="handleDownload(row)"
             >
-              下载
+              <!-- 公告 PDF 常有 5MB 以上的，网络差时把进度显示出来 -->
+              {{ downloadingId === row.id && progress ? progress + '%' : '下载' }}
             </el-button>
             <el-button v-if="userStore.isCommittee" type="danger" link @click="handleDelete(row)">
               删除
@@ -192,6 +193,8 @@ const viewerFileUrl = ref('')
 const viewerTitle = ref('')
 // 记录当前正在下载的行 id，按钮上显示 loading（网络慢时避免用户以为没点到）
 const downloadingId = ref(null)
+// 当前下载进度百分比（后端没给 Content-Length 时恒为 0，就不显示数字）
+const progress = ref(0)
 // 记录当前正在查看的行 id，按钮上显示 loading
 const viewingId = ref(null)
 
@@ -287,12 +290,20 @@ function handleView(row) {
 // 下载：经 axios 取回，保留原始文件名；按钮上显示 loading，避免网慢时用户以为没点到
 async function handleDownload(row) {
   downloadingId.value = row.id
+  progress.value = 0
   try {
     // download=true 不能省：后端靠它区分「下载」和「在线查看」——
-    // 少了它，日志里记成查看（水印溯源那里也就查不到下载记录），
-    // 而且班委拿到的还是没有水印的原文件，流出去没法溯源
+    // 少了它日志里记成查看（查看次数会跟着涨，水印溯源那里也只有查看记录），
+    // 而且响应头是 inline，浏览器不弹存盘
     const sep = row.file_path.includes('?') ? '&' : '?'
-    await downloadFile(`${row.file_path}${sep}download=true`, row.file_name || `${row.title}.pdf`)
+    await downloadFile(
+      `${row.file_path}${sep}download=true`,
+      row.file_name || `${row.title}.pdf`,
+      // 公告 PDF 常有 5MB 以上的，网慢时按钮上把百分比写出来
+      (loaded, total) => {
+        progress.value = total ? Math.round((loaded / total) * 100) : 0
+      },
+    )
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
   } finally {

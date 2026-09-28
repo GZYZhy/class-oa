@@ -29,10 +29,13 @@
                 type="primary"
                 size="small"
                 :disabled="!item.url"
+                :loading="downloadingId === item.id"
                 @click="download(item)"
               >
-                <el-icon><Download /></el-icon>
-                下载
+                <el-icon v-if="downloadingId !== item.id"><Download /></el-icon>
+                <!-- 下大文件时把进度写在按钮上：网络差的时候看着数字涨，
+                     总比一个转圈转到人以为卡死了强 -->
+                {{ downloadingId === item.id && progress ? progress + '%' : '下载' }}
               </el-button>
             </div>
           </el-col>
@@ -50,6 +53,10 @@ import { downloadFile, blobErrorDetail } from '@/utils/download'
 
 const groups = ref([])
 const loading = ref(false)
+// 正在下载的那条：按钮转圈 + 显示百分比。一次只可能有一个（按钮上带了 loading，
+// 下着的时候点不动）
+const downloadingId = ref(null)
+const progress = ref(0)
 
 // 根据扩展名判断文件类型
 function getFileType(item) {
@@ -82,12 +89,19 @@ async function download(item) {
     ElMessage.warning('文件暂不可用')
     return
   }
+  downloadingId.value = item.id
+  progress.value = 0
   try {
     // 存盘名用后端的 download_name（展示名 + 扩展名），**不是** item.file ——
     // 那是磁盘上的 UUID 名，管理员后台上传的资料会存成 4cc9f361....docx
-    await downloadFile(item.url, item.download_name || item.name)
+    await downloadFile(item.url, item.download_name || item.name, (loaded, total) => {
+      // 后端没给 Content-Length 时 total 是 0，那就先不显示百分比
+      progress.value = total ? Math.round((loaded / total) * 100) : 0
+    })
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
+  } finally {
+    downloadingId.value = null
   }
 }
 
