@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request, { progressHandler } from '@/utils/request'
 
 /** 账号列表（学号 / 姓名 / 角色 / 是否待改密） */
 export function getUsers() {
@@ -70,7 +70,11 @@ export function getUserLogs(studentNo, params) {
   })
 }
 
-/** 新建域外账号（不与学生关联的账号：老师、协助人员等） */
+/** 新建域外账号（不与学生关联的账号：老师、协助人员等）
+ *
+ * 这里不报上传进度：带的那张头像后端卡在 2MB，一瞬间就传完了
+ * （超时仍由拦截器按 FormData 放宽）
+ */
 export function createExternalUser(formData) {
   return request({
     url: '/admin/external-users',
@@ -156,16 +160,20 @@ export function listResources() {
 /** 上传新资料
  *  formData: { name, category, file }
  */
-export function uploadResource(formData) {
+export function uploadResource(formData, onProgress) {
   return request({
     url: '/admin/resources',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
   })
 }
 
-/** 修改资料名称 / 分类 */
+/** 修改资料名称 / 分类
+ *
+ * 不带文件，所以没有进度可报（超时仍由拦截器按 FormData 放宽）
+ */
 export function updateResource(id, formData) {
   return request({
     url: `/admin/resources/${id}`,
@@ -203,14 +211,19 @@ export function getFileAccessLogs(params) {
   })
 }
 
-/** 从上传的 PDF 中提取不可见水印，返回下载人/时间/文件信息 */
-export function extractWatermark(file) {
+/** 从上传的 PDF 中提取不可见水印，返回下载人/时间/文件信息
+ *
+ * onProgress：(loaded, total) => void。要溯源的 PDF 可能很大（公告上限 50MB），
+ * 慢网络下传好几分钟，得让管理员看见进度
+ */
+export function extractWatermark(file, onProgress) {
   const formData = new FormData()
   formData.append('file', file)
   return request({
     url: '/admin/file-access-logs/extract',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
   })
 }

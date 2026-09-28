@@ -1,17 +1,21 @@
-import request from '@/utils/request'
+import request, { progressHandler } from '@/utils/request'
 
 /** 我的电动车通行证申请列表 */
 export function getMyEvPasses() {
   return request({ url: '/ev-passes/my', method: 'get' })
 }
 
-/** 提交申请（multipart：brand / plate_number / license_file） */
-export function submitEvPass(formData) {
+/** 提交申请（multipart：brand / plate_number / license_file）
+ *
+ * onProgress：(loaded, total) => void，上传进度（行驶证照片可能有几 MB）
+ */
+export function submitEvPass(formData, onProgress) {
   return request({
     url: '/ev-passes',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
   })
 }
 

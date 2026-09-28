@@ -1,29 +1,36 @@
-import request from '@/utils/request'
+import request, { progressHandler } from '@/utils/request'
 
 /** 我的反馈列表 */
 export function getMyFeedback() {
   return request({ url: '/feedback/my', method: 'get' })
 }
 
-/** 提交反馈（form-data：正文和附件一起发） */
-export function submitFeedback(formData) {
+/** 提交反馈（form-data：正文和附件一起发）
+ *
+ * 单个附件可达 20MB，超时不用在这里写：request.js 的拦截器看到 FormData
+ * 会放宽到文件传输的时长（原先这里单独写死 120 秒，是全项目唯一一处这么干的，
+ * 结果别处的上传都还在用 15 秒）
+ *
+ * onProgress：(loaded, total) => void，上传进度
+ */
+export function submitFeedback(formData, onProgress) {
   return request({
     url: '/feedback',
     method: 'post',
     data: formData,
     headers: { 'Content-Type': 'multipart/form-data' },
-    // 单个附件可达 20MB，默认的 15 秒在手机网络上必然超时
-    timeout: 120000
+    onUploadProgress: progressHandler(onProgress)
   })
 }
 
-/** 下载反馈附件（index 取自 feedback.attachments[].index） */
+/** 下载反馈附件（index 取自 feedback.attachments[].index）
+ *
+ * 超时同样交给拦截器（responseType 是 blob） */
 export function downloadFeedbackAttachment(feedbackId, index) {
   return request({
     url: `/feedback/${feedbackId}/attachments/${index}`,
     method: 'get',
-    responseType: 'blob',
-    timeout: 120000
+    responseType: 'blob'
   })
 }
 

@@ -1,17 +1,21 @@
-import request from '@/utils/request'
+import request, { progressHandler } from '@/utils/request'
 
 /** 我的请假记录 */
 export function getMyLeaves() {
   return request({ url: '/leaves/my', method: 'get' })
 }
 
-/** 提交请假申请（form-data，带文件） */
-export function submitLeave(formData) {
+/** 提交请假申请（form-data，带文件）
+ *
+ * onProgress：(loaded, total) => void，上传进度（证明材料多是拍照，可能有几 MB）
+ */
+export function submitLeave(formData, onProgress) {
   return request({
     url: '/leaves',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
   })
 }
 

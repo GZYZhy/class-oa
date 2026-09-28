@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request, { progressHandler } from '@/utils/request'
 
 /**
  * 获取学生列表
@@ -82,7 +82,7 @@ export function createStudent(data) {
  * @param {string} type gaokao=高考照片，on_site=实地采集
  * @param {File} file 照片文件
  */
-export function uploadStudentPhoto(id, type, file) {
+export function uploadStudentPhoto(id, type, file, onProgress) {
   const formData = new FormData()
   formData.append('file', file)
   return request({
@@ -90,7 +90,8 @@ export function uploadStudentPhoto(id, type, file) {
     method: 'post',
     params: { type },
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
   })
 }
 

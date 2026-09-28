@@ -1,4 +1,4 @@
-import request from './request'
+import request, { progressHandler } from './request'
 
 /**
  * 取回受保护的文件
@@ -21,17 +21,10 @@ function toApiPath(url) {
 }
 
 /**
- * 取文件专用的超时时间。
- *
- * 全局的 15 秒是给普通接口（查列表、提交表单）的，那类请求慢到 15 秒本来也该报错。
- * 但文件不一样：公告 PDF 大的有 5MB 以上，手机信号差的时候光传输就要几分钟，
- * 照 15 秒算必定中断，用户看到的是「下载失败」，而不是「慢慢下完了」。
- * 给 5 分钟，并且把进度显示出来（onProgress），让人看得见它没卡死。
- */
-const FILE_TIMEOUT = 5 * 60 * 1000
-
-/**
  * 取回受保护文件的 blob（带登录态、会被 401 拦截器接住）
+ *
+ * 超时不用在这里指定：request.js 的拦截器看到 responseType 是 blob，
+ * 会自动放宽到文件传输的那个时长（见那里的 FILE_TIMEOUT）。
  *
  * onProgress(loaded, total)：已下载字节数和总字节数（后端没给 Content-Length 时
  * total 为 0，调用方按「未知」处理就行）
@@ -41,13 +34,10 @@ export function fetchBlob(url, onProgress, signal) {
     url: toApiPath(url),
     method: 'get',
     responseType: 'blob',
-    timeout: FILE_TIMEOUT,
     // 关掉弹框/离开页面时把还在传的请求掐掉：大文件在慢网络下要传好几分钟，
     // 不掐的话它会一直占着带宽，用户重开一次就是两份在下
     signal,
-    onDownloadProgress: (e) => {
-      if (onProgress) onProgress(e.loaded || 0, e.total || 0)
-    },
+    onDownloadProgress: progressHandler(onProgress),
   })
 }
 

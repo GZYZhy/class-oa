@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request, { progressHandler } from '@/utils/request'
 
 /**
  * 公告列表
@@ -10,13 +10,16 @@ export function getAnnouncements() {
 /**
  * 发布公告（上传 PDF）
  * 使用 FormData：file + 标题 + 文号 + 发布时间
+ * @param {FormData} formData
+ * @param {(loaded: number, total: number) => void} [onProgress] 上传进度
  */
-export function createAnnouncement(formData) {
+export function createAnnouncement(formData, onProgress) {
   return request({
     url: '/announcements',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
   })
 }
 

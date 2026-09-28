@@ -161,7 +161,10 @@
       </el-form>
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSubmit">发布</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleSubmit">
+          <!-- 公告上限 50MB，慢网络下传几分钟，把百分比显示出来 -->
+          发布{{ submitting && uploadProgress ? ` ${uploadProgress}%` : '' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -184,6 +187,8 @@ const list = ref([])
 const loading = ref(false)
 const uploadVisible = ref(false)
 const submitting = ref(false)
+// 上传进度百分比（浏览器算不出总大小时为 0，就不显示数字）
+const uploadProgress = ref(0)
 const selectedFile = ref(null)
 const fileInputRef = ref(null)
 
@@ -267,8 +272,11 @@ async function handleSubmit() {
   fd.append('file', selectedFile.value)
 
   submitting.value = true
+  uploadProgress.value = 0
   try {
-    await createAnnouncement(fd)
+    await createAnnouncement(fd, (loaded, total) => {
+      uploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+    })
     ElMessage.success('发布成功')
     uploadVisible.value = false
     fetchList()
