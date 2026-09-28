@@ -712,7 +712,7 @@
                   一张 Excel 表，可选导出哪些列
                 </template>
                 <template v-else>
-                  每人一份一页 PDF，打包成 zip，PDF 自动打不可见溯源水印
+                  每人一份一页完整信息 PDF，打包成 zip 下载
                 </template>
               </div>
             </el-form-item>
@@ -726,7 +726,10 @@
               </el-radio-group>
 
               <div v-if="exportForm.scope_type === 'selected'" style="font-size: 13px; color: #606266; margin-top: 8px;">
-                已选中 <b>{{ selectedStudents.length }}</b> 人（在下方表格里勾选）
+                已选中 <b>{{ selectedStudents.length }}</b> 人
+                <el-button size="small" link type="primary" @click="exportDialogVisible = false">
+                  去表格里勾选
+                </el-button>
               </div>
 
               <div v-if="exportForm.scope_type === 'id_range'" style="display: flex; gap: 8px; margin-top: 8px;">
