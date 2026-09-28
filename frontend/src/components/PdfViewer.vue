@@ -49,7 +49,10 @@
         <el-button size="small" :disabled="scale >= 3" @click="zoomIn">
           <el-icon><ZoomIn /></el-icon>
         </el-button>
-        <el-button size="small" @click="fitWidth">适应宽度</el-button>
+        <el-button size="small" @click="fitWidth">
+          <el-icon><Aim /></el-icon>
+          <span class="fit-width-text">适应宽度</span>
+        </el-button>
       </div>
     </div>
 
@@ -326,5 +329,24 @@ onBeforeUnmount(() => {
   /* 防止被拖拽保存 */
   -webkit-user-drag: none;
   user-select: none;
+}
+
+/* 窄屏 / 手机：工具栏挤的时候，把「适应宽度」文字收起来只留图标，
+   再把左右两组的间距收一收，避免溢出弹框 */
+@media (max-width: 640px) {
+  .fit-width-text {
+    display: none;
+  }
+  .toolbar-left,
+  .toolbar-right {
+    gap: 4px;
+  }
+  .page-indicator {
+    font-size: 12px;
+  }
+  .scale-text {
+    font-size: 12px;
+    min-width: 40px;
+  }
 }
 </style>
