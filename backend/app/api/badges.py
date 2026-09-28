@@ -19,26 +19,39 @@ router = APIRouter(prefix="/api/badges", tags=["未读红点"])
 
 @router.get("", summary="菜单红点计数")
 def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """返回 {"notice_unread": 通知未读数, "review_pending": 待我处理数}
+    """返回 {"notice_unread": 通知未读数, "review_tabs": 各分类待办数, "review_pending": 待办合计}
 
-    review_pending **只算当前角色真能处理的**：请假只有管理员能批
-    （leaves.py 的 approve/reject 都是 admin_required），给班委也算上的话，
-    红点数字虚高、点进去却批不了。
+    review_tabs 的键就是审核页的 tab 名，审核页每个 tab 上各显示自己那个数字。
 
-    三个计数直接 COUNT 出数，不走各家的列表接口 —— 那三个列表都没有分页、
+    leave / evpass / export **只给管理员算**：这三类只有管理员能批
+    （leaves.py、ev_passes.py、exports.py 的 approve/reject 都是 admin_required），
+    给班委也算上的话，红点数字虚高、点进去却批不了。
+
+    review_pending 是 review_tabs 的和，不再单独算一遍 —— 菜单上的数字和
+    点进去各 tab 的数字同源，不会出现「菜单显示 3、每个 tab 都是 0」这种对不上的情况。
+
+    这些计数直接 COUNT 出数，不走各家的列表接口 —— 那些列表都没有分页、
     一次返回全部行，为了拿一个数字拉全表不划算。
     """
-    review_pending = _count(db, ChangeRequest, "pending") + _count(db, Feedback, "unread")
+    # 能进审核页的都是班委及以上：信息修改班委就能批，反馈的待办（未读）是全员都能处理的
+    review_tabs = {
+        "change": _count(db, ChangeRequest, "pending"),
+        "feedback": _count(db, Feedback, "unread"),
+        "leave": 0,
+        "evpass": 0,
+        "export": 0,
+    }
     if user.role == "admin":
-        review_pending += _count(db, LeaveRequest, "pending")
+        review_tabs["leave"] = _count(db, LeaveRequest, "pending")
         # 电动车通行证也走管理员审批（ev_passes.py 的 approve/reject 都是 admin_required）
-        review_pending += _count(db, EvPassRequest, "pending")
+        review_tabs["evpass"] = _count(db, EvPassRequest, "pending")
         # 导出申请：管理员审批
-        review_pending += _count(db, ExportRequest, "pending")
+        review_tabs["export"] = _count(db, ExportRequest, "pending")
 
     return {
         "notice_unread": unread_count(db, user.student_no),
-        "review_pending": review_pending,
+        "review_tabs": review_tabs,
+        "review_pending": sum(review_tabs.values()),
     }
 
 
