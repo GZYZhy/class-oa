@@ -3,9 +3,10 @@
 
 两份文档：
 1. 电动车通行证.docx — 2 行 8 列表格，第一行标签、第二行填值
+   （表格标题是「电动车通行证补办登记表」，前端下载时按「申请表」称呼它）
 2. 电动车承诺书.docx — 纯文本段落，替换姓名/学号等信息
 
-住址统一填「示例公寓」，毕业时间统一填「2030年6月」。
+住址统一填「示例公寓」，毕业时间统一填「2030年6月」，专业年级统一填「示例专业26级」。
 """
 
 from datetime import datetime
@@ -26,6 +27,8 @@ PROMISE_TEMPLATE = TEMPLATE_DIR / "电动车承诺书.docx"
 # 固定项
 FIXED_ADDRESS = "示例公寓"
 FIXED_GRADUATION = "2030年6月"
+# 专业年级里的年级。全班同一届，所以写死；换届（下一届进校）时要跟着改
+FIXED_GRADE = "26级"
 
 
 def _set_cell_text(cell, text: str, font_size: float = 11) -> None:
@@ -62,7 +65,9 @@ def generate_pass_docx(student: Student, req: EvPassRequest) -> bytes:
     _set_cell_text(table.cell(1, 1), req.plate_number or "")        # 车牌号
     _set_cell_text(table.cell(1, 2), student.phone or "")           # 联系电话
     _set_cell_text(table.cell(1, 3), settings.college or "")    # 单位（学院）
-    _set_cell_text(table.cell(1, 4), student.class_name or "")      # 专业年级（用班级名）
+    # 专业年级要的是全称「示例专业26级」，班级名「示例」是简写，表格里不合适。
+    # 专业取 SITE_MAJOR（「关于班级」页显示的所属专业就是它），没配时退回学生自己的专业
+    _set_cell_text(table.cell(1, 4), f"{settings.major or student.major or ''}{FIXED_GRADE}")
     _set_cell_text(table.cell(1, 5), FIXED_GRADUATION)              # 毕业时间
     _set_cell_text(table.cell(1, 6), req.brand or "")               # 品牌
     _set_cell_text(table.cell(1, 7), FIXED_ADDRESS)                 # 住址
