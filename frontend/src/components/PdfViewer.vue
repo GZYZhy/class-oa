@@ -67,12 +67,15 @@
       class="pdf-container"
       @contextmenu.prevent="onContextMenu"
     >
+      <!-- 内容层：canvas-wrap 把 canvas 和水印绑在一起，水印高度 = 内容高度，
+           滚动时水印跟着内容一起走，不会出现「滚到下半页就没水印了」 -->
       <div class="canvas-wrap">
         <canvas ref="canvasRef" class="pdf-canvas" />
+        <Watermark :text="watermarkText" class="canvas-watermark" />
       </div>
-      <Watermark :text="watermarkText" />
 
-      <!-- 左右两侧点击热区：手机上点左右半页就能翻页，不用够顶部工具栏 -->
+      <!-- 左右两侧点击热区：手机上点左右半页就能翻页，不用够顶部工具栏
+           放在 container 层，固定在视口左右，不随内容滚动 -->
       <div
         class="page-hit page-hit-left"
         :class="{ disabled: currentPage <= 1 }"
@@ -90,7 +93,7 @@
         <el-icon v-if="totalPages > 1" class="hit-icon"><ArrowRight /></el-icon>
       </div>
 
-      <!-- 底部浮动翻页栏：阅读时手在下方，不用挪到顶部去点 -->
+      <!-- 底部浮动翻页栏：固定在容器视口底部，不随内容滚动 -->
       <div v-if="totalPages > 1" class="bottom-bar">
         <el-button size="small" :disabled="currentPage <= 1" @click="prevPage">
           <el-icon><ArrowLeft /></el-icon>
@@ -360,12 +363,14 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 16px;
-  margin: -10px -20px 12px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
   background: #f5f7fa;
-  border-bottom: 1px solid #ebeef5;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
   flex-wrap: wrap;
-  gap: 8px;
+  row-gap: 6px;
+  column-gap: 8px;
 }
 
 .toolbar-left,
@@ -399,10 +404,20 @@ onBeforeUnmount(() => {
 }
 
 .canvas-wrap {
+  position: relative; /* 作为水印的定位基准 */
   display: flex;
   justify-content: center;
   padding: 20px;
   min-height: 100%;
+}
+
+/* 水印跟着 canvas 走：宽高等于 canvas 内容区域，随内容一起滚动，
+   这样滚到任何位置水印都铺在上面，不会出现下半页空白 */
+.canvas-watermark {
+  position: absolute !important;
+  inset: 20px; /* 和 canvas-wrap 的 padding 对齐，刚好覆盖 canvas 区域 */
+  width: auto !important;
+  height: auto !important;
 }
 
 .pdf-canvas {
@@ -424,8 +439,8 @@ onBeforeUnmount(() => {
   cursor: pointer;
   display: flex;
   align-items: center;
-  /* 不挡文字选择，但能接收点击 —— 实际全透明，hover 时才出现箭头提示 */
-  opacity: 0;
+  /* 默认轻微可见，让用户知道这里能点；hover 时变明显 */
+  opacity: 0.3;
   transition: opacity 0.2s;
 }
 .page-hit:hover {
