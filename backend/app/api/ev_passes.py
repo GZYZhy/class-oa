@@ -94,7 +94,7 @@ def my_applications(
 
 @router.post("", response_model=EvPassRequestResponse, summary="提交电动车通行证申请")
 async def submit_application(
-    brand: str = Form(..., min_length=1, max_length=100, description="电动自行车品牌"),
+    brand: str = Form(..., min_length=1, max_length=100, description="电动车品牌"),
     plate_number: str = Form(..., min_length=1, max_length=50, description="车牌号"),
     license_file: UploadFile = File(..., description="行驶证照片（图片或 PDF）"),
     user: User = Depends(get_current_user),
@@ -190,7 +190,7 @@ def download_pass_docx(
     )
 
 
-@router.get("/{req_id}/promise-docx", summary="下载电动自行车使用承诺书（Word）")
+@router.get("/{req_id}/promise-docx", summary="下载电动车使用承诺书（Word）")
 def download_promise_docx(
     req_id: int,
     user: User = Depends(get_current_user),

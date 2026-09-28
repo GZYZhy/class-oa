@@ -19,6 +19,8 @@
         <el-descriptions-item label="所属专业">{{ SITE.major }}</el-descriptions-item>
         <el-descriptions-item label="男生人数">{{ stats?.gender?.['男'] || 0 }} 人</el-descriptions-item>
         <el-descriptions-item label="女生人数">{{ stats?.gender?.['女'] || 0 }} 人</el-descriptions-item>
+        <!-- 版本号来自后端 app_version，接口没返回时显示 - 而不是空着 -->
+        <el-descriptions-item label="系统版本">{{ stats?.version || '-' }}</el-descriptions-item>
       </el-descriptions>
     </div>
 

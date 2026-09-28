@@ -20,7 +20,7 @@ class EvPassRequest(Base):
     created_at = Column(DateTime, default=datetime.now, index=True, comment="申请时间")
 
     # 学生填写的内容
-    brand = Column(String(100), comment="电动自行车品牌")
+    brand = Column(String(100), comment="电动车品牌")
     plate_number = Column(String(50), comment="车牌号")
 
     # 行驶证证明材料（图片或 PDF，和请假证明一样的模式）

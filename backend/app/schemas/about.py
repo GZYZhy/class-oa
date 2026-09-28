@@ -12,3 +12,6 @@ class AboutResponse(BaseModel):
     total: int
     gender: dict[str, int]
     committee: list[CommitteeMember]
+    # 系统版本号，页面上显示成「系统版本 1.1」。值只有 settings.app_version 一份，
+    # 前端不另写：两处各写一个版本号，迟早会出现页面上和 /api/health 对不上的情况
+    version: str = ""

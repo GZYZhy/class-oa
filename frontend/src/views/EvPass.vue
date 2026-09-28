@@ -13,7 +13,10 @@
         <!-- ============ 申请补办 ============ -->
         <el-tab-pane label="申请补办" name="apply">
           <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" style="max-width: 640px;">
-            <el-form-item label="电动自行车品牌" prop="brand">
+            <!-- 标签用「电动车品牌」（5 字）而不是「电动自行车品牌」（7 字）：
+                 label-width 110px 里扣掉 12px 右内边距，再扣掉必填的 * 号，
+                 7 个字（约 98px）放不下，会折成两行 -->
+            <el-form-item label="电动车品牌" prop="brand">
               <el-input v-model="form.brand" placeholder="如：雅迪 / 爱玛 / 小牛" maxlength="100" />
             </el-form-item>
             <el-form-item label="牌照号" prop="plate_number">
