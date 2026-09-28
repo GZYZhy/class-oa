@@ -819,9 +819,13 @@
                   type="primary"
                   size="small"
                   link
+                  :loading="downloadProgress?.reqId === row.id"
                   @click="handleDownload(row)"
                 >
-                  下载
+                  <!-- 导出的 zip 可能几十 MB，把进度写在按钮上：
+                       网络差的时候看着数字涨，总比一个转圈转到人以为卡死了强 -->
+                  {{ downloadProgress?.reqId === row.id && downloadPercent
+                      ? downloadPercent + '%' : '下载' }}
                 </el-button>
                 <span v-else-if="row.status === 'rejected'" style="font-size: 12px; color: #909399;">
                   {{ row.reject_reason }}
@@ -1282,7 +1286,13 @@ const selectedStudents = ref([])
 const exportDialogVisible = ref(false)
 const exportTab = ref('new') // new / history
 const submitting = ref(false)
+// 正在下载的那条：按钮转圈 + 显示百分比。一次只可能有一个（按钮上带了 loading，
+// 下着的时候点不动）。后端的 zip 带 Content-Length，所以百分比是准的
 const downloadProgress = ref(null)
+const downloadPercent = computed(() => {
+  const p = downloadProgress.value
+  return p && p.total ? Math.round((p.loaded / p.total) * 100) : 0
+})
 const myRequests = ref([])
 const myRequestsLoading = ref(false)
 

@@ -31,6 +31,7 @@ from .user_service import (
     ensure_default_users,
 )
 from .log_service import log_operation, display_name
+from .export_service import scope_label
 from .login_guard import clear_failures, needs_captcha, record_failure
 from .ban_service import (
     ban_ip,
@@ -59,6 +60,8 @@ from .webpush_service import (
 )
 from .notify_service import Recipients, notify, recipients
 from .pdf_watermark_service import (
+    TOKEN_SOURCE_ANNOUNCEMENT,
+    TOKEN_SOURCE_EXPORT,
     add_invisible_watermark,
     extract_watermark,
     make_watermark_token,
@@ -92,6 +95,7 @@ __all__ = [
     "ensure_default_users",
     "log_operation",
     "display_name",
+    "scope_label",
     "clear_failures",
     "needs_captcha",
     "record_failure",
@@ -119,6 +123,8 @@ __all__ = [
     "Recipients",
     "notify",
     "recipients",
+    "TOKEN_SOURCE_ANNOUNCEMENT",
+    "TOKEN_SOURCE_EXPORT",
     "add_invisible_watermark",
     "extract_watermark",
     "make_watermark_token",
