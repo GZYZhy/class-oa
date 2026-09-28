@@ -10,7 +10,7 @@ from .student import (
     student_response,
 )
 from .announcement import AnnouncementResponse
-from .notice import NoticeCreate, NoticeResponse, NoticeReadRow, NoticeReadStatus
+from .notice import NoticeCreate, NoticeResponse, NoticeReadRow, NoticeReadStatus, NoticeAttachment
 from .auth import (
     LoginRequest,
     ChangePasswordRequest,
@@ -30,6 +30,9 @@ from .admin import (
     IpBanRequest,
     IpBanResponse,
     IpBanListResponse,
+    FileAccessLogResponse,
+    FileAccessLogListResponse,
+    WatermarkExtractResponse,
 )
 from .about import CommitteeMember, AboutResponse
 from .leave import LeaveRequestCreate, LeaveRequestResponse, LeaveRejectRequest
@@ -50,6 +53,7 @@ __all__ = [
     "NoticeResponse",
     "NoticeReadRow",
     "NoticeReadStatus",
+    "NoticeAttachment",
     "LoginRequest",
     "ChangePasswordRequest",
     "SetInitialPasswordRequest",
@@ -68,6 +72,9 @@ __all__ = [
     "IpBanRequest",
     "IpBanResponse",
     "IpBanListResponse",
+    "FileAccessLogResponse",
+    "FileAccessLogListResponse",
+    "WatermarkExtractResponse",
     "CommitteeMember",
     "AboutResponse",
     "LeaveRequestCreate",

@@ -36,6 +36,10 @@ NEW_COLUMNS = [
     ("users", "is_external", "BOOLEAN NOT NULL DEFAULT 0"),
     # 意见反馈附件，JSON 数组串。老行补成空串，出参按空列表处理
     ("feedbacks", "attachments", "TEXT DEFAULT ''"),
+    # 通知公告附件，JSON 数组串。老行补成空串，出参按空列表处理
+    ("notices", "attachments", "TEXT DEFAULT ''"),
+    # 通知公告编辑人列表，JSON 数组串。老行补成空串，出参用 publisher 兜底显示
+    ("notices", "editors", "TEXT DEFAULT ''"),
     # 是否冻结账号。默认 0：补列时老账号一律视为未冻结，行为与补列前一致
     ("users", "is_frozen", "BOOLEAN NOT NULL DEFAULT 0"),
     # 会话代次。默认 0：补列前签发的会话 cookie 里没有这个字段，校验时按 0 处理，

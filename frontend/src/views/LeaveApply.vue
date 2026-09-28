@@ -157,14 +157,23 @@
         </el-tab-pane>
       </el-tabs>
     </div>
+
+    <!-- 我的证明材料预览弹框 -->
+    <FileViewer
+      v-model="proofViewerVisible"
+      :file-url="proofFileUrl"
+      :file-name="proofFileName"
+      title="我的证明材料"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getMyLeaves, submitLeave, getMyLeaveProof, downloadLeaveDocx } from '@/api/leave'
+import { getMyLeaves, submitLeave, downloadLeaveDocx } from '@/api/leave'
 import { formatDate, formatDateTime } from '@/utils/format'
+import FileViewer from '@/components/FileViewer.vue'
 
 const activeTab = ref('apply')
 const submitting = ref(false)
@@ -309,13 +318,15 @@ async function fetchLeaves() {
   }
 }
 
+// 证明材料预览
+const proofViewerVisible = ref(false)
+const proofFileUrl = ref('')
+const proofFileName = ref('')
+
 function viewProof(row) {
-  getMyLeaveProof(row.id).then(blob => {
-    const url = URL.createObjectURL(blob)
-    window.open(url, '_blank')
-  }).catch(e => {
-    ElMessage.error(e?.response?.data?.detail || '打开失败')
-  })
+  proofFileUrl.value = `/api/leaves/${row.id}/proof`
+  proofFileName.value = row.proof_original_name || '证明材料'
+  proofViewerVisible.value = true
 }
 
 function downloadDocx(row) {

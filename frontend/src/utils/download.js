@@ -20,7 +20,8 @@ function toApiPath(url) {
   return url.startsWith('/api/') ? url.slice(4) : url
 }
 
-function fetchBlob(url) {
+/** 取回受保护文件的 blob（带登录态、会被 401 拦截器接住） */
+export function fetchBlob(url) {
   return request({ url: toApiPath(url), method: 'get', responseType: 'blob' })
 }
 
