@@ -707,7 +707,7 @@
                 <el-radio value="excel_list">名单 Excel</el-radio>
                 <el-radio value="pdf_individual">个人信息表 PDF</el-radio>
               </el-radio-group>
-              <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+              <div style="font-size: 12px; color: #909399; margin-top: 10px;">
                 <template v-if="exportForm.export_type === 'excel_list'">
                   一张 Excel 表，可选导出哪些列
                 </template>
@@ -725,14 +725,14 @@
                 <el-radio value="id_range">学号范围</el-radio>
               </el-radio-group>
 
-              <div v-if="exportForm.scope_type === 'selected'" style="font-size: 13px; color: #606266; margin-top: 8px;">
+              <div v-if="exportForm.scope_type === 'selected'" style="font-size: 13px; color: #606266; margin-top: 10px;">
                 已选中 <b>{{ selectedStudents.length }}</b> 人
                 <el-button size="small" link type="primary" @click="exportDialogVisible = false">
                   去表格里勾选
                 </el-button>
               </div>
 
-              <div v-if="exportForm.scope_type === 'id_range'" style="display: flex; gap: 8px; margin-top: 8px;">
+              <div v-if="exportForm.scope_type === 'id_range'" style="display: flex; gap: 8px; margin-top: 10px;">
                 <el-input
                   v-model="exportForm.start_no"
                   placeholder="起始学号"
