@@ -31,8 +31,12 @@ def download_name(row: Resource) -> str:
 
     name 可能已经被管理员连扩展名一起写了（「电动车承诺书.docx」），
     这时不再重复追加，否则会变成 x.docx.docx。
+
+    扩展名优先从磁盘名取；磁盘名没有（上传时浏览器没给原始文件名，存成了光秃秃的
+    UUID）就退回上传时的原始名。再取不到就只能是个没有后缀的名字，
+    客户端会按 Content-Type 自己补一个 —— 那种情况下 media_type 更不能给错。
     """
-    ext = Path(row.file_name).suffix
+    ext = Path(row.file_name).suffix or Path(row.original_name or "").suffix
     if ext and row.name.lower().endswith(ext.lower()):
         return row.name
     return f"{row.name}{ext}"

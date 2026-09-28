@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User
 from ..services import download_name, get_by_file_name, list_resources
+from ..utils.media_type import guess_media_type
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/resources", tags=["资料下载"])
@@ -77,6 +78,9 @@ def serve_resource(
     # %E8%B5%84%E6%96%99.docx 原样存成文件名
     return FileResponse(
         str(file_path),
+        # media_type 必须显式给：浏览器认这个头，猜错成 text/plain 时
+        # 下载下来的 .docx 会被存成 .txt（见 utils/media_type.py 的说明）
+        media_type=guess_media_type(row.file_name, row.original_name),
         filename=download_name(row),
         content_disposition_type="attachment" if download else "inline",
     )

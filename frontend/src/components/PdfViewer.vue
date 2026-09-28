@@ -53,9 +53,12 @@
       </div>
     </div>
 
-    <!-- 渲染区：外层是定位基准，canvas 放内容，watermark 盖在上面 -->
+    <!-- 渲染区：外层是定位基准，canvas 放内容，watermark 盖在上面。
+         loading 交给 el-loading 挂在容器上——它只在加载时插一层遮罩，
+         加载完就撤掉；自己写死的遮罩会一直盖在画布上，整页看着灰蒙蒙的 -->
     <div
       ref="containerRef"
+      v-loading="loading"
       class="pdf-container"
       @contextmenu.prevent="onContextMenu"
     >
@@ -63,7 +66,6 @@
         <canvas ref="canvasRef" class="pdf-canvas" />
       </div>
       <Watermark :text="watermarkText" />
-      <div v-loading="loading" class="pdf-loading" />
     </div>
 
     <template #footer>
@@ -294,11 +296,5 @@ onBeforeUnmount(() => {
   /* 防止被拖拽保存 */
   -webkit-user-drag: none;
   user-select: none;
-}
-
-.pdf-loading {
-  position: absolute;
-  inset: 0;
-  background: rgba(255, 255, 255, 0.6);
 }
 </style>
