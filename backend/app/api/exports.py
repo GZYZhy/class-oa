@@ -211,21 +211,30 @@ def create_request(
     db.add(req)
     db.flush()
 
-    # 操作日志的 target 写「被导出的人」：写人数 + 第一个人的学号姓名，
-    # 反查被操作记录时能按代表的学号查到这条日志（显示「张三等 N 人」）
+    # 操作日志：记一条，但 target_student_nos 写入全部学号，
+    # 这样操作日志列表不刷屏，每个人查被操作记录时又都能查到
     students = resolve_students(db, body.scope_type, body.scope_param)
     if students:
+        # 展示名：第一个人 + 等N人
         first = students[0]
         log_target = f"{first.student_no} {first.name}等{len(students)}人"
-    else:
-        log_target = "无匹配学生"
 
-    log_operation(
-        db, user,
-        "提交导出申请",
-        log_target,
-        f"{_display_name_for_type(body.export_type)}，范围：{body.scope_type}",
-    )
+        # detail 写清楚导了什么（类型+范围+字段）
+        detail_parts = [_display_name_for_type(body.export_type), f"范围：{body.scope_type}"]
+        if body.export_type == TYPE_EXCEL and body.fields:
+            field_labels = [FIELD_MAP.get(f, {}).get("label", f) for f in body.fields]
+            detail_parts.append(f"字段：{', '.join(field_labels)}")
+        detail = "，".join(detail_parts)
+
+        target_nos = [s.student_no for s in students]
+
+        log_operation(
+            db, user,
+            "导出学生信息",
+            log_target,
+            detail,
+            target_student_nos=target_nos,
+        )
 
     # 推送给管理员
     notify(
@@ -306,14 +315,19 @@ def download_file(
 # 管理员侧：列表、审批
 # ---------------------------------------------------------------------------
 
-@router.get("", response_model=ExportRequestListResponse, summary="导出申请列表（管理员）")
+@router.get("", response_model=ExportRequestListResponse, summary="导出申请列表")
 def list_requests(
     status: str = Query("", description="按状态筛选，空=全部"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _: User = Depends(admin_required),
+    user: User = Depends(committee_required),
 ):
+    """班委能看全部申请列表（只读），管理员能审批。
+
+    班委也能看别人的申请（姓名和类型），这样大家知道导出申请的进度，
+    但只有自己的能下载（下载接口另外做权限控制）。
+    """
     q = db.query(ExportRequest)
     if status:
         q = q.filter(ExportRequest.status == status)
@@ -349,21 +363,20 @@ def approve_request(
     # 同步生成文件（班级体量小，秒级完成）
     _generate_and_save(req, db)
 
-    # 操作日志 target：被导出的学生代表
+    # 操作日志：记一条，target_student_nos 写入全部学号
     scope_param = json.loads(req.scope_param) if req.scope_param else None
     students = resolve_students(db, req.scope_type, scope_param)
     if students:
         first = students[0]
         log_target = f"{first.student_no} {first.name}等{len(students)}人"
-    else:
-        log_target = "无匹配学生"
-
-    log_operation(
-        db, user,
-        "通过导出申请",
-        log_target,
-        f"{_display_name_for_type(req.export_type)}",
-    )
+        target_nos = [s.student_no for s in students]
+        log_operation(
+            db, user,
+            "通过导出申请",
+            log_target,
+            _display_name_for_type(req.export_type),
+            target_student_nos=target_nos,
+        )
 
     # 通知申请人
     notify(
@@ -401,20 +414,23 @@ def reject_request(
     db.commit()
     db.refresh(req)
 
-    # 操作日志 target：被导出的学生代表
+    # 操作日志：记一条，target_student_nos 写入全部学号
     scope_param = json.loads(req.scope_param) if req.scope_param else None
     students = resolve_students(db, req.scope_type, scope_param)
     if students:
         first = students[0]
         log_target = f"{first.student_no} {first.name}等{len(students)}人"
+        target_nos = [s.student_no for s in students]
     else:
         log_target = "无匹配学生"
+        target_nos = []
 
     log_operation(
         db, user,
         "驳回导出申请",
         log_target,
         f"{_display_name_for_type(req.export_type)}，理由：{body.reason}",
+        target_student_nos=target_nos,
     )
 
     notify(

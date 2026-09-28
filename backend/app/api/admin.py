@@ -413,12 +413,11 @@ def user_logs(
     )
 
     # 被操作记录：以这个账号为**对象**的操作。
-    # operation_logs 没有「对象学号」列，只能按 target 的书写格式反查 —— 全项目的
-    # 约定是 f"{学号} {姓名}"（见各处 log_operation 调用）。学号后面那个空格是必需的：
-    # 拿 2026012 去查时，不带空格的 LIKE %2026012% 会把 20260123、20260124 一起带出来，
-    # 和上面避开的是同一个坑。
-    # 第 2 个条件（裸学号）只为**历史数据**保留：老版本的「修改角色」只写学号没写姓名，
-    # 那些行已经躺在库里了，不做数据回填就得靠它才查得到。现在所有写入点一律带姓名。
+    # 匹配两种情况：
+    # 1) target 字段：格式是「学号 姓名」（见各处 log_operation 调用的约定）
+    #    第 2 个条件（裸学号）为历史数据保留：老版本的「修改角色」只写学号没写姓名。
+    # 2) target_student_nos 字段：批量操作时写入的 JSON 学号数组，
+    #    比如导出申请一次涉及 N 人，每个学生查被操作记录时都能通过这个字段匹配到。
     # LIKE 里的 % 和 _ 要转义：域外账号的登录名允许带下划线（teacher_li 之类），
     # 不转义的话 _ 会当通配符，把 teacherXli 的记录也拉进来
     escaped_no = student_no.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -426,6 +425,9 @@ def user_logs(
         or_(
             OperationLog.target == student_no,
             OperationLog.target.like(f"{escaped_no} %", escape="\\"),
+            # target_student_nos 是 JSON 数组字符串，形如 ["20260000001","20260000002"]
+            # 用 "学号" 包含匹配——学号是纯数字且长度固定，不会误匹配
+            OperationLog.target_student_nos.like(f'%"{escaped_no}"%', escape="\\"),
         )
     )
     targeted_total = targeted.count()
@@ -1006,27 +1008,62 @@ async def extract_watermark_from_pdf(
     user_row = db.query(User).filter(User.student_no == parsed["user_no"]).first()
     user_name = account_name(db, user_row) if user_row else None
 
-    # 这里的 file_id 是 announcement.id
-    from ..models import Announcement
-    file_row = db.query(Announcement).filter(Announcement.id == parsed["file_id"]).first()
-
     accessed_at = datetime.fromtimestamp(parsed["timestamp"])
 
-    # 拿令牌去日志里核对这一次访问：动作（查看/下载）和来源 IP 都在日志里，
-    # 令牌本身只说明「谁、什么时候、取了哪个文件」。
-    # 需要容差是因为两边取时间的时机不同：日志先落库，令牌在之后生成
-    # （实测同一秒内，差值为 0），跨秒边界时最多差 1 秒，取 ±5 秒足够。
-    matched = (
-        db.query(FileAccessLog)
-        .filter(
-            FileAccessLog.user_no == parsed["user_no"],
-            FileAccessLog.file_id == parsed["file_id"],
-            FileAccessLog.created_at >= accessed_at - timedelta(seconds=5),
-            FileAccessLog.created_at <= accessed_at + timedelta(seconds=5),
+    # file_id 可能是公告文件（announcement），也可能是导出申请（export_request），
+    # 先查公告，查不到再查导出申请
+    from ..models import Announcement, ExportRequest
+
+    file_row = db.query(Announcement).filter(Announcement.id == parsed["file_id"]).first()
+    if file_row:
+        source_type = "announcement"
+        file_title = file_row.title
+
+        # 拿令牌去文件访问日志里核对（动作、IP）
+        matched = (
+            db.query(FileAccessLog)
+            .filter(
+                FileAccessLog.user_no == parsed["user_no"],
+                FileAccessLog.file_id == parsed["file_id"],
+                FileAccessLog.created_at >= accessed_at - timedelta(seconds=5),
+                FileAccessLog.created_at <= accessed_at + timedelta(seconds=5),
+            )
+            .order_by(FileAccessLog.id.desc())
+            .first()
         )
-        .order_by(FileAccessLog.id.desc())
-        .first()
-    )
+        action = matched.action if matched else None
+        ip = matched.ip if matched else None
+        log_matched = matched is not None
+
+        export_type = None
+        export_scope = None
+        export_status = None
+        export_reviewer = None
+
+    else:
+        # 不是公告文件，看看是不是导出申请
+        export_row = db.query(ExportRequest).filter(ExportRequest.id == parsed["file_id"]).first()
+        if export_row:
+            source_type = "export"
+            file_title = f"{export_row.student_name} 的导出申请"
+            export_type = export_row.export_type
+            export_scope = export_row.scope_type
+            export_status = export_row.status
+            export_reviewer = export_row.reviewer_name or None
+            action = None
+            ip = None
+            log_matched = False
+        else:
+            # 都不是，就只显示 token 里的基本信息
+            source_type = None
+            file_title = None
+            export_type = None
+            export_scope = None
+            export_status = None
+            export_reviewer = None
+            action = None
+            ip = None
+            log_matched = False
 
     return {
         "found": True,
@@ -1034,10 +1071,15 @@ async def extract_watermark_from_pdf(
         "file_id": parsed["file_id"],
         "user_no": parsed["user_no"],
         "user_name": user_name,
-        "file_title": file_row.title if file_row else None,
+        "file_title": file_title,
         "accessed_at": accessed_at,
-        "action": matched.action if matched else None,
-        "ip": matched.ip if matched else None,
-        "log_matched": matched is not None,
+        "source_type": source_type,
+        "export_type": export_type,
+        "export_scope": export_scope,
+        "export_status": export_status,
+        "export_reviewer": export_reviewer,
+        "action": action,
+        "ip": ip,
+        "log_matched": log_matched,
         "message": "水印提取成功",
     }

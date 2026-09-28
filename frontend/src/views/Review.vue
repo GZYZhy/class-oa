@@ -248,7 +248,7 @@
           </el-table-column>
           <el-table-column label="操作" width="260" align="center">
             <template #default="{ row }">
-              <template v-if="row.status === 'generated' || row.status === 'approved'">
+              <template v-if="(row.status === 'generated' || row.status === 'approved') && (userStore.isAdmin || row.student_no === userStore.userInfo?.student_no)">
                 <el-button size="small" link type="success" @click="handleDownloadExport(row)">
                   下载
                 </el-button>

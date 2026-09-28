@@ -23,6 +23,7 @@ def display_name(db: Session, user: User) -> str:
 def log_operation(
     db: Session, user: User, action: str, target: str = "", detail: str = "",
     ip: str | None = None,
+    target_student_nos: list[str] | None = None,
 ) -> None:
     """记一条操作日志
 
@@ -33,7 +34,17 @@ def log_operation(
     就是按这个格式反查的（见 api/admin.py 的 user_logs），少写学号或漏掉那个空格，
     这条记录在对方的「被操作记录」里就查不到。此处不代拼，因为「姓名」各调用点
     的取法不同（学生查学生表、域外账号取 display_name）。
+
+    批量操作时（如导出学生信息，一次涉及 N 人），通过 target_student_nos 传入
+    全部学号列表，写入 target_student_nos 字段（JSON 数组）。被操作记录反查时
+    会同时匹配 target 和 target_student_nos 两个字段。
     """
+    import json
+
+    nos_json = ""
+    if target_student_nos:
+        nos_json = json.dumps(target_student_nos, ensure_ascii=False)
+
     db.add(
         OperationLog(
             operator_no=user.student_no,
@@ -43,5 +54,6 @@ def log_operation(
             # 截断避免超长内容把日志列表撑坏（如整段备注）
             detail=detail[:500] if detail else None,
             ip=ip,
+            target_student_nos=nos_json,
         )
     )

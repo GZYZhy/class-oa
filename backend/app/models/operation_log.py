@@ -24,3 +24,6 @@ class OperationLog(Base):
     target = Column(String(200), comment="操作对象，如通知标题")
     detail = Column(Text, comment="细节说明（如改了哪些字段）")
     ip = Column(String(45), nullable=True, comment="操作时的客户端 IP")
+    # 批量操作时涉及的多个学号（JSON 数组字符串），
+    # 用于反查「被操作记录」：一次导出涉及 33 人，这 33 个人的被操作记录都能查到这一条
+    target_student_nos = Column(Text, default="", comment="批量操作涉及的学号（JSON 数组）")
