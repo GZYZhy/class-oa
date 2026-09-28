@@ -83,6 +83,12 @@ const routes = [
     meta: { title: '请假申请', studentOnly: true }
   },
   {
+    path: '/ev-pass',
+    name: 'EvPass',
+    component: () => import('@/views/EvPass.vue'),
+    meta: { title: '电动车通行证补办', studentOnly: true }
+  },
+  {
     path: '/feedback',
     name: 'Feedback',
     component: () => import('@/views/Feedback.vue'),
