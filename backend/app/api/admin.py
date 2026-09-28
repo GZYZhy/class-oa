@@ -820,6 +820,7 @@ def admin_list_resources(
             "category": r.category,
             "sort_order": r.sort_order,
             "size": 0,  # 前端暂时不用
+            "download_count": r.download_count or 0,
             "created_at": r.created_at,
         }
         for r in rows

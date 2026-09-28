@@ -62,6 +62,12 @@ def serve_resource(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="资料文件丢失")
 
+    # 计一次下载。只看 download=true：预览（inline）不算下载次数，
+    # 否则管理员在后台点开看一眼也会让数字往上涨
+    if download:
+        row.download_count = (row.download_count or 0) + 1
+        db.commit()
+
     # 文件名含中文，HTTP 头只允许 latin-1，交给 FileResponse 按 RFC 5987 处理：
     # 名字里有非 ASCII 时它只发 filename*=utf-8''中文百分号编码，
     # 纯 ASCII 时才发 filename="..."。两种都合法，浏览器也都认。

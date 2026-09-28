@@ -70,6 +70,14 @@
           </template>
         </el-table-column>
         <el-table-column prop="publish_date" label="发布时间" width="140" align="center" sortable />
+        <!-- 在线查看次数（不含下载）。没人看过时淡化显示，免得 0 显得像加载失败 -->
+        <el-table-column prop="view_count" label="查看次数" width="100" align="center">
+          <template #default="{ row }">
+            <span :style="{ color: row.view_count ? '#303133' : '#c0c4cc' }">
+              {{ row.view_count || 0 }}
+            </span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="220" align="center">
           <template #default="{ row }">
             <el-button
