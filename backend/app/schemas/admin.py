@@ -96,14 +96,24 @@ class FileAccessLogListResponse(BaseModel):
 
 
 class WatermarkExtractResponse(BaseModel):
-    """水印提取结果"""
+    """水印提取结果
+
+    accessed_at 而不是 downloaded_at：自从改成「一律打水印」之后，在线查看
+    拿到的副本也带水印，一份流传出来的 PDF 未必是下载出去的。动作到底是查看
+    还是下载，靠下面的 action 字段去日志里核对，不靠这里猜。
+    """
     found: bool
     token: Optional[str] = None
     file_id: Optional[int] = None
     user_no: Optional[str] = None
     user_name: Optional[str] = None
     file_title: Optional[str] = None
-    downloaded_at: Optional[datetime] = None
+    accessed_at: Optional[datetime] = None
+    # 和 file_access_logs 核对上的那条记录：动作、IP
+    action: Optional[str] = None
+    ip: Optional[str] = None
+    # 有没有在日志里核到。核不到就不能说人家「下载」了，只能如实说不确定
+    log_matched: bool = False
     message: Optional[str] = None
 
 

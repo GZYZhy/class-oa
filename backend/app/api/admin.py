@@ -1010,7 +1010,24 @@ async def extract_watermark_from_pdf(
     from ..models import Announcement
     file_row = db.query(Announcement).filter(Announcement.id == parsed["file_id"]).first()
 
-    from datetime import datetime
+    accessed_at = datetime.fromtimestamp(parsed["timestamp"])
+
+    # 拿令牌去日志里核对这一次访问：动作（查看/下载）和来源 IP 都在日志里，
+    # 令牌本身只说明「谁、什么时候、取了哪个文件」。
+    # 需要容差是因为两边取时间的时机不同：日志先落库，令牌在之后生成
+    # （实测同一秒内，差值为 0），跨秒边界时最多差 1 秒，取 ±5 秒足够。
+    matched = (
+        db.query(FileAccessLog)
+        .filter(
+            FileAccessLog.user_no == parsed["user_no"],
+            FileAccessLog.file_id == parsed["file_id"],
+            FileAccessLog.created_at >= accessed_at - timedelta(seconds=5),
+            FileAccessLog.created_at <= accessed_at + timedelta(seconds=5),
+        )
+        .order_by(FileAccessLog.id.desc())
+        .first()
+    )
+
     return {
         "found": True,
         "token": token,
@@ -1018,6 +1035,9 @@ async def extract_watermark_from_pdf(
         "user_no": parsed["user_no"],
         "user_name": user_name,
         "file_title": file_row.title if file_row else None,
-        "downloaded_at": datetime.fromtimestamp(parsed["timestamp"]),
+        "accessed_at": accessed_at,
+        "action": matched.action if matched else None,
+        "ip": matched.ip if matched else None,
+        "log_matched": matched is not None,
         "message": "水印提取成功",
     }
