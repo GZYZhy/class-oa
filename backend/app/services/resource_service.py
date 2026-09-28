@@ -66,6 +66,7 @@ def list_resources(db: Session) -> list[dict]:
             "url": url,
             "category": r.category,
             "sort_order": r.sort_order,
+            "download_count": r.download_count or 0,
         })
     return [{"category": cat, "items": groups[cat]} for cat in order]
 

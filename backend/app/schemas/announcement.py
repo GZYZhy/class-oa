@@ -16,6 +16,8 @@ class AnnouncementResponse(BaseModel):
     publisher: Optional[str] = None
     # 是否向班委以外公开：False 时只有班委及以上能看到、查看这条文件
     is_public: bool = True
+    # 在线查看次数。给默认值：老库刚补列时这一列还是 0
+    view_count: int = 0
     created_at: Optional[datetime] = None
 
     class Config:

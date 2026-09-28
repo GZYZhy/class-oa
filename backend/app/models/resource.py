@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Integer, String, func
+from sqlalchemy import Column, DateTime, Integer, String, func, text
 
 from ..database import Base
 
@@ -27,4 +27,9 @@ class Resource(Base):
     category = Column(String(50), nullable=False, index=True, comment="分类")
     # 排序，数字越小越靠前
     sort_order = Column(Integer, nullable=False, default=0, index=True, comment="排序")
+    # 下载次数。资料原来没有任何访问记录，所以没有历史可回填，一律从 0 开始数
+    download_count = Column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+        comment="下载次数",
+    )
     created_at = Column(DateTime, server_default=func.now(), comment="创建时间")

@@ -45,6 +45,11 @@ NEW_COLUMNS = [
     # 会话代次。默认 0：补列前签发的会话 cookie 里没有这个字段，校验时按 0 处理，
     # 正好和这里的默认值对上，所以升级不会把已登录的人集体踢下线
     ("users", "session_epoch", "INTEGER NOT NULL DEFAULT 0"),
+    # 文件公开的查看次数。补完列要从 file_access_logs 回填，否则升级后
+    # 之前看过的文件会显示 0 次，看着像从来没人看过（见 _backfill_view_counts）
+    ("announcements", "view_count", "INTEGER NOT NULL DEFAULT 0"),
+    # 资料下载的下载次数。资料功能上线时就没有访问日志，没有历史可回填
+    ("resources", "download_count", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）
@@ -136,6 +141,32 @@ def backfill_notice_reads() -> None:
         )
 
 
+def _backfill_view_counts(conn) -> None:
+    """用已有的访问日志回填 announcements.view_count
+
+    只在 view_count 列**刚被加上**时调用，所以不用做幂等判断。
+    不回填的话，升级前学生看过的文件查看次数会显示 0，看着像从来没人看过。
+    只数 action='view'：下载在日志里是另一条记录，不算「查看」。
+    """
+    # 没有访问日志表就没什么可回填的（正常不会发生：本表由 create_all 先建出来）
+    if not _existing_columns(conn, "file_access_logs"):
+        return
+
+    # WHERE 上再判一次「确实有人看过」：不然日志里会按「被 UPDATE 命中的行数」
+    # 报出「回填 N 条」，而实际全是 0，看着像回填出了问题
+    view_count_sql = (
+        "SELECT COUNT(*) FROM file_access_logs"
+        " WHERE file_access_logs.file_id = announcements.id"
+        "   AND file_access_logs.action = 'view'"
+    )
+    result = conn.execute(text(
+        f"UPDATE announcements SET view_count = ({view_count_sql})"
+        f" WHERE ({view_count_sql}) > 0"
+    ))
+    if result.rowcount:
+        print(f"[迁移] 已按访问日志回填 {result.rowcount} 条文件的查看次数", flush=True)
+
+
 def run_migrations() -> None:
     """补齐老库缺失的列；新库上什么都不做"""
     if engine.dialect.name != "sqlite":
@@ -143,6 +174,7 @@ def run_migrations() -> None:
         return
 
     seed_needed = False
+    view_count_added = False
     with engine.begin() as conn:
         for table, column, ddl in NEW_COLUMNS:
             columns = _existing_columns(conn, table)
@@ -152,8 +184,13 @@ def run_migrations() -> None:
             print(f"[迁移] 已补列 {table}.{column}", flush=True)
             if table == "users" and column == "role":
                 seed_needed = True
+            if table == "announcements" and column == "view_count":
+                view_count_added = True
 
         if seed_needed:
             _seed_roles(conn)
+
+        if view_count_added:
+            _backfill_view_counts(conn)
 
         _rebuild_leave_table(conn)

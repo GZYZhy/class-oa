@@ -2,6 +2,7 @@ import os
 import uuid
 from datetime import date
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -115,9 +116,16 @@ def _pdf_response(file_path: Path, download: bool, announcement: Announcement | 
     """返回 PDF；download=True 时带上原始文件名作为下载名"""
     # 优先用上传时的原始文件名（用户上传的中文名字），UUID 名只用于磁盘存储
     display_name = announcement.file_name if announcement and announcement.file_name else file_path.name
-    disposition_type = "attachment" if download else "inline"
-    headers = {"Content-Disposition": f'{disposition_type}; filename="{display_name}"'}
-    return FileResponse(str(file_path), media_type="application/pdf", headers=headers)
+    # 名字交给 FileResponse 按 RFC 5987 编码，别手拼 —— HTTP 头只装得下 latin-1，
+    # 而这里的名字基本都是中文（「X-会议纪要0918.pdf」），手拼会直接
+    # UnicodeEncodeError: 'latin-1' codec can't encode...
+    # （踩过：改成用原始名之后，所有中文名公告的查看和下载全部 500）
+    return FileResponse(
+        str(file_path),
+        media_type="application/pdf",
+        filename=display_name,
+        content_disposition_type="attachment" if download else "inline",
+    )
 
 
 def _watermarked_pdf_response(file_path: Path, announcement: Announcement, user: User) -> Response:
@@ -133,11 +141,14 @@ def _watermarked_pdf_response(file_path: Path, announcement: Announcement, user:
     watermarked = add_invisible_watermark(pdf_bytes, token)
 
     display_name = announcement.file_name or file_path.name
+    # 这里是自己造 Response（内容是打过水印的字节），FileResponse 那套用不上，
+    # 只能手写头 —— 那就必须写成 RFC 5987 的 filename*=utf-8''百分号编码形式：
+    # 普通 filename= 只认 latin-1，中文名会当场 UnicodeEncodeError
     return Response(
         content=watermarked,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{display_name}"',
+            "Content-Disposition": "attachment; filename*=utf-8''" + quote(display_name),
             "Content-Length": str(len(watermarked)),
         },
     )
@@ -155,6 +166,10 @@ def _log_file_access(
     if not announcement:
         # 查不到公告行的话就不记了（理论上前面已经 404 了，这里只是兜底）
         return
+    # 查看次数只加在「在线查看」上。列表里那列就叫「查看次数」，
+    # 把下载也加进去的话，数出来的东西和名字对不上
+    if action == "view":
+        announcement.view_count = (announcement.view_count or 0) + 1
     db.add(FileAccessLog(
         user_no=user.student_no,
         user_name=account_name(db, user),
