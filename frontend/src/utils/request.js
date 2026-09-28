@@ -1,14 +1,60 @@
 import axios from 'axios'
 
+/**
+ * 文件传输（上传/下载）专用的超时。
+ *
+ * 全局那 15 秒是给普通接口（查列表、提交表单）的，那类请求慢到 15 秒本来也该报错。
+ * 但文件不一样：公告 PDF 大到 50MB、反馈附件单个 20MB，手机信号差的时候光传输
+ * 就要几分钟，按 15 秒算必定中断 —— 用户看到的是「上传失败」，而不是「慢慢传完了」。
+ *
+ * axios 的 timeout 是**整个请求的总时长**，不是两次数据之间的间隔，所以大文件
+ * 必须放宽，否则传得完也等不到。
+ */
+export const FILE_TIMEOUT = 5 * 60 * 1000
+
+/** 普通接口的超时，文件传输除外（见上面的 FILE_TIMEOUT） */
+const API_TIMEOUT = 15000
+
 const request = axios.create({
   baseURL: '/api',
-  timeout: 15000,
+  timeout: API_TIMEOUT,
   // 会话靠 Cookie 传递，跨域场景下也需要携带
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json'
   }
 })
+
+/**
+ * 是不是「搬文件」的请求
+ *
+ * 判断放在拦截器里而不是各个调用点各自传 timeout：上传点有十来处（公告、通知、
+ * 资料、反馈、请假、通行证、照片、水印溯源…），一处一处写必然漏 —— 事实上就漏过，
+ * 只有反馈那一处单独写了 120 秒，别处全在闷声用 15 秒。
+ * 以后新增上传接口也不用记得加，FormData 一传就自动放宽。
+ */
+function isFileTransfer(config) {
+  // FormData = 上传；blob = 下载（取回文件再存盘/预览）
+  return config.data instanceof FormData || config.responseType === 'blob'
+}
+
+request.interceptors.request.use((config) => {
+  if (isFileTransfer(config) && config.timeout === API_TIMEOUT) {
+    config.timeout = FILE_TIMEOUT
+  }
+  return config
+})
+
+/**
+ * 把 axios 的上传进度事件转成 (loaded, total) 回调，省掉每个调用点的重复解构
+ *
+ * total 为 0 表示拿不到总大小（浏览器算不出来），调用方按「未知」处理，
+ * 别显示成 0%。
+ */
+export function progressHandler(onProgress) {
+  if (!onProgress) return undefined
+  return (e) => onProgress(e.loaded || 0, e.total || 0)
+}
 
 /** 会话已失效：清掉本地登录态，再回登录页
  *

@@ -488,7 +488,9 @@
                           :loading="photoUploading === p.type"
                           @click="pickPhoto(p.type)"
                         >
-                          选择图片
+                          <!-- 照片上限 10MB，慢网络下把上传进度显示出来 -->
+                          {{ photoUploading === p.type && photoUploadProgress
+                            ? `上传中 ${photoUploadProgress}%` : '选择图片' }}
                         </el-button>
                         <el-button
                           v-if="editForm[p.field]"
@@ -747,6 +749,8 @@ const PHOTO_TYPES = [
 ]
 const photoInput = ref(null)
 const photoUploading = ref('') // 正在上传的那张照片的 type，用来显示按钮 loading
+// 照片上传进度百分比（算不出总大小时为 0，就不显示数字）
+const photoUploadProgress = ref(0)
 let photoPicking = '' // 这次点「选择图片」是想换哪一张
 
 // 备注单独一个弹窗：班委只能改备注，没必要给他们开全字段的表单
@@ -1041,8 +1045,12 @@ async function handlePhotoPicked(e) {
 
   const type = photoPicking
   photoUploading.value = type
+  photoUploadProgress.value = 0
   try {
-    const res = await uploadStudentPhoto(editForm.id, type, file)
+    // 照片上限 10MB，手机上慢网络传得久，进度回填到百分比 ref
+    const res = await uploadStudentPhoto(editForm.id, type, file, (loaded, total) => {
+      photoUploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+    })
     const field = type === 'on_site' ? 'on_site_photo' : 'gaokao_photo'
     editForm[field] = res.photo // 地址里的 v 参数跟着变，立刻显示新图
     ElMessage.success('照片已更新')

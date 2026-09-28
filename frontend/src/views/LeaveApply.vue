@@ -98,7 +98,8 @@
 
             <el-form-item>
               <el-button type="primary" :loading="submitting" @click="handleSubmit">
-                提交申请
+                <!-- 证明材料多是拍照，慢网络下传得久，把进度显示出来 -->
+                提交申请{{ submitting && uploadProgress ? ` ${uploadProgress}%` : '' }}
               </el-button>
             </el-form-item>
           </el-form>
@@ -177,6 +178,8 @@ import FileViewer from '@/components/FileViewer.vue'
 
 const activeTab = ref('apply')
 const submitting = ref(false)
+// 上传进度百分比（算不出总大小时为 0，就不显示数字）
+const uploadProgress = ref(0)
 const loading = ref(false)
 const leaves = ref([])
 const formRef = ref(null)
@@ -281,8 +284,11 @@ async function handleSubmit() {
   fd.append('proof', fileList.value[0].raw || fileList.value[0])
 
   submitting.value = true
+  uploadProgress.value = 0
   try {
-    await submitLeave(fd)
+    await submitLeave(fd, (loaded, total) => {
+      uploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+    })
     ElMessage.success('申请已提交，等待管理员审核')
     // 切到记录页
     activeTab.value = 'history'
