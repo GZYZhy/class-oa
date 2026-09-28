@@ -191,3 +191,26 @@ export function deleteResource(id) {
     method: 'delete'
   })
 }
+
+// ==================== 文件访问日志 ====================
+
+/** 文件访问日志列表（查看/下载），分页 + 筛选 */
+export function getFileAccessLogs(params) {
+  return request({
+    url: '/admin/file-access-logs',
+    method: 'get',
+    params
+  })
+}
+
+/** 从上传的 PDF 中提取不可见水印，返回下载人/时间/文件信息 */
+export function extractWatermark(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request({
+    url: '/admin/file-access-logs/extract',
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}

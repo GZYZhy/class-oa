@@ -11,5 +11,6 @@ from .leave_request import LeaveRequest
 from .feedback import Feedback
 from .push_subscription import PushSubscription
 from .resource import Resource
+from .file_access_log import FileAccessLog
 
-__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource"]
+__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog"]

@@ -13,6 +13,7 @@ from ..config import BASE_DIR, settings
 from ..database import get_db
 from ..models import (
     AccountEvent,
+    FileAccessLog,
     IpBan,
     OperationLog,
     PushSubscription,
@@ -24,22 +25,28 @@ from ..schemas import (
     AccountEventResponse,
     AdminUserLogsResponse,
     AdminUserResponse,
+    FileAccessLogListResponse,
+    FileAccessLogResponse,
     IpBanListResponse,
     IpBanRequest,
     OperationLogListResponse,
     ResetPasswordRequest,
     ResetPasswordResponse,
     RoleUpdateRequest,
+    WatermarkExtractResponse,
 )
 from ..services import (
     account_name,
+    add_invisible_watermark,
     add_resource,
     ban_ip,
     clear_failures,
     default_password,
     delete_resource,
+    extract_watermark,
     list_all_resources,
     log_operation,
+    parse_watermark_token,
     reorder_category,
     unban_ip,
     update_resource,
@@ -921,3 +928,95 @@ def remove_resource(
     )
     db.commit()
     return {"message": "已删除"}
+
+
+# ==================== 文件访问日志 ====================
+
+@router.get(
+    "/file-access-logs",
+    response_model=FileAccessLogListResponse,
+    summary="文件访问日志（查看/下载）",
+)
+def list_file_access_logs(
+    _: User = Depends(admin_required),
+    user: str | None = Query(None, description="按访问人姓名或学号模糊搜索"),
+    file: str | None = Query(None, description="按文件标题模糊搜索"),
+    action: str | None = Query(None, description="按动作筛选：view / download，留空=全部"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    query = db.query(FileAccessLog)
+    if user:
+        query = query.filter(
+            or_(
+                FileAccessLog.user_name.like(f"%{user}%"),
+                FileAccessLog.user_no.like(f"%{user}%"),
+            )
+        )
+    if file:
+        query = query.filter(FileAccessLog.file_title.like(f"%{file}%"))
+    if action:
+        query = query.filter(FileAccessLog.action == action)
+
+    total = query.count()
+    items = (
+        query.order_by(FileAccessLog.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {"total": total, "items": items}
+
+
+@router.post(
+    "/file-access-logs/extract",
+    response_model=WatermarkExtractResponse,
+    summary="从 PDF 中提取不可见水印（溯源）",
+)
+async def extract_watermark_from_pdf(
+    _: User = Depends(admin_required),
+    file: UploadFile = File(..., description="待提取水印的 PDF 文件"),
+    db: Session = Depends(get_db),
+):
+    """上传一份 PDF，提取里面的不可见水印令牌，解析出下载人、时间、文件信息"""
+    # 校验必须是 PDF
+    filename = file.filename or ""
+    if not filename.lower().endswith(".pdf"):
+        return {"found": False, "message": "只支持 PDF 文件"}
+
+    content = await file.read()
+    if not content:
+        return {"found": False, "message": "文件为空"}
+
+    # 限制大小，防止超大文件把内存打满
+    if len(content) > 50 * 1024 * 1024:
+        return {"found": False, "message": "文件过大（上限 50MB）"}
+
+    token = extract_watermark(content)
+    if not token:
+        return {"found": False, "message": "未检测到水印"}
+
+    parsed = parse_watermark_token(token)
+    if not parsed:
+        return {"found": False, "message": f"水印格式无法解析：{token}"}
+
+    # 试着从数据库里把人和文件的详细信息捞出来，方便管理员直接看
+    user_row = db.query(User).filter(User.student_no == parsed["user_no"]).first()
+    user_name = account_name(db, user_row) if user_row else None
+
+    # 这里的 file_id 是 announcement.id
+    from ..models import Announcement
+    file_row = db.query(Announcement).filter(Announcement.id == parsed["file_id"]).first()
+
+    from datetime import datetime
+    return {
+        "found": True,
+        "token": token,
+        "file_id": parsed["file_id"],
+        "user_no": parsed["user_no"],
+        "user_name": user_name,
+        "file_title": file_row.title if file_row else None,
+        "downloaded_at": datetime.fromtimestamp(parsed["timestamp"]),
+        "message": "水印提取成功",
+    }

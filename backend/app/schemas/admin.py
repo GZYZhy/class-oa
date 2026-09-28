@@ -75,6 +75,38 @@ class OperationLogListResponse(BaseModel):
     items: list[OperationLogResponse]
 
 
+class FileAccessLogResponse(BaseModel):
+    """文件访问日志（查看 / 下载）"""
+    id: int
+    created_at: Optional[datetime] = None
+    user_no: Optional[str] = None
+    user_name: Optional[str] = None
+    file_id: Optional[int] = None
+    file_title: Optional[str] = None
+    action: Optional[str] = None  # view / download
+    ip: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FileAccessLogListResponse(BaseModel):
+    total: int
+    items: list[FileAccessLogResponse]
+
+
+class WatermarkExtractResponse(BaseModel):
+    """水印提取结果"""
+    found: bool
+    token: Optional[str] = None
+    file_id: Optional[int] = None
+    user_no: Optional[str] = None
+    user_name: Optional[str] = None
+    file_title: Optional[str] = None
+    downloaded_at: Optional[datetime] = None
+    message: Optional[str] = None
+
+
 class IpBanRequest(BaseModel):
     """手动封禁请求
 

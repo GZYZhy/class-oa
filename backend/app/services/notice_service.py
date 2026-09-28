@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime
 from typing import Optional
 
@@ -5,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import Notice, NoticeRead, User
-from .user_service import account_names
+from .user_service import account_name, account_names
 
 
 def list_notices(
@@ -27,19 +28,53 @@ def list_notices(
     return query.order_by(Notice.publish_date.desc(), Notice.id.desc()).all()
 
 
-def create_notice(db: Session, data: dict) -> Notice:
-    """新建通知"""
+def _editors_list(notice: Notice) -> list:
+    """读取编辑人列表（JSON → list）"""
+    if not notice.editors:
+        return []
+    try:
+        items = json.loads(notice.editors)
+        return items if isinstance(items, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+def _add_editor(db: Session, notice: Notice, user: User) -> str:
+    """把一个编辑人加入列表（同一个人多次编辑只保留最新一条，放在最后）
+
+    返回更新后的 JSON 串
+    """
+    items = _editors_list(notice)
+    no = user.student_no
+    name = account_name(db, user)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # 去掉旧条目里同一个人的记录
+    items = [e for e in items if e.get("no") != no]
+    items.append({"no": no, "name": name, "time": now})
+    return json.dumps(items, ensure_ascii=False)
+
+
+def create_notice(db: Session, data: dict, user: User | None = None) -> Notice:
+    """新建通知
+
+    传入 user 时会同时初始化 editors（首发人作为第一个编辑者）。
+    """
     notice = Notice(**data)
     db.add(notice)
+    db.flush()  # flush 拿到 id，才能加 editors
+    if user:
+        notice.editors = _add_editor(db, notice, user)
     db.commit()
     db.refresh(notice)
     return notice
 
 
-def update_notice(db: Session, notice_id: int, data: dict) -> Optional[Notice]:
+def update_notice(db: Session, notice_id: int, data: dict, user: User | None = None) -> Optional[Notice]:
     """编辑通知：更新内容并记录编辑时间（用于"已于xxxx更新"标识）
 
     发布人不在可编辑范围内 —— 改内容不等于换发布人，保留原值（编辑者记入操作日志）。
+    传 user 时，把编辑者追加到 editors 列表（多人参与时都会列出来）。
     """
     notice = db.query(Notice).filter(Notice.id == notice_id).first()
     if not notice:
@@ -47,6 +82,12 @@ def update_notice(db: Session, notice_id: int, data: dict) -> Optional[Notice]:
     notice.title = data["title"]
     notice.publish_date = data["publish_date"]
     notice.content = data["content"]
+    # 附件：传了就更新，不传就不动（编辑正文时可能不带附件字段）
+    if "attachments" in data:
+        notice.attachments = data["attachments"]
+    # 把编辑者加进 editors 列表（同一个人多次编辑只保留最新一条）
+    if user:
+        notice.editors = _add_editor(db, notice, user)
     notice.updated_at = datetime.now()
     db.commit()
     db.refresh(notice)

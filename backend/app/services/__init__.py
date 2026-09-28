@@ -57,6 +57,12 @@ from .webpush_service import (
     web_subscriptions,
 )
 from .notify_service import Recipients, notify, recipients
+from .pdf_watermark_service import (
+    add_invisible_watermark,
+    extract_watermark,
+    make_watermark_token,
+    parse_watermark_token,
+)
 
 __all__ = [
     "get_student",
@@ -112,4 +118,8 @@ __all__ = [
     "Recipients",
     "notify",
     "recipients",
+    "add_invisible_watermark",
+    "extract_watermark",
+    "make_watermark_token",
+    "parse_watermark_token",
 ]

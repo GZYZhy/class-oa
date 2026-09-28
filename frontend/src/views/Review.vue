@@ -256,6 +256,15 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 请假证明材料预览弹框 -->
+    <FileViewer
+      v-model="proofViewerVisible"
+      :file-url="proofFileUrl"
+      :file-name="proofFileName"
+      :download-name="proofDownloadName"
+      title="请假证明材料"
+    />
   </div>
 </template>
 
@@ -286,6 +295,7 @@ import {
 import { FIELD_LABELS, STATUS_LABELS, STATUS_TYPES } from '@/utils/changeFields'
 import { formatDate, formatDateTime, formatFileSize } from '@/utils/format'
 import Watermark from '@/components/Watermark.vue'
+import FileViewer from '@/components/FileViewer.vue'
 import { useWatermark } from '@/composables/useWatermark'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
@@ -375,13 +385,22 @@ async function fetchLeaveList() {
   }
 }
 
+// 请假证明预览
+const proofViewerVisible = ref(false)
+const proofFileUrl = ref('')
+const proofFileName = ref('')
+const proofDownloadName = ref('')
+
 function viewLeaveProof(row) {
-  downloadLeaveProof(row.id).then(blob => {
-    const url = URL.createObjectURL(blob)
-    window.open(url, '_blank')
-  }).catch(e => {
-    ElMessage.error(e?.response?.data?.detail || '打开失败')
-  })
+  // 预览用的文件路径（后端接口）
+  proofFileUrl.value = `/api/leaves/${row.id}/proof/admin`
+  proofFileName.value = row.proof_original_name || '证明材料'
+  // 下载命名规则：姓名_请假证明_开始日期YYYYMMDD.扩展名
+  // 沿用请假审批表的命名模式，保持一致
+  const ext = (row.proof_original_name || '').match(/\.[^.]+$/)?.[0] || ''
+  const dateStr = formatDate(row.start_at).replace(/-/g, '')
+  proofDownloadName.value = `${row.student_name}_请假证明_${dateStr}${ext}`
+  proofViewerVisible.value = true
 }
 
 function handleApproveLeave(row) {

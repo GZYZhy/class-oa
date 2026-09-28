@@ -72,8 +72,19 @@
         <el-table-column prop="publish_date" label="发布时间" width="140" align="center" sortable />
         <el-table-column label="操作" width="220" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleView(row)">查看</el-button>
-            <el-button v-if="!userStore.isStudent" type="success" link @click="handleDownload(row)">
+            <el-button
+              type="primary"
+              link
+              :loading="viewingId === row.id"
+              @click="handleView(row)"
+            >查看</el-button>
+            <el-button
+              v-if="!userStore.isStudent"
+              type="success"
+              link
+              :loading="downloadingId === row.id"
+              @click="handleDownload(row)"
+            >
               下载
             </el-button>
             <el-button v-if="userStore.isCommittee" type="danger" link @click="handleDelete(row)">
@@ -88,6 +99,13 @@
       <!-- 公开文件谁都能看，盖一层「谁在看」的水印（普通学生访问时也盖） -->
       <Watermark :text="watermarkText" />
     </div>
+
+    <!-- 内嵌 PDF 查看器（不走浏览器原生，防止学生通过查看器的下载按钮绕过权限） -->
+    <PdfViewer
+      v-model="viewerVisible"
+      :file-url="viewerFileUrl"
+      :title="viewerTitle"
+    />
 
     <!-- 上传弹窗 -->
     <el-dialog v-model="uploadVisible" title="发布公开文件" width="520px" :close-on-click-modal="false">
@@ -147,7 +165,8 @@ import { getAnnouncements, createAnnouncement, deleteAnnouncement } from '@/api/
 import { useUserStore } from '@/store/user'
 import Watermark from '@/components/Watermark.vue'
 import { useWatermark } from '@/composables/useWatermark'
-import { downloadFile, previewFile, blobErrorDetail } from '@/utils/download'
+import { downloadFile, blobErrorDetail } from '@/utils/download'
+import PdfViewer from '@/components/PdfViewer.vue'
 
 const userStore = useUserStore()
 const watermarkText = useWatermark()
@@ -158,6 +177,15 @@ const uploadVisible = ref(false)
 const submitting = ref(false)
 const selectedFile = ref(null)
 const fileInputRef = ref(null)
+
+// PDF 查看器
+const viewerVisible = ref(false)
+const viewerFileUrl = ref('')
+const viewerTitle = ref('')
+// 记录当前正在下载的行 id，按钮上显示 loading（网络慢时避免用户以为没点到）
+const downloadingId = ref(null)
+// 记录当前正在查看的行 id，按钮上显示 loading
+const viewingId = ref(null)
 
 const form = reactive({
   title: '',
@@ -240,23 +268,23 @@ async function handleSubmit() {
   }
 }
 
-// 查看：经 axios 取回 PDF 再在新标签页打开。
-// 直接 window.open(file_path) 的话，会话失效时新标签页里只会是一坨错误 JSON，
-// 当前页面还停在原地；走 axios 才能被 401 拦截器接住（见 utils/download.js）
-async function handleView(row) {
-  try {
-    await previewFile(row.file_path)
-  } catch (e) {
-    ElMessage.error(await blobErrorDetail(e, '打开失败'))
-  }
+// 查看：用内嵌 PdfViewer 弹框渲染，不走浏览器原生 PDF 查看器，
+// 这样可以叠水印、不放下载按钮，防止学生通过查看器下载绕过权限。
+function handleView(row) {
+  viewerFileUrl.value = row.file_path
+  viewerTitle.value = row.title
+  viewerVisible.value = true
 }
 
-// 下载：同样经 axios 取回，保留原始文件名
+// 下载：经 axios 取回，保留原始文件名；按钮上显示 loading，避免网慢时用户以为没点到
 async function handleDownload(row) {
+  downloadingId.value = row.id
   try {
     await downloadFile(row.file_path, row.file_name || `${row.title}.pdf`)
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
+  } finally {
+    downloadingId.value = null
   }
 }
 

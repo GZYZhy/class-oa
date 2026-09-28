@@ -1,0 +1,304 @@
+<template>
+  <!--
+    内嵌式 PDF 查看器（弹框）。
+    用 PDF.js 在 canvas 上渲染，不走浏览器原生 PDF 查看器，
+    这样可以：1) 不放下载/打印按钮；2) 在内容上层叠水印；3) 禁用右键另存为。
+    注：前端层面只能提高绕过门槛，不能做到 100% 防下载（抓包仍能拿到 blob）。
+    真正的权限边界在后端（普通学生调不到 download=true）。
+  -->
+  <el-dialog
+    :model-value="modelValue"
+    :title="title || '查看文件'"
+    width="90vw"
+    top="5vh"
+    :close-on-click-modal="false"
+    append-to-body
+    destroy-on-close
+    @update:model-value="v => emit('update:modelValue', v)"
+    @closed="handleClosed"
+  >
+    <div class="pdf-toolbar">
+      <div class="toolbar-left">
+        <el-button size="small" :disabled="currentPage <= 1" @click="prevPage">
+          <el-icon><ArrowLeft /></el-icon>
+          上一页
+        </el-button>
+        <span class="page-indicator">
+          第
+          <el-input-number
+            v-model="currentPage"
+            :min="1"
+            :max="totalPages || 1"
+            size="small"
+            controls-position="right"
+            style="width: 110px; margin: 0 4px;"
+            @change="renderPage(currentPage)"
+          />
+          页 / 共 {{ totalPages }} 页
+        </span>
+        <el-button size="small" :disabled="currentPage >= totalPages" @click="nextPage">
+          下一页
+          <el-icon><ArrowRight /></el-icon>
+        </el-button>
+      </div>
+      <div class="toolbar-right">
+        <el-button size="small" :disabled="scale <= 0.5" @click="zoomOut">
+          <el-icon><ZoomOut /></el-icon>
+        </el-button>
+        <span class="scale-text">{{ Math.round(scale * 100) }}%</span>
+        <el-button size="small" :disabled="scale >= 3" @click="zoomIn">
+          <el-icon><ZoomIn /></el-icon>
+        </el-button>
+        <el-button size="small" @click="fitWidth">适应宽度</el-button>
+      </div>
+    </div>
+
+    <!-- 渲染区：外层是定位基准，canvas 放内容，watermark 盖在上面 -->
+    <div
+      ref="containerRef"
+      class="pdf-container"
+      @contextmenu.prevent="onContextMenu"
+    >
+      <div class="canvas-wrap">
+        <canvas ref="canvasRef" class="pdf-canvas" />
+      </div>
+      <Watermark :text="watermarkText" />
+      <div v-loading="loading" class="pdf-loading" />
+    </div>
+
+    <template #footer>
+      <el-button @click="emit('update:modelValue', false)">关闭</el-button>
+    </template>
+  </el-dialog>
+</template>
+
+<script setup>
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ElMessage } from 'element-plus'
+import * as pdfjsLib from 'pdfjs-dist'
+// Vite 打包时 worker 走 ?url 形式，避免额外配置
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import Watermark from './Watermark.vue'
+import { useWatermark } from '@/composables/useWatermark'
+import { fetchBlob } from '@/utils/download'
+
+// 设置 PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorker
+
+const props = defineProps({
+  modelValue: { type: Boolean, default: false },
+  /** PDF 文件的后端路径，如 /api/announcements/file/xxx.pdf */
+  fileUrl: { type: String, default: '' },
+  /** 弹框标题 */
+  title: { type: String, default: '' },
+})
+
+const emit = defineEmits(['update:modelValue'])
+
+const watermarkText = useWatermark()
+
+const containerRef = ref(null)
+const canvasRef = ref(null)
+const loading = ref(false)
+const currentPage = ref(1)
+const totalPages = ref(0)
+const scale = ref(1.2)
+
+let pdfDoc = null
+
+// 监听弹框打开：加载 PDF
+watch(() => props.modelValue, async (val) => {
+  if (val && props.fileUrl) {
+    await nextTick()
+    loadPdf()
+  }
+})
+
+async function loadPdf() {
+  if (!props.fileUrl) return
+  loading.value = true
+  currentPage.value = 1
+  try {
+    // 经 axios 取回 blob（这样带登录态、能被 401 拦截器接住），
+    // 再转成 ArrayBuffer 喂给 PDF.js
+    const blob = await fetchBlob(props.fileUrl)
+    const arrayBuffer = await blob.arrayBuffer()
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
+    pdfDoc = await loadingTask.promise
+    totalPages.value = pdfDoc.numPages
+    // 等 DOM 就绪再渲染第一页
+    await nextTick()
+    await fitWidth()
+  } catch (e) {
+    ElMessage.error('文件加载失败：' + (e.message || '未知错误'))
+    emit('update:modelValue', false)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function renderPage(pageNum) {
+  if (!pdfDoc || !canvasRef.value) return
+  try {
+    const page = await pdfDoc.getPage(pageNum)
+    const viewport = page.getViewport({ scale: scale.value })
+    const canvas = canvasRef.value
+    const ctx = canvas.getContext('2d')
+    // 按设备像素比渲染，避免高分屏发虚
+    const dpr = window.devicePixelRatio || 1
+    canvas.width = viewport.width * dpr
+    canvas.height = viewport.height * dpr
+    canvas.style.width = viewport.width + 'px'
+    canvas.style.height = viewport.height + 'px'
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+    await page.render({
+      canvasContext: ctx,
+      viewport: viewport,
+    }).promise
+  } catch (e) {
+    // 页码输入不合法等情况
+    console.warn('渲染 PDF 页失败', e)
+  }
+}
+
+function prevPage() {
+  if (currentPage.value > 1) {
+    currentPage.value--
+    renderPage(currentPage.value)
+  }
+}
+
+function nextPage() {
+  if (currentPage.value < totalPages.value) {
+    currentPage.value++
+    renderPage(currentPage.value)
+  }
+}
+
+function zoomIn() {
+  if (scale.value < 3) {
+    scale.value = Math.min(3, +(scale.value + 0.2).toFixed(1))
+    renderPage(currentPage.value)
+  }
+}
+
+function zoomOut() {
+  if (scale.value > 0.5) {
+    scale.value = Math.max(0.5, +(scale.value - 0.2).toFixed(1))
+    renderPage(currentPage.value)
+  }
+}
+
+/** 按容器宽度自动适配缩放 */
+async function fitWidth() {
+  if (!pdfDoc || !containerRef.value) return
+  const page = await pdfDoc.getPage(1)
+  // 容器内边距留 40px 余量，避免出现横向滚动条
+  const containerWidth = containerRef.value.clientWidth - 40
+  const viewport = page.getViewport({ scale: 1 })
+  scale.value = +(containerWidth / viewport.width).toFixed(2)
+  renderPage(currentPage.value)
+}
+
+/** 阻止右键菜单（防另存为图片等） */
+function onContextMenu() {
+  // 静默阻止，不弹提示，免得用户觉得此地无银
+}
+
+/** 阻止一些常见的保存/打印快捷键 */
+function onKeydown(e) {
+  if (!props.modelValue) return
+  // Ctrl/Cmd + S 保存、Ctrl/Cmd + P 打印
+  if ((e.ctrlKey || e.metaKey) && ['s', 'p', 'S', 'P'].includes(e.key)) {
+    e.preventDefault()
+  }
+}
+
+function handleClosed() {
+  // 弹框关闭时释放资源
+  pdfDoc = null
+  totalPages.value = 0
+  currentPage.value = 1
+  scale.value = 1.2
+  if (canvasRef.value) {
+    const ctx = canvasRef.value.getContext('2d')
+    ctx.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height)
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  if (pdfDoc) pdfDoc = null
+})
+</script>
+
+<style scoped>
+.pdf-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  margin: -10px -20px 12px;
+  background: #f5f7fa;
+  border-bottom: 1px solid #ebeef5;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-indicator {
+  font-size: 13px;
+  color: #606266;
+  display: flex;
+  align-items: center;
+}
+
+.scale-text {
+  font-size: 13px;
+  color: #606266;
+  min-width: 48px;
+  text-align: center;
+}
+
+.pdf-container {
+  position: relative;
+  width: 100%;
+  height: calc(90vh - 160px);
+  overflow: auto;
+  background: #e9e9eb;
+  border-radius: 4px;
+}
+
+.canvas-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+  min-height: 100%;
+}
+
+.pdf-canvas {
+  display: block;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  background: #fff;
+  /* 防止被拖拽保存 */
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.pdf-loading {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.6);
+}
+</style>

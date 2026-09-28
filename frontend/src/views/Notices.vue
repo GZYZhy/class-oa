@@ -63,7 +63,20 @@
                 title="未读"
               ></span>
               <span class="title-text">{{ item.title }}</span>
-              <el-tag size="small" type="info">{{ item.publisher }}</el-tag>
+              <!-- 发布/编辑人：第一个是首发人（蓝），后续编辑者（绿），多了自动换行 -->
+              <div class="publisher-tags">
+                <el-tag
+                  v-for="(editor, idx) in item.editors"
+                  :key="editor.no || editor.name || idx"
+                  size="small"
+                  :type="idx === 0 ? 'info' : 'success'"
+                  effect="light"
+                  :title="editor.time ? (idx === 0 ? '发布于 ' : '编辑于 ') + editor.time : ''"
+                  class="publisher-tag"
+                >
+                  {{ idx === 0 ? '' : '✎ ' }}{{ editor.name || '未知' }}
+                </el-tag>
+              </div>
               <span class="title-date">{{ item.publish_date }}</span>
               <!-- 编辑过的通知自动带更新标识 -->
               <el-tag v-if="item.updated_at" size="small" type="warning" effect="plain">
@@ -74,6 +87,27 @@
 
           <!-- Markdown 正文 -->
           <div class="markdown-body" v-html="renderMarkdown(item.content)"></div>
+
+          <!-- 附件列表 -->
+          <div v-if="item.attachments?.length" class="notice-attachments">
+            <div class="attach-title">
+              <el-icon><Paperclip /></el-icon>
+              附件（{{ item.attachments.length }}）
+            </div>
+            <div class="attach-list">
+              <div
+                v-for="(att, idx) in item.attachments"
+                :key="idx"
+                class="attach-item"
+                @click="downloadAttachment(item.id, idx, att.name)"
+              >
+                <el-icon><Document /></el-icon>
+                <span class="attach-name">{{ att.name }}</span>
+                <span class="attach-size">{{ formatFileSize(att.size) }}</span>
+                <el-icon class="attach-download"><Download /></el-icon>
+              </div>
+            </div>
+          </div>
 
           <div v-if="userStore.isCommittee" class="notice-footer">
             <span v-if="item.updated_at" class="updated-tip">
@@ -103,9 +137,20 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <!-- 发布人不再由前端填写：后端一律按登录账号的姓名落库，防止冒名 -->
-            <el-form-item label="发布人">
-              <span class="publisher-tip">
-                {{ editingId ? `${form.publisher}（编辑不改变发布人）` : userStore.info?.name }}
+            <el-form-item label="参与人">
+              <div v-if="editingId && form.editors?.length" class="editors-list">
+                <el-tag
+                  v-for="(ed, idx) in form.editors"
+                  :key="ed.no || ed.name || idx"
+                  size="small"
+                  :type="idx === 0 ? 'info' : 'success'"
+                  effect="light"
+                >
+                  {{ idx === 0 ? '首发：' : '编辑：' }}{{ ed.name || '未知' }}
+                </el-tag>
+              </div>
+              <span v-else class="publisher-tip">
+                {{ userStore.info?.name }}（你将作为首发人）
               </span>
             </el-form-item>
           </el-col>
@@ -128,6 +173,69 @@
                 :rows="10"
                 placeholder="支持 Markdown 格式：# 标题、**加粗**、- 列表 等"
               />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="附件">
+              <div class="upload-area">
+                <!-- 已有附件（编辑模式下显示，可删除） -->
+                <div v-if="editingAttachments.length" class="existing-attachments">
+                  <div
+                    v-for="(att, idx) in editingAttachments"
+                    :key="'old-' + idx"
+                    class="attach-row"
+                  >
+                    <el-icon><Document /></el-icon>
+                    <span class="attach-name">{{ att.name }}</span>
+                    <span class="attach-size">{{ formatFileSize(att.size) }}</span>
+                    <el-button
+                      type="danger"
+                      link
+                      size="small"
+                      @click="removeOldAttachment(idx)"
+                    >移除</el-button>
+                  </div>
+                </div>
+                <!-- 新上传的文件 -->
+                <div v-if="newAttachments.length" class="existing-attachments">
+                  <div
+                    v-for="(file, idx) in newAttachments"
+                    :key="'new-' + idx"
+                    class="attach-row"
+                  >
+                    <el-icon><Document /></el-icon>
+                    <span class="attach-name">{{ file.name }}</span>
+                    <span class="attach-size">{{ formatFileSize(file.size) }}</span>
+                    <el-button
+                      type="danger"
+                      link
+                      size="small"
+                      @click="removeNewAttachment(idx)"
+                    >移除</el-button>
+                  </div>
+                </div>
+                <el-button
+                  v-if="editingAttachments.length + newAttachments.length < maxAttachments"
+                  type="primary"
+                  plain
+                  size="small"
+                  @click="$refs.attachInput.click()"
+                >
+                  <el-icon><Upload /></el-icon>
+                  添加附件
+                </el-button>
+                <input
+                  ref="attachInput"
+                  type="file"
+                  multiple
+                  :accept="allowedAttachmentExts"
+                  style="display: none;"
+                  @change="handleAttachChange"
+                />
+                <div class="upload-tip">
+                  最多 {{ maxAttachments }} 个，支持图片 / 视频 / 音频 / 文档，单文件不超过 20MB
+                </div>
+              </div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -185,8 +293,15 @@ import {
   markNoticeRead,
   getNoticeReads
 } from '@/api/notice'
+import { downloadFile } from '@/utils/download'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
+
+// 允许的附件扩展名（与后端 ALLOWED_ATTACHMENT_EXTENSIONS 对应）
+const ALLOWED_ATTACHMENT_EXTS =
+  '.jpg,.jpeg,.png,.gif,.bmp,.webp,.heic,.heif,.mp4,.mov,.m4v,.avi,.mkv,.webm,.mp3,.m4a,.wav,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md,.wps,.et,.dps'
+const MAX_ATTACHMENTS = 3
+const MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -200,9 +315,18 @@ const searchForm = reactive({ title: '', dateRange: [] })
 
 const publishVisible = ref(false)
 const submitting = ref(false)
-const form = reactive({ title: '', publisher: '', publish_date: '', content: '' })
+const form = reactive({ title: '', publisher: '', publish_date: '', content: '', editors: [] })
 // 非空表示当前是编辑模式
 const editingId = ref(null)
+
+// 附件
+const attachInput = ref(null)
+const allowedAttachmentExts = ALLOWED_ATTACHMENT_EXTS
+const maxAttachments = MAX_ATTACHMENTS
+// 编辑模式下保留的原附件（去掉被移除的）
+const editingAttachments = ref([])
+// 新上传的附件
+const newAttachments = ref([])
 
 // 已读情况弹窗
 const readsVisible = ref(false)
@@ -290,6 +414,8 @@ function openPublish() {
   form.publisher = ''
   form.publish_date = ''
   form.content = ''
+  editingAttachments.value = []
+  newAttachments.value = []
   publishVisible.value = true
 }
 
@@ -300,7 +426,62 @@ function openEdit(item) {
   form.publisher = item.publisher
   form.publish_date = item.publish_date
   form.content = item.content
+  form.editors = item.editors || []
+  // 回填附件：先全部保留，用户可以手动移除
+  editingAttachments.value = (item.attachments || []).map(a => ({ ...a }))
+  newAttachments.value = []
   publishVisible.value = true
+}
+
+// 附件选择
+function handleAttachChange(e) {
+  const files = Array.from(e.target.files || [])
+  const remaining = maxAttachments - editingAttachments.value.length - newAttachments.value.length
+  if (files.length > remaining) {
+    ElMessage.warning(`最多只能再添加 ${remaining} 个附件`)
+  }
+  const toAdd = files.slice(0, remaining)
+  for (const f of toAdd) {
+    // 校验大小
+    if (f.size > MAX_ATTACHMENT_SIZE) {
+      ElMessage.warning(`「${f.name}」超过 20MB，已跳过`)
+      continue
+    }
+    // 校验后缀
+    const ext = '.' + f.name.split('.').pop()?.toLowerCase()
+    if (!ALLOWED_ATTACHMENT_EXTS.split(',').includes(ext)) {
+      ElMessage.warning(`「${f.name}」不支持的文件类型`)
+      continue
+    }
+    newAttachments.value.push(f)
+  }
+  // 重置 input，方便下次选同名文件也能触发
+  e.target.value = ''
+}
+
+function removeOldAttachment(idx) {
+  editingAttachments.value.splice(idx, 1)
+}
+
+function removeNewAttachment(idx) {
+  newAttachments.value.splice(idx, 1)
+}
+
+// 格式化文件大小
+function formatFileSize(bytes) {
+  if (!bytes) return '0 B'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+}
+
+// 下载通知附件
+async function downloadAttachment(noticeId, index, name) {
+  try {
+    await downloadFile(`/api/notices/${noticeId}/attachments/${index}`, name)
+  } catch (e) {
+    ElMessage.error('下载失败')
+  }
 }
 
 async function handleSubmit() {
@@ -308,21 +489,31 @@ async function handleSubmit() {
   if (!form.publish_date) return ElMessage.warning('请选择发布时间')
   if (!form.content.trim()) return ElMessage.warning('请填写正文')
 
-  // 不带 publisher：发布人由后端按登录账号注入，编辑时后端保留原发布人
-  const payload = {
-    title: form.title.trim(),
-    publish_date: form.publish_date,
-    content: form.content
+  // 组装 FormData
+  const fd = new FormData()
+  fd.append('title', form.title.trim())
+  fd.append('publish_date', form.publish_date)
+  fd.append('content', form.content)
+
+  // 编辑模式：传保留的原附件下标
+  if (editingId.value) {
+    const keepIndices = editingAttachments.value.map(a => a.index)
+    fd.append('keep_attachments', JSON.stringify(keepIndices))
+  }
+
+  // 新上传的附件
+  for (const f of newAttachments.value) {
+    fd.append('attachments', f)
   }
 
   submitting.value = true
   try {
     if (editingId.value) {
-      await updateNotice(editingId.value, payload)
+      await updateNotice(editingId.value, fd)
       ElMessage.success('已保存，并标记更新')
     } else {
-      const created = await createNotice(payload)
-      // 自己刚发的通知不该再给自己亮红点（正文是自己写的，说是「已读」也成立）
+      const created = await createNotice(fd)
+      // 自己刚发的通知不该再给自己亮红点
       await markRead([created])
       ElMessage.success('发布成功')
     }
@@ -411,6 +602,22 @@ onMounted(fetchList)
   color: #909399;
 }
 
+/* 发布人标签组：自动换行，手机端不挤 */
+.publisher-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.publisher-tag {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .markdown-body {
   padding: 8px 4px;
   color: #303133;
@@ -422,6 +629,106 @@ onMounted(fetchList)
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
+}
+
+/* 通知附件 */
+.notice-attachments {
+  margin: 12px 0 8px;
+  padding: 10px 14px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+
+.attach-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attach-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.attach-item:hover {
+  background: #ecf5ff;
+}
+
+.attach-item .attach-name {
+  flex: 1;
+  font-size: 13px;
+  color: #409eff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attach-item .attach-size {
+  font-size: 12px;
+  color: #909399;
+  flex-shrink: 0;
+}
+
+.attach-item .attach-download {
+  font-size: 14px;
+  color: #409eff;
+  flex-shrink: 0;
+}
+
+/* 弹窗里的上传区 */
+.upload-area {
+  width: 100%;
+}
+
+.existing-attachments {
+  margin-bottom: 8px;
+}
+
+.attach-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.attach-row .attach-name {
+  flex: 1;
+  font-size: 13px;
+  color: #303133;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attach-row .attach-size {
+  font-size: 12px;
+  color: #909399;
+  flex-shrink: 0;
+}
+
+.upload-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #909399;
 }
 
 /* 手机端：通知标题行允许折行，发布者和日期挤到第二行也没关系，
@@ -448,6 +755,13 @@ onMounted(fetchList)
   color: #606266;
   font-size: 14px;
 }
+
+.editors-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 
 .updated-tip {
   margin-right: auto;

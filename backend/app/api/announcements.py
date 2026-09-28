@@ -13,15 +13,17 @@ from fastapi import (
     Query,
     UploadFile,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
 from ..database import get_db
-from ..models import Announcement, User
+from ..models import Announcement, FileAccessLog, User
 from ..schemas import AnnouncementResponse
 from ..services import (
     account_name,
+    add_invisible_watermark,
+    make_watermark_token,
     list_announcements,
     create_announcement,
     delete_announcement,
@@ -70,6 +72,7 @@ def serve_file(
     user: User = Depends(get_current_user),
     download: bool = Query(False, description="true=作为附件下载，false=浏览器内预览"),
     db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
 ):
     """按文件名下发 PDF；只取文件名，杜绝路径穿越"""
     safe_name = os.path.basename(file_name)
@@ -77,27 +80,90 @@ def serve_file(
     if not file_path.exists() or file_path.suffix.lower() != ".pdf":
         raise HTTPException(status_code=404, detail="文件不存在")
 
+    # 查出公告行（班委也要查：为了记访问日志的 file_id / 标题，以及下载打水印）
+    announcement = (
+        db.query(Announcement)
+        .filter(Announcement.file_path == f"{URL_PREFIX}/{safe_name}")
+        .first()
+    )
+
     # 「仅班委可见」的文件，对普通学生一律按不存在处理
     # （列表里本来就查不到，这里拦住的是手敲/猜 URL 直连；回 404 而不回 403，
     #  免得泄露「这个文件存在」）
     if not is_committee(user):
-        row = (
-            db.query(Announcement)
-            .filter(Announcement.file_path == f"{URL_PREFIX}/{safe_name}")
-            .first()
-        )
-        if not row or not row.is_public:
+        if not announcement or not announcement.is_public:
             raise HTTPException(status_code=404, detail="文件不存在")
+        # 普通学生只能在线预览，不能下载——防止绕过前端按钮直接调接口
+        if download:
+            raise HTTPException(status_code=403, detail="无下载权限")
 
-    return _pdf_response(file_path, download)
+    # 记访问日志（查看、下载都记）
+    _log_file_access(
+        db, user, announcement,
+        action="download" if download else "view",
+        ip=ip,
+    )
+
+    # 班委下载：给 PDF 打上不可见水印后再返回，文件流出后可溯源
+    if download and is_committee(user):
+        return _watermarked_pdf_response(file_path, announcement, user)
+
+    return _pdf_response(file_path, download, announcement)
 
 
-def _pdf_response(file_path: Path, download: bool) -> FileResponse:
+def _pdf_response(file_path: Path, download: bool, announcement: Announcement | None = None) -> FileResponse:
     """返回 PDF；download=True 时带上原始文件名作为下载名"""
-    headers = {"Content-Disposition": f'inline; filename="{file_path.name}"'}
-    if download:
-        headers = {"Content-Disposition": f'attachment; filename="{file_path.name}"'}
+    # 优先用上传时的原始文件名（用户上传的中文名字），UUID 名只用于磁盘存储
+    display_name = announcement.file_name if announcement and announcement.file_name else file_path.name
+    disposition_type = "attachment" if download else "inline"
+    headers = {"Content-Disposition": f'{disposition_type}; filename="{display_name}"'}
     return FileResponse(str(file_path), media_type="application/pdf", headers=headers)
+
+
+def _watermarked_pdf_response(file_path: Path, announcement: Announcement, user: User) -> Response:
+    """读取原 PDF、打上不可见水印后，以附件形式返回
+
+    水印内容：OA-WM:<file_id>:<user_no>:<timestamp>
+    只在班委下载时调用；学生不能下载，直接查看走的是无水印的原文件（前端叠可见水印）。
+    """
+    with open(file_path, "rb") as f:
+        pdf_bytes = f.read()
+
+    token = make_watermark_token(announcement.id, user.student_no)
+    watermarked = add_invisible_watermark(pdf_bytes, token)
+
+    display_name = announcement.file_name or file_path.name
+    return Response(
+        content=watermarked,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{display_name}"',
+            "Content-Length": str(len(watermarked)),
+        },
+    )
+
+
+def _log_file_access(
+    db: Session, user: User, announcement: Announcement | None,
+    action: str, ip: str | None,
+) -> None:
+    """记一条文件访问日志（查看/下载）
+
+    直接 add + commit：文件下发是只读操作，没有别的业务改动一起提交，
+    也不能等下次 commit —— 请求结束后 session 就关了。
+    """
+    if not announcement:
+        # 查不到公告行的话就不记了（理论上前面已经 404 了，这里只是兜底）
+        return
+    db.add(FileAccessLog(
+        user_no=user.student_no,
+        user_name=account_name(db, user),
+        file_id=announcement.id,
+        file_title=announcement.title,
+        action=action,
+        ip=ip,
+    ))
+    db.commit()
 
 
 @router.post("", response_model=AnnouncementResponse, summary="上传PDF并发布公告（班委及以上）")
