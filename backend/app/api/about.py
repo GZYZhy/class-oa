@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..models import Student, User
 from ..schemas import AboutResponse, CommitteeMember
@@ -35,4 +36,6 @@ def about(_: User = Depends(get_current_user), db: Session = Depends(get_db)):
         total=total,
         gender=gender,
         committee=[CommitteeMember(name=m.name, position=m.class_position) for m in members],
+        # 顺手带出版本号，省得这一页再单独请求一次 /api/health
+        version=settings.app_version,
     )
