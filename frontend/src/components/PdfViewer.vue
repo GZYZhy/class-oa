@@ -56,26 +56,23 @@
       </div>
     </div>
 
-    <!-- 渲染区：外层是定位基准，canvas 放内容，watermark 盖在上面。
-         loading 交给 el-loading 挂在容器上——它只在加载时插一层遮罩，
-         加载完就撤掉；自己写死的遮罩会一直盖在画布上，整页看着灰蒙蒙的。
-         遮罩上的文字带下载进度：大文件 + 慢网络时，光看转圈分不清「在下」和「卡死」 -->
-    <div
-      ref="containerRef"
-      v-loading="loading"
-      :element-loading-text="loadingText"
-      class="pdf-container"
-      @contextmenu.prevent="onContextMenu"
-    >
-      <!-- 内容层：canvas-wrap 把 canvas 和水印绑在一起，水印高度 = 内容高度，
-           滚动时水印跟着内容一起走，不会出现「滚到下半页就没水印了」 -->
-      <div class="canvas-wrap">
-        <canvas ref="canvasRef" class="pdf-canvas" />
-        <Watermark :text="watermarkText" class="canvas-watermark" />
+    <!-- 外层：定位基准，不滚动。热区和底部栏挂在这里，一直固定在视口位置 -->
+    <div class="pdf-viewer-wrap">
+      <!-- 滚动区：canvas + 水印在这里面滚，滚到哪里水印都铺在内容上 -->
+      <div
+        ref="containerRef"
+        v-loading="loading"
+        :element-loading-text="loadingText"
+        class="pdf-container"
+        @contextmenu.prevent="onContextMenu"
+      >
+        <div class="canvas-wrap">
+          <canvas ref="canvasRef" class="pdf-canvas" />
+          <Watermark :text="watermarkText" class="canvas-watermark" />
+        </div>
       </div>
 
-      <!-- 左右两侧点击热区：手机上点左右半页就能翻页，不用够顶部工具栏
-           放在 container 层，固定在视口左右，不随内容滚动 -->
+      <!-- 左右两侧点击热区：挂在外层，固定在视口左右，不随内容滚动 -->
       <div
         class="page-hit page-hit-left"
         :class="{ disabled: currentPage <= 1 }"
@@ -93,7 +90,7 @@
         <el-icon v-if="totalPages > 1" class="hit-icon"><ArrowRight /></el-icon>
       </div>
 
-      <!-- 底部浮动翻页栏：固定在容器视口底部，不随内容滚动 -->
+      <!-- 底部浮动翻页栏：挂在外层，固定在视口底部，不随内容滚动 -->
       <div v-if="totalPages > 1" class="bottom-bar">
         <el-button size="small" :disabled="currentPage <= 1" @click="prevPage">
           <el-icon><ArrowLeft /></el-icon>
@@ -394,13 +391,22 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-.pdf-container {
+/* 外层：定位基准，不滚动。热区和底部栏都挂在这里 */
+.pdf-viewer-wrap {
   position: relative;
   width: 100%;
   height: calc(90vh - 160px);
+  border-radius: 4px;
+  overflow: hidden; /* 防止底部栏/热区溢出圆角 */
+}
+
+/* 滚动区：负责内容滚动 + v-loading 的定位基准 */
+.pdf-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
   overflow: auto;
   background: #e9e9eb;
-  border-radius: 4px;
 }
 
 .canvas-wrap {
