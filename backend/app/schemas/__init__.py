@@ -37,6 +37,7 @@ from .admin import (
 from .about import CommitteeMember, AboutResponse
 from .leave import LeaveRequestCreate, LeaveRequestResponse, LeaveRejectRequest
 from .feedback import FeedbackAttachment, FeedbackReply, FeedbackResponse
+from .ev_pass import EvPassRequestResponse, EvPassRejectRequest
 
 __all__ = [
     "StudentBase",
@@ -83,4 +84,6 @@ __all__ = [
     "FeedbackAttachment",
     "FeedbackReply",
     "FeedbackResponse",
+    "EvPassRequestResponse",
+    "EvPassRejectRequest",
 ]
