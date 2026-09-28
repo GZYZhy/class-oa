@@ -51,7 +51,12 @@
           </el-button>
           <el-button size="small" @click="fitWidth">适应宽度</el-button>
         </div>
-        <div ref="pdfContainerRef" class="pdf-canvas-wrap" v-loading="loadingPdf">
+        <div
+          ref="pdfContainerRef"
+          v-loading="loadingPdf"
+          :element-loading-text="loadingText"
+          class="pdf-canvas-wrap"
+        >
           <canvas ref="pdfCanvasRef" class="pdf-canvas" />
         </div>
       </div>
@@ -67,7 +72,9 @@
     <template #footer>
       <span v-if="showDownload && fileType !== 'unknown'">
         <el-button type="primary" :loading="downloading" @click="handleDownload">
-          <el-icon><Download /></el-icon>下载
+          <el-icon v-if="!downloading"><Download /></el-icon>
+          <!-- 慢网络下大文件传得久，把百分比写出来免得让人以为卡死了 -->
+          {{ downloading && progress ? progress + '%' : '下载' }}
         </el-button>
       </span>
       <el-button @click="emit('update:modelValue', false)">关闭</el-button>
@@ -123,6 +130,16 @@ let pdfDoc = null
 const pdfScale = ref(1.2)
 
 const downloading = ref(false)
+// 当前这次取文件的进度 { loaded, total }（total 为 0 表示后端没给 Content-Length）
+const progress = ref(null)
+
+// 遮罩上的文字：有 Content-Length 就写清楚下到哪了，没有就只说在加载
+const loadingText = computed(() => {
+  const p = progress.value
+  if (!p || !p.total) return '正在加载…'
+  const mb = (n) => (n / 1048576).toFixed(1)
+  return `正在加载 ${mb(p.loaded)} / ${mb(p.total)} MB（${Math.round((p.loaded / p.total) * 100)}%）`
+})
 
 // 监听弹框打开
 watch(() => props.modelValue, async (val) => {
@@ -158,8 +175,11 @@ async function loadImage() {
 // ---- 加载 PDF ----
 async function loadPdf() {
   loadingPdf.value = true
+  progress.value = null
   try {
-    const blob = await fetchBlob(props.fileUrl)
+    const blob = await fetchBlob(props.fileUrl, (loaded, total) => {
+      progress.value = { loaded, total }
+    })
     const arrayBuffer = await blob.arrayBuffer()
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
     pdfDoc = await loadingTask.promise
@@ -241,8 +261,11 @@ async function fitWidth() {
 async function handleDownload() {
   const saveName = props.downloadName || props.fileName || 'download'
   downloading.value = true
+  progress.value = null
   try {
-    await downloadFile(props.fileUrl, saveName)
+    await downloadFile(props.fileUrl, saveName, (loaded, total) => {
+      progress.value = { loaded, total }
+    })
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
   } finally {

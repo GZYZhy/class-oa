@@ -14,7 +14,7 @@ from fastapi import (
     Query,
     UploadFile,
 )
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
@@ -105,42 +105,38 @@ def serve_file(
         ip=ip,
     )
 
-    # 班委下载：给 PDF 打上不可见水印后再返回，文件流出后可溯源
-    if download and is_committee(user):
-        return _watermarked_pdf_response(file_path, announcement, user)
-
-    return _pdf_response(file_path, download, announcement)
-
-
-def _pdf_response(file_path: Path, download: bool, announcement: Announcement | None = None) -> FileResponse:
-    """返回 PDF；download=True 时带上原始文件名作为下载名"""
-    # 优先用上传时的原始文件名（用户上传的中文名字），UUID 名只用于磁盘存储
-    display_name = announcement.file_name if announcement and announcement.file_name else file_path.name
-    # 名字交给 FileResponse 按 RFC 5987 编码，别手拼 —— HTTP 头只装得下 latin-1，
-    # 而这里的名字基本都是中文（「X-会议纪要0918.pdf」），手拼会直接
-    # UnicodeEncodeError: 'latin-1' codec can't encode...
-    # （踩过：改成用原始名之后，所有中文名公告的查看和下载全部 500）
-    return FileResponse(
-        str(file_path),
-        media_type="application/pdf",
-        filename=display_name,
-        content_disposition_type="attachment" if download else "inline",
-    )
+    # 一律打水印，不再分成「查看不打、下载才打」——
+    # 分着打的话，把 URL 里的 download 参数去掉就能拿到无水印原文件
+    # （这个 URL 就在列表接口的 file_path 里，连猜都不用猜），
+    # 浏览器内嵌的 PDF 查看器自带下载按钮，一存就是无标记副本；
+    # 真出了外泄，没有水印反而不指向任何人，溯源等于白做。
+    return _watermarked_pdf_response(file_path, announcement, user, download)
 
 
-def _watermarked_pdf_response(file_path: Path, announcement: Announcement, user: User) -> Response:
-    """读取原 PDF、打上不可见水印后，以附件形式返回
+def _watermarked_pdf_response(
+    file_path: Path,
+    announcement: Announcement | None,
+    user: User,
+    download: bool,
+) -> Response:
+    """读取原 PDF、打上不可见水印后返回
 
     水印内容：OA-WM:<file_id>:<user_no>:<timestamp>
-    只在班委下载时调用；学生不能下载，直接查看走的是无水印的原文件（前端叠可见水印）。
     """
     with open(file_path, "rb") as f:
         pdf_bytes = f.read()
 
-    token = make_watermark_token(announcement.id, user.student_no)
+    # 正常都能查到公告行（普通学生那档已经按 is_public 拦过了），
+    # 但班委能取到「磁盘上有、库里没登记」的孤儿文件（删公告不删文件），
+    # 那种情况拿 0 当 file_id —— 照样打水印，不留一条拿原文件的路
+    file_id = announcement.id if announcement else 0
+    token = make_watermark_token(file_id, user.student_no)
     watermarked = add_invisible_watermark(pdf_bytes, token)
 
-    display_name = announcement.file_name or file_path.name
+    # 优先用上传时的原始文件名（用户上传的中文名字），UUID 名只用于磁盘存储
+    display_name = (
+        announcement.file_name if announcement and announcement.file_name else file_path.name
+    )
     # 这里是自己造 Response（内容是打过水印的字节），FileResponse 那套用不上，
     # 只能手写头 —— 那就必须写成 RFC 5987 的 filename*=utf-8''百分号编码形式：
     # 普通 filename= 只认 latin-1，中文名会当场 UnicodeEncodeError
@@ -148,7 +144,11 @@ def _watermarked_pdf_response(file_path: Path, announcement: Announcement, user:
         content=watermarked,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": "attachment; filename*=utf-8''" + quote(display_name),
+            "Content-Disposition": (
+                ("attachment" if download else "inline")
+                + "; filename*=utf-8''"
+                + quote(display_name)
+            ),
             "Content-Length": str(len(watermarked)),
         },
     )
