@@ -1386,9 +1386,17 @@ async function handleSubmitExport() {
       fields: exportForm.export_type === 'excel_list' ? exportForm.fields : null
     }
     await createExportRequest(body)
-    ElMessage.success('申请已提交，等待管理员审核')
-    exportDialogVisible.value = false
-    // 切到历史 tab 能看到刚提交的
+    ElMessageBox.alert(
+      '申请已提交，管理员正在审核中。\n审核通过后，请在本弹窗的「我的申请」页签下载文件。',
+      '提交成功',
+      {
+        confirmButtonText: '查看我的申请',
+        type: 'success'
+      }
+    ).then(() => {
+      exportTab.value = 'history'
+      loadMyRequests()
+    })
   } catch (e) {
     ElMessage.error('提交失败：' + (e.message || '未知错误'))
   } finally {

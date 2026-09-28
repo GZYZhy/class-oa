@@ -22,7 +22,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.platypus import (
     Image,
     PageBreak,
@@ -220,32 +220,18 @@ def generate_excel(students: List[Student], fields: List[str]) -> bytes:
 # PDF 个人信息表
 # ---------------------------------------------------------------------------
 
-# 中文字体：优先找系统里的，找不到就回退到 Helvetica（中文会变方块，但不崩）
+# 中文字体：用 reportlab 内置的 CID 字体（Adobe STSong-Light，宋体）
+# 不需要额外字体文件，任何环境都能用，中文不会变方块
 def _register_cjk_font():
     """注册中文字体，返回字体名。注册过一次就直接返回。"""
     if hasattr(_register_cjk_font, "_font_name"):
         return _register_cjk_font._font_name
 
-    candidates = [
-        # macOS
-        "/System/Library/Fonts/PingFang.ttc",
-        "/System/Library/Fonts/STHeiti Light.ttc",
-        # Linux (常见发行版)
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        # 容器里如果安装了
-        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-    ]
-    font_name = "Helvetica"  # 兜底
-    for path in candidates:
-        if Path(path).exists():
-            try:
-                pdfmetrics.registerFont(TTFont("CJK", path))
-                font_name = "CJK"
-                break
-            except Exception:
-                continue
+    font_name = "STSong-Light"  # reportlab 内置 CID 字体，宋体，中文零依赖
+    try:
+        pdfmetrics.registerFont(UnicodeCIDFont(font_name))
+    except Exception:
+        font_name = "Helvetica"  # 极端情况下的兜底
     _register_cjk_font._font_name = font_name
     return font_name
 
