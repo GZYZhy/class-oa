@@ -37,3 +37,21 @@ export function rejectEvPass(id, reason) {
     data: { reason }
   })
 }
+
+/** 下载申请表（Word）。本人或班委及以上，且申请已通过 */
+export function downloadEvPassDocx(id) {
+  return request({
+    url: `/ev-passes/${id}/pass-docx`,
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
+/** 下载承诺书（Word）。本人或班委及以上，且申请已通过 */
+export function downloadEvPassPromiseDocx(id) {
+  return request({
+    url: `/ev-passes/${id}/promise-docx`,
+    method: 'get',
+    responseType: 'blob'
+  })
+}

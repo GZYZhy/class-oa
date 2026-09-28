@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -20,16 +21,21 @@ from ..config import BASE_DIR, settings
 from ..database import get_db
 from ..models import EvPassRequest, Student, User
 from ..schemas import EvPassRequestResponse, EvPassRejectRequest
-from ..services import account_name, log_operation
+from ..services import account_name, clip, log_operation, notify, recipients
 from .deps import (
     admin_required,
     committee_required,
     get_client_ip,
     get_current_user,
+    is_committee,
 )
 from ..utils.ev_pass_docx import generate_pass_docx, generate_promise_docx
 
 router = APIRouter(prefix="/api/ev-passes", tags=["电动车通行证"])
+
+# 通行证只有管理员能审批（班委只读，见下面的 admin_required / committee_required），
+# 所以「待审核」的推送也只发给管理员
+APPROVER_ROLES = ["admin"]
 
 # 行驶证文件存放目录
 LICENSE_DIR = BASE_DIR / "data" / "ev_passes"
@@ -94,6 +100,7 @@ def my_applications(
 
 @router.post("", response_model=EvPassRequestResponse, summary="提交电动车通行证申请")
 async def submit_application(
+    background: BackgroundTasks,
     brand: str = Form(..., min_length=1, max_length=100, description="电动车品牌"),
     plate_number: str = Form(..., min_length=1, max_length=50, description="车牌号"),
     license_file: UploadFile = File(..., description="行驶证照片（图片或 PDF）"),
@@ -131,6 +138,18 @@ async def submit_application(
     db.add(req)
     db.commit()
     db.refresh(req)
+
+    # 提醒管理员来审。待办性质，用 timeSensitive 让它能穿透专注模式。
+    # 跳转必须带 ?tab=evpass：审批在「审核中心」页，不带参数会停在信息修改那个 tab，
+    # 管理员点进来看到的不是这条申请
+    notify(
+        background,
+        recipients(db, roles=APPROVER_ROLES, exclude_no=user.student_no),
+        "有新的电动车通行证补办申请",
+        f"{student.name} 提交了电动车通行证补办申请，等待你审核",
+        level="timeSensitive",
+        page="/review?tab=evpass",
+    )
     return _to_response(db, req)
 
 
@@ -161,32 +180,54 @@ def my_license(
     )
 
 
-@router.get("/{req_id}/pass-docx", summary="下载电动车通行证（Word）")
+def _docx_target(db: Session, req_id: int, user: User) -> tuple[EvPassRequest, Student]:
+    """取回申请和申请人，并校验「能不能下载生成的文档」
+
+    能下载的是两类人：申请人本人（拿去打印签字），以及班委及以上
+    （要留档、要报学院盖章）。其余人一律不行 —— 表里是学生本人的个人信息。
+    两份文档的权限完全一样，所以收在一处，免得以后改一个漏一个。
+    """
+    req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="申请不存在")
+    student = db.query(Student).filter(Student.id == req.student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="申请人信息不存在")
+    if not is_committee(user) and student.student_no != user.student_no:
+        raise HTTPException(status_code=403, detail="无权下载")
+    if req.status != "approved":
+        raise HTTPException(status_code=400, detail="申请未通过，暂不能下载")
+    return req, student
+
+
+def _docx_response(content: bytes, filename: str) -> Response:
+    """下载 Word 的响应
+
+    文件名必须按 RFC 5987 百分号编码：HTTP 头只装得下 latin-1，
+    直接塞中文名会让 Starlette 在编码响应头时抛 UnicodeEncodeError
+    """
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": "attachment; filename*=utf-8''" + quote(filename),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get("/{req_id}/pass-docx", summary="下载电动车通行证申请表（Word）")
 def download_pass_docx(
     req_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """学生下载自己的通行证（仅已通过的可下载）"""
-    req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
-    if not req:
-        raise HTTPException(status_code=404, detail="申请不存在")
-    student = db.query(Student).filter(Student.student_no == user.student_no).first()
-    if not student or req.student_id != student.id:
-        raise HTTPException(status_code=403, detail="无权下载")
-    if req.status != "approved":
-        raise HTTPException(status_code=400, detail="申请未通过，暂不能下载")
-    docx_bytes = generate_pass_docx(student, req)
-    filename = f"{student.name}_电动车通行证_{datetime.now().strftime('%Y%m%d')}.docx"
-    return Response(
-        content=docx_bytes,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        # HTTP 头只能装 latin-1，中文文件名必须按 RFC 5987 百分号编码，
-        # 否则 Starlette 在编码响应头时直接抛 UnicodeEncodeError（和请假审批表一致）
-        headers={
-            "Content-Disposition": "attachment; filename*=utf-8''" + quote(filename),
-            "Cache-Control": "no-store",
-        },
+    """下载申请表：本人或班委及以上，且仅已通过的可下载"""
+    req, student = _docx_target(db, req_id, user)
+    today = datetime.now().strftime("%Y%m%d")
+    return _docx_response(
+        generate_pass_docx(student, req),
+        f"{student.name}_电动车通行证申请表_{today}.docx",
     )
 
 
@@ -196,24 +237,12 @@ def download_promise_docx(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """学生下载自己的承诺书（仅已通过的可下载）"""
-    req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
-    if not req:
-        raise HTTPException(status_code=404, detail="申请不存在")
-    student = db.query(Student).filter(Student.student_no == user.student_no).first()
-    if not student or req.student_id != student.id:
-        raise HTTPException(status_code=403, detail="无权下载")
-    if req.status != "approved":
-        raise HTTPException(status_code=400, detail="申请未通过，暂不能下载")
-    docx_bytes = generate_promise_docx(student, req)
-    filename = f"{student.name}_电动车承诺书_{datetime.now().strftime('%Y%m%d')}.docx"
-    return Response(
-        content=docx_bytes,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={
-            "Content-Disposition": "attachment; filename*=utf-8''" + quote(filename),
-            "Cache-Control": "no-store",
-        },
+    """下载承诺书：本人或班委及以上，且仅已通过的可下载"""
+    req, student = _docx_target(db, req_id, user)
+    today = datetime.now().strftime("%Y%m%d")
+    return _docx_response(
+        generate_promise_docx(student, req),
+        f"{student.name}_电动车承诺书_{today}.docx",
     )
 
 
@@ -239,6 +268,7 @@ def list_applications(
 @router.post("/{req_id}/approve", summary="通过申请（管理员）")
 def approve_application(
     req_id: int,
+    background: BackgroundTasks,
     user: User = Depends(admin_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
@@ -261,7 +291,17 @@ def approve_application(
         detail=f"品牌：{req.brand}，车牌：{req.plate_number}",
         ip=ip,
     )
+    # 收件人在 commit 之前定下来（和请假一致）。申请人不在学生表里就没什么可发的，
+    # 别退化成「only_no 为 None」——那在 recipients 里等于不筛人，会推给全班
+    targets = recipients(db, only_no=student.student_no) if student else None
     db.commit()
+
+    if targets:
+        notify(
+            background, targets, "电动车通行证申请已通过",
+            f"你的电动车通行证申请（{req.plate_number}）已通过，现在可以下载申请表和承诺书",
+            level="timeSensitive", page="/ev-pass",
+        )
     return {"message": "已通过"}
 
 
@@ -269,6 +309,7 @@ def approve_application(
 def reject_application(
     req_id: int,
     body: EvPassRejectRequest,
+    background: BackgroundTasks,
     user: User = Depends(admin_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
@@ -289,7 +330,15 @@ def reject_application(
         detail=f"原因：{body.reason}",
         ip=ip,
     )
+    targets = recipients(db, only_no=student.student_no) if student else None
     db.commit()
+
+    if targets:
+        notify(
+            background, targets, "电动车通行证申请被驳回",
+            f"牌照号 {req.plate_number}，理由：{clip(req.reject_reason)}",
+            level="timeSensitive", page="/ev-pass",
+        )
     return {"message": "已驳回"}
 
 

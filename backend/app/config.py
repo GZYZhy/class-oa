@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     college: str = Field(
         default="", validation_alias=AliasChoices("SITE_COLLEGE", "COLLEGE")
     )
+    # 所属专业。同样是前端 window.__SITE__.major 那一个 SITE_MAJOR，
+    # 生成的文档上印的专业得和「关于班级」页显示的对得上。
+    # （同样保留 MAJOR 作为别名）
+    major: str = Field(default="", validation_alias=AliasChoices("SITE_MAJOR", "MAJOR"))
 
     # CORS 允许的来源，开发环境放开
     cors_origins: list = ["*"]

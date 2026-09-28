@@ -181,9 +181,15 @@
               <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="260" align="center">
+          <el-table-column label="操作" width="340" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewEvLicense(row)">行驶证</el-button>
+              <!-- 生成的文档：班委和管理员都能下（留档、报学院盖章用）。
+                   后端 _docx_target 只在「本人或班委及以上」放行，且要已通过 -->
+              <template v-if="row.status === 'approved'">
+                <el-button size="small" link type="success" @click="downloadEvPassDoc(row, 'pass')">申请表</el-button>
+                <el-button size="small" link type="success" @click="downloadEvPassDoc(row, 'promise')">承诺书</el-button>
+              </template>
               <!-- 审批仅管理员；班委只读 -->
               <template v-if="userStore.isAdmin && row.status === 'pending'">
                 <el-button size="small" link type="success" @click="handleApproveEvPass(row)">通过</el-button>
@@ -346,7 +352,13 @@ import {
   replyFeedback,
   downloadFeedbackAttachment
 } from '@/api/feedback'
-import { getEvPassList, approveEvPass, rejectEvPass } from '@/api/evPass'
+import {
+  getEvPassList,
+  approveEvPass,
+  rejectEvPass,
+  downloadEvPassDocx,
+  downloadEvPassPromiseDocx
+} from '@/api/evPass'
 import { FIELD_LABELS, STATUS_LABELS, STATUS_TYPES } from '@/utils/changeFields'
 import { formatDate, formatDateTime, formatFileSize } from '@/utils/format'
 import Watermark from '@/components/Watermark.vue'
@@ -506,8 +518,9 @@ function handleDownloadLeaveDocx(row) {
 }
 
 // —— 电动车通行证 ——
-// 班委只读（能看行驶证、能看列表），通过/驳回只有管理员能点，
-// 和后端 ev_passes.py 里 committee_required / admin_required 的划分一致
+// 班委能看列表、看行驶证、下载已通过的申请表和承诺书（留档用），
+// 但通过/驳回只有管理员能点 —— 和后端 ev_passes.py 里
+// committee_required / admin_required / _docx_target 的划分一致
 const evPassList = ref([])
 const evPassStatus = ref('pending')
 
@@ -539,6 +552,23 @@ function viewEvLicense(row) {
   evLicenseViewerVisible.value = true
 }
 
+// 申请表 / 承诺书：班委和管理员都要留档，两种文档的处理完全一样，只是地址和名字不同
+function downloadEvPassDoc(row, kind) {
+  const [fetchBlob, label] = kind === 'promise'
+    ? [downloadEvPassPromiseDocx, '电动车承诺书']
+    : [downloadEvPassDocx, '电动车通行证申请表']
+  fetchBlob(row.id).then(blob => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${row.student_name}_${label}_${formatDate(row.created_at).replace(/-/g, '')}.docx`
+    a.click()
+    URL.revokeObjectURL(url)
+  }).catch(e => {
+    ElMessage.error(e?.response?.data?.detail || '下载失败')
+  })
+}
+
 function handleApproveEvPass(row) {
   ElMessageBox.confirm(
     `确定通过「${row.student_name}」的电动车通行证补办申请吗？\n` +
@@ -548,7 +578,7 @@ function handleApproveEvPass(row) {
   ).then(async () => {
     try {
       await approveEvPass(row.id)
-      ElMessage.success('已通过，申请人现在可以下载通行证和承诺书')
+      ElMessage.success('已通过，申请人现在可以下载申请表和承诺书')
       fetchEvPassList()
     } catch (e) {
       ElMessage.error(e?.response?.data?.detail || '操作失败')

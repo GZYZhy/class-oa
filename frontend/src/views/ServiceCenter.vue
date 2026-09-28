@@ -29,7 +29,7 @@
           </div>
           <div class="service-info">
             <h4 class="service-title">电动车通行证补办</h4>
-            <p class="service-desc">提交行驶证等信息，管理员审核通过后可下载通行证与承诺书</p>
+            <p class="service-desc">提交行驶证等信息，管理员审核通过后可下载申请表与承诺书</p>
           </div>
           <div class="service-arrow">
             <el-icon><ArrowRight /></el-icon>
