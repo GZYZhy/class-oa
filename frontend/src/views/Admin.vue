@@ -409,6 +409,7 @@
                 <span style="font-family: monospace; font-size: 12px;">{{ row.original_name || row.file_name }}</span>
               </template>
             </el-table-column>
+            <el-table-column prop="download_count" label="下载次数" width="100" align="center" />
             <el-table-column label="排序" width="140" align="center">
               <template #default="{ row, $index }">
                 <el-button size="small" :disabled="$index === 0" @click="moveResource(row, -1)">

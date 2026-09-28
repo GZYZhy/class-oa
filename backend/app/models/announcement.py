@@ -21,4 +21,11 @@ class Announcement(Base):
         Boolean, nullable=False, default=True, server_default=text("1"),
         comment="是否向班委以外公开",
     )
+    # 查看次数。只统计在线查看（view），下载不计 —— 两者在 file_access_logs
+    # 里本来就是分开记的，混在一起就说不清「有多少人真的看过」了。
+    # 老库由 database_migrate 补列，并从已有的访问日志回填
+    view_count = Column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+        comment="查看次数",
+    )
     created_at = Column(DateTime, server_default=func.now(), comment="录入时间")

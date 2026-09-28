@@ -19,7 +19,11 @@
               </div>
               <div class="resource-info">
                 <div class="resource-name">{{ item.name }}</div>
-                <div class="resource-meta">{{ formatSize(item.size) }}</div>
+                <div class="resource-meta">
+                  {{ formatSize(item.size) }}
+                  <span class="meta-sep">·</span>
+                  下载 {{ item.download_count || 0 }} 次
+                </div>
               </div>
               <el-button
                 type="primary"
@@ -175,6 +179,11 @@ onMounted(async () => {
   font-size: 12px;
   color: #909399;
   margin-top: 3px;
+}
+
+.meta-sep {
+  margin: 0 4px;
+  color: #dcdfe6;
 }
 
 /* 手机端：卡片内部竖排，按钮占满宽度，方便点 */
