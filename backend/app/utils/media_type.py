@@ -31,6 +31,11 @@ _TYPES = {
     ".wav": "audio/wav",
     ".m4a": "audio/mp4",
     ".mp4": "video/mp4",
+    # 下面两个是反馈/通知附件白名单里收、但 Python 3.12 的 mimetypes 里没有的。
+    # 类型名取自 nginx 官方 mime.types（video/x-m4v）和 Matroska 的通行写法
+    # （video/x-matroska），Python 3.14 的标准库表里也是这两个值。
+    ".m4v": "video/x-m4v",
+    ".mkv": "video/x-matroska",
     ".zip": "application/zip",
 }
 

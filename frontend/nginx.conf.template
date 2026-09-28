@@ -86,6 +86,14 @@ server {
     }
 
     location = /manifest.webmanifest {
+        # 类型：nginx 自带的 mime.types 里也没有 webmanifest 这一条，会落到
+        # default_type 的 application/octet-stream。标准类型是 application/manifest+json
+        # （W3C Web App Manifest 规范）。
+        # types 块一出现就整份替换掉继承的 mime.types，但这个 location 只服务这一个
+        # 文件，替换掉无所谓 —— 和上面 .mjs 是同一个道理。
+        types {
+            application/manifest+json webmanifest;
+        }
         add_header Cache-Control "no-cache";
     }
 

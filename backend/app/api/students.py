@@ -30,6 +30,7 @@ from ..services import (
     delete_student,
     log_operation,
 )
+from ..utils.media_type import guess_media_type
 from .deps import (
     get_current_user,
     get_current_student,
@@ -226,8 +227,11 @@ def _serve_photo(student: Student, photo_type: str) -> FileResponse:
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="照片文件丢失")
 
-    media_type = "image/png" if file_path.suffix.lower() == ".png" else "image/jpeg"
-    return FileResponse(str(file_path), media_type=media_type)
+    # 照片是在 <img> 里内联显示的（StudentList.vue），类型会真的被用上。
+    # 这里原先是「非 png 一律当 jpeg」，而上传白名单里还有 gif / bmp / webp ——
+    # 那三种被标成 image/jpeg。浏览器嗅探一般能救回来，但类型本来就不该错，
+    # 统一交给 guess_media_type（它认识白名单里的全部后缀）
+    return FileResponse(str(file_path), media_type=guess_media_type(file_path.name))
 
 
 @router.get("/{student_id}", response_model=StudentResponse, summary="学生详情")

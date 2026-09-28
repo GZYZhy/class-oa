@@ -94,6 +94,11 @@ if [ -n "$NGINX_SSL_CERT" ] && [ -n "$NGINX_SSL_KEY" ]; then
     }
 
     location = /manifest.webmanifest {
+        # 类型：nginx 自带的 mime.types 里没有 webmanifest，会落到 application/octet-stream，
+        # 标准类型是 application/manifest+json（完整说明见 nginx.conf.template）
+        types {
+            application/manifest+json webmanifest;
+        }
         add_header Cache-Control \"no-cache\";
     }
 
