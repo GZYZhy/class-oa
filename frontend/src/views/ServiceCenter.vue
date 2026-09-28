@@ -22,6 +22,20 @@
           </div>
         </router-link>
 
+        <!-- 电动车通行证补办 -->
+        <router-link to="/ev-pass" class="service-card">
+          <div class="service-icon evpass-icon">
+            <el-icon><Van /></el-icon>
+          </div>
+          <div class="service-info">
+            <h4 class="service-title">电动车通行证补办</h4>
+            <p class="service-desc">提交行驶证等信息，管理员审核通过后可下载通行证与承诺书</p>
+          </div>
+          <div class="service-arrow">
+            <el-icon><ArrowRight /></el-icon>
+          </div>
+        </router-link>
+
         <!-- 意见反馈 -->
         <router-link to="/feedback" class="service-card">
           <div class="service-icon feedback-icon">
@@ -45,7 +59,7 @@
 </template>
 
 <script setup>
-import { Document, ArrowRight, ChatDotRound } from '@element-plus/icons-vue'
+import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue'
 </script>
 
 <style scoped>
@@ -101,6 +115,10 @@ import { Document, ArrowRight, ChatDotRound } from '@element-plus/icons-vue'
 
 .leave-icon {
   background: linear-gradient(135deg, #409EFF, #36cfc9);
+}
+
+.evpass-icon {
+  background: linear-gradient(135deg, #67c23a, #409eff);
 }
 
 .feedback-icon {

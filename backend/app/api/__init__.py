@@ -12,6 +12,7 @@ from .about import router as about_router
 from .leaves import router as leaves_router
 from .feedback import router as feedback_router
 from .badges import router as badges_router
+from .ev_passes import router as ev_passes_router
 
 api_router = APIRouter()
 api_router.include_router(public_router)   # 首页摘要：公开
@@ -25,4 +26,5 @@ api_router.include_router(change_requests_router)  # 修改申请：学生提交
 api_router.include_router(leaves_router)         # 请假申请：学生提交，管理员审核
 api_router.include_router(feedback_router)       # 意见反馈：学生提交，班委回复
 api_router.include_router(badges_router)         # 菜单红点：需登录
+api_router.include_router(ev_passes_router)      # 电动车通行证：学生提交，班委只读，管理员审核
 api_router.include_router(admin_router)          # 系统管理：仅管理员

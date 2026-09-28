@@ -151,6 +151,51 @@
         <el-empty v-if="!loading && !leaveList.length" description="没有请假申请" style="margin-top: 20px;" />
       </el-tab-pane>
 
+      <!-- ============ 电动车通行证 ============ -->
+      <el-tab-pane label="电动车通行证" name="evpass">
+        <div class="tab-toolbar">
+          <el-radio-group v-model="evPassStatus" size="small" @change="fetchEvPassList">
+            <el-radio-button value="pending">待审核</el-radio-button>
+            <el-radio-button value="approved">已通过</el-radio-button>
+            <el-radio-button value="rejected">已驳回</el-radio-button>
+            <el-radio-button value="">全部</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <el-table :data="evPassList" stripe border style="width: 100%; margin-top: 12px;">
+          <el-table-column label="申请人" width="140" align="center">
+            <template #default="{ row }">
+              {{ row.student_name }}
+              <div style="font-size: 12px; color: #909399;">{{ row.student_no }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="brand" label="品牌" width="120" align="center" />
+          <el-table-column prop="plate_number" label="牌照号" width="140" align="center" />
+          <el-table-column label="申请时间" width="160" align="center">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.status === 'pending'" type="warning" size="small">待审核</el-tag>
+              <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
+              <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="260" align="center">
+            <template #default="{ row }">
+              <el-button size="small" link type="primary" @click="viewEvLicense(row)">行驶证</el-button>
+              <!-- 审批仅管理员；班委只读 -->
+              <template v-if="userStore.isAdmin && row.status === 'pending'">
+                <el-button size="small" link type="success" @click="handleApproveEvPass(row)">通过</el-button>
+                <el-button size="small" link type="danger" @click="handleRejectEvPass(row)">驳回</el-button>
+              </template>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-empty v-if="!loading && !evPassList.length" description="暂无申请" style="margin-top: 20px;" />
+      </el-tab-pane>
+
       <!-- ============ 意见反馈 ============ -->
       <el-tab-pane label="意见反馈" name="feedback">
         <div class="tab-toolbar">
@@ -265,6 +310,15 @@
       :download-name="proofDownloadName"
       title="请假证明材料"
     />
+
+    <!-- 电动车行驶证预览弹框 -->
+    <FileViewer
+      v-model="evLicenseViewerVisible"
+      :file-url="evLicenseFileUrl"
+      :file-name="evLicenseFileName"
+      :download-name="evLicenseDownloadName"
+      title="电动车行驶证"
+    />
   </div>
 </template>
 
@@ -292,6 +346,7 @@ import {
   replyFeedback,
   downloadFeedbackAttachment
 } from '@/api/feedback'
+import { getEvPassList, approveEvPass, rejectEvPass } from '@/api/evPass'
 import { FIELD_LABELS, STATUS_LABELS, STATUS_TYPES } from '@/utils/changeFields'
 import { formatDate, formatDateTime, formatFileSize } from '@/utils/format'
 import Watermark from '@/components/Watermark.vue'
@@ -309,7 +364,7 @@ const route = useRoute()
 const loading = ref(false)
 // 从推送点进来时带着 ?tab=leave 之类的参数，直接落到对应分类；
 // 不带参数（正常从菜单进）就还是老样子，停在信息修改申请
-const TABS = ['change', 'leave', 'feedback']
+const TABS = ['change', 'leave', 'evpass', 'feedback']
 const activeTab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'change')
 
 // —— 信息修改申请 ——
@@ -450,6 +505,74 @@ function handleDownloadLeaveDocx(row) {
   })
 }
 
+// —— 电动车通行证 ——
+// 班委只读（能看行驶证、能看列表），通过/驳回只有管理员能点，
+// 和后端 ev_passes.py 里 committee_required / admin_required 的划分一致
+const evPassList = ref([])
+const evPassStatus = ref('pending')
+
+async function fetchEvPassList() {
+  loading.value = true
+  try {
+    evPassList.value = await getEvPassList(evPassStatus.value || undefined)
+  } catch (e) {
+    ElMessage.error('通行证申请列表加载失败')
+  } finally {
+    loading.value = false
+    badgeStore.refresh()
+  }
+}
+
+// 行驶证预览（班委和管理员走 /license/admin 这个口）
+const evLicenseViewerVisible = ref(false)
+const evLicenseFileUrl = ref('')
+const evLicenseFileName = ref('')
+const evLicenseDownloadName = ref('')
+
+function viewEvLicense(row) {
+  evLicenseFileUrl.value = `/api/ev-passes/${row.id}/license/admin`
+  evLicenseFileName.value = row.license_original_name || '行驶证'
+  // 下载命名沿用请假证明的模式：姓名_材料名_日期
+  const ext = (row.license_original_name || '').match(/\.[^.]+$/)?.[0] || ''
+  const dateStr = formatDate(row.created_at).replace(/-/g, '')
+  evLicenseDownloadName.value = `${row.student_name}_电动车行驶证_${dateStr}${ext}`
+  evLicenseViewerVisible.value = true
+}
+
+function handleApproveEvPass(row) {
+  ElMessageBox.confirm(
+    `确定通过「${row.student_name}」的电动车通行证补办申请吗？\n` +
+    `品牌：${row.brand}　牌照号：${row.plate_number}`,
+    '审批确认',
+    { type: 'warning', confirmButtonText: '通过', cancelButtonText: '取消' }
+  ).then(async () => {
+    try {
+      await approveEvPass(row.id)
+      ElMessage.success('已通过，申请人现在可以下载通行证和承诺书')
+      fetchEvPassList()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
+function handleRejectEvPass(row) {
+  ElMessageBox.prompt('请填写驳回理由，会展示给申请人', '驳回申请', {
+    inputPlaceholder: '如：行驶证照片不清晰',
+    inputValidator: (v) => (v && v.trim() ? true : '请填写驳回理由'),
+    confirmButtonText: '驳回',
+    cancelButtonText: '取消'
+  }).then(async ({ value }) => {
+    try {
+      await rejectEvPass(row.id, value.trim())
+      ElMessage.success('已驳回')
+      fetchEvPassList()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
 // —— 意见反馈 ——
 const feedbackList = ref([])
 const feedbackStatus = ref('unread')
@@ -531,6 +654,8 @@ function handleTabChange() {
     fetchChangeList()
   } else if (activeTab.value === 'leave') {
     fetchLeaveList()
+  } else if (activeTab.value === 'evpass') {
+    fetchEvPassList()
   } else if (activeTab.value === 'feedback') {
     fetchFeedbackList()
   }
