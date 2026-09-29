@@ -7,6 +7,7 @@ from .student import (
     StudentCreateResponse,
     RollCallAbsentItem,
     RollCallLogRequest,
+    BatchDeleteRequest,
     student_response,
 )
 from .announcement import AnnouncementResponse
