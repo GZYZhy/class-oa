@@ -1414,31 +1414,48 @@ async function handleDelete(row) {
   }
 }
 
-// 批量删除：全有全无，一个不能删就全部不删
+// 批量删除：能删则删，失败的单列理由
 async function handleBatchDelete() {
   const n = selectedStudents.value.length
   if (!n) return
   try {
     await ElMessageBox.confirm(
-      `确定删除选中的 ${n} 名学生吗？他们的登录账号和照片文件会一并删除，` +
-        '此操作不可恢复；已经审核过的请假、反馈记录会保留。' +
-        '\n\n注意：只要有一个学生不能删（比如还有待审核的申请、或者包含你自己），整个操作会取消、一个都不删。',
-      '批量删除学生',
-      { type: 'warning', confirmButtonText: '全部删除' }
+      `确定删除选中的 ${n} 名学生吗？账号和照片一并删除，不可恢复。`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: '删除' }
     )
   } catch (e) {
     return // 取消
   }
   try {
     const ids = selectedStudents.value.map(s => s.id)
-    await batchDeleteStudents(ids)
-    ElMessage.success(`已删除 ${n} 名学生`)
+    const result = await batchDeleteStudents(ids)
     fetchData()
     userStore.refreshTotal()
+
+    // 全部成功：一条提示即可；有失败的，弹窗列出每个人的原因
+    if (!result.failed?.length) {
+      ElMessage.success(result.message)
+    } else {
+      // ElMessageBox 的 message 按 HTML 渲染，所以文本要先转义再拼：
+      // 学号/姓名是可写字段，不转义就是存储型 XSS（一个管理员植入、另一个删除时触发）。
+      // 换行靠 \n + customClass 的 white-space: pre-wrap 保留
+      const esc = (s) => String(s).replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      const lines = result.failed.map((f) => {
+        const who = f.student_no ? `${f.student_no} ${f.name}` : '（选中项不存在）'
+        return `${esc(who)}：${esc(f.reason)}`
+      })
+      ElMessageBox.alert(
+        `${esc(result.message)}\n\n${lines.join('\n')}`,
+        '删除结果',
+        { type: 'warning', confirmButtonText: '知道了', customClass: 'batch-delete-result' }
+      )
+    }
   } catch (e) {
     ElMessageBox.alert(
       e?.response?.data?.detail || '删除失败',
-      '无法删除',
+      '删除失败',
       { type: 'warning', confirmButtonText: '知道了' }
     )
   }
@@ -2094,5 +2111,12 @@ onMounted(() => {
 .field-group .el-checkbox {
   margin-right: 16px;
   margin-bottom: 6px;
+}
+</style>
+
+<!-- 非 scoped：批量删除结果弹窗挂在 body 上，scoped 样式选不到 -->
+<style>
+.batch-delete-result .el-message-box__message p {
+  white-space: pre-wrap;
 }
 </style>
