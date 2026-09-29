@@ -569,36 +569,46 @@ def delete_students_batch(
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
-    ids = data.ids
-    """批量删除学生，连同账号和推送订阅一起清掉
+    """批量删除学生：能删就删，不能删的返回理由
 
-    全部走同一个事务：只要有一个不能删（是当前登录账号 / 有待审核的申请），
-    整个操作回滚，一个都不删 —— 比「能删就删」更不容易出「以为删完了实际没删干净」的
-    情况，也符合批量操作的直觉。
+    逐条判断，互不影响：删自己、有待审核的申请、学生不存在都算失败。
+    返回 { success, failed: [{student_no, name, reason}], message }。
 
-    历史记录（已审核的请假/反馈/改信息申请/通知已读）保持原样不动，跟单条删除一致。
+    历史记录（已审核的请假/反馈/改信息申请）原样保留，跟单条删除一致。
     """
+    ids = list(dict.fromkeys(data.ids))  # 去重，保持顺序
     if not ids:
         raise HTTPException(status_code=400, detail="请先选择要删除的学生")
     if len(ids) > 100:
         raise HTTPException(status_code=400, detail="一次最多删除 100 人")
 
-    students = db.query(Student).filter(Student.id.in_(ids)).all()
-    if len(students) != len(ids):
-        missing = len(ids) - len(students)
-        raise HTTPException(status_code=404, detail=f"有 {missing} 个学生不存在")
+    students = {s.id: s for s in db.query(Student).filter(Student.id.in_(ids)).all()}
 
-    # 两道闸：不能删自己、不能有待审核的申请
-    for s in students:
+    success_count = 0
+    failed_list: list[dict] = []
+    deleted_photos: list[str] = []
+    deleted_nos: list[str] = []
+    deleted_names: list[str] = []
+
+    for sid in ids:
+        s = students.get(sid)
+        if not s:
+            failed_list.append({"student_no": "", "name": "", "reason": "学生不存在"})
+            continue
+
+        # 第一道闸：不能删自己
         if s.student_no == user.student_no:
-            raise HTTPException(status_code=400, detail=f"不能删除当前登录的账号（{s.student_no} {s.name}）")
+            failed_list.append({
+                "student_no": s.student_no, "name": s.name,
+                "reason": "不能删除当前登录的账号",
+            })
+            continue
 
-    pending_msgs = []
-    for s in students:
-        per_student = []
+        # 第二道闸：有待审核的请假 / 信息修改申请
+        pending = []
         for model, label in (
-            (LeaveRequest, "待审核的请假申请"),
-            (ChangeRequest, "待审核的信息修改申请"),
+            (LeaveRequest, "待审核请假"),
+            (ChangeRequest, "待审核信息修改"),
         ):
             n = (
                 db.query(model)
@@ -606,54 +616,53 @@ def delete_students_batch(
                 .count()
             )
             if n:
-                per_student.append(f"{n} 条{label}")
-        if per_student:
-            pending_msgs.append(f"{s.student_no} {s.name}：{'、'.join(per_student)}")
+                pending.append(f"{n} 条{label}")
+        if pending:
+            failed_list.append({
+                "student_no": s.student_no, "name": s.name,
+                "reason": "、".join(pending),
+            })
+            continue
 
-    if pending_msgs:
-        # 只列出前 3 个，太多了会把错误信息撑太长
-        show = pending_msgs[:3]
-        more = len(pending_msgs) - 3
-        detail = "以下学生有待处理的申请，请先在「审核审批」里处理完再删除：" + "；".join(show)
-        if more > 0:
-            detail += f"（还有 {more} 人）"
-        raise HTTPException(status_code=400, detail=detail)
-
-    # 收集要删的照片文件名（删完库、commit 成功后再删文件）
-    photo_names = []
-    target_nos = []
-    for s in students:
+        # 收集照片文件名，commit 成功后再删文件
         if s.gaokao_photo:
-            photo_names.append(s.gaokao_photo)
+            deleted_photos.append(s.gaokao_photo)
         if s.on_site_photo:
-            photo_names.append(s.on_site_photo)
-        target_nos.append(s.student_no)
+            deleted_photos.append(s.on_site_photo)
+        deleted_nos.append(s.student_no)
+        deleted_names.append(s.name)
 
-    # 批量删账号、推送订阅、学生行
-    sno_list = [s.student_no for s in students]
-    db.query(PushSubscription).filter(PushSubscription.student_no.in_(sno_list)).delete(
-        synchronize_session=False
-    )
-    db.query(User).filter(User.student_no.in_(sno_list)).delete(synchronize_session=False)
-    db.query(Student).filter(Student.id.in_([s.id for s in students])).delete(
-        synchronize_session=False
-    )
+        # 删账号、推送订阅、学生行
+        db.query(PushSubscription).filter(PushSubscription.student_no == s.student_no).delete()
+        db.query(User).filter(User.student_no == s.student_no).delete()
+        db.delete(s)
+        success_count += 1
 
-    # 记一条批量操作日志
-    first = students[0]
-    target = f"{first.student_no} {first.name} 等{len(students)}人"
-    log_operation(
-        db, user, "删除学生",
-        target=target,
-        detail=f"批量删除 {len(students)} 人，已注销登录账号",
-        ip=ip,
-        target_student_nos=target_nos,
-    )
+    # 记一条操作日志（只覆盖成功删除的人）
+    if deleted_nos:
+        target = f"{deleted_nos[0]} {deleted_names[0]} 等{len(deleted_nos)}人"
+        log_operation(
+            db, user, "删除学生",
+            target=target,
+            detail=(
+                f"批量删除 {len(deleted_nos)} 人"
+                + (f"，{len(failed_list)} 人未删除" if failed_list else "")
+            ),
+            ip=ip,
+            target_student_nos=deleted_nos,
+        )
 
     db.commit()
 
     # 提交成功后删照片文件
-    for name in photo_names:
+    for name in deleted_photos:
         _remove_photo(name)
 
-    return {"message": f"已删除 {len(students)} 名学生"}
+    return {
+        "success": success_count,
+        "failed": failed_list,
+        "message": (
+            f"已删除 {success_count} 人"
+            + (f"，{len(failed_list)} 人未删除" if failed_list else "")
+        ),
+    }
