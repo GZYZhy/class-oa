@@ -31,6 +31,18 @@ from ..services import (
     log_operation,
 )
 from ..utils.media_type import guess_media_type
+from ..services.student_import_service import (
+    parse_excel,
+    save_preview,
+    load_preview,
+    import_students,
+    cleanup_expired_previews,
+)
+from ..schemas import (
+    ImportPreviewResponse,
+    ImportConfirmRequest,
+    ImportResultResponse,
+)
 from .deps import (
     get_current_user,
     get_current_student,
@@ -440,3 +452,110 @@ def delete_student_photo(
     db.commit()
     _remove_photo(old_name)
     return {"message": "照片已删除"}
+
+
+
+# ---------- Excel 批量导入（仅管理员） ----------
+
+# 单文件大小上限（跟通知附件取同一个值：20MB）
+# nginx 的 client_max_body_size 是 70MB，这里 20MB 在它之内
+_MAX_IMPORT_SIZE = 20 * 1024 * 1024
+_ALLOWED_IMPORT_EXT = {".xlsx"}
+
+
+@router.post("/import/preview", response_model=ImportPreviewResponse,
+             summary="解析 Excel 并预览（仅管理员，不写库）")
+async def import_preview(
+    file: UploadFile = File(..., description="Excel 文件"),
+    sheet_name: str | None = Query(None, description="工作表名，留空自动选「全部信息」或第一张"),
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    """上传 Excel，解析后返回预览统计（不写库、不写照片文件）
+
+    返回里带一个 token，确认导入时再传回来。token 对应服务端临时文件，10 分钟过期。
+    """
+    # 扩展名校验
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in _ALLOWED_IMPORT_EXT:
+        allowed = " / ".join(sorted(e.lstrip(".") for e in _ALLOWED_IMPORT_EXT))
+        raise HTTPException(status_code=400, detail=f"只支持 {allowed} 格式")
+
+    # 大小校验（先全读进来，Excel 不会太大）
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="文件不能为空")
+    if len(content) > _MAX_IMPORT_SIZE:
+        raise HTTPException(status_code=400, detail=f"文件不能超过 {_MAX_IMPORT_SIZE // 1024 // 1024}MB")
+
+    try:
+        preview = parse_excel(content, sheet_name=sheet_name, db=db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        # Excel 格式损坏之类的
+        raise HTTPException(status_code=400, detail=f"解析失败：{e}")
+
+    # 把预览存成临时文件，返回 token
+    token = save_preview(preview)
+
+    result = preview.to_public()
+    result["token"] = token
+    return ImportPreviewResponse(**result)
+
+
+@router.post("/import/preview/token", response_model=ImportPreviewResponse,
+             summary="用 token 重新取预览（仅管理员）", include_in_schema=False)
+def import_preview_by_token(
+    token: str = Query(..., description="预览令牌"),
+    _: User = Depends(admin_required),
+):
+    """前端切换工作表后，或者想再看一眼预览时，调这个不用重新上传。"""
+    preview = load_preview(token)
+    if not preview:
+        raise HTTPException(status_code=404, detail="预览已过期或不存在，请重新上传")
+    return ImportPreviewResponse(**preview.to_public())
+
+
+@router.post("/import", response_model=ImportResultResponse,
+             summary="确认导入（仅管理员）")
+def import_excel_confirm(
+    body: ImportConfirmRequest,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """根据预览令牌，真正把数据写入数据库
+
+    覆盖规则：学号已存在的学生，只更新 students 表字段，不动账号密码/角色/冻结状态/推送订阅。
+    学号被域外账号占用的行，在预览阶段就跳过了，不会到这里。
+    """
+    preview = load_preview(body.token)
+    if not preview:
+        raise HTTPException(status_code=404, detail="预览已过期或不存在，请重新上传")
+
+    try:
+        result = import_students(db, preview, user, ip)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导入失败：{e}")
+    finally:
+        # 不管成功失败，用完就清掉预览缓存
+        try:
+            from pathlib import Path as _P
+            import tempfile as _T
+            (_P(_T.gettempdir()) / "class-oa-import-preview" / f"preview_{body.token}.json").unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    message = (
+        f"导入完成：新增 {result['created']} 人，"
+        f"覆盖 {result['updated']} 人，"
+        f"跳过 {result['skipped']} 行"
+    )
+    return ImportResultResponse(
+        created=result["created"],
+        updated=result["updated"],
+        skipped=result["skipped"],
+        warnings=result["warnings"],
+        message=message,
+    )

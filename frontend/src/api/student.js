@@ -124,3 +124,34 @@ export function deleteStudent(id) {
     method: 'delete'
   })
 }
+
+/**
+ * Excel 导入 - 预览解析结果（不写库）
+ * @param {File} file - Excel 文件
+ * @param {string} [sheetName] - 工作表名，留空自动选
+ */
+export function importPreview(file, sheetName) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const params = {}
+  if (sheetName) params.sheet_name = sheetName
+  return request({
+    url: '/students/import/preview',
+    method: 'post',
+    params,
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+/**
+ * Excel 导入 - 确认导入
+ * @param {string} token - 预览接口返回的令牌
+ */
+export function importConfirm(token) {
+  return request({
+    url: '/students/import',
+    method: 'post',
+    data: { token }
+  })
+}
