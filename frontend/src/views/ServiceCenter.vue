@@ -36,6 +36,20 @@
           </div>
         </router-link>
 
+        <!-- 证明开具 -->
+        <router-link to="/certificate" class="service-card">
+          <div class="service-icon certificate-icon">
+            <el-icon><Document /></el-icon>
+          </div>
+          <div class="service-info">
+            <h4 class="service-title">证明开具</h4>
+            <p class="service-desc">在线提交证明/介绍信开具申请，附依据材料，管理员审核通过后上传成品 PDF</p>
+          </div>
+          <div class="service-arrow">
+            <el-icon><ArrowRight /></el-icon>
+          </div>
+        </router-link>
+
         <!-- 意见反馈 -->
         <router-link to="/feedback" class="service-card">
           <div class="service-icon feedback-icon">
@@ -119,6 +133,10 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
 
 .evpass-icon {
   background: linear-gradient(135deg, #67c23a, #409eff);
+}
+
+.certificate-icon {
+  background: linear-gradient(135deg, #9b59b6, #3498db);
 }
 
 .feedback-icon {

@@ -14,5 +14,6 @@ from .resource import Resource
 from .file_access_log import FileAccessLog
 from .ev_pass_request import EvPassRequest
 from .export_request import ExportRequest
+from .certificate_request import CertificateRequest
 
-__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog", "EvPassRequest", "ExportRequest"]
+__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest"]

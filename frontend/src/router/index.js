@@ -95,6 +95,12 @@ const routes = [
     meta: { title: '意见反馈', studentOnly: true }
   },
   {
+    path: '/certificate',
+    name: 'Certificate',
+    component: () => import('@/views/Certificate.vue'),
+    meta: { title: '证明开具', studentOnly: true }
+  },
+  {
     path: '/about',
     name: 'About',
     component: () => import('@/views/About.vue'),

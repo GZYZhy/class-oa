@@ -206,6 +206,71 @@
         <el-empty v-if="!loading && !evPassList.length" description="暂无申请" style="margin-top: 20px;" />
       </el-tab-pane>
 
+      <!-- ============ 证明开具 ============ -->
+      <el-tab-pane name="certificate">
+        <template #label>证明开具<span v-if="tabBadge('certificate')" class="tab-badge">{{ tabBadge('certificate') }}</span></template>
+        <div class="tab-toolbar">
+          <el-radio-group v-model="certificateStatus" size="small" @change="fetchCertificateList">
+            <el-radio-button value="pending">待审核</el-radio-button>
+            <el-radio-button value="approved">已通过</el-radio-button>
+            <el-radio-button value="rejected">已驳回</el-radio-button>
+            <el-radio-button value="">全部</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <el-table :data="certificateList" stripe border style="width: 100%; margin-top: 12px;">
+          <el-table-column label="申请人" width="140" align="center">
+            <template #default="{ row }">
+              {{ row.student_name }}
+              <div style="font-size: 12px; color: #909399;">{{ row.student_no }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="title" label="证明标题" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="recipient" label="收文单位" min-width="140" show-overflow-tooltip />
+          <el-table-column label="申请时间" width="160" align="center">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.status === 'pending'" type="warning" size="small">待审核</el-tag>
+              <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
+              <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" min-width="340" align="center">
+            <template #default="{ row }">
+              <template v-if="row.attachments?.length">
+                <el-button size="small" link type="primary" @click="viewCertAttachment(row)">
+                  查看附件
+                </el-button>
+              </template>
+              <!-- 成品 PDF：仅管理员可见下载，班委不能下 -->
+              <template v-if="row.status === 'approved'">
+                <el-button
+                  v-if="userStore.isAdmin && row.result_original_name"
+                  size="small"
+                  link
+                  type="success"
+                  @click="downloadCertResult(row)"
+                >
+                  成品 PDF
+                </el-button>
+                <span v-if="userStore.isAdmin && !row.result_original_name" style="color: #e6a23c; font-size: 12px;">
+                  待上传成品
+                </span>
+              </template>
+              <!-- 审批仅管理员；班委只读 -->
+              <template v-if="userStore.isAdmin && row.status === 'pending'">
+                <el-button size="small" link type="success" @click="handleApproveCertificate(row)">通过</el-button>
+                <el-button size="small" link type="danger" @click="handleRejectCertificate(row)">驳回</el-button>
+              </template>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-empty v-if="!loading && !certificateList.length" description="暂无申请" style="margin-top: 20px;" />
+      </el-tab-pane>
+
       <!-- ============ 导出申请 ============ -->
       <el-tab-pane name="export">
         <template #label>导出申请<span v-if="tabBadge('export')" class="tab-badge">{{ tabBadge('export') }}</span></template>
@@ -414,6 +479,52 @@
       :download-name="evLicenseDownloadName"
       title="电动车行驶证"
     />
+
+    <!-- 证明申请附件预览弹框 -->
+    <FileViewer
+      v-model="certAttachViewerVisible"
+      :file-url="certAttachFileUrl"
+      :file-name="certAttachFileName"
+      :download-name="certAttachDownloadName"
+      title="申请依据附件"
+    />
+
+    <!-- 上传成品 PDF 弹框 -->
+    <el-dialog v-model="certResultUploadVisible" title="上传成品证明 PDF" width="480px">
+      <div v-if="certResultUploadRow">
+        <div style="margin-bottom: 8px;">
+          <strong>{{ certResultUploadRow.student_name }}</strong>（{{ certResultUploadRow.student_no }}）
+        </div>
+        <div style="margin-bottom: 16px; color: #606266;">
+          证明标题：{{ certResultUploadRow.title }}
+        </div>
+        <el-upload
+          :auto-upload="false"
+          :limit="1"
+          :on-change="handleCertResultFileChange"
+          :on-exceed="handleCertResultExceed"
+          accept=".pdf"
+          drag
+        >
+          <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+          <div class="el-upload__text">将 PDF 文件拖到此处，或<em>点击选择</em></div>
+          <template #tip>
+            <div class="el-upload__tip">仅支持 PDF 格式，大小不超过 20MB</div>
+          </template>
+        </el-upload>
+      </div>
+      <template #footer>
+        <el-button @click="certResultUploadVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="certResultUploading"
+          :disabled="!certResultFile"
+          @click="doUploadCertResult"
+        >
+          上传{{ certResultUploading && certResultUploadProgress ? ` ${certResultUploadProgress}%` : '' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -422,7 +533,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { blobErrorDetail } from '@/utils/download'
-import { Right, ChatDotRound, Paperclip } from '@element-plus/icons-vue'
+import { Right, ChatDotRound, Paperclip, UploadFilled } from '@element-plus/icons-vue'
 import {
   getChangeRequests,
   approveChangeRequest,
@@ -462,6 +573,13 @@ import {
   rejectExportRequest,
   downloadExportFile
 } from '@/api/export'
+import {
+  getCertificateList,
+  approveCertificate,
+  rejectCertificate,
+  uploadCertificateResult,
+  downloadCertificateResult
+} from '@/api/certificate'
 
 const userStore = useUserStore()
 const badgeStore = useBadgeStore()
@@ -472,7 +590,7 @@ const route = useRoute()
 const loading = ref(false)
 // 从推送点进来时带着 ?tab=leave 之类的参数，直接落到对应分类；
 // 不带参数（正常从菜单进）就还是老样子，停在信息修改申请
-const TABS = ['change', 'leave', 'evpass', 'export', 'feedback']
+const TABS = ['change', 'leave', 'evpass', 'certificate', 'export', 'feedback']
 const activeTab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'change')
 
 /**
@@ -711,6 +829,136 @@ function handleRejectEvPass(row) {
   }).catch(() => {})
 }
 
+// —— 证明开具 ——
+// 班委能看列表、看附件，但不能下载成品 PDF、不能审批
+const certificateList = ref([])
+const certificateStatus = ref('pending')
+
+async function fetchCertificateList() {
+  loading.value = true
+  try {
+    certificateList.value = await getCertificateList(certificateStatus.value || undefined)
+  } catch (e) {
+    ElMessage.error('证明申请列表加载失败')
+  } finally {
+    loading.value = false
+    badgeStore.refresh()
+  }
+}
+
+// 证明附件预览
+const certAttachViewerVisible = ref(false)
+const certAttachFileUrl = ref('')
+const certAttachFileName = ref('')
+const certAttachDownloadName = ref('')
+
+function viewCertAttachment(row) {
+  if (!row.attachments?.length) return
+  const item = row.attachments[0]
+  // 班委及以上走 admin 路径
+  certAttachFileUrl.value = `/api/certificates/${row.id}/attachment/0/admin`
+  certAttachFileName.value = item.name
+  const ext = (item.name || '').match(/\.[^.]+$/)?.[0] || ''
+  const dateStr = formatDate(row.created_at).replace(/-/g, '')
+  certAttachDownloadName.value = `${row.student_name}_证明依据_${dateStr}${ext}`
+  certAttachViewerVisible.value = true
+}
+
+// 下载成品 PDF（管理员用）
+function downloadCertResult(row) {
+  downloadCertificateResult(row.id, true).then(blob => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = row.result_original_name || `${row.student_name}_证明.pdf`
+    a.click()
+    URL.revokeObjectURL(url)
+  }).catch(e => {
+    ElMessage.error(e?.response?.data?.detail || '下载失败')
+  })
+}
+
+function handleApproveCertificate(row) {
+  ElMessageBox.confirm(
+    `确定通过「${row.student_name}」的证明开具申请吗？\n` +
+    `标题：${row.title}\n收文单位：${row.recipient}`,
+    '审批确认',
+    { type: 'warning', confirmButtonText: '通过', cancelButtonText: '取消' }
+  ).then(async () => {
+    try {
+      await approveCertificate(row.id)
+      ElMessage.success('已通过，请上传成品 PDF')
+      fetchCertificateList()
+      // 通过后直接弹上传成品的对话框
+      certResultUploadRow.value = row
+      certResultFile.value = null
+      certResultUploadVisible.value = true
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
+function handleRejectCertificate(row) {
+  ElMessageBox.prompt('请填写驳回理由，会展示给申请人', '驳回申请', {
+    inputPlaceholder: '如：材料不完整',
+    inputValidator: (v) => (v && v.trim() ? true : '请填写驳回理由'),
+    confirmButtonText: '驳回',
+    cancelButtonText: '取消'
+  }).then(async ({ value }) => {
+    try {
+      await rejectCertificate(row.id, value.trim())
+      ElMessage.success('已驳回')
+      fetchCertificateList()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
+// 上传成品 PDF
+const certResultUploadVisible = ref(false)
+const certResultUploadRow = ref(null)
+const certResultFile = ref(null)
+const certResultUploading = ref(false)
+const certResultUploadProgress = ref(0)
+
+function handleCertResultFileChange(file) {
+  const raw = file.raw
+  if (!raw) return
+  if (raw.size > 20 * 1024 * 1024) {
+    ElMessage.error('文件不能超过 20MB')
+    return
+  }
+  certResultFile.value = raw
+}
+
+function handleCertResultExceed() {
+  ElMessage.warning('只能上传一个 PDF 文件')
+}
+
+async function doUploadCertResult() {
+  if (!certResultFile.value || !certResultUploadRow.value) return
+  certResultUploading.value = true
+  certResultUploadProgress.value = 0
+  try {
+    await uploadCertificateResult(
+      certResultUploadRow.value.id,
+      certResultFile.value,
+      (loaded, total) => {
+        certResultUploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+      }
+    )
+    ElMessage.success('成品上传成功')
+    certResultUploadVisible.value = false
+    fetchCertificateList()
+  } catch (e) {
+    ElMessage.error('上传失败：' + (e.response?.data?.detail || e.message))
+  } finally {
+    certResultUploading.value = false
+  }
+}
+
 // —— 导出申请 ——
 const exportList = ref([])
 const exportStatus = ref('pending')
@@ -910,6 +1158,8 @@ function handleTabChange() {
     fetchLeaveList()
   } else if (activeTab.value === 'evpass') {
     fetchEvPassList()
+  } else if (activeTab.value === 'certificate') {
+    fetchCertificateList()
   } else if (activeTab.value === 'export') {
     fetchExportList()
   } else if (activeTab.value === 'feedback') {

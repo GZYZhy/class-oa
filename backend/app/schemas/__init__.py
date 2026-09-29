@@ -45,6 +45,7 @@ from .student_import import (
     ImportConfirmRequest,
     ImportResultResponse,
 )
+from .certificate import CertificateRequestResponse, CertificateRejectRequest
 
 __all__ = [
     "StudentBase",
@@ -97,4 +98,6 @@ __all__ = [
     "ImportPreviewSample",
     "ImportConfirmRequest",
     "ImportResultResponse",
+    "CertificateRequestResponse",
+    "CertificateRejectRequest",
 ]
