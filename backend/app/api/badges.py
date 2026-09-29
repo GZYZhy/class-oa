@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import ChangeRequest, EvPassRequest, ExportRequest, Feedback, LeaveRequest, User
+from ..models import CertificateRequest, ChangeRequest, EvPassRequest, ExportRequest, Feedback, LeaveRequest, User
 from ..services import unread_count
 from .deps import get_current_user
 
@@ -40,6 +40,7 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
         "leave": 0,
         "evpass": 0,
         "export": 0,
+        "certificate": 0,
     }
     if user.role == "admin":
         review_tabs["leave"] = _count(db, LeaveRequest, "pending")
@@ -47,6 +48,8 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
         review_tabs["evpass"] = _count(db, EvPassRequest, "pending")
         # 导出申请：管理员审批
         review_tabs["export"] = _count(db, ExportRequest, "pending")
+        # 证明开具：管理员审批
+        review_tabs["certificate"] = _count(db, CertificateRequest, "pending")
 
     return {
         "notice_unread": unread_count(db, user.student_no),
