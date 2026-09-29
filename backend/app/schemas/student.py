@@ -98,6 +98,11 @@ class RollCallLogRequest(BaseModel):
     absent: list[RollCallAbsentItem] = Field(default_factory=list, description="无应答名单")
 
 
+class BatchDeleteRequest(BaseModel):
+    """批量删除学生的请求体"""
+    ids: list[int] = Field(..., description="要删除的学生 id 列表")
+
+
 def student_response(student: Any, viewer_role: str = "student") -> StudentResponse:
     """按查看者角色裁剪字段后再输出
 

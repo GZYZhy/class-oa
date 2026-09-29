@@ -16,6 +16,7 @@ from ..schemas import (
     StudentCreateResponse,
     StudentUpdate,
     RollCallLogRequest,
+    BatchDeleteRequest,
     student_response,
 )
 from ..services import (
@@ -559,3 +560,100 @@ def import_excel_confirm(
         warnings=result["warnings"],
         message=message,
     )
+
+
+@router.post("/batch-delete", summary="批量删除学生（仅管理员）")
+def delete_students_batch(
+    data: BatchDeleteRequest,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    ids = data.ids
+    """批量删除学生，连同账号和推送订阅一起清掉
+
+    全部走同一个事务：只要有一个不能删（是当前登录账号 / 有待审核的申请），
+    整个操作回滚，一个都不删 —— 比「能删就删」更不容易出「以为删完了实际没删干净」的
+    情况，也符合批量操作的直觉。
+
+    历史记录（已审核的请假/反馈/改信息申请/通知已读）保持原样不动，跟单条删除一致。
+    """
+    if not ids:
+        raise HTTPException(status_code=400, detail="请先选择要删除的学生")
+    if len(ids) > 100:
+        raise HTTPException(status_code=400, detail="一次最多删除 100 人")
+
+    students = db.query(Student).filter(Student.id.in_(ids)).all()
+    if len(students) != len(ids):
+        missing = len(ids) - len(students)
+        raise HTTPException(status_code=404, detail=f"有 {missing} 个学生不存在")
+
+    # 两道闸：不能删自己、不能有待审核的申请
+    for s in students:
+        if s.student_no == user.student_no:
+            raise HTTPException(status_code=400, detail=f"不能删除当前登录的账号（{s.student_no} {s.name}）")
+
+    pending_msgs = []
+    for s in students:
+        per_student = []
+        for model, label in (
+            (LeaveRequest, "待审核的请假申请"),
+            (ChangeRequest, "待审核的信息修改申请"),
+        ):
+            n = (
+                db.query(model)
+                .filter(model.student_no == s.student_no, model.status == "pending")
+                .count()
+            )
+            if n:
+                per_student.append(f"{n} 条{label}")
+        if per_student:
+            pending_msgs.append(f"{s.student_no} {s.name}：{'、'.join(per_student)}")
+
+    if pending_msgs:
+        # 只列出前 3 个，太多了会把错误信息撑太长
+        show = pending_msgs[:3]
+        more = len(pending_msgs) - 3
+        detail = "以下学生有待处理的申请，请先在「审核审批」里处理完再删除：" + "；".join(show)
+        if more > 0:
+            detail += f"（还有 {more} 人）"
+        raise HTTPException(status_code=400, detail=detail)
+
+    # 收集要删的照片文件名（删完库、commit 成功后再删文件）
+    photo_names = []
+    target_nos = []
+    for s in students:
+        if s.gaokao_photo:
+            photo_names.append(s.gaokao_photo)
+        if s.on_site_photo:
+            photo_names.append(s.on_site_photo)
+        target_nos.append(s.student_no)
+
+    # 批量删账号、推送订阅、学生行
+    sno_list = [s.student_no for s in students]
+    db.query(PushSubscription).filter(PushSubscription.student_no.in_(sno_list)).delete(
+        synchronize_session=False
+    )
+    db.query(User).filter(User.student_no.in_(sno_list)).delete(synchronize_session=False)
+    db.query(Student).filter(Student.id.in_([s.id for s in students])).delete(
+        synchronize_session=False
+    )
+
+    # 记一条批量操作日志
+    first = students[0]
+    target = f"{first.student_no} {first.name} 等{len(students)}人"
+    log_operation(
+        db, user, "删除学生",
+        target=target,
+        detail=f"批量删除 {len(students)} 人，已注销登录账号",
+        ip=ip,
+        target_student_nos=target_nos,
+    )
+
+    db.commit()
+
+    # 提交成功后删照片文件
+    for name in photo_names:
+        _remove_photo(name)
+
+    return {"message": f"已删除 {len(students)} 名学生"}
