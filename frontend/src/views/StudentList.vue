@@ -151,6 +151,17 @@
             导入 Excel
           </el-button>
 
+          <!-- 批量删除：只有管理员 + 有选中时显示 -->
+          <el-button
+            v-if="userStore.isAdmin && selectedStudents.length > 0"
+            type="danger"
+            style="margin-left: 8px;"
+            @click="handleBatchDelete"
+          >
+            <el-icon><Delete /></el-icon>
+            删除 {{ selectedStudents.length }} 人
+          </el-button>
+
           <!-- 新增/删除学生都会连带处理登录账号，只给管理员 -->
           <el-button
             v-if="userStore.isAdmin"
@@ -1062,7 +1073,8 @@ import {
   uploadStudentPhoto,
   deleteStudentPhoto,
   importPreview,
-  importConfirm
+  importConfirm,
+  batchDeleteStudents
 } from '@/api/student'
 import {
   createExportRequest,
@@ -1399,6 +1411,36 @@ async function handleDelete(row) {
       type: 'warning',
       confirmButtonText: '知道了'
     })
+  }
+}
+
+// 批量删除：全有全无，一个不能删就全部不删
+async function handleBatchDelete() {
+  const n = selectedStudents.value.length
+  if (!n) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${n} 名学生吗？他们的登录账号和照片文件会一并删除，` +
+        '此操作不可恢复；已经审核过的请假、反馈记录会保留。' +
+        '\n\n注意：只要有一个学生不能删（比如还有待审核的申请、或者包含你自己），整个操作会取消、一个都不删。',
+      '批量删除学生',
+      { type: 'warning', confirmButtonText: '全部删除' }
+    )
+  } catch (e) {
+    return // 取消
+  }
+  try {
+    const ids = selectedStudents.value.map(s => s.id)
+    await batchDeleteStudents(ids)
+    ElMessage.success(`已删除 ${n} 名学生`)
+    fetchData()
+    userStore.refreshTotal()
+  } catch (e) {
+    ElMessageBox.alert(
+      e?.response?.data?.detail || '删除失败',
+      '无法删除',
+      { type: 'warning', confirmButtonText: '知道了' }
+    )
   }
 }
 

@@ -155,3 +155,15 @@ export function importConfirm(token) {
     data: { token }
   })
 }
+
+/**
+ * 批量删除学生（仅管理员）
+ * @param {number[]} ids - 学生 id 列表
+ */
+export function batchDeleteStudents(ids) {
+  return request({
+    url: '/students/batch-delete',
+    method: 'post',
+    data: { ids }
+  })
+}
