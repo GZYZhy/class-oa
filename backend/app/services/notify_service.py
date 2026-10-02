@@ -24,6 +24,16 @@ from .webpush_service import push as web_push
 from .webpush_service import web_subscriptions
 
 
+# (Recipients 上的属性名, 该渠道的发送函数)。notify() 和 deliver_now() 共用这一份，
+# 以后加渠道只改这一行，两边不会漏掉同一边
+_CHANNELS = (
+    ("bark", bark_push),
+    ("web", web_push),
+    ("webhook", webhook_push),
+    ("email", email_push),
+)
+
+
 @dataclass
 class Recipients:
     """一次通知的收件人，四个渠道各一份
@@ -43,10 +53,10 @@ class Recipients:
         dataclass 默认恒为真，不写这个方法的话 notify() 里的空判断永远不成立，
         没人订阅的事件也会白挂一个后台任务（现在的写法是故意要短路的）。
 
-        **加了新渠道一定要记得往这里补一个 or** —— 忘了的话表现是「功能是好的，
-        但每次通知都白挂一个空任务跑一趟」，不报错、不留痕迹，很难发现。
+        遍历 _CHANNELS 而不是手写 or 长链：以后加渠道只改那一处，这里自动跟上，
+        不会再出现「忘了往这里补一个 or」那种不报错、不留痕迹的静默失效。
         """
-        return bool(self.bark or self.web or self.webhook or self.email)
+        return any(getattr(self, attr) for attr, _ in _CHANNELS)
 
 
 def recipients(
@@ -80,20 +90,50 @@ def notify(
     background, targets: Recipients, title: str, body: str,
     level: str = "active", page: str | None = None,
 ) -> None:
-    """把推送挂到后台任务上
+    """把推送挂到后台任务上（在请求里用这个）
 
     之所以走后台：发推送要走外网，放在请求里会让接口白白慢几百毫秒。
-    每个渠道各挂各的任务，一个渠道挂了（对方服务器不回话、DNS 解析卡住）
-    不拖累另一个，也不影响已经返回给用户的响应。
+    **每个渠道各挂各的任务，不能合并成一个循环去跑**：一个渠道挂了
+    （对方服务器不回话、DNS 解析卡住）不拖累另一个，也不影响已经返回给用户的响应。
     targets 为空直接跳过，不给没人订阅的事件白跑一趟网络。
+
+    后台线程里没有 background，请用下面的 deliver_now()。
     """
     if not targets:
         return
-    if targets.bark:
-        background.add_task(bark_push, targets.bark, title, body, level, page)
-    if targets.web:
-        background.add_task(web_push, targets.web, title, body, level, page)
-    if targets.webhook:
-        background.add_task(webhook_push, targets.webhook, title, body, level, page)
-    if targets.email:
-        background.add_task(email_push, targets.email, title, body, level, page)
+    for attr, send in _CHANNELS:
+        target = getattr(targets, attr)
+        if target:
+            background.add_task(send, target, title, body, level, page)
+
+
+def deliver_now(
+    targets: Recipients, title: str, body: str,
+    level: str = "active", page: str | None = None,
+) -> bool:
+    """同步把各渠道发完；返回「有人的渠道是不是都发成功了」
+
+    **只给后台线程用，请求里请用 notify()**：定时任务线程里没有 Starlette 的
+    BackgroundTasks（也不该为了发个通知去伪造一个 —— 伪造出来的任务只会挂在内存里
+    永远不跑，是静默失效），而且线程本来就该等它跑完。所以这里按顺序直接调各渠道的 push。
+
+    各渠道 push 内部都已经吞掉自己的异常（见各 *_service 的模块注释），这里再兜一层：
+    一个渠道的代码万一炸了不能拖累后面几个，**更不能把调度线程带崩** ——
+    线程一死，此后所有日期的通知都会静默消失。
+
+    targets 为空返回 True（没有任何失败）；调用方若要区分「没人可发」，
+    自己先判 `if not targets`。
+    """
+    if not targets:
+        return True
+    ok = True
+    for attr, send in _CHANNELS:
+        target = getattr(targets, attr)
+        if not target:
+            continue
+        try:
+            ok = bool(send(target, title, body, level, page)) and ok
+        except Exception as exc:
+            print(f"[通知] 后台渠道 {attr} 发送异常：{exc!r}", flush=True)
+            ok = False
+    return ok

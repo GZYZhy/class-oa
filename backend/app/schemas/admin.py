@@ -220,3 +220,25 @@ class MyLogsResponse(BaseModel):
     events: list[AccountEventResponse]
     events_total: int
     events_since: datetime
+
+
+class BirthdaySettingsUpdate(BaseModel):
+    """生日关怀设置的整体保存请求（PUT 全量覆盖）
+
+    模板里的占位符合法性**不在这里校验**，放在接口层：schema 里 import services
+    是反的依赖方向（同 set_webhook 的写法）。
+    """
+
+    banner_enabled: bool
+    banner_show_names: bool
+    greet_enabled: bool
+    # 空串 = 用内置默认文案（同 webhook_template 的约定）
+    greet_template: str = Field("", max_length=500)
+    notify_enabled: bool
+    notify_student_nos: list[str] = Field(default_factory=list, max_length=200)
+
+    @field_validator("notify_student_nos")
+    @classmethod
+    def clean_nos(cls, v: list[str]) -> list[str]:
+        # 去重保序 + 丢掉空串，别把空学号写进 JSON 数组
+        return list(dict.fromkeys(n.strip() for n in v if n and n.strip()))

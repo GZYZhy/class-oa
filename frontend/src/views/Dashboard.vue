@@ -11,6 +11,16 @@
       </div>
     </div>
 
+    <!-- 生日条幅：只有今天有人过生日才出现。
+         匿名访客后端只下发人数（names 恒为空数组），登录后才可能带姓名 -->
+    <div v-if="birthday?.count" class="birthday-banner">
+      <el-icon class="birthday-icon"><Present /></el-icon>
+      <span v-if="birthday.show_names">
+        今天是 <strong>{{ birthday.names.join('、') }}</strong> 的生日，一起祝生日快乐！
+      </span>
+      <span v-else>今天有 {{ birthday.count }} 位同志生日啦</span>
+    </div>
+
     <!-- 访客提示：首页本来就对匿名开放，但开放的只有聚合数据。
          必须等 resolved 为真才判断，否则已登录用户会先闪一下这条 -->
     <el-alert v-if="showGuestTip" class="guest-tip" type="info" :closable="false" show-icon>
@@ -84,6 +94,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { getPublicSummary } from '@/api/auth'
+import { getBirthdayToday } from '@/api/birthday'
 import { useUserStore } from '@/store/user'
 import { SITE } from '@/utils/site'
 
@@ -99,6 +110,8 @@ function goLogin() {
 }
 
 const stats = ref(null)
+// 今日生日条幅数据；null 表示还没取到或今天没人过生日（两种情况都不显示）
+const birthday = ref(null)
 
 const genderChartRef = ref(null)
 const politicalChartRef = ref(null)
@@ -127,6 +140,12 @@ function renderPie(refEl, data, colors) {
 async function loadData() {
   // 首页走公开摘要接口：无需登录，且不含任何敏感字段
   stats.value = await getPublicSummary()
+  // 生日条幅另起一路、单独兜异常：接口不通就不显示，不连累首页统计
+  try {
+    birthday.value = await getBirthdayToday()
+  } catch (e) {
+    /* 锦上添花的功能，后端没升级到有这条接口时静默跳过 */
+  }
   await nextTick()
   genderChart = renderPie(genderChartRef.value, stats.value.gender || {}, ['#409EFF', '#F56C6C'])
   politicalChart = renderPie(politicalChartRef.value, stats.value.political_status || {}, ['#E6A23C', '#909399'])
@@ -193,6 +212,25 @@ onMounted(() => {
   box-sizing: border-box;
   object-fit: cover;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* 生日条幅：跟在欢迎横幅后面，用暖色和它区分开。
+   固定色值，不跟深色模式 —— 同 .welcome-banner / 顶栏校徽的做法 */
+.birthday-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #f78ca0 0%, #e8657f 100%);
+  color: #fff;
+  border-radius: 12px;
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  font-size: 15px;
+}
+
+.birthday-icon {
+  font-size: 22px;
+  flex-shrink: 0;
 }
 
 /* 访客提示：跟欢迎横幅留一样的间距，视觉上属于页面头部 */
@@ -275,6 +313,11 @@ onMounted(() => {
   /* 横幅右侧校徽在窄屏上会把标题挤到换行，直接不显示 */
   .banner-logo {
     display: none;
+  }
+
+  .birthday-banner {
+    padding: 12px 14px;
+    font-size: 13px;
   }
 
   .stat-card {

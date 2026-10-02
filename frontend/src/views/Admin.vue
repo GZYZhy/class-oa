@@ -478,6 +478,90 @@
           </el-table>
         </div>
       </el-tab-pane>
+
+      <!-- ============ 生日关怀 ============ -->
+      <el-tab-pane label="生日关怀" name="birthday">
+        <div v-loading="loadingBirthday" class="birthday-form">
+          <!-- 1. 首页条幅 -->
+          <div class="birthday-block">
+            <div class="birthday-block-head">
+              <el-switch v-model="birthdayForm.banner_enabled" />
+              <span class="birthday-block-title">首页显示生日条幅</span>
+            </div>
+            <div class="birthday-block-body">
+              <el-switch
+                v-model="birthdayForm.banner_show_names"
+                :disabled="!birthdayForm.banner_enabled"
+              />
+              <span>显示寿星姓名</span>
+              <span class="tip birthday-inline-tip">
+                关掉只显示「今天有 N 位同志生日啦」。匿名访客无论开关如何都只看得到人数。
+              </span>
+            </div>
+          </div>
+
+          <!-- 2. 给寿星本人推祝福 -->
+          <div class="birthday-block">
+            <div class="birthday-block-head">
+              <el-switch v-model="birthdayForm.greet_enabled" />
+              <span class="birthday-block-title">给寿星本人推送祝福语</span>
+            </div>
+            <div class="birthday-block-body column">
+              <el-input
+                v-model="birthdayForm.greet_template"
+                type="textarea"
+                :rows="3"
+                :disabled="!birthdayForm.greet_enabled"
+                :placeholder="birthdayDefaults.template"
+              />
+              <div class="tip birthday-inline-tip" v-pre>
+                可用占位符：{{name}}（姓名）、{{age}}（今天要过的岁数）、{{class}}（班级）。
+                留空则用灰字里那份默认文案。本站没有站内收件箱，寿星自己没开启任何通知渠道时收不到。
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. 生日当天连带通知指定账号 -->
+          <div class="birthday-block">
+            <div class="birthday-block-head">
+              <el-switch v-model="birthdayForm.notify_enabled" />
+              <span class="birthday-block-title">生日当天通知指定账号</span>
+            </div>
+            <div class="birthday-block-body column">
+              <el-select
+                v-model="birthdayForm.notify_student_nos"
+                multiple
+                filterable
+                clearable
+                :disabled="!birthdayForm.notify_enabled"
+                placeholder="选择要通知的账号"
+                class="birthday-select"
+              >
+                <el-option
+                  v-for="u in users"
+                  :key="u.student_no"
+                  :label="u.name + '（' + u.student_no + '）'"
+                  :value="u.student_no"
+                />
+              </el-select>
+              <div class="tip birthday-inline-tip">
+                通知内容含几人生日、几岁生日、是谁。每天 08:00 后由服务端自动发送，
+                未勾选任何账号时不会发出。测试只发给你自己，不会打扰上面这些人。
+              </div>
+            </div>
+          </div>
+
+          <div class="birthday-actions">
+            <el-button type="primary" :loading="savingBirthday" @click="handleSaveBirthday">
+              保存
+            </el-button>
+            <el-button :loading="testingBirthday" @click="handleTestBirthday">发送测试</el-button>
+            <span v-if="birthdayForm.last_run_date" class="tip birthday-inline-tip">
+              上次自动发送：{{ birthdayForm.last_run_date }}
+            </span>
+          </div>
+        </div>
+      </el-tab-pane>
     </el-tabs>
 
     <!-- ============ 新建 / 编辑域外账号 ============ -->
@@ -691,6 +775,11 @@ import {
   getFileAccessLogs,
   extractWatermark
 } from '@/api/admin'
+import {
+  getBirthdaySettings,
+  saveBirthdaySettings,
+  testBirthdayNotify
+} from '@/api/birthday'
 import { ROLE_LABELS } from '@/utils/roles'
 import { formatDateTime } from '@/utils/format'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -1280,6 +1369,7 @@ function handleTabChange(name) {
     fileAccessLoaded = true
     fetchFileAccessLogs()
   }
+  if (name === 'birthday' && !birthdayLoaded.value) fetchBirthdaySettings()
 }
 
 async function handleCreateBan() {
@@ -1506,6 +1596,83 @@ async function moveResource(row, direction) {
   }
 }
 
+// ---------- 生日关怀 ----------
+const birthdayLoaded = ref(false)
+const loadingBirthday = ref(false)
+const savingBirthday = ref(false)
+const testingBirthday = ref(false)
+// 后端回给前端的默认祝福语文案，用作输入框的灰字 placeholder
+const birthdayDefaults = reactive({ template: '' })
+const birthdayForm = reactive({
+  banner_enabled: false,
+  banner_show_names: false,
+  greet_enabled: false,
+  greet_template: '',
+  notify_enabled: false,
+  notify_student_nos: [],
+  last_run_date: null // 只读展示，不提交
+})
+
+async function fetchBirthdaySettings() {
+  loadingBirthday.value = true
+  try {
+    const data = await getBirthdaySettings()
+    Object.assign(birthdayForm, {
+      banner_enabled: !!data.banner_enabled,
+      banner_show_names: !!data.banner_show_names,
+      greet_enabled: !!data.greet_enabled,
+      greet_template: data.greet_template || '',
+      notify_enabled: !!data.notify_enabled,
+      notify_student_nos: data.notify_student_nos || [],
+      last_run_date: data.last_run_date || null
+    })
+    birthdayDefaults.template = data.default_greet_template || ''
+    birthdayLoaded.value = true
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '生日关怀设置加载失败')
+  } finally {
+    loadingBirthday.value = false
+  }
+}
+
+/** 提交时只送后端认的六个字段：last_run_date 是只读的 */
+function birthdayPayload() {
+  return {
+    banner_enabled: birthdayForm.banner_enabled,
+    banner_show_names: birthdayForm.banner_show_names,
+    greet_enabled: birthdayForm.greet_enabled,
+    greet_template: birthdayForm.greet_template,
+    notify_enabled: birthdayForm.notify_enabled,
+    notify_student_nos: birthdayForm.notify_student_nos
+  }
+}
+
+async function handleSaveBirthday() {
+  savingBirthday.value = true
+  try {
+    const res = await saveBirthdaySettings(birthdayPayload())
+    birthdayForm.last_run_date = res.last_run_date || birthdayForm.last_run_date
+    ElMessage.success(res.message || '已保存')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    savingBirthday.value = false
+  }
+}
+
+async function handleTestBirthday() {
+  testingBirthday.value = true
+  try {
+    // 测试只发给当前管理员自己，和上面三个开关无关，所以不用「先保存再测」
+    const res = await testBirthdayNotify()
+    ElMessage.success(res.message || '已发送')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '发送失败')
+  } finally {
+    testingBirthday.value = false
+  }
+}
+
 onMounted(() => {
   fetchUsers()
   fetchLogs()
@@ -1547,6 +1714,62 @@ onMounted(() => {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   font-weight: normal;
+}
+
+/* ---------- 生日关怀 ---------- */
+/* 一组开关，块之间留同样的间距；每块的标题行左对齐开关、右跟说明 */
+.birthday-block:not(:first-child) {
+  margin-top: 28px;
+}
+
+.birthday-block-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.birthday-block-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.birthday-block-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-left: 50px; /* 和上面的开关对齐，让从属关系看得出来 */
+}
+
+/* 输入框 / 下拉这类需要占满宽度的，换行竖排 */
+.birthday-block-body.column {
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 560px;
+}
+
+.birthday-select {
+  width: 100%;
+}
+
+.birthday-inline-tip {
+  margin-top: 0;
+}
+
+.birthday-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 28px;
+}
+
+@media (max-width: 768px) {
+  .birthday-block-body {
+    padding-left: 0;
+  }
 }
 
 /* ---------- IP 封禁 ---------- */

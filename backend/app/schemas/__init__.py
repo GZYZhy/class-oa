@@ -39,6 +39,7 @@ from .admin import (
     FileAccessLogResponse,
     FileAccessLogListResponse,
     WatermarkExtractResponse,
+    BirthdaySettingsUpdate,
 )
 from .about import CommitteeMember, AboutResponse
 from .leave import LeaveRequestCreate, LeaveRequestResponse, LeaveRejectRequest
@@ -94,6 +95,7 @@ __all__ = [
     "FileAccessLogResponse",
     "FileAccessLogListResponse",
     "WatermarkExtractResponse",
+    "BirthdaySettingsUpdate",
     "CommitteeMember",
     "AboutResponse",
     "LeaveRequestCreate",
