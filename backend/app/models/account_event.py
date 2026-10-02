@@ -26,5 +26,6 @@ class AccountEvent(Base):
     # 会比北京时间早 8 小时（同 operation_logs.created_at）
     created_at = Column(DateTime, default=datetime.now, nullable=False, index=True, comment="事件时间")
     student_no = Column(String(20), nullable=False, index=True, comment="账号（学号 / 域外账号登录名）")
-    event = Column(String(20), nullable=False, comment="login|change_password")
+    event = Column(String(20), nullable=False,
+                   comment="login|change_password|token_create|token_revoke")
     ip = Column(String(45), nullable=True, comment="事件发生时的客户端 IP")

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import os
 import re
+import secrets
 
 # 迭代次数，提高暴力破解成本
 ITERATIONS = 100_000
@@ -52,3 +53,39 @@ def verify_master_password(password: str, master: str) -> bool:
     if not master:
         return False
     return hmac.compare_digest(password.encode("utf-8"), master.encode("utf-8"))
+
+
+# ---------- 个人访问令牌 ----------
+
+# 令牌前缀。带它是为了让运维一眼认出「这是一把本站令牌」而不是别的什么东西，
+# 也方便密钥扫描工具识别（access_log、误提交到 Git 的场景）
+TOKEN_PREFIX = "oa_pat_"
+
+# 随机部分的字节数：32 字节 = 256 位熵，urlsafe 编码后 43 个字符。
+# 猜中的概率可以忽略不计，不需要靠限流兜底
+_TOKEN_BYTES = 32
+
+
+def generate_token() -> str:
+    """生成一把新的访问令牌明文（只在创建那一次的响应里返回给用户）"""
+    return TOKEN_PREFIX + secrets.token_urlsafe(_TOKEN_BYTES)
+
+
+def hash_token(raw: str) -> str:
+    """算令牌明文对应的存储值
+
+    用 sha256 而不是上面那套 pbkdf2，是因为明文有 256 位熵、没有字典空间可攻，
+    慢哈希在这里只会让每个 API 请求白跑 10 万次迭代。
+    密码函数必须用 pbkdf2（人选的密码熵太低）—— 两者场景不同，不是双标。
+    """
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def token_prefix(raw: str) -> str:
+    """取展示用的开头片段
+
+    取随机部分的前 8 位，而不是整串前 8 位 —— 整串前 7 位是固定的前缀，
+    那样每把令牌在列表里看起来都一模一样，等于没显示。
+    """
+    body = raw[len(TOKEN_PREFIX):] if raw.startswith(TOKEN_PREFIX) else raw
+    return TOKEN_PREFIX + body[:8]

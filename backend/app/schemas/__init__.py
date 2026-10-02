@@ -17,6 +17,10 @@ from .auth import (
     ChangePasswordRequest,
     SetInitialPasswordRequest,
     UserInfoResponse,
+    AccessTokenCreate,
+    AccessTokenCreated,
+    AccessTokenList,
+    AccessTokenResponse,
 )
 from .change_request import ChangeRequestCreate, ChangeRequestResponse, RejectRequest
 from .admin import (
@@ -68,6 +72,10 @@ __all__ = [
     "ChangePasswordRequest",
     "SetInitialPasswordRequest",
     "UserInfoResponse",
+    "AccessTokenCreate",
+    "AccessTokenCreated",
+    "AccessTokenList",
+    "AccessTokenResponse",
     "ChangeRequestCreate",
     "ChangeRequestResponse",
     "RejectRequest",

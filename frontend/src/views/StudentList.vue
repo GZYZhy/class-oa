@@ -1087,6 +1087,7 @@ import Watermark from '@/components/Watermark.vue'
 import RollCallDialog from '@/components/RollCallDialog.vue'
 import { useWatermark } from '@/composables/useWatermark'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { copyText } from '@/utils/clipboard'
 
 const userStore = useUserStore()
 
@@ -1186,22 +1187,6 @@ function formatDate(dateStr) {
 function formatDateTime(dtStr) {
   if (!dtStr) return '-'
   return String(dtStr).replace('T', ' ').replace(/\.\d+$/, '')
-}
-
-function copyText(text) {
-  if (!text) return
-  navigator.clipboard.writeText(text).then(() => {
-    ElMessage.success('已复制到剪贴板')
-  }).catch(() => {
-    // 降级方案
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
-    ElMessage.success('已复制到剪贴板')
-  })
 }
 
 /**

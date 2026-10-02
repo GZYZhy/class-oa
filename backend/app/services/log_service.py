@@ -102,8 +102,18 @@ def log_operation(
     批量操作时（如导出学生信息，一次涉及 N 人），通过 target_student_nos 传入
     全部学号列表，写入 target_student_nos 字段（JSON 数组）。被操作记录反查时
     会同时匹配 target 和 target_student_nos 两个字段。
+
+    用访问令牌（PAT）发起的那次调用，操作人照样是这个账号（student_no 一样、
+    一样出现在他本人的「我的日志」里），只在 detail 前面多一句
+    「（经由访问令牌）」，好让管理员把「本人点出来的」和「脚本干的」分开看。
     """
     import json
+
+    # 令牌代做的操作打个标记。标记加在这里而不是散到各个调用点，是为了让
+    # 「谁调的都记一条」这件事保持只有一处实现 —— 调用方一行都不用改。
+    # 放**前缀**而不是后缀：detail 下面会被截断到 500 字，追加在后面可能正好被切掉
+    if getattr(user, "via_pat", False):
+        detail = "（经由访问令牌）" + (detail or "")
 
     nos_json = ""
     if target_student_nos:

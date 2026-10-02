@@ -166,6 +166,11 @@
                   </el-form-item>
                 </el-form>
               </div>
+
+              <!-- 访问令牌：同样是「账号安全」范畴（拿到令牌等于拿到你的账号），
+                   所以和修改密码放同一个 tab。组件自己是折叠的，平时不占地方 -->
+              <el-divider />
+              <AccessTokenSetting />
             </el-tab-pane>
 
             <!-- ==================== 通知设置 ==================== -->
@@ -333,7 +338,7 @@
                 </div>
 
                 <div class="section-title" style="margin-top: 20px;">
-                  登录与改密
+                  登录与账号操作
                   <!-- 把 7 天这个边界显示出来，不然只会让人猜为什么只有这几条 -->
                   <span class="section-sub" style="margin-left: 8px;">
                     仅最近 7 天（{{ formatDateTime(myLogs.events_since) }} 起）
@@ -349,6 +354,13 @@
                       <el-tag v-else-if="row.event === 'change_password'" type="warning" size="small">
                         修改密码
                       </el-tag>
+                      <el-tag v-else-if="row.event === 'token_create'" type="success" size="small">
+                        创建令牌
+                      </el-tag>
+                      <el-tag v-else-if="row.event === 'token_revoke'" type="danger" size="small">
+                        吊销令牌
+                      </el-tag>
+                      <!-- 兜底显示原始事件名：后端将来加新事件类型时，这里不会变成一片空白 -->
                       <span v-else>{{ row.event }}</span>
                     </template>
                   </el-table-column>
@@ -361,7 +373,7 @@
                 </el-table>
                 <el-empty
                   v-if="!logsLoading && !myLogs.events_total"
-                  description="最近 7 天没有登录或改密记录"
+                  description="最近 7 天没有登录或账号操作记录"
                   :image-size="60"
                 />
                 <div v-if="myLogs.events_total" class="pagination-wrap">
@@ -513,6 +525,7 @@ import { rankOf } from '@/utils/roles'
 import { getMySubmitted, getMyInvolved } from '@/api/workspace'
 import { getWebhookSetting } from '@/api/notifyChannels'
 import WebhookSetting from '@/components/WebhookSetting.vue'
+import AccessTokenSetting from '@/components/AccessTokenSetting.vue'
 import EmailNotifySetting from '@/components/EmailNotifySetting.vue'
 import {
   isSupported,

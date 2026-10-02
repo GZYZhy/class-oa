@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -37,6 +38,63 @@ class SetInitialPasswordRequest(BaseModel):
     @classmethod
     def check_new_password(cls, v: str) -> str:
         return validate_password(v, "新密码")
+
+
+class AccessTokenCreate(BaseModel):
+    """创建访问令牌。
+
+    要再输一遍登录密码：令牌是「长期」凭据，而登录态是「临时」的 ——
+    同学借你已登录的电脑点一下，本来只能用那一次；免密创建令牌就能给自己留把长期钥匙。
+    """
+    name: str = Field(..., max_length=50, description="备注名，用来区分这把令牌是干嘛的")
+    days: int = Field(90, description="有效期天数：30 / 90 / 365，0 表示不限期")
+    password: str = Field(..., description="登录密码，二次确认用")
+
+    @field_validator("name")
+    @classmethod
+    def check_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("请填写备注名")
+        return v
+
+    @field_validator("days")
+    @classmethod
+    def check_days(cls, v: int) -> int:
+        # 只认这几档。不校验的话前端能传个 7 天出来，
+        # 而页面上根本没有这个选项，出了问题无从解释
+        if v not in (0, 30, 90, 365):
+            raise ValueError("有效期只能是 30 天、90 天、1 年或不限期")
+        return v
+
+
+class AccessTokenResponse(BaseModel):
+    """列表里的一条令牌。**永远不含明文和 hash**
+
+    明文在创建那一次的响应里给出之后就取不回来了；hash 更不该出网。
+    列表只能看到前缀，足够认出是哪一把。
+    """
+    id: int
+    name: str
+    prefix: str
+    created_at: datetime
+    expires_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+
+
+class AccessTokenList(BaseModel):
+    """令牌列表。max_count 给前端判断有没有到上限（超了就别让点创建了）"""
+    items: list[AccessTokenResponse]
+    max_count: int
+
+
+class AccessTokenCreated(BaseModel):
+    """创建响应：**明文 token 只在这里出现这一次**"""
+    id: int
+    name: str
+    token: str
+    expires_at: Optional[datetime] = None
 
 
 class BarkKeyRequest(BaseModel):

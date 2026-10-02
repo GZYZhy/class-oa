@@ -615,7 +615,7 @@
         </div>
 
         <div class="log-section-title">
-          登录与改密
+          登录与账号操作
           <!-- 把 7 天这个边界显示出来，不然只会让人猜为什么只有这几条 -->
           <span class="log-section-hint">
             仅最近 7 天（{{ formatDateTime(userLogs.events_since) }} 起）
@@ -631,6 +631,13 @@
               <el-tag v-else-if="row.event === 'change_password'" type="warning" size="small">
                 修改密码
               </el-tag>
+              <el-tag v-else-if="row.event === 'token_create'" type="success" size="small">
+                创建令牌
+              </el-tag>
+              <el-tag v-else-if="row.event === 'token_revoke'" type="danger" size="small">
+                吊销令牌
+              </el-tag>
+              <!-- 兜底显示原始事件名：后端将来加新事件类型时，这里不会变成一片空白 -->
               <span v-else>{{ row.event }}</span>
             </template>
           </el-table-column>
@@ -646,11 +653,11 @@
         </div>
         <el-empty
           v-else-if="!loadingUserLogs && !userLogs.events_total"
-          description="最近 7 天没有登录或改密记录"
+          description="最近 7 天没有登录或账号操作记录"
           :image-size="60"
         />
         <!-- 这个功能上线之前的登录/改密压根没入库，历史补不回来，说清楚免得以为漏查 -->
-        <div class="tip">登录与改密记录自本功能上线起才开始保存，更早的记录查不到。</div>
+        <div class="tip">登录与账号操作记录自本功能上线起才开始保存，更早的记录查不到。</div>
       </div>
     </el-dialog>
   </div>
