@@ -54,10 +54,15 @@ NEW_COLUMNS = [
     # 一次导出涉及几十人，每个人查被操作记录时都能找到这条
     ("operation_logs", "target_student_nos", "TEXT DEFAULT ''"),
     # ---------- 自定义 webhook 渠道 ----------
-    # 一律默认空串 = 没开这个渠道。补列后老账号行为和补列前完全一致
+    # 一律默认空串 = 没配东西。补列后老账号行为和补列前完全一致
     # （不会突然有人开始往某个地址发 POST）
     ("users", "webhook_url", "VARCHAR(500) NOT NULL DEFAULT ''"),
     ("users", "webhook_template", "TEXT NOT NULL DEFAULT ''"),
+    # webhook 开关：这一列是后加的（一开始只有「地址空不空」这一个判据）。
+    # DEFAULT 0 是给新账号的默认值，但**补列时必须按「有没有地址」回填一次** ——
+    # 不然升级时会给已经配好地址的人一律盖上「关」，渠道当场静默停摆，
+    # 而他那边只是发现收不到通知了、没有任何提示。见 _backfill_webhook_enabled
+    ("users", "webhook_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
     # ---------- 电子邮件渠道 ----------
     # notify_email 默认空串 = 回退用学生档案里的邮箱；开关默认 0 = 不开启。
     # 全班 36 人都有邮箱，默认打开等于上线当天给所有人发信，所以必须默认关
@@ -180,6 +185,29 @@ def _backfill_view_counts(conn) -> None:
         print(f"[迁移] 已按访问日志回填 {result.rowcount} 条文件的查看次数", flush=True)
 
 
+def _backfill_webhook_enabled(conn) -> None:
+    """按「有没有填地址」回填 users.webhook_enabled
+
+    只在 webhook_enabled 列**刚被加上**时调用，所以不用做幂等判断。
+
+    加这一列之前，「发不发」的唯一判据就是「地址是不是空的」—— 填了地址的用户
+    本来就一直在收通知。新列的 DEFAULT 0 要是直接生效，这批人会在升级后集体
+    静默停摆（他们看不到任何变化，只是再也收不到了）。所以补完列立刻按老口径
+    回填：有地址 = 当时是开着的 = 1。
+
+    从更老的版本升上来的情况（webhook_url 和 webhook_enabled 同一趟补出来）：
+    那时所有行的 url 都是空串，这条 UPDATE 一行都命中不了，正好是想要的结果。
+    """
+    result = conn.execute(text(
+        "UPDATE users SET webhook_enabled = 1 WHERE webhook_url IS NOT NULL AND webhook_url != ''"
+    ))
+    if result.rowcount:
+        print(
+            f"[迁移] 已按已填地址回填 {result.rowcount} 个账号的 webhook 开关（保持升级前就在发的继续发）",
+            flush=True,
+        )
+
+
 def run_migrations() -> None:
     """补齐老库缺失的列；新库上什么都不做"""
     if engine.dialect.name != "sqlite":
@@ -188,6 +216,7 @@ def run_migrations() -> None:
 
     seed_needed = False
     view_count_added = False
+    webhook_enabled_added = False
     with engine.begin() as conn:
         for table, column, ddl in NEW_COLUMNS:
             columns = _existing_columns(conn, table)
@@ -199,11 +228,16 @@ def run_migrations() -> None:
                 seed_needed = True
             if table == "announcements" and column == "view_count":
                 view_count_added = True
+            if table == "users" and column == "webhook_enabled":
+                webhook_enabled_added = True
 
         if seed_needed:
             _seed_roles(conn)
 
         if view_count_added:
             _backfill_view_counts(conn)
+
+        if webhook_enabled_added:
+            _backfill_webhook_enabled(conn)
 
         _rebuild_leave_table(conn)

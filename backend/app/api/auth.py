@@ -432,20 +432,27 @@ def change_password(
 def my_logs(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    events_page: int = Query(1, ge=1),
+    events_page_size: int = Query(20, ge=1, le=200),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """本人自助查看两块，和「系统管理 → 账号管理 → 查日志」共用同一套查询：
 
     - 操作日志：我**作为操作人**留下的记录（发布通知、审核办件、点名……），分页
-    - 登录与改密：我自己的登录 / 自行改密，最近 7 天
+    - 登录与改密：我自己的登录 / 自行改密，最近 7 天，窗口内分页
+
+    两块各自独立分页（page / events_page），因为一个是全量历史、一个是 7 天窗口，
+    共用一个页码会互相打架。
 
     故意不给「被操作记录」（别人对我做了什么）：那是管理员视角。本人看不了
     别人对自己账号做过什么，也就少一处能反推出管理员操作的入口。
     账号事件只记成功事件，登录失败不记 —— 别人拿错密码试的 IP 不该被看到。
     """
     op_total, op_items = account_operations(db, user.student_no, page, page_size)
-    event_total, event_items, since = account_events(db, user.student_no)
+    event_total, event_items, since = account_events(
+        db, user.student_no, events_page, events_page_size
+    )
 
     return MyLogsResponse(
         operations=OperationLogListResponse(total=op_total, items=op_items),
@@ -616,6 +623,7 @@ def get_webhook(user: User = Depends(get_current_user)):
     return {
         "url": user.webhook_url or "",
         "template": user.webhook_template or "",
+        "enabled": bool(user.webhook_enabled),
         # 给前端当文本框的 placeholder，和实际生效的那份必须同一个常量
         "default_template": DEFAULT_TEMPLATE_TEXT,
     }
@@ -634,8 +642,12 @@ def set_webhook(
     只能反复改一个没问题的地方。改成一保存就落库、测试走单独的 /test 端点，
     用法和 Bark 完全一致；前端「发送测试」按钮是「先保存再发」，用户看到的一样。
 
-    地址传空串 = 关闭这条渠道。非空时完整校验一遍：形态 + **域名解析出来的每个
-    IP 都必须是公网**。校验失败返回 400 带一句能直接显示给用户的原因。
+    「发不发」看 data.enabled，「发到哪」看 data.url。地址非空时完整校验一遍：
+    形态 + **域名解析出来的每个 IP 都必须是公网**。校验失败返回 400 带一句能直接
+    显示给用户的原因。
+
+    地址为空时强制归一成关闭：webhook 没有「学生档案邮箱」那种回退地址，空着地址
+    还开着开关就是个永远发不出去的状态，留在库里只会让人下次打开设置页时困惑。
     """
     url = (data.url or "").strip()
     template = (data.template or "").strip()
@@ -652,12 +664,24 @@ def set_webhook(
     if template_error:
         raise HTTPException(status_code=400, detail=template_error)
 
+    # enabled 为 None = 浏览器里缓存的旧前端（那时开关还不存在，它 PUT 时不带这个
+    # 字段）。按加开关之前的老规则处理 —— 有地址就是开着 —— 否则那个人只是点一下
+    # 保存，正在收通知的 webhook 就被静默关掉了
+    if data.enabled is None:
+        enabled = bool(url)
+    else:
+        enabled = bool(data.enabled) and bool(url)
+
     user.webhook_url = url
     user.webhook_template = template
+    user.webhook_enabled = enabled
     db.commit()
-    return {
-        "message": "已保存。建议点一下「发送测试」确认对方收得到" if url else "已关闭 webhook 通知"
-    }
+
+    if not url:
+        return {"message": "已保存（没填地址，这条渠道是关的）"}
+    if not enabled:
+        return {"message": "已保存，已关闭 webhook 通知"}
+    return {"message": "已保存。建议点一下「发送测试」确认对方收得到"}
 
 
 @router.post("/webhook/test", summary="往我配置的地址发一条测试通知")
@@ -666,6 +690,10 @@ def test_webhook(user: User = Depends(get_current_user)):
 
     **只发库里已经存好的地址，不接受请求体传 URL** —— 否则任何登录用户都能拿这个
     接口当「任意地址 POST 器」，整套 SSRF 防护就从这儿被绕过去了。
+
+    **不看开关**：测试是「验证这个地址配得对不对」，和「现在要不要收通知」是两件事。
+    关着的时候也该能测，不然用户只能先开、收到一堆通知，才发现地址是错的。
+    邮件那边同一条口径（test_email_notify 也不看 notify_email_enabled）。
     """
     if not user.webhook_url:
         raise HTTPException(status_code=400, detail="请先保存 webhook 地址")

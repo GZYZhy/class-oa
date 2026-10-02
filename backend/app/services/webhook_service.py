@@ -101,9 +101,14 @@ def webhook_targets(
 
     roles 为空表示不限角色；only_no 只发给某一个人（如办件的申请人）；
     exclude_no 用来把操作人自己排除掉。
+
+    两个条件都要满足才发：**开关开着，且填了地址**。
+    单独看开关会漏掉「开着但没地址」的空发；单独看地址会让用户没法在不丢掉
+    地址和模板的情况下先停一阵子 —— 那正是加这个开关的原因。
     """
     query = db.query(User.webhook_url, User.webhook_template).filter(
-        User.webhook_url.isnot(None), User.webhook_url != ""
+        User.webhook_enabled.is_(True),
+        User.webhook_url.isnot(None), User.webhook_url != "",
     )
     if roles:
         query = query.filter(User.role.in_(roles))

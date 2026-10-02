@@ -20,13 +20,6 @@
       </el-form-item>
     </el-form>
 
-    <div class="hint-note" v-if="effectiveAddress">
-      当前会发到 <b>{{ effectiveAddress }}</b>{{ form.email ? '（你填的地址）' : '（来自学生档案）' }}
-    </div>
-    <div class="hint-note">
-      这里填的邮箱只用来收通知，<b>不会改动学生档案</b>。要改档案里的邮箱，请走「基本信息 → 修改」申请。
-    </div>
-
     <div class="actions">
       <el-button size="small" :disabled="!smtpEnabled" :loading="testing" @click="handleTest">
         发送测试
@@ -62,9 +55,6 @@ const emailPlaceholder = computed(() => {
     ? '请填一个邮箱（你的账号没有学生档案）'
     : '学生档案里的邮箱不可用，请自己填一个'
 })
-
-// 真正会被发到的地址：填了覆盖值就用它，否则用档案里的
-const effectiveAddress = computed(() => form.email.trim() || defaultEmail.value)
 
 async function load() {
   try {
@@ -136,12 +126,5 @@ onMounted(load)
   align-items: center;
   gap: 8px;
   margin: 12px 0 0 0;
-}
-
-.hint-note {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 8px;
-  line-height: 1.6;
 }
 </style>
