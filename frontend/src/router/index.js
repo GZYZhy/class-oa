@@ -26,7 +26,7 @@ const routes = [
     path: '/my-info',
     name: 'MyInfo',
     component: () => import('@/views/MyInfo.vue'),
-    meta: { title: '我的信息', studentOnly: true }
+    meta: { title: '我的信息' }
   },
   {
     path: '/students',

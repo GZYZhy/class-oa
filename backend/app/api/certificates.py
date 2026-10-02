@@ -350,7 +350,7 @@ def approve_application(
         notify(
             background, targets, "证明开具申请已通过",
             f"你的证明申请（{req.title}）已通过，请在成品上传后下载",
-            level="timeSensitive", page="/certificate",
+            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
         )
     return {"message": "已通过"}
 
@@ -387,7 +387,7 @@ def reject_application(
         notify(
             background, targets, "证明开具申请被驳回",
             f"标题：{req.title}，理由：{clip(req.reject_reason)}",
-            level="timeSensitive", page="/certificate",
+            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
         )
     return {"message": "已驳回"}
 
@@ -449,7 +449,7 @@ async def upload_result(
         notify(
             background, targets, "证明已开好",
             f"你的证明（{req.title}）已开好，现在可以下载",
-            level="timeSensitive", page="/certificate",
+            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
         )
     return {"message": "上传成功", "result_original_name": file.filename}
 

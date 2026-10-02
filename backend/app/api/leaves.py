@@ -289,7 +289,7 @@ def approve_leave(
         background, targets, "请假申请已通过",
         f"你的{leave.leave_type}（{leave.start_at:%m-%d %H时} 起）已通过审核",
         level="timeSensitive",
-        page="/leave",
+        page="/my-info?tab=workspace&sub=submitted",
     )
     return _to_response(leave)
 
@@ -326,6 +326,7 @@ def reject_leave(
 
     notify(
         background, targets, "请假申请被驳回",
-        f"理由：{clip(leave.reject_reason)}", level="timeSensitive", page="/leave",
+        f"理由：{clip(leave.reject_reason)}", level="timeSensitive",
+        page="/my-info?tab=workspace&sub=submitted",
     )
     return _to_response(leave)

@@ -409,7 +409,7 @@ def approve_request(
         "导出申请已通过",
         f"你申请的{_display_name_for_type(req.export_type)}已通过审核，可前往学生信息页下载",
         level="timeSensitive",
-        page="/students",
+        page="/my-info?tab=workspace&sub=submitted",
     )
 
     db.refresh(req)
@@ -460,7 +460,7 @@ def reject_request(
         "导出申请被驳回",
         f"你申请的{_display_name_for_type(req.export_type)}被驳回：{body.reason}",
         level="timeSensitive",
-        page="/students",
+        page="/my-info?tab=workspace&sub=submitted",
     )
 
     return _to_response(req)

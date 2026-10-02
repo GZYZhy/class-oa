@@ -19,29 +19,13 @@
           共 {{ userStore.totalStudents }} 人
         </span>
 
-        <!-- 已登录：头像 + 姓名，下拉可改密码/退出 -->
-        <el-dropdown v-if="userStore.isLogin" trigger="click" @command="handleCommand">
-          <div class="user-box">
-            <el-avatar :size="34" :src="userStore.info.avatar || ''" class="user-avatar">
-              {{ userStore.initial }}
-            </el-avatar>
-            <span class="user-name">{{ userStore.info.name }}</span>
-            <el-icon class="user-arrow"><ArrowDown /></el-icon>
-          </div>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="password">
-                <el-icon><Key /></el-icon>修改密码
-              </el-dropdown-item>
-              <el-dropdown-item command="notify">
-                <el-icon><Bell /></el-icon>通知设置
-              </el-dropdown-item>
-              <el-dropdown-item command="logout" divided>
-                <el-icon><SwitchButton /></el-icon>退出登录
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <!-- 已登录：头像 + 姓名，点击跳转到账户设置 -->
+        <div v-if="userStore.isLogin" class="user-box" @click="router.push('/my-info?tab=account')">
+          <el-avatar :size="34" :src="userStore.info.avatar || ''" class="user-avatar">
+            {{ userStore.initial }}
+          </el-avatar>
+          <span class="user-name">{{ userStore.info.name }}</span>
+        </div>
 
         <el-button v-else type="primary" plain size="small" @click="router.push('/login')">
           登录
@@ -51,21 +35,31 @@
 
     <el-container>
       <el-aside width="220px" class="layout-aside" :class="{ 'is-open': drawerOpen }">
-        <el-menu
-          :default-active="activeMenu"
-          router
-          class="side-menu"
-          background-color="#1f2d3d"
-          text-color="#bfcbd9"
-          active-text-color="#409EFF"
-          @select="drawerOpen = false"
-        >
-          <el-menu-item v-for="item in visibleMenu" :key="item.path" :index="item.path">
-            <el-icon><component :is="item.icon" /></el-icon>
-            <span>{{ item.title }}</span>
-            <span v-if="badgeOf(item)" class="menu-item-badge">{{ badgeOf(item) }}</span>
-          </el-menu-item>
-        </el-menu>
+        <div class="aside-inner">
+          <el-menu
+            :default-active="activeMenu"
+            router
+            class="side-menu"
+            background-color="#1f2d3d"
+            text-color="#bfcbd9"
+            active-text-color="#409EFF"
+            @select="drawerOpen = false"
+          >
+            <el-menu-item v-for="item in visibleMenu" :key="item.path" :index="item.path">
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span>{{ item.title }}</span>
+              <span v-if="badgeOf(item)" class="menu-item-badge">{{ badgeOf(item) }}</span>
+            </el-menu-item>
+          </el-menu>
+
+          <!-- 底部：已登录时显示退出登录 -->
+          <div v-if="userStore.isLogin" class="aside-footer">
+            <div class="logout-item" @click="handleLogout">
+              <el-icon><SwitchButton /></el-icon>
+              <span>退出登录</span>
+            </div>
+          </div>
+        </div>
       </el-aside>
 
       <!-- 手机上菜单展开时的遮罩，点一下收起（桌面端永远不显示） -->
@@ -119,12 +113,6 @@
       </template>
     </el-dialog>
 
-    <!-- 主动修改密码：独立组件，需验证原密码 -->
-    <ChangePasswordDialog ref="changePwdRef" />
-
-    <!-- 通知设置：浏览器通知 + Bark 推送，两个渠道合并成一个入口 -->
-    <NotifySettingDialog ref="notifyRef" />
-
     <!-- iOS 装到主屏的引导：进站 3 秒后自己升起，不需要 ref。
          ⚠️ 必须留在 el-container 内部：它 v-else 掉的就是登录页，
          这样才有「登录之后才弹」。挪到外面登录页也会弹。 -->
@@ -137,9 +125,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { setInitialPassword } from '@/api/auth'
-import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import IosInstallGuide from '@/components/IosInstallGuide.vue'
-import NotifySettingDialog from '@/components/NotifySettingDialog.vue'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
 import { rankOf } from '@/utils/roles'
@@ -206,12 +192,6 @@ const visibleMenu = computed(() =>
 const pwdVisible = ref(false)
 const pwdLoading = ref(false)
 const pwdForm = reactive({ new_password: '', confirm: '' })
-
-// 主动修改密码（独立组件）
-const changePwdRef = ref(null)
-
-// 通知设置（独立组件）
-const notifyRef = ref(null)
 
 // 浏览器订阅是**按浏览器**（endpoint 唯一）存的。班级系统会在机房、共用电脑上
 // 登录，换人时必须改绑或解除，否则 B 会收到推给 A 的隐私通知（请假驳回理由之类）。
@@ -287,21 +267,16 @@ async function handleSetInitialPassword() {
   }
 }
 
-async function handleCommand(command) {
-  if (command === 'password') {
-    changePwdRef.value?.open()
-  } else if (command === 'notify') {
-    notifyRef.value?.open()
-  } else if (command === 'logout') {
-    try {
-      await ElMessageBox.confirm('确定退出登录吗？', '退出确认', { type: 'warning' })
-    } catch (e) {
-      return // 取消
-    }
-    await userStore.logout()
-    ElMessage.success('已退出登录')
-    router.push('/dashboard')
+async function handleLogout() {
+  drawerOpen.value = false
+  try {
+    await ElMessageBox.confirm('确定退出登录吗？', '退出确认', { type: 'warning' })
+  } catch (e) {
+    return // 取消
   }
+  await userStore.logout()
+  ElMessage.success('已退出登录')
+  router.push('/dashboard')
 }
 
 onMounted(async () => {
@@ -434,21 +409,48 @@ onMounted(async () => {
   color: #fff;
 }
 
-.user-arrow {
-  color: #bfcbd9;
-  font-size: 12px;
-}
-
 .layout-aside {
   background: #1f2d3d;
   overflow-x: hidden;
+}
+
+/* aside 内部纵向布局：菜单占满剩余空间，底部退出登录固定在下方 */
+.aside-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 高度交给 flex 分配（aside 是 el-container 的行内子项，默认拉伸到满高）。
    原来写的 calc(100vh - 64px) 在加了脚栏之后会比实际可用高度多出一截 */
 .side-menu {
   border-right: none;
-  height: 100%;
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* 底部退出登录项，跟菜单项同高同风格 */
+.aside-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.logout-item {
+  height: 50px;
+  line-height: 50px;
+  padding: 0 20px;
+  color: #bfcbd9;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.2s, color 0.2s;
+}
+
+.logout-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
 }
 
 :deep(.el-menu-item) {
@@ -578,8 +580,7 @@ onMounted(async () => {
 
 /* 更窄的屏幕（多数手机竖屏）：头像旁的名字也收起来，只留头像 */
 @media (max-width: 480px) {
-  .user-name,
-  .user-arrow {
+  .user-name {
     display: none;
   }
 }

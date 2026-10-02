@@ -177,7 +177,7 @@ def approve(
     result = _finish(db, req, user, "approved", "通过修改申请", detail="；".join(detail_parts), ip=ip)
     notify(
         background, targets, "信息修改申请已通过",
-        f"你提交的 {len(changes)} 项修改已生效", level="timeSensitive", page="/my-info",
+        f"你提交的 {len(changes)} 项修改已生效", level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
     )
     return result
 
@@ -196,6 +196,6 @@ def reject(
     result = _finish(db, req, user, "rejected", "驳回修改申请", reason=payload.reason, ip=ip)
     notify(
         background, targets, "信息修改申请被驳回",
-        f"理由：{clip(payload.reason)}", level="timeSensitive", page="/my-info",
+        f"理由：{clip(payload.reason)}", level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
     )
     return result
