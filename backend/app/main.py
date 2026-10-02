@@ -21,6 +21,8 @@ from .api import api_router
 from .database import Base, engine, SessionLocal
 from .database_migrate import backfill_notice_reads, run_migrations
 from .services import ensure_default_users, purge_expired, seed_from_catalog
+from .services.birthday_service import ensure_settings
+from .services.scheduler import start as start_birthday_scheduler
 from .utils.ip import parse_cidrs
 
 # 确保数据目录存在
@@ -89,6 +91,21 @@ def init_resources() -> None:
 
 
 init_resources()
+
+
+def init_birthday_settings() -> None:
+    """首次启动时把「生日关怀」的单行设置补出来（幂等：已有行就不动）
+
+    先补行、再起调度线程：线程一上来就会读这张表。
+    """
+    db = SessionLocal()
+    try:
+        ensure_settings(db)
+    finally:
+        db.close()
+
+
+init_birthday_settings()
 
 
 def warn_turnstile() -> None:
@@ -220,6 +237,11 @@ def purge_ip_bans() -> None:
 
 
 purge_ip_bans()
+
+# 每日生日任务：进程内起一个守护线程（项目唯一的定时任务）。
+# 后端是单进程（Dockerfile 的 uvicorn 没带 --workers），所以进程内定时是安全的。
+# 必须放在 create_all 之后 —— 它要读写 birthday_settings 表。
+start_birthday_scheduler()
 
 app = FastAPI(
     title=settings.app_name,
