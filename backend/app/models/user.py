@@ -31,12 +31,14 @@ class User(Base):
     # Bark 推送设备 key：在手机上的 Bark App 首页复制。空表示该用户没开推送
     bark_key = Column(String(128), nullable=True, comment="Bark 设备 key，未设置为空")
     # ---------- 自定义 webhook 渠道 ----------
-    # 用户自己填的接收地址。空 = 没开这个渠道（和 bark_key 同一个约定）。
+    # 用户自己填的接收地址。**地址空不空和发不发是两件事**：发不发看下面的
+    # webhook_enabled，这一列只管「往哪发」。两列都满足才真发得出去
+    # （见 webhook_targets）。
     # 实质是「服务器按用户给的地址往外发 POST」，属于 SSRF 面，
     # 保存和发送都要过 utils/url_guard.py 那道公网校验，这里只负责存
     webhook_url = Column(
         String(500), nullable=False, default="", server_default=text("''"),
-        comment="自定义 webhook 地址，空表示未开启",
+        comment="自定义 webhook 地址，空 = 没配地址",
     )
     # 请求体模板。**必须是一个 JSON 对象**（发送时 json.loads 出来、在解析后的结构上
     # 替换占位符再 dumps），不是随意字符串 —— 直接对原始文本做替换会被注入出
@@ -44,6 +46,14 @@ class User(Base):
     webhook_template = Column(
         Text, nullable=False, default="", server_default=text("''"),
         comment="webhook 请求体模板（JSON 对象），空表示用默认模板",
+    )
+    # webhook 渠道开关。默认关闭：这是给懂行的人用的渠道，不该有人稀里糊涂就开了。
+    # 和 email 那边同一条约定：**开关决定发不发，地址决定发到哪**。
+    # 区别是 webhook 没有「档案邮箱」那种回退地址，所以地址空时开关没有意义 ——
+    # 保存接口会把这种组合归一成关闭（见 api/auth.py 的 set_webhook）
+    webhook_enabled = Column(
+        Boolean, nullable=False, default=False, server_default=text("0"),
+        comment="是否往自定义 webhook 地址发送通知",
     )
     # ---------- 电子邮件渠道 ----------
     # 收件地址的**覆盖值**。空 = 回退用学生档案里的 students.email。

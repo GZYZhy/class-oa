@@ -5,7 +5,14 @@
       <el-collapse-item name="webhook">
         <template #title>
           <span class="collapse-title">自定义 Webhook</span>
-          <span class="collapse-badge" v-if="savedUrl">已配置</span>
+          <!-- 折叠着就能看出这条渠道现在发不发。没有地址时什么也不显示 ——
+               那时开关必然是关的（后端保存时就归一了），再挂个「已关闭」
+               只会让人以为是有人手动关的 -->
+          <span
+            class="collapse-badge"
+            v-if="saved.url"
+            :class="{ off: !saved.enabled }"
+          >{{ saved.enabled ? '已开启' : '已关闭' }}</span>
         </template>
 
         <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 16px;">
@@ -17,7 +24,7 @@
           <el-form-item label="接收地址">
             <el-input
               v-model="form.url"
-              placeholder="https://…（留空并保存 = 关闭这个渠道）"
+              placeholder="https://…"
               clearable
             />
           </el-form-item>
@@ -29,16 +36,17 @@
               :placeholder="defaultTemplate"
             />
           </el-form-item>
+          <el-form-item label="开启通知">
+            <el-switch v-model="form.enabled" />
+            <span class="desc" style="margin-left: 12px;">打开后才会往这个地址发</span>
+          </el-form-item>
         </el-form>
 
         <div class="hint-note" v-pre>
           模板是一段 JSON。里面可以写 {{title}}、{{content}}、{{page}}、{{time}}
           四个占位符，发送时会被替换成通知的标题、正文、站内链接和时间。
-          清空则使用上面提示里的默认模板，下面这种写法可以直接贴到企业微信 / 钉钉 / 飞书机器人里。
-        </div>
-        <div class="hint-note">
-          只支持公网 https 地址，且不会跟随对方返回的跳转 —— 内网地址填不上，配错了也不会
-          拖慢系统（每条请求都有超时）。
+          清空则用默认模板（就是上面输入框里灰字显示的那份），那种写法可以直接贴到
+          企业微信 / 钉钉 / 飞书机器人里。
         </div>
 
         <div class="actions">
@@ -58,10 +66,12 @@ import { getWebhookSetting, saveWebhookSetting, testWebhook } from '@/api/notify
 // 空数组 = 全部收起。每次进页面都是折叠的，展开状态不记住是有意的：
 // 这东西不该成为「顺手点开看看」的入口。
 const active = ref([])
-const form = reactive({ url: '', template: '' })
+const form = reactive({ url: '', template: '', enabled: false })
 const defaultTemplate = ref('')
-// 存下来的地址只用来显示「已配置」角标，不参与提交（提交一律用输入框里的值）
-const savedUrl = ref('')
+// 库里已存的开关和地址，只用来显示标题右边那个状态角标，不参与提交
+// （提交一律用输入框里的值）。不用 form 里的值：那是用户正在编辑、还没保存的东西，
+// 拿它当角标会在用户一拨开关时就说「已开启」，而库里其实还没变
+const saved = reactive({ url: '', enabled: false })
 const saving = ref(false)
 const testing = ref(false)
 const busy = ref(false)
@@ -71,8 +81,10 @@ async function load() {
     const data = await getWebhookSetting()
     form.url = data.url || ''
     form.template = data.template || ''
-    savedUrl.value = data.url || ''
+    form.enabled = !!data.enabled
     defaultTemplate.value = data.default_template || ''
+    saved.url = data.url || ''
+    saved.enabled = !!data.enabled
   } catch (e) {
     // 接口探测失败时父组件根本不会渲染本组件，能走到这里说明是别的原因（比如断网）
     ElMessage.error(e?.response?.data?.detail || '读取 Webhook 设置失败')
@@ -80,8 +92,13 @@ async function load() {
 }
 
 async function doSave() {
-  const res = await saveWebhookSetting(form.url.trim(), form.template)
-  savedUrl.value = form.url.trim()
+  // 没填地址就没有「开着」的意义，后端保存时也是这么归一的（见 set_webhook）。
+  // 这里跟着算一遍，免得保存完开关还亮着、库里其实已经是关的了
+  const enabled = form.enabled && !!form.url.trim()
+  const res = await saveWebhookSetting(form.url.trim(), form.template, enabled)
+  form.enabled = enabled
+  saved.url = form.url.trim()
+  saved.enabled = enabled
   return res
 }
 
@@ -138,11 +155,15 @@ onMounted(load)
   font-weight: 400;
 }
 
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 12px 0 0 0;
+/* 配了地址但开关关着：灰色，和「已开启」的蓝色区分开 */
+.collapse-badge.off {
+  background: #f4f4f5;
+  color: #909399;
+}
+
+.desc {
+  font-size: 12px;
+  color: #909399;
 }
 
 .hint-note {
@@ -150,5 +171,12 @@ onMounted(load)
   color: #909399;
   margin-top: 8px;
   line-height: 1.6;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0 0;
 }
 </style>

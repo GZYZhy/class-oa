@@ -3,14 +3,14 @@ import request from '@/utils/request'
 // 「账户设置」里两条新通知渠道的接口：自定义 webhook 和电子邮件。
 // Bark 和浏览器推送在 api/bark.js、api/webpush.js 里，四条渠道各管各的开关。
 
-/** 读取我的自定义 webhook 设置（地址、body 模板，以及默认模板供占位提示用） */
+/** 读取我的自定义 webhook 设置（开关、地址、body 模板，以及默认模板供占位提示用） */
 export function getWebhookSetting() {
   return request({ url: '/auth/webhook', method: 'get' })
 }
 
-/** 保存 webhook 设置；地址传空串表示关闭这条渠道 */
-export function saveWebhookSetting(url, template) {
-  return request({ url: '/auth/webhook', method: 'put', data: { url, template } })
+/** 保存 webhook 设置；enabled 决定发不发，url 决定发到哪（url 为空时后端会归一成关闭） */
+export function saveWebhookSetting(url, template, enabled) {
+  return request({ url: '/auth/webhook', method: 'put', data: { url, template, enabled } })
 }
 
 /**

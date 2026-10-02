@@ -16,8 +16,12 @@ from sqlalchemy.orm import Session
 from ..models import AccountEvent, OperationLog, User
 from .user_service import account_name
 
-# 「按账号查日志」里登录/改密事件的展示窗口与条数上限。
-# 窗口是查的时候限的，不是往里写的时候限的（account_events 只增不删）
+# 「按账号查日志」里登录/改密事件的展示窗口，以及 account_events() 的默认页大小。
+# 窗口是查的时候限的，不是往里写的时候限的（account_events 只增不删）。
+#
+# LIMIT 这名字是历史遗留：加分页之前它是「最多展示 200 条」的硬上限，现在是默认
+# page_size —— 管理员那边（api/admin.py）不传分页参数，拿到的仍是「窗口内最多
+# 200 条」；「我的日志」（api/auth.py）显式传 20 并翻页。改这个值会同时影响两边。
 ACCOUNT_EVENT_DAYS = 7
 ACCOUNT_EVENT_LIMIT = 200
 
@@ -45,11 +49,21 @@ def account_operations(db: Session, student_no: str, page: int = 1, page_size: i
     return total, items
 
 
-def account_events(db: Session, student_no: str):
-    """某个账号最近 ACCOUNT_EVENT_DAYS 天的登录 / 自行改密事件。
+def account_events(
+    db: Session,
+    student_no: str,
+    page: int = 1,
+    page_size: int = ACCOUNT_EVENT_LIMIT,
+):
+    """某个账号最近 ACCOUNT_EVENT_DAYS 天的登录 / 自行改密事件，分页。
 
-    返回 (窗口内总数, 展示的条目, 窗口左端)。总数可能大于条目数（超出上限），
-    调用方据此提示「只列了最近 N 条」，不做静默截断。
+    返回 (窗口内总数, 当前页条目, 窗口左端)。总数是**窗口内的**总数，
+    可能大于本页条数，调用方据此决定分页器或「只列了最近 N 条」的提示。
+
+    page_size 的默认值特地取 ACCOUNT_EVENT_LIMIT 而不是 20：admin.py 的
+    「账号管理 → 查日志」不传分页参数，靠这个默认值拿到的仍是「窗口内最多
+    200 条」，与加分页之前**逐字一致**；只有「我的日志」（api/auth.py）
+    显式传 page_size，才走真正的翻页。
     """
     since = datetime.now() - timedelta(days=ACCOUNT_EVENT_DAYS)
     query = db.query(AccountEvent).filter(
@@ -63,7 +77,8 @@ def account_events(db: Session, student_no: str):
         # 按 created_at 倒序而不是 id 倒序：窗口本来就是拿 created_at 划的，
         # 排序用同一个字段才自洽。id 倒序只在「写入顺序 = 时间顺序」时等价
         query.order_by(AccountEvent.created_at.desc(), AccountEvent.id.desc())
-        .limit(ACCOUNT_EVENT_LIMIT)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
     return total, items, since
