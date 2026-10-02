@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, Integer, Text, text
+from sqlalchemy import Boolean, Column, Date, DateTime, Integer, Text, text
 
 from ..database import Base
 
@@ -57,3 +57,11 @@ class BirthdaySettings(Base):
     )
     # 幂等标记：哪一天跑过每日任务。可空 = 一次都没跑过
     last_run_date = Column(Date, nullable=True, comment="每日任务最近一次运行的日期")
+    # ---------- 下面三列只用于展示运行状态，不参与任何判断 ----------
+    # 时刻和 last_run_date 分开存：那一列是幂等标记、只认日期（用来判断「今天跑没跑」），
+    # 这一列精确到秒，给管理员看「到底几点跑的」。各记各的，互不影响。
+    # 三列都可空：「从没跑过」和「跑了、但当天没人过生日」是两种不同的显示，
+    # 不能用默认值 0 抹平
+    last_run_at = Column(DateTime, nullable=True, comment="每日任务最近一次运行的时刻")
+    last_run_birthdays = Column(Integer, nullable=True, comment="最近一次运行时的寿星人数")
+    last_run_notices = Column(Integer, nullable=True, comment="最近一次运行发出的通知条数")

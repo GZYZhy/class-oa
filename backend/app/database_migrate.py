@@ -69,6 +69,12 @@ NEW_COLUMNS = [
     # 全班 36 人都有邮箱，默认打开等于上线当天给所有人发信，所以必须默认关
     ("users", "notify_email", "VARCHAR(100) NOT NULL DEFAULT ''"),
     ("users", "notify_email_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+    # ---------- 生日关怀的运行状态 ----------
+    # 三列都可空 = 「从没跑过」，与「跑过、但当天没人过生日」区分开（那种是 0）。
+    # 只用于页面上显示运行状态、不参与任何判断，所以老库补成 NULL 完全安全
+    ("birthday_settings", "last_run_at", "DATETIME"),
+    ("birthday_settings", "last_run_birthdays", "INTEGER"),
+    ("birthday_settings", "last_run_notices", "INTEGER"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张邗语（班长）、赵梦婷（团支书）
