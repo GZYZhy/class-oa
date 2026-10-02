@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..config import BASE_DIR, settings
 from ..database import get_db
 from ..models import (
+    AccessToken,
     FileAccessLog,
     IpBan,
     OperationLog,
@@ -159,6 +160,24 @@ def _get_user(db: Session, login_name: str) -> User:
     return target
 
 
+def _revoke_all_tokens(db: Session, target: User) -> int:
+    """吊销某账号全部还没失效的访问令牌，返回吊销条数
+
+    管理员的两个「应急开关」——吊销所有会话、重置密码——都要顺手调它。
+    令牌是**长期凭据**，光把 session_epoch +1 或者改掉密码都踢不掉它，
+    漏了这一步等于应急开关有个洞：管理员以为人已经被清出去了，
+    攻击者手上的令牌却还能以那个账号的名义读数据、提交申请。
+
+    用 update 而不是逐行赋值的两行理由：一次 SQL 就够，且 synchronize_session=False
+    —— 这些对象本次请求用不到，没必要让 session 挨个同步。
+    """
+    return (
+        db.query(AccessToken)
+        .filter(AccessToken.user_id == target.id, AccessToken.revoked_at.is_(None))
+        .update({AccessToken.revoked_at: datetime.now()}, synchronize_session=False)
+    )
+
+
 @router.get("/users", response_model=list[AdminUserResponse], summary="账号列表")
 def list_users(_: User = Depends(admin_required), db: Session = Depends(get_db)):
     rows = (
@@ -254,12 +273,20 @@ def reset_password(
         target.password_salt = new_salt
         # 密码是管理员当场定的、能当面告知，再强迫改一次没有意义
         target.must_change_password = False
+        # 改密码踢不掉已经签发的访问令牌，这里必须显式吊销
+        revoked_tokens = _revoke_all_tokens(db, target)
         log_operation(
             db, user, "重置密码", target=f"{student_no} {account_name(db, target)}",
             detail="域外账号，由管理员指定新密码", ip=ip,
         )
         db.commit()
-        return ResetPasswordResponse(message="密码已重置，新密码即刻可用")
+        return ResetPasswordResponse(
+            message=(
+                f"密码已重置，新密码即刻可用（同时吊销了 {revoked_tokens} 个访问令牌）"
+                if revoked_tokens
+                else "密码已重置，新密码即刻可用"
+            )
+        )
 
     student = db.query(Student).filter(Student.student_no == student_no).first()
     if not student:
@@ -271,6 +298,8 @@ def reset_password(
     target.password_salt = new_salt
     target.must_change_password = True  # 重置后第一次登录仍要改密码
 
+    # 同域外账号那条：改密码踢不掉已签发的访问令牌
+    revoked_tokens = _revoke_all_tokens(db, target)
     log_operation(
         db, user, "重置密码", target=f"{student_no} {student.name}",
         detail="无身份证号，重置为学号后 6 位" if is_fallback else "重置为身份证号后 6 位",
@@ -278,7 +307,10 @@ def reset_password(
     )
     db.commit()
     return ResetPasswordResponse(
-        message="已重置为原始密码，该生下次登录需修改密码",
+        message=(
+            "已重置为原始密码，该生下次登录需修改密码"
+            + (f"（同时吊销了 {revoked_tokens} 个访问令牌）" if revoked_tokens else "")
+        ),
         password=password if is_fallback else None,
         fallback=is_fallback,
     )
@@ -365,11 +397,22 @@ def revoke_sessions(
     # 不拦「吊销自己」：管理员怀疑自己的会话被蹭了同样需要这个操作，
     # 代价只是自己也被踢下线、重新登录一遍而已，不像冻结自己那样会锁死系统
     target.session_epoch = (target.session_epoch or 0) + 1
+    # 访问令牌是长期凭据，session_epoch 管不到它，必须显式吊销 ——
+    # 否则这个应急开关对「令牌泄露」这种最常见的情形恰好是失效的
+    revoked_tokens = _revoke_all_tokens(db, target)
     log_operation(
-        db, user, "吊销会话", target=f"{student_no} {account_name(db, target)}", ip=ip,
+        db, user, "吊销会话", target=f"{student_no} {account_name(db, target)}",
+        detail=f"同时吊销 {revoked_tokens} 个访问令牌" if revoked_tokens else "",
+        ip=ip,
     )
     db.commit()
-    return {"message": "已吊销该账号的全部会话"}
+    return {
+        "message": (
+            f"已吊销该账号的全部会话，并吊销 {revoked_tokens} 个访问令牌"
+            if revoked_tokens
+            else "已吊销该账号的全部会话"
+        )
+    }
 
 
 @router.get(
