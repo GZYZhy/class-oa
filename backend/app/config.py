@@ -102,6 +102,22 @@ class Settings(BaseSettings):
     # 格式必须是 mailto: 或 https:// 且带点号的域名，例如 mailto:admin@oa.example.com
     vapid_subject: str = "mailto:noreply@example.com"
 
+    # ---------- 电子邮件通知（SMTP） ----------
+    # **HOST / USER / PASSWORD 三项缺一，或 SECURITY 配了不认识的值，这个渠道就全局关闭** ——
+    # 前端会置灰整块，后端连收件人都不查（判定见 smtp_enabled()）。
+    # 配一半比不配更糟：会变成「以为配好了其实没生效」，所以一律当关闭并打启动警告。
+    smtp_host: str = ""
+    # 留 0 = 按 smtp_security 推导默认端口（ssl→465 / starttls→587 / none→25）
+    smtp_port: int = 0
+    # 加密方式：ssl（直连 TLS）/ starttls（明文连接后升级）/ none（明文，仅供内网调试）。
+    # 三个取值之外的一律视为配错 → 渠道关闭
+    smtp_security: str = "ssl"
+    smtp_user: str = ""
+    # QQ / 163 这类邮箱填的是「授权码」，不是登录密码
+    smtp_password: str = ""
+    # 发件人地址。留空则用 smtp_user
+    smtp_from: str = ""
+
     class Config:
         # 先找项目根目录的 .env（部署时统一放根目录），再找当前目录的 .env（本地开发直接在 backend/ 里跑）
         env_file = ["../.env", ".env"]
@@ -131,6 +147,51 @@ def turnstile_enabled() -> bool:
     main.py 启动时会为这种情况打一行警告。
     """
     return bool(settings.turnstile_site_key and settings.turnstile_secret_key)
+
+
+# SMTP 加密方式的合法取值，以及每种方式的默认端口
+SMTP_SECURITY_MODES = ("ssl", "starttls", "none")
+_SMTP_DEFAULT_PORTS = {"ssl": 465, "starttls": 587, "none": 25}
+
+
+def smtp_security() -> str | None:
+    """规范化的加密方式；配了不认识的值返回 None
+
+    返回 None 是「这个值不可用」的唯一判据，smtp_enabled() 和上层的连接代码
+    都靠它决定要不要开工 —— 与其带着一个拼错的值走到运行时才抛异常，
+    不如在这里就当成「没配」。
+    """
+    mode = (settings.smtp_security or "").strip().lower()
+    return mode if mode in SMTP_SECURITY_MODES else None
+
+
+def smtp_enabled() -> bool:
+    """邮件渠道总开关：HOST / USER / PASSWORD 都非空，且加密方式合法。
+
+    做成「判定函数」而不是一个布尔配置项，和 turnstile_enabled() 一个路子 ——
+    这样不存在「配置说开着、实际发不出去」的中间状态。
+
+    注意它管的是**渠道全局可用性**；某个人收不收还要看他自己的
+    notify_email_enabled（默认关）。
+    """
+    return bool(
+        settings.smtp_host.strip()
+        and settings.smtp_user.strip()
+        and settings.smtp_password
+        and smtp_security()
+    )
+
+
+def smtp_port() -> int:
+    """实际使用的端口：配了合法值就用它，否则按加密方式推导"""
+    if 0 < settings.smtp_port <= 65535:
+        return settings.smtp_port
+    return _SMTP_DEFAULT_PORTS.get(smtp_security() or "", 465)
+
+
+def smtp_sender() -> str:
+    """发件人地址：没单独配 SMTP_FROM 就用登录账号"""
+    return (settings.smtp_from or settings.smtp_user).strip()
 
 
 def fail_window_minutes() -> int:

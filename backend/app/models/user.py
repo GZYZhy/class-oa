@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, func, text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, func, text
 
 from ..database import Base
 
@@ -30,6 +30,35 @@ class User(Base):
     last_login_ip = Column(String(45), nullable=True, comment="最近登录 IP")
     # Bark 推送设备 key：在手机上的 Bark App 首页复制。空表示该用户没开推送
     bark_key = Column(String(128), nullable=True, comment="Bark 设备 key，未设置为空")
+    # ---------- 自定义 webhook 渠道 ----------
+    # 用户自己填的接收地址。空 = 没开这个渠道（和 bark_key 同一个约定）。
+    # 实质是「服务器按用户给的地址往外发 POST」，属于 SSRF 面，
+    # 保存和发送都要过 utils/url_guard.py 那道公网校验，这里只负责存
+    webhook_url = Column(
+        String(500), nullable=False, default="", server_default=text("''"),
+        comment="自定义 webhook 地址，空表示未开启",
+    )
+    # 请求体模板。**必须是一个 JSON 对象**（发送时 json.loads 出来、在解析后的结构上
+    # 替换占位符再 dumps），不是随意字符串 —— 直接对原始文本做替换会被注入出
+    # 结构外的内容（甲填的标题能改写乙收到的 JSON）。空 = 用内置默认模板
+    webhook_template = Column(
+        Text, nullable=False, default="", server_default=text("''"),
+        comment="webhook 请求体模板（JSON 对象），空表示用默认模板",
+    )
+    # ---------- 电子邮件渠道 ----------
+    # 收件地址的**覆盖值**。空 = 回退用学生档案里的 students.email。
+    # 之所以不直接改学生表：学生档案只能走「修改申请 → 班委审批」那条路改，
+    # 通知用的地址属于个人便利设置，不该反过来污染档案。
+    # 域外账号没有学生记录，没有回退值，只能自己填
+    notify_email = Column(
+        String(100), nullable=False, default="", server_default=text("''"),
+        comment="通知邮件地址覆盖值，空表示用学生档案邮箱",
+    )
+    # 邮件渠道开关。默认关闭：全班都有邮箱，默认打开等于上线当天给所有人发信
+    notify_email_enabled = Column(
+        Boolean, nullable=False, default=False, server_default=text("0"),
+        comment="是否接收通知邮件",
+    )
     # ---------- 以下三列仅域外账号用 ----------
     # 展示用户名：同时用作姓名、水印名、日志操作人、通知/公告发布人。
     # 学生账号留空，姓名仍从学生表实时取，这样学生改了名字各处能跟着变

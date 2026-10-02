@@ -75,6 +75,31 @@ class WebPushUnsubscribeRequest(BaseModel):
     endpoint: str = Field(..., max_length=500)
 
 
+class WebhookSettingRequest(BaseModel):
+    """自定义 webhook 的配置；两个字段都传空串表示关闭这条渠道
+
+    这里只放字段形状。**地址的安全判定和模板的 JSON 校验都不在 schema 里做**，
+    而是在接口里做：这两项失败要回一句能直接显示给用户的中文原因，而 schema 的
+    field_validator 抛出异常会变成 422，前端拿到的 detail 是个数组 —— 它按字符串
+    用（见 request.js 的调用方全是 e?.response?.data?.detail），会显示成怪东西。
+    """
+    url: str = Field("", max_length=500, description="要 POST 过去的 https 地址；空 = 关闭")
+    # 不加 max_length：长度上限由 webhook_service.MAX_TEMPLATE_LEN 一处管，
+    # 那边给的是「模板太长了，请控制在 N 个字符以内」这种能看懂的话
+    template: str = Field("", description="请求体 JSON 模板；空 = 用内置默认模板")
+
+
+class EmailNotifyRequest(BaseModel):
+    """邮件通知的配置
+
+    `email` 是**覆盖值**，只存在 users 表里，永远不会写回学生档案：
+    留空表示「用学生档案里的邮箱」。改档案得走「基本信息 → 修改」的审批流，
+    这样学生档案只有一个入口，不会被这里悄悄改掉。
+    """
+    email: str = Field("", max_length=100, description="收通知的邮箱；空 = 用学生档案邮箱")
+    enabled: bool = Field(False, description="是否接收通知邮件")
+
+
 class UserInfoResponse(BaseModel):
     """当前用户信息（不含任何敏感字段）
 
@@ -93,3 +118,8 @@ class UserInfoResponse(BaseModel):
     is_external: bool = False
     # Bark 推送设备 key，没开推送时为空。只返给本人（就是他在自己手机 App 首页看到的那串）
     bark_key: Optional[str] = None
+    # 管理员有没有把 SMTP 配齐（config.smtp_enabled()）。
+    # 前端靠它把「电子邮件通知」整块置灰：没配的时候**任何人开了也收不到**，
+    # 与其让用户对着一个存得下、按钮也点得动、就是不来信的开关，不如直接说清楚。
+    # 新加的字段有默认值，旧前端不认识它也不会坏
+    smtp_enabled: bool = False

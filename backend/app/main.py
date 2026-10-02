@@ -5,7 +5,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect
 from starlette.middleware.sessions import SessionMiddleware
 
-from .config import fail_window_minutes, login_ban_values, settings, resolve_session_secret
+from .config import (
+    SMTP_SECURITY_MODES,
+    fail_window_minutes,
+    login_ban_values,
+    settings,
+    resolve_session_secret,
+    smtp_enabled,
+    smtp_port,
+    smtp_security,
+    smtp_sender,
+)
 from .middleware import RememberMeMiddleware
 from .api import api_router
 from .database import Base, engine, SessionLocal
@@ -153,7 +163,44 @@ def warn_security_config() -> None:
         print("[安全] 通开密码未限制来源 IP", flush=True)
 
 
+def warn_notify_channels() -> None:
+    """把邮件渠道的生效状态打在日志里
+
+    这一行的用途和上面的安全横幅一样：出了「怎么没收到邮件」的时候，
+    先看这里就知道是没配、配了一半、还是配好了但那个人自己没开。
+    """
+    if not smtp_enabled():
+        # 区分「压根没配」和「配了一半 / 配错了」—— 后两种是运维以为配好了的情况，
+        # 不说清楚就会被当成功能坏了来排查
+        partial = any(
+            (settings.smtp_host.strip(), settings.smtp_user.strip(), settings.smtp_password)
+        )
+        if partial or settings.smtp_security.strip().lower() not in SMTP_SECURITY_MODES:
+            print(
+                "[通知] 邮件渠道未启用：SMTP_HOST / SMTP_USER / SMTP_PASSWORD 没配齐，"
+                f"或 SMTP_SECURITY={settings.smtp_security!r} 不是 ssl/starttls/none 之一",
+                flush=True,
+            )
+        else:
+            print("[通知] 邮件渠道未配置，已关闭", flush=True)
+        return
+
+    mode = smtp_security()
+    print(
+        f"[通知] 邮件渠道已启用：{settings.smtp_host}:{smtp_port()}（{mode}），"
+        f"发件人 {smtp_sender()}。用户各自在「账户设置」里开启后才会收到",
+        flush=True,
+    )
+    if mode == "none":
+        print(
+            "[通知] 警告：SMTP_SECURITY=none 是明文连接，登录密码会裸奔。仅供内网调试，"
+            "公网部署请改成 ssl 或 starttls",
+            flush=True,
+        )
+
+
 warn_security_config()
+warn_notify_channels()
 
 
 def purge_ip_bans() -> None:
