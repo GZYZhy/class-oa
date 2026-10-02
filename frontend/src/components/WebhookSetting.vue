@@ -142,14 +142,14 @@ onMounted(load)
 .collapse-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .collapse-badge {
   margin-left: 8px;
   padding: 1px 8px;
   border-radius: 10px;
-  background: #ecf5ff;
+  background: var(--el-color-primary-light-9);
   color: #409eff;
   font-size: 12px;
   font-weight: 400;
@@ -157,18 +157,18 @@ onMounted(load)
 
 /* 配了地址但开关关着：灰色，和「已开启」的蓝色区分开 */
 .collapse-badge.off {
-  background: #f4f4f5;
-  color: #909399;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
 }
 
 .desc {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .hint-note {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 8px;
   line-height: 1.6;
 }

@@ -60,7 +60,7 @@
         <div class="page-card">
           <h3 class="page-title">
             高考分数段统计
-            <span style="font-size: 13px; color: #909399; font-weight: normal; margin-left: 12px;">
+            <span style="font-size: 13px; color: var(--el-text-color-secondary); font-weight: normal; margin-left: 12px;">
               平均 {{ scoreSummary?.avg || 0 }}分 · 最高 {{ scoreSummary?.max || 0 }}分 · 最低 {{ scoreSummary?.min || 0 }}分
             </span>
           </h3>
@@ -334,7 +334,7 @@ onMounted(async () => {
 }
 
 .mini-card {
-  background: #fff;
+  background: var(--el-bg-color);
   border-radius: 8px;
   padding: 16px 20px;
   border-left: 4px solid #409EFF;
@@ -349,7 +349,7 @@ onMounted(async () => {
 
 .mini-label {
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 4px;
 }
 

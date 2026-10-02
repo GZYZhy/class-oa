@@ -570,7 +570,7 @@ onMounted(fetchList)
 }
 
 .notice-collapse {
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid var(--el-border-color-lighter);
   margin-top: 8px;
 }
 
@@ -589,7 +589,7 @@ onMounted(fetchList)
 
 .title-text {
   font-weight: 500;
-  color: #303133;
+  color: var(--el-text-color-primary);
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -607,7 +607,7 @@ onMounted(fetchList)
 
 .title-date {
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 /* 发布人标签组：自动换行，手机端不挤 */
@@ -628,7 +628,7 @@ onMounted(fetchList)
 
 .markdown-body {
   padding: 8px 4px;
-  color: #303133;
+  color: var(--el-text-color-primary);
   line-height: 1.7;
 }
 
@@ -643,14 +643,14 @@ onMounted(fetchList)
 .notice-attachments {
   margin: 12px 0 8px;
   padding: 10px 14px;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   border-radius: 6px;
 }
 
 .attach-title {
   font-size: 13px;
   font-weight: 600;
-  color: #606266;
+  color: var(--el-text-color-regular);
   margin-bottom: 8px;
   display: flex;
   align-items: center;
@@ -668,14 +668,14 @@ onMounted(fetchList)
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  background: #fff;
+  background: var(--el-bg-color);
   border-radius: 4px;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .attach-item:hover {
-  background: #ecf5ff;
+  background: var(--el-color-primary-light-9);
 }
 
 .attach-item .attach-name {
@@ -689,7 +689,7 @@ onMounted(fetchList)
 
 .attach-item .attach-size {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   flex-shrink: 0;
 }
 
@@ -713,7 +713,7 @@ onMounted(fetchList)
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   border-radius: 4px;
   margin-bottom: 4px;
 }
@@ -721,7 +721,7 @@ onMounted(fetchList)
 .attach-row .attach-name {
   flex: 1;
   font-size: 13px;
-  color: #303133;
+  color: var(--el-text-color-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -729,14 +729,14 @@ onMounted(fetchList)
 
 .attach-row .attach-size {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   flex-shrink: 0;
 }
 
 .upload-tip {
   margin-top: 6px;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 /* 手机端：通知标题行允许折行，发布者和日期挤到第二行也没关系，
@@ -760,7 +760,7 @@ onMounted(fetchList)
 }
 
 .publisher-tip {
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 14px;
 }
 
@@ -785,13 +785,13 @@ onMounted(fetchList)
 .reads-summary {
   margin-bottom: 12px;
   font-size: 14px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .reads-left {
   margin-left: 8px;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .frozen-tag {
@@ -812,7 +812,7 @@ onMounted(fetchList)
 }
 
 .markdown-body :deep(code) {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 90%;
@@ -822,7 +822,7 @@ onMounted(fetchList)
   border-left: 4px solid #409EFF;
   padding: 4px 12px;
   margin: 8px 0;
-  background: #f0f7ff;
-  color: #606266;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-text-color-regular);
 }
 </style>

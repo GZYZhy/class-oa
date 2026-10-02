@@ -11,6 +11,7 @@
   -->
   <div
     class="watermark"
+    :class="{ 'keep-dark': keepDark }"
     :style="{
       '--wm-svg': svgDataUrl,
       '--wm-svg-mobile': svgDataUrlMobile
@@ -23,7 +24,12 @@ import { computed } from 'vue'
 
 const props = defineProps({
   /** 水印字样，形如「张三@示例班 9月24日 14:30」 */
-  text: { type: String, required: true }
+  text: { type: String, required: true },
+  /**
+   * 底色固定是白的（如 PDF 的白纸画布）时传 true，水印保持深色不反转。
+   * 详见样式里那段说明。
+   */
+  keepDark: { type: Boolean, default: false }
 })
 
 // 桌面端水印单元尺寸 / 字号
@@ -75,6 +81,16 @@ const svgDataUrlMobile = computed(() => makeSvg(props.text, MOBILE_FONT_SIZE, MO
 @media (max-width: 768px) {
   .watermark {
     background-image: var(--wm-svg-mobile);
+  }
+}
+
+/* 深色模式：整层反转。水印颜色写在 SVG 里（黑 8%），背景一变深就看不见了，
+   反转正好得到白 8% —— 和浅色下的对比度一模一样，不用再维护一套深色图。
+   keepDark 的例外：PDF 画布不管什么主题都是白的（见 PdfViewer 的 .pdf-canvas），
+   反转过去反而看不见。 */
+@media (prefers-color-scheme: dark) {
+  .watermark:not(.keep-dark) {
+    filter: invert(1);
   }
 }
 </style>
