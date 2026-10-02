@@ -63,6 +63,11 @@ from .webpush_service import (
     vapid_public_key,
     web_subscriptions,
 )
+from .email_service import email_recipients, is_valid_email
+from .email_service import push as email_push
+from .webhook_service import DEFAULT_TEMPLATE_TEXT, check_template, parse_template
+from .webhook_service import push as webhook_push
+from .webhook_service import webhook_targets
 from .notify_service import Recipients, notify, recipients
 from .pdf_watermark_service import (
     TOKEN_SOURCE_ANNOUNCEMENT,
@@ -127,6 +132,14 @@ __all__ = [
     "web_subscriptions",
     "webpush_subscribe",
     "webpush_unsubscribe",
+    "DEFAULT_TEMPLATE_TEXT",
+    "check_template",
+    "email_push",
+    "email_recipients",
+    "is_valid_email",
+    "parse_template",
+    "webhook_push",
+    "webhook_targets",
     "Recipients",
     "notify",
     "recipients",
