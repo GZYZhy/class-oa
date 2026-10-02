@@ -1,9 +1,10 @@
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..config import (
@@ -15,13 +16,17 @@ from ..config import (
     turnstile_enabled,
 )
 from ..database import get_db
-from ..models import AccountEvent, IpBan, Student, User
+from ..models import AccessToken, AccountEvent, IpBan, Student, User
 from ..schemas import (
     AccountEventResponse,
     MyLogsResponse,
     OperationLogListResponse,
 )
 from ..schemas.auth import (
+    AccessTokenCreate,
+    AccessTokenCreated,
+    AccessTokenList,
+    AccessTokenResponse,
     BarkKeyRequest,
     EmailNotifyRequest,
     LoginRequest,
@@ -59,11 +64,18 @@ from ..services.email_service import TEST_BUDGET as EMAIL_TEST_BUDGET
 from ..services.email_service import TEST_TIMEOUT as EMAIL_TEST_TIMEOUT
 from ..services.webpush_service import TEST_BUDGET
 from ..services.webpush_service import push as web_push
-from ..utils.security import hash_password, verify_password, verify_master_password
+from ..utils.security import (
+    generate_token,
+    hash_password,
+    hash_token,
+    token_prefix,
+    verify_master_password,
+    verify_password,
+)
 from ..utils.url_guard import is_allowed_webhook_url
 from ..utils.captcha import generate_captcha
 from ..utils.turnstile import verify as turnstile_verify
-from .deps import get_current_user, get_client_ip
+from .deps import get_current_user, get_client_ip, require_cookie_auth
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
 
@@ -367,7 +379,7 @@ def my_avatar(
 def set_initial_password(
     data: SetInitialPasswordRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
@@ -394,7 +406,7 @@ def set_initial_password(
 def change_password(
     data: ChangePasswordRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
@@ -424,6 +436,128 @@ def change_password(
     # 刷新会话标识，保持登录
     request.session["user_id"] = user.id
     return {"message": "密码修改成功"}
+
+
+# ---------- 访问令牌（给脚本 / MCP 用的长期凭据） ----------
+
+# 同时最多持有多少个**还在生效**的令牌。防的是无限堆积：每一把都是一条长期凭据，
+# 没有上限的话列表会变成一堆没人记得是干嘛的令牌，反而更容易留着不该留的。
+# 已过期/已吊销的不占名额 —— 否则过期一堆之后会突然建不了新的，报错还看不懂
+MAX_ACCESS_TOKENS = 10
+
+
+@router.get("/tokens", response_model=AccessTokenList, summary="列出我的访问令牌")
+def list_access_tokens(
+    user: User = Depends(require_cookie_auth),
+    db: Session = Depends(get_db),
+):
+    """只列自己的，**永远不返回明文和 hash**
+
+    明文在创建那一次的响应里给出之后就取不回来了，这里只能看到前缀。
+    用 require_cookie_auth 而不是 get_current_user：令牌不该能管理令牌。
+    """
+    rows = (
+        db.query(AccessToken)
+        .filter(AccessToken.user_id == user.id)
+        .order_by(AccessToken.created_at.desc())
+        .all()
+    )
+    return AccessTokenList(
+        items=[
+            AccessTokenResponse(
+                id=r.id,
+                name=r.name,
+                prefix=r.prefix,
+                created_at=r.created_at,
+                expires_at=r.expires_at,
+                last_used_at=r.last_used_at,
+                revoked_at=r.revoked_at,
+            )
+            for r in rows
+        ],
+        max_count=MAX_ACCESS_TOKENS,
+    )
+
+
+@router.post("/tokens", response_model=AccessTokenCreated, summary="创建访问令牌")
+def create_access_token(
+    data: AccessTokenCreate,
+    user: User = Depends(require_cookie_auth),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """创建一把访问令牌，**明文只在这一个响应里返回**
+
+    令牌在权限上等同于「该账号的学生身份」——哪怕持有人是管理员，
+    用它也只能读到、操作自己相关的数据（见 deps.py 的 _user_from_pat）。
+    """
+    # 只认真实密码，**刻意不接受通开密码**：通开密码的定位是「忘了密码时救急登录」，
+    # 让它能铸造长期令牌等于把影响面再扩大一圈（change_password 里那段注释
+    # 已经点明了「入口越多越危险」）
+    if not verify_password(data.password, user.password_hash, user.password_salt):
+        raise HTTPException(status_code=400, detail="密码错误")
+
+    now = datetime.now()
+    active = (
+        db.query(AccessToken)
+        .filter(
+            AccessToken.user_id == user.id,
+            AccessToken.revoked_at.is_(None),
+            # 不限期（NULL）或还没到期
+            or_(AccessToken.expires_at.is_(None), AccessToken.expires_at > now),
+        )
+        .count()
+    )
+    if active >= MAX_ACCESS_TOKENS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"最多同时持有 {MAX_ACCESS_TOKENS} 个生效中的令牌，请先吊销不用的",
+        )
+
+    raw = generate_token()
+    row = AccessToken(
+        user_id=user.id,
+        name=data.name,
+        token_hash=hash_token(raw),
+        prefix=token_prefix(raw),
+        # days == 0 → 不限期
+        expires_at=None if data.days == 0 else now + timedelta(days=data.days),
+    )
+    db.add(row)
+    _record_event(db, user.student_no, "token_create", ip)
+    # 令牌行和账号事件同一次提交，别拆成两个事务
+    db.commit()
+    db.refresh(row)
+    return AccessTokenCreated(
+        id=row.id, name=row.name, token=raw, expires_at=row.expires_at
+    )
+
+
+@router.delete("/tokens/{token_id}", summary="吊销访问令牌")
+def revoke_access_token(
+    token_id: int,
+    user: User = Depends(require_cookie_auth),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """只能吊销自己的。
+
+    归属条件直接写进查询条件，不做「先按 id 查到再比对 owner」——
+    后者一旦忘了比对就是水平越权。
+    """
+    row = (
+        db.query(AccessToken)
+        .filter(AccessToken.id == token_id, AccessToken.user_id == user.id)
+        .first()
+    )
+    if not row:
+        # 用 404 而不是 403：不泄露「这个 id 存在，只是不属于你」
+        raise HTTPException(status_code=404, detail="令牌不存在")
+    if row.revoked_at is None:
+        row.revoked_at = datetime.now()
+        _record_event(db, user.student_no, "token_revoke", ip)
+        db.commit()
+    return {"message": "已吊销"}
 
 
 # ---------- 我的日志 ----------
@@ -491,7 +625,7 @@ def get_bark(user: User = Depends(get_current_user)):
 @router.put("/bark", summary="保存或解除 Bark 推送设置")
 def set_bark(
     data: BarkKeyRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
 ):
     """传空串即解除绑定（换手机时用）"""
@@ -632,7 +766,7 @@ def get_webhook(user: User = Depends(get_current_user)):
 @router.put("/webhook", summary="保存自定义 webhook 设置")
 def set_webhook(
     data: WebhookSettingRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
 ):
     """只做本地校验后落库，**不发起任何网络请求**
@@ -749,7 +883,7 @@ def get_email_notify(
 @router.put("/email-notify", summary="保存我的邮件通知设置")
 def set_email_notify(
     data: EmailNotifyRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
 ):
     """**只写 users 表，绝不回写 students**

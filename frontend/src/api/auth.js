@@ -61,3 +61,23 @@ export function getMyLogs(params) {
 export function getPublicSummary() {
   return request({ url: '/public/summary', method: 'get' })
 }
+
+/* ---------- 访问令牌（给脚本 / MCP 用的长期凭据） ----------
+ * 这三个接口后端都挂了 require_cookie_auth：**带令牌调一律 403**，
+ * 免得一把泄露的令牌能自己再铸一把长期令牌。所以它们只能在浏览器里用。
+ */
+
+/** 列出我的访问令牌。返回 { items: [...], max_count }，**不含明文** */
+export function getAccessTokens() {
+  return request({ url: '/auth/tokens', method: 'get' })
+}
+
+/** 创建访问令牌。响应里的 token 是明文，**只出现这一次**，要提示用户立刻复制 */
+export function createAccessToken(data) {
+  return request({ url: '/auth/tokens', method: 'post', data })
+}
+
+/** 吊销访问令牌（只能吊销自己的） */
+export function revokeAccessToken(id) {
+  return request({ url: `/auth/tokens/${id}`, method: 'delete' })
+}
