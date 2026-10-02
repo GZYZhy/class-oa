@@ -8,9 +8,9 @@ import json
 import re
 from datetime import date
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..database import month_day_expr
 from ..models import BirthdaySettings, Student
 from .notify_service import deliver_now, recipients
 
@@ -146,7 +146,7 @@ def today_birthdays(db: Session, today: date | None = None) -> list[dict]:
     rows = (
         db.query(Student.student_no, Student.name, Student.class_name, Student.birth_date)
         .filter(Student.birth_date.isnot(None))
-        .filter(func.strftime("%m-%d", Student.birth_date).in_(birthday_month_days(today)))
+        .filter(month_day_expr(Student.birth_date).in_(birthday_month_days(today)))
         .all()
     )
     people = [

@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect
+from sqlalchemy.engine import make_url
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import (
@@ -18,7 +19,7 @@ from .config import (
 )
 from .middleware import RememberMeMiddleware
 from .api import api_router
-from .database import Base, engine, SessionLocal
+from .database import Base, database_kind, engine, SessionLocal
 from .database_migrate import backfill_notice_reads, run_migrations
 from .services import ensure_default_users, purge_expired, seed_from_catalog
 from .services.birthday_service import ensure_settings
@@ -34,6 +35,17 @@ AVATAR_DIR = DATA_DIR / "avatars"
 DATA_DIR.mkdir(exist_ok=True)
 PHOTO_DIR.mkdir(exist_ok=True)
 AVATAR_DIR.mkdir(exist_ok=True)
+
+# 第一行日志就把「实际连的是哪个库」打出来，且**抢在任何一次连库之前** ——
+# 换库之后最怕的是「以为在跑 MySQL、其实还在往 SQLite 文件里写」，数据进了哪个库、
+# 备份该打包什么全看这一行；库连不上的时候，这条日志也已经说清它想连的是哪。
+# 密码必须打码：日志会被 docker logs 收走，也可能被贴进 issue。
+# 打码用 SQLAlchemy 自带的 render_as_string，不要自己写替换
+print(
+    f"[启动] 数据库：{database_kind()}（"
+    f"{make_url(settings.database_url).render_as_string(hide_password=True)}）",
+    flush=True,
+)
 
 # 「通知未读」功能新增了 notice_reads 表。建表**之前**先看一眼它在不在：
 # 不在，说明这次是从老版本升级上来的 —— 建完表要把既有通知补成「全员已读」，

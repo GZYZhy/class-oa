@@ -123,6 +123,9 @@ sqlite3 data/backend/student.db "DELETE FROM ip_bans WHERE target='203.0.113.9';
 docker compose up -d
 ```
 
+（上面两条是 SQLite 的写法。改用 MySQL 后换成连你自己那个库，例如
+`mysql -h 主机 -u 用户 -p 库名 -e "DELETE FROM ip_bans WHERE target='203.0.113.9';"`。）
+
 ### TRUSTED_PROXIES 是这一切的前提
 
 只有请求的**直连来源**落在信任的网段里，后端才采信它带来的 `X-Forwarded-For`；
@@ -237,7 +240,8 @@ docker compose restart frontend
 python3 scripts/reset_data.py
 ```
 
-⚠️ **不可逆**，执行前先备份 `data/backend/`。脚本会：
+⚠️ **不可逆**，执行前先备份 `data/backend/`（改用 MySQL 时，数据库不在这个目录里，
+要连那个库一起备份）。脚本会：
 
 - 清空通知（含谁已读过的记录）、公告、请假、反馈、信息修改申请、操作日志，
   以及浏览器推送订阅
@@ -259,16 +263,33 @@ python3 scripts/reset_data.py
 
 ## 数据库切换
 
-默认使用 SQLite，如需切换到 PostgreSQL/MySQL，改 `.env`：
+默认使用 SQLite（`data/backend/student.db`）。也可以改用**你自己已有的 MySQL**，改 `.env`：
 
 ```bash
-DATABASE_URL=postgresql://user:password@localhost:5432/dbname
-# 或
-DATABASE_URL=mysql+pymysql://user:password@localhost:3306/dbname
+DATABASE_URL=mysql+pymysql://user:password@主机:3306/dbname
 ```
 
-换库后需要自行把老库的数据迁过去；`app/database_migrate.py` 里的补列逻辑只对老库
-补缺失的列，不负责跨库搬数据。
+这是**换过去**，不是两边同时用。只支持**全新安装**：MySQL 上程序只建表、不建库，
+更不搬数据 —— 要把 SQLite 老库的数据迁过去得自己想办法（`app/database_migrate.py`
+的补列逻辑只服务 SQLite 老库，在 MySQL 上会直接跳过）。
+
+四项要求（`.env.example` 里是同一份说明）：
+
+1. **驱动名 `+pymysql` 不能省** —— 省了就等于没装驱动
+2. **库要自己先建好，字符集必须是 `utf8mb4`**：
+   `CREATE DATABASE class_oa CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;`
+   MySQL 5.7 建的库默认是 latin1，存中文名会直接报 `Incorrect string value`
+3. **需要 MySQL 8.0.13+**：更低版本不支持 TEXT 列的默认值，建表就失败
+4. **容器内的 `localhost` 指的是容器自己**，不是宿主机。MySQL 在宿主机上就写
+   `host.docker.internal`（Linux 上还要给 backend 服务加
+   `extra_hosts: ["host.docker.internal:host-gateway"]`）；MySQL 也是个容器，
+   就写它在同一个 compose 网络里的服务名
+
+换完之后看一眼启动日志的第一行，那里会打出实际连的是哪个库（密码已打码）——
+「以为在跑 MySQL、其实还在往 SQLite 文件里写」是这一步最常见的失手。
+
+目前支持 SQLite 和 MySQL 两种。写成别的（比如 `postgresql://`）后端会**启动即报错**，
+不会带着「能起来、但某些查询会坏」的半可用状态运行。
 
 ## 资料下载的文件
 
