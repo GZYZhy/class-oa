@@ -8,138 +8,125 @@
       <el-tabs v-model="activeTab">
         <!-- 基本信息：只有学生账号才有 -->
         <el-tab-pane v-if="!userStore.isExternal" label="基本信息" name="info">
-          <div class="tab-section">
-            <template v-if="me">
-              <!-- 两张照片：高考照片 + 实地采集，点一下放大 -->
-              <div class="photos-row">
-                <div
-                  v-for="item in PHOTOS"
-                  :key="item.type"
-                  class="photo-item"
-                  :class="{ 'photo-empty-box': !hasPhoto(item.type) }"
-                  @click="openPhotos(item.type)"
-                >
-                  <img
-                    v-if="hasPhoto(item.type)"
-                    :src="photoUrl(item.type)"
-                    class="photo-img"
-                    :alt="item.label"
-                    @error="onImgError"
-                  />
-                  <div v-else class="photo-placeholder">
-                    <el-icon style="font-size: 34px;"><Avatar /></el-icon>
-                    <span>暂无照片</span>
+          <!-- 和「账户设置」「办件空间」一样在内部再分子 tab：
+               档案 / 申请 / 记录本来是各不相干的三件事，只是原先挤在一页里往下排 -->
+          <el-tabs v-model="infoTab">
+            <!-- ==================== 我的档案 ==================== -->
+            <el-tab-pane label="我的档案" name="profile">
+              <div class="tab-section">
+                <template v-if="me">
+                  <!-- 两张照片：高考照片 + 实地采集，点一下放大 -->
+                  <div class="photos-row">
+                    <div
+                      v-for="item in PHOTOS"
+                      :key="item.type"
+                      class="photo-item"
+                      :class="{ 'photo-empty-box': !hasPhoto(item.type) }"
+                      @click="openPhotos(item.type)"
+                    >
+                      <img
+                        v-if="hasPhoto(item.type)"
+                        :src="photoUrl(item.type)"
+                        class="photo-img"
+                        :alt="item.label"
+                        @error="onImgError"
+                      />
+                      <div v-else class="photo-placeholder">
+                        <el-icon style="font-size: 34px;"><Avatar /></el-icon>
+                        <span>暂无照片</span>
+                      </div>
+                      <div class="photo-label">{{ item.label }}</div>
+                    </div>
                   </div>
-                  <div class="photo-label">{{ item.label }}</div>
-                </div>
+                  <p class="photos-tip">点击照片可放大查看</p>
+
+                  <el-descriptions :column="detailColumns" border style="margin-top: 16px;">
+                    <el-descriptions-item label="学号">{{ me.student_no || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="姓名">{{ me.name || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="性别">{{ me.gender || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="出生日期">{{ me.birth_date || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="民族">{{ me.ethnicity || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="政治面貌">{{ me.political_status || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="学院/班级">{{ me.class_name || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="专业">{{ me.major || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="宿舍">{{ me.dormitory || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="床位号">{{ me.bed || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="本人电话">{{ me.phone || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="高考总分">{{ me.gaokao_score ?? '-' }}</el-descriptions-item>
+                    <!-- 备注是班委内部记录，普通学生拿到的一律是 null，只有班委/管理员能看到自己的 -->
+                    <el-descriptions-item v-if="me.remark" label="备注" :span="detailColumns">
+                      {{ me.remark }}
+                    </el-descriptions-item>
+                  </el-descriptions>
+                </template>
+                <el-empty v-else-if="!loading" description="未获取到个人信息" />
               </div>
-              <p class="photos-tip">点击照片可放大查看</p>
+            </el-tab-pane>
 
-              <el-descriptions :column="detailColumns" border style="margin-top: 16px;">
-                <el-descriptions-item label="学号">{{ me.student_no || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="姓名">{{ me.name || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="性别">{{ me.gender || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="出生日期">{{ me.birth_date || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="民族">{{ me.ethnicity || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="政治面貌">{{ me.political_status || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="学院/班级">{{ me.class_name || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="专业">{{ me.major || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="宿舍">{{ me.dormitory || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="床位号">{{ me.bed || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="本人电话">{{ me.phone || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="高考总分">{{ me.gaokao_score ?? '-' }}</el-descriptions-item>
-                <!-- 备注是班委内部记录，普通学生拿到的一律是 null，只有班委/管理员能看到自己的 -->
-                <el-descriptions-item v-if="me.remark" label="备注" :span="detailColumns">
-                  {{ me.remark }}
-                </el-descriptions-item>
-              </el-descriptions>
-            </template>
-            <el-empty v-else-if="!loading" description="未获取到个人信息" />
-          </div>
+            <!-- ==================== 申请修改 ==================== -->
+            <el-tab-pane label="申请修改" name="apply">
+              <div class="tab-section">
+                <!-- 已经有一条排队等审：只解释原因，不给表单 -->
+                <el-alert v-if="pending" type="warning" :closable="false" show-icon>
+                  <template #title>
+                    你有一条待审核的申请（{{ formatDateTime(pending.created_at) }} 提交），班委处理后才能再次提交。
+                  </template>
+                  <div style="margin-top: 4px;">{{ describeChanges(pending.changes) }}</div>
+                </el-alert>
 
-          <!-- 申请修改：默认收起来，点「修改」才展开；一次只能有一条待审核的申请 -->
-          <div class="tab-section">
-            <div class="page-toolbar">
-              <h3 class="page-title" style="margin-bottom: 0;">申请修改</h3>
-              <el-button v-if="canApply" type="primary" @click="openForm">修改</el-button>
-            </div>
-
-            <!-- 已经有一条排队等审：只解释原因，不给入口 -->
-            <el-alert
-              v-if="pending"
-              type="warning"
-              :closable="false"
-              show-icon
-              style="margin-top: 16px;"
-            >
-              <template #title>
-                你有一条待审核的申请（{{ formatDateTime(pending.created_at) }} 提交），班委处理后才能再次提交。
-              </template>
-              <div style="margin-top: 4px;">{{ describeChanges(pending.changes) }}</div>
-            </el-alert>
-
-            <el-alert
-              v-else-if="!formVisible"
-              type="info"
-              :closable="false"
-              show-icon
-              style="margin-top: 16px;"
-              title="点右上角「修改」可申请改动下方内容，提交后需班委审核，审核通过才会真正生效。"
-            />
-
-            <el-form v-else :model="form" label-width="100px" style="max-width: 640px; margin-top: 16px;">
-              <el-form-item v-for="f in CHANGE_FIELDS" :key="f.prop" :label="f.label">
-                <el-select v-if="f.prop === 'is_poor'" v-model="form.is_poor" style="width: 160px">
-                  <el-option label="是" value="是" />
-                  <el-option label="否" value="否" />
-                </el-select>
-                <el-input
-                  v-else
-                  v-model="form[f.prop]"
-                  :type="f.prop === 'family_address' ? 'textarea' : 'text'"
-                  :rows="2"
-                  :placeholder="f.placeholder"
-                  :maxlength="f.maxLength"
-                />
-              </el-form-item>
-              <el-form-item>
-                <el-button type="primary" :loading="submitting" @click="handleSubmit">提交申请</el-button>
-                <el-button @click="formVisible = false">取消</el-button>
-              </el-form-item>
-            </el-form>
-          </div>
-
-          <!-- 申请记录 -->
-          <div class="tab-section">
-            <h3 class="page-title">我的申请记录</h3>
-            <el-table :data="records" stripe border style="width: 100%;">
-              <el-table-column label="申请时间" width="160" align="center">
-                <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
-              </el-table-column>
-              <el-table-column label="申请修改的内容" min-width="260">
-                <template #default="{ row }">{{ describeChanges(row.changes) }}</template>
-              </el-table-column>
-              <el-table-column label="状态" width="100" align="center">
-                <template #default="{ row }">
-                  <el-tag :type="STATUS_TYPES[row.status]" size="small">
-                    {{ STATUS_LABELS[row.status] || row.status }}
-                  </el-tag>
+                <template v-else>
+                  <p class="section-sub">改动提交后需班委审核，审核通过才会真正生效</p>
+                  <el-form :model="form" label-width="100px" style="max-width: 640px; margin-top: 12px;">
+                    <el-form-item v-for="f in CHANGE_FIELDS" :key="f.prop" :label="f.label">
+                      <el-input
+                        v-model="form[f.prop]"
+                        :type="f.prop === 'family_address' ? 'textarea' : 'text'"
+                        :rows="2"
+                        :placeholder="f.placeholder"
+                        :maxlength="f.maxLength"
+                      />
+                    </el-form-item>
+                    <el-form-item>
+                      <el-button type="primary" :loading="submitting" @click="handleSubmit">提交申请</el-button>
+                    </el-form-item>
+                  </el-form>
                 </template>
-              </el-table-column>
-              <el-table-column label="审核人" width="100" align="center">
-                <template #default="{ row }">{{ row.reviewer_name || '-' }}</template>
-              </el-table-column>
-              <el-table-column label="审核时间" width="160" align="center">
-                <template #default="{ row }">{{ formatDateTime(row.reviewed_at) }}</template>
-              </el-table-column>
-              <el-table-column label="驳回理由" min-width="160">
-                <template #default="{ row }">
-                  <span :style="{ color: row.reason ? '#f56c6c' : '#c0c4cc' }">{{ row.reason || '-' }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-            <el-empty v-if="!records.length" description="还没有提交过申请" style="margin-top: 20px;" />
-          </div>
+              </div>
+            </el-tab-pane>
+
+            <!-- ==================== 申请记录 ==================== -->
+            <el-tab-pane label="申请记录" name="records">
+              <div class="tab-section">
+                <el-table :data="records" stripe border style="width: 100%;">
+                  <el-table-column label="申请时间" width="160" align="center">
+                    <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+                  </el-table-column>
+                  <el-table-column label="申请修改的内容" min-width="260">
+                    <template #default="{ row }">{{ describeChanges(row.changes) }}</template>
+                  </el-table-column>
+                  <el-table-column label="状态" width="100" align="center">
+                    <template #default="{ row }">
+                      <el-tag :type="STATUS_TYPES[row.status]" size="small">
+                        {{ STATUS_LABELS[row.status] || row.status }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="审核人" width="100" align="center">
+                    <template #default="{ row }">{{ row.reviewer_name || '-' }}</template>
+                  </el-table-column>
+                  <el-table-column label="审核时间" width="160" align="center">
+                    <template #default="{ row }">{{ formatDateTime(row.reviewed_at) }}</template>
+                  </el-table-column>
+                  <el-table-column label="驳回理由" min-width="160">
+                    <template #default="{ row }">
+                      <span :style="{ color: row.reason ? '#f56c6c' : '#c0c4cc' }">{{ row.reason || '-' }}</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-empty v-if="!records.length" description="还没有提交过申请" style="margin-top: 20px;" />
+              </div>
+            </el-tab-pane>
+          </el-tabs>
         </el-tab-pane>
 
         <!-- 账户设置：改密码 + 通知设置，所有登录用户都能看到 -->
@@ -584,8 +571,6 @@ const loading = ref(false)
 const me = ref(null)
 const records = ref([])
 
-// 申请表单默认收起来，点「修改」才展开
-const formVisible = ref(false)
 const submitting = ref(false)
 
 // 表单先摆全部字段，拿到自己的信息后再回填
@@ -593,7 +578,6 @@ const form = reactive(Object.fromEntries(CHANGE_FIELDS.map((f) => [f.prop, '']))
 
 /** 已经有一条排队等着审，就锁住表单（后端也会拒，前端锁住体验更好） */
 const pending = computed(() => records.value.find((r) => r.status === 'pending'))
-const canApply = computed(() => !pending.value && !formVisible.value)
 
 // 照片查看器
 const viewerVisible = ref(false)
@@ -629,6 +613,8 @@ const newChannelsAvailable = ref(false)
 const KEY_PATTERN = /^[A-Za-z0-9_-]{5,128}$/
 
 // 账户设置内部的子 tab：账号安全 / 通知设置 / 我的日志
+// 基本信息的三个子 tab：档案 / 申请修改 / 申请记录
+const infoTab = ref('profile')
 const accountTab = ref('security')
 
 // ---------- 我的日志 ----------
@@ -787,11 +773,6 @@ function resetForm() {
   for (const { prop } of CHANGE_FIELDS) {
     form[prop] = me.value?.[prop] ?? ''
   }
-}
-
-function openForm() {
-  resetForm()
-  formVisible.value = true
 }
 
 /** 只把改动过的字段提交上去，避免整表覆盖 */
@@ -1031,7 +1012,8 @@ async function handleSubmit() {
   try {
     await submitChangeRequest(changes)
     ElMessage.success('已提交，等待班委审核')
-    formVisible.value = false
+    // 跳到「申请记录」：刚提交的那条就在最上面，能立刻看到它的待审核状态
+    infoTab.value = 'records'
     await fetchStudentData()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '提交失败')

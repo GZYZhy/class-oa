@@ -20,7 +20,6 @@ class ChangeRequestCreate(BaseModel):
     family_address: Optional[str] = Field(None, max_length=200, description="家庭通信地址")
     postal_code: Optional[str] = Field(None, max_length=10, description="邮政编码")
     league_position: Optional[str] = Field(None, max_length=50, description="团学会职务")
-    is_poor: Optional[str] = Field(None, max_length=10, description="是否贫困生")
     bed: Optional[str] = Field(None, max_length=20, description="床位号")
 
     @field_validator("email")

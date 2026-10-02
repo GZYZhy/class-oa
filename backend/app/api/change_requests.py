@@ -1,6 +1,7 @@
 """学生信息修改申请：学生提交 → 班委审核 → 通过后才写入学生表
 
-白名单之外的字段（学号、姓名、身份证号、班委职务……）不开放申请，避免学生自我提权。
+白名单之外的字段不开放申请：学号、姓名、身份证号、班委职务属于身份标识（改了等于换个人），
+「是否贫困生」属于内部认定事项 —— 都由班委/管理员在名单页直接维护，学生不能自己发起变更。
 """
 
 import json
@@ -32,7 +33,6 @@ EDITABLE_FIELDS = (
     "family_address",
     "postal_code",
     "league_position",
-    "is_poor",
     "bed",
 )
 
@@ -54,7 +54,13 @@ def submit(
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
-    changes = payload.model_dump(exclude_unset=True)
+    # 按白名单过滤（与 approve 同口径）：不过滤的话，schema 里多一个字段、白名单里
+    # 少一个，就会存进一条「提交成功但永远不会生效」的申请 —— changes 里有，审批时不认
+    changes = {
+        key: value
+        for key, value in payload.model_dump(exclude_unset=True).items()
+        if key in EDITABLE_FIELDS
+    }
     if not changes:
         raise HTTPException(status_code=400, detail="没有要修改的内容")
 
