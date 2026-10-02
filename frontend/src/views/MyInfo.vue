@@ -1,396 +1,381 @@
 <template>
   <div v-loading="loading">
-    <!-- 顶部 Tab：学生账号能看到「基本信息」，域外账号只有「账户设置」 -->
-    <el-tabs v-model="activeTab" class="my-info-tabs">
-      <!-- 基本信息：只有学生账号才有 -->
-      <el-tab-pane v-if="!userStore.isExternal" label="基本信息" name="info">
-        <div class="page-card">
-          <template v-if="me">
-            <!-- 两张照片：高考照片 + 实地采集，点一下放大 -->
-            <div class="photos-row">
-              <div
-                v-for="item in PHOTOS"
-                :key="item.type"
-                class="photo-item"
-                :class="{ 'photo-empty-box': !hasPhoto(item.type) }"
-                @click="openPhotos(item.type)"
-              >
-                <img
-                  v-if="hasPhoto(item.type)"
-                  :src="photoUrl(item.type)"
-                  class="photo-img"
-                  :alt="item.label"
-                  @error="onImgError"
-                />
-                <div v-else class="photo-placeholder">
-                  <el-icon style="font-size: 34px;"><Avatar /></el-icon>
-                  <span>暂无照片</span>
+    <!-- 和其他页面一样：page-card 套 page-title，tab 在卡片里 -->
+    <div class="page-card">
+      <h3 class="page-title">我的信息</h3>
+
+      <!-- 顶部 Tab：学生账号能看到「基本信息」，域外账号只有「账户设置」 -->
+      <el-tabs v-model="activeTab">
+        <!-- 基本信息：只有学生账号才有 -->
+        <el-tab-pane v-if="!userStore.isExternal" label="基本信息" name="info">
+          <div class="tab-section">
+            <template v-if="me">
+              <!-- 两张照片：高考照片 + 实地采集，点一下放大 -->
+              <div class="photos-row">
+                <div
+                  v-for="item in PHOTOS"
+                  :key="item.type"
+                  class="photo-item"
+                  :class="{ 'photo-empty-box': !hasPhoto(item.type) }"
+                  @click="openPhotos(item.type)"
+                >
+                  <img
+                    v-if="hasPhoto(item.type)"
+                    :src="photoUrl(item.type)"
+                    class="photo-img"
+                    :alt="item.label"
+                    @error="onImgError"
+                  />
+                  <div v-else class="photo-placeholder">
+                    <el-icon style="font-size: 34px;"><Avatar /></el-icon>
+                    <span>暂无照片</span>
+                  </div>
+                  <div class="photo-label">{{ item.label }}</div>
                 </div>
-                <div class="photo-label">{{ item.label }}</div>
               </div>
-            </div>
-            <p class="photos-tip">点击照片可放大查看</p>
+              <p class="photos-tip">点击照片可放大查看</p>
 
-            <el-descriptions :column="detailColumns" border style="margin-top: 16px;">
-              <el-descriptions-item label="学号">{{ me.student_no || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="姓名">{{ me.name || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="性别">{{ me.gender || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="出生日期">{{ me.birth_date || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="民族">{{ me.ethnicity || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="政治面貌">{{ me.political_status || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="学院/班级">{{ me.class_name || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="专业">{{ me.major || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="宿舍">{{ me.dormitory || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="床位号">{{ me.bed || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="本人电话">{{ me.phone || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="高考总分">{{ me.gaokao_score ?? '-' }}</el-descriptions-item>
-              <!-- 备注是班委内部记录，普通学生拿到的一律是 null，只有班委/管理员能看到自己的 -->
-              <el-descriptions-item v-if="me.remark" label="备注" :span="detailColumns">
-                {{ me.remark }}
-              </el-descriptions-item>
-            </el-descriptions>
-          </template>
-          <el-empty v-else-if="!loading" description="未获取到个人信息" />
-        </div>
-
-        <!-- 申请修改：默认收起来，点「修改」才展开；一次只能有一条待审核的申请 -->
-        <div class="page-card" style="margin-top: 20px;">
-          <div class="page-toolbar">
-            <h3 class="page-title" style="margin-bottom: 0;">申请修改</h3>
-            <el-button v-if="canApply" type="primary" @click="openForm">修改</el-button>
+              <el-descriptions :column="detailColumns" border style="margin-top: 16px;">
+                <el-descriptions-item label="学号">{{ me.student_no || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="姓名">{{ me.name || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="性别">{{ me.gender || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="出生日期">{{ me.birth_date || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="民族">{{ me.ethnicity || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="政治面貌">{{ me.political_status || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="学院/班级">{{ me.class_name || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="专业">{{ me.major || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="宿舍">{{ me.dormitory || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="床位号">{{ me.bed || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="本人电话">{{ me.phone || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="高考总分">{{ me.gaokao_score ?? '-' }}</el-descriptions-item>
+                <!-- 备注是班委内部记录，普通学生拿到的一律是 null，只有班委/管理员能看到自己的 -->
+                <el-descriptions-item v-if="me.remark" label="备注" :span="detailColumns">
+                  {{ me.remark }}
+                </el-descriptions-item>
+              </el-descriptions>
+            </template>
+            <el-empty v-else-if="!loading" description="未获取到个人信息" />
           </div>
 
-          <!-- 已经有一条排队等审：只解释原因，不给入口 -->
-          <el-alert
-            v-if="pending"
-            type="warning"
-            :closable="false"
-            show-icon
-            style="margin-top: 16px;"
-          >
-            <template #title>
-              你有一条待审核的申请（{{ formatDateTime(pending.created_at) }} 提交），班委处理后才能再次提交。
+          <!-- 申请修改：默认收起来，点「修改」才展开；一次只能有一条待审核的申请 -->
+          <div class="tab-section">
+            <div class="page-toolbar">
+              <h3 class="page-title" style="margin-bottom: 0;">申请修改</h3>
+              <el-button v-if="canApply" type="primary" @click="openForm">修改</el-button>
+            </div>
+
+            <!-- 已经有一条排队等审：只解释原因，不给入口 -->
+            <el-alert
+              v-if="pending"
+              type="warning"
+              :closable="false"
+              show-icon
+              style="margin-top: 16px;"
+            >
+              <template #title>
+                你有一条待审核的申请（{{ formatDateTime(pending.created_at) }} 提交），班委处理后才能再次提交。
+              </template>
+              <div style="margin-top: 4px;">{{ describeChanges(pending.changes) }}</div>
+            </el-alert>
+
+            <el-alert
+              v-else-if="!formVisible"
+              type="info"
+              :closable="false"
+              show-icon
+              style="margin-top: 16px;"
+              title="点右上角「修改」可申请改动下方内容，提交后需班委审核，审核通过才会真正生效。"
+            />
+
+            <el-form v-else :model="form" label-width="100px" style="max-width: 640px; margin-top: 16px;">
+              <el-form-item v-for="f in CHANGE_FIELDS" :key="f.prop" :label="f.label">
+                <el-select v-if="f.prop === 'is_poor'" v-model="form.is_poor" style="width: 160px">
+                  <el-option label="是" value="是" />
+                  <el-option label="否" value="否" />
+                </el-select>
+                <el-input
+                  v-else
+                  v-model="form[f.prop]"
+                  :type="f.prop === 'family_address' ? 'textarea' : 'text'"
+                  :rows="2"
+                  :placeholder="f.placeholder"
+                  :maxlength="f.maxLength"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :loading="submitting" @click="handleSubmit">提交申请</el-button>
+                <el-button @click="formVisible = false">取消</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+
+          <!-- 申请记录 -->
+          <div class="tab-section">
+            <h3 class="page-title">我的申请记录</h3>
+            <el-table :data="records" stripe border style="width: 100%;">
+              <el-table-column label="申请时间" width="160" align="center">
+                <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+              </el-table-column>
+              <el-table-column label="申请修改的内容" min-width="260">
+                <template #default="{ row }">{{ describeChanges(row.changes) }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="100" align="center">
+                <template #default="{ row }">
+                  <el-tag :type="STATUS_TYPES[row.status]" size="small">
+                    {{ STATUS_LABELS[row.status] || row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="审核人" width="100" align="center">
+                <template #default="{ row }">{{ row.reviewer_name || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="审核时间" width="160" align="center">
+                <template #default="{ row }">{{ formatDateTime(row.reviewed_at) }}</template>
+              </el-table-column>
+              <el-table-column label="驳回理由" min-width="160">
+                <template #default="{ row }">
+                  <span :style="{ color: row.reason ? '#f56c6c' : '#c0c4cc' }">{{ row.reason || '-' }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-empty v-if="!records.length" description="还没有提交过申请" style="margin-top: 20px;" />
+          </div>
+        </el-tab-pane>
+
+        <!-- 账户设置：改密码 + 通知设置，所有登录用户都能看到 -->
+        <el-tab-pane label="账户设置" name="account">
+          <!-- 修改密码 -->
+          <div class="tab-section">
+            <h3 class="page-title">修改密码</h3>
+            <el-form :model="pwdForm" label-width="100px" style="max-width: 480px; margin-top: 12px;">
+              <el-form-item label="原密码">
+                <el-input v-model="pwdForm.old_password" type="password" show-password />
+              </el-form-item>
+              <el-form-item label="新密码">
+                <el-input
+                  v-model="pwdForm.new_password"
+                  type="password"
+                  show-password
+                  placeholder="6-32 位，需同时包含字母和数字"
+                />
+              </el-form-item>
+              <el-form-item label="确认密码">
+                <el-input
+                  v-model="pwdForm.confirm"
+                  type="password"
+                  show-password
+                  @keyup.enter="handleChangePassword"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :loading="pwdLoading" @click="handleChangePassword">
+                  确认修改
+                </el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+
+          <!-- 通知设置：浏览器通知 + Bark 推送 -->
+          <div class="tab-section">
+            <h3 class="page-title">通知设置</h3>
+            <p class="section-sub" style="margin-bottom: 12px;">
+              有审核结果、新通知等情况时，通过以下方式推送给你
+            </p>
+
+            <!-- 安装到桌面：Chrome/Edge/Android 能触发原生安装横幅，iOS 没有 -->
+            <el-alert
+              v-if="!standalone && canInstall"
+              type="success"
+              :closable="false"
+              show-icon
+              style="margin-bottom: 16px;"
+            >
+              <template #title>把这个应用装到桌面</template>
+              <div class="install-row">
+                <span>装进桌面后像原生应用一样打开，全屏显示，没有地址栏。</span>
+                <el-button type="primary" size="small" :loading="installing" @click="handleInstall">
+                  安装应用
+                </el-button>
+              </div>
+            </el-alert>
+
+            <!-- ==================== 浏览器通知 ==================== -->
+            <div class="section-title">浏览器通知</div>
+            <div class="section-sub">用本机浏览器直接收，不用装任何东西</div>
+
+            <!-- 不支持 / 环境限制 -->
+            <el-alert v-if="webState === 'blocked'" type="warning" :closable="false" show-icon>
+              <template #title>当前环境用不了浏览器通知</template>
+              {{ webNote }}
+            </el-alert>
+
+            <!-- iPhone：普通标签页里连权限弹窗都弹不出来，必须先添加到主屏 -->
+            <el-alert v-else-if="webState === 'ios-tab'" type="info" :closable="false" show-icon>
+              <template #title>iPhone 上需要先「添加到主屏」</template>
+              在 Safari 里点底部的分享按钮 →「添加到主屏」，然后<b>从主屏图标打开</b>本应用，
+              再回到这里开启通知。普通标签页里收不到网页通知，这是 iOS 的限制。
+            </el-alert>
+
+            <!-- 浏览器记住了「不允许」 -->
+            <el-alert v-else-if="webState === 'denied'" type="warning" :closable="false" show-icon>
+              <template #title>本站的通知被浏览器拒绝了</template>
+              点地址栏左侧的站点设置，把「通知」改回「允许」，然后重新开启。
+            </el-alert>
+
+            <template v-else>
+              <div class="status-row">
+                <el-tag v-if="webState === 'on'" type="success" size="small">已开启</el-tag>
+                <el-tag v-else type="info" size="small">未开启</el-tag>
+                <span class="desc">
+                  {{ webState === 'on' ? '本机浏览器已订阅' : '开启后本机能收到站内通知' }}
+                </span>
+              </div>
+
+              <div v-if="webCount > 0" class="desc count">
+                本账号共有 {{ webCount }} 台设备已开启浏览器通知
+              </div>
+
+              <div class="actions">
+                <el-button
+                  v-if="webState === 'off'"
+                  type="primary"
+                  size="small"
+                  :loading="webBusy"
+                  @click="handleWebEnable"
+                >
+                  开启通知
+                </el-button>
+                <template v-else>
+                  <el-button size="small" :loading="webTesting" @click="handleWebTest">
+                    发送测试
+                  </el-button>
+                  <el-button size="small" :loading="webBusy" @click="handleWebDisable">
+                    关闭通知
+                  </el-button>
+                </template>
+              </div>
             </template>
-            <div style="margin-top: 4px;">{{ describeChanges(pending.changes) }}</div>
-          </el-alert>
 
-          <el-alert
-            v-else-if="!formVisible"
-            type="info"
-            :closable="false"
-            show-icon
-            style="margin-top: 16px;"
-            title="点右上角「修改」可申请改动下方内容，提交后需班委审核，审核通过才会真正生效。"
-          />
+            <el-divider />
 
-          <el-form v-else :model="form" label-width="100px" style="max-width: 640px; margin-top: 16px;">
-            <el-form-item v-for="f in CHANGE_FIELDS" :key="f.prop" :label="f.label">
-              <el-select v-if="f.prop === 'is_poor'" v-model="form.is_poor" style="width: 160px">
-                <el-option label="是" value="是" />
-                <el-option label="否" value="否" />
-              </el-select>
-              <el-input
-                v-else
-                v-model="form[f.prop]"
-                :type="f.prop === 'family_address' ? 'textarea' : 'text'"
-                :rows="2"
-                :placeholder="f.placeholder"
-                :maxlength="f.maxLength"
-              />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" :loading="submitting" @click="handleSubmit">提交申请</el-button>
-              <el-button @click="formVisible = false">取消</el-button>
-            </el-form-item>
-          </el-form>
-        </div>
+            <!-- ==================== Bark 推送 ==================== -->
+            <div class="section-title">Bark 推送</div>
+            <div class="section-sub">手机上装 Bark App，填一个设备 ID 就能收</div>
 
-        <!-- 申请记录 -->
-        <div class="page-card" style="margin-top: 20px;">
-          <h3 class="page-title">我的申请记录</h3>
-          <el-table :data="records" stripe border style="width: 100%;">
-            <el-table-column label="申请时间" width="160" align="center">
-              <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
-            </el-table-column>
-            <el-table-column label="申请修改的内容" min-width="260">
-              <template #default="{ row }">{{ describeChanges(row.changes) }}</template>
-            </el-table-column>
-            <el-table-column label="状态" width="100" align="center">
-              <template #default="{ row }">
-                <el-tag :type="STATUS_TYPES[row.status]" size="small">
-                  {{ STATUS_LABELS[row.status] || row.status }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="审核人" width="100" align="center">
-              <template #default="{ row }">{{ row.reviewer_name || '-' }}</template>
-            </el-table-column>
-            <el-table-column label="审核时间" width="160" align="center">
-              <template #default="{ row }">{{ formatDateTime(row.reviewed_at) }}</template>
-            </el-table-column>
-            <el-table-column label="驳回理由" min-width="160">
-              <template #default="{ row }">
-                <span :style="{ color: row.reason ? '#f56c6c' : '#c0c4cc' }">{{ row.reason || '-' }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-if="!records.length" description="还没有提交过申请" style="margin-top: 20px;" />
-        </div>
-      </el-tab-pane>
+            <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px;">
+              <template #title>怎么拿到设备 ID</template>
+              在手机上装好 Bark App，打开后首页显示的那串字符就是设备 ID。
+              复制粘贴到下面即可（粘整条链接也行，会自动识别）。
+            </el-alert>
 
-      <!-- 账户设置：改密码 + 通知设置，所有登录用户都能看到 -->
-      <el-tab-pane label="账户设置" name="account">
-        <!-- 修改密码 -->
-        <div class="page-card">
-          <h3 class="page-title">修改密码</h3>
-          <el-form :model="pwdForm" label-width="100px" style="max-width: 480px; margin-top: 12px;">
-            <el-form-item label="原密码">
-              <el-input v-model="pwdForm.old_password" type="password" show-password />
-            </el-form-item>
-            <el-form-item label="新密码">
-              <el-input
-                v-model="pwdForm.new_password"
-                type="password"
-                show-password
-                placeholder="6-32 位，需同时包含字母和数字"
-              />
-            </el-form-item>
-            <el-form-item label="确认密码">
-              <el-input
-                v-model="pwdForm.confirm"
-                type="password"
-                show-password
-                @keyup.enter="handleChangePassword"
-              />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" :loading="pwdLoading" @click="handleChangePassword">
-                确认修改
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </div>
-
-        <!-- 通知设置：浏览器通知 + Bark 推送 -->
-        <div class="page-card" style="margin-top: 20px;">
-          <h3 class="page-title">通知设置</h3>
-          <p class="section-sub" style="margin-bottom: 12px;">
-            有审核结果、新通知等情况时，通过以下方式推送给你
-          </p>
-
-          <!-- 安装到桌面：Chrome/Edge/Android 能触发原生安装横幅，iOS 没有 -->
-          <el-alert
-            v-if="!standalone && canInstall"
-            type="success"
-            :closable="false"
-            show-icon
-            style="margin-bottom: 16px;"
-          >
-            <template #title>把这个应用装到桌面</template>
-            <div class="install-row">
-              <span>装进桌面后像原生应用一样打开，全屏显示，没有地址栏。</span>
-              <el-button type="primary" size="small" :loading="installing" @click="handleInstall">
-                安装应用
-              </el-button>
-            </div>
-          </el-alert>
-
-          <!-- ==================== 浏览器通知 ==================== -->
-          <div class="section-title">浏览器通知</div>
-          <div class="section-sub">用本机浏览器直接收，不用装任何东西</div>
-
-          <!-- 不支持 / 环境限制 -->
-          <el-alert v-if="webState === 'blocked'" type="warning" :closable="false" show-icon>
-            <template #title>当前环境用不了浏览器通知</template>
-            {{ webNote }}
-          </el-alert>
-
-          <!-- iPhone：普通标签页里连权限弹窗都弹不出来，必须先添加到主屏 -->
-          <el-alert v-else-if="webState === 'ios-tab'" type="info" :closable="false" show-icon>
-            <template #title>iPhone 上需要先「添加到主屏」</template>
-            在 Safari 里点底部的分享按钮 →「添加到主屏」，然后<b>从主屏图标打开</b>本应用，
-            再回到这里开启通知。普通标签页里收不到网页通知，这是 iOS 的限制。
-          </el-alert>
-
-          <!-- 浏览器记住了「不允许」 -->
-          <el-alert v-else-if="webState === 'denied'" type="warning" :closable="false" show-icon>
-            <template #title>本站的通知被浏览器拒绝了</template>
-            点地址栏左侧的站点设置，把「通知」改回「允许」，然后重新开启。
-          </el-alert>
-
-          <template v-else>
-            <div class="status-row">
-              <el-tag v-if="webState === 'on'" type="success" size="small">已开启</el-tag>
-              <el-tag v-else type="info" size="small">未开启</el-tag>
-              <span class="desc">
-                {{ webState === 'on' ? '本机浏览器已订阅' : '开启后本机能收到站内通知' }}
-              </span>
-            </div>
-
-            <div v-if="webCount > 0" class="desc count">
-              本账号共有 {{ webCount }} 台设备已开启浏览器通知
-            </div>
+            <el-form :model="barkForm" label-width="100px">
+              <el-form-item label="设备 ID">
+                <el-input
+                  v-model="barkForm.bark_key"
+                  placeholder="留空并保存 = 关闭推送"
+                  clearable
+                  @keyup.enter="handleBarkSave"
+                />
+              </el-form-item>
+            </el-form>
 
             <div class="actions">
-              <el-button
-                v-if="webState === 'off'"
-                type="primary"
-                size="small"
-                :loading="webBusy"
-                @click="handleWebEnable"
-              >
-                开启通知
+              <el-button size="small" :loading="barkTesting" @click="handleBarkTest">发送测试推送</el-button>
+              <el-button type="primary" size="small" :loading="barkSaving" @click="handleBarkSave">保存</el-button>
+              <el-button v-if="savedBarkKey" link type="danger" size="small" @click="handleBarkUnbind">
+                解除绑定
               </el-button>
-              <template v-else>
-                <el-button size="small" :loading="webTesting" @click="handleWebTest">
-                  发送测试
-                </el-button>
-                <el-button size="small" :loading="webBusy" @click="handleWebDisable">
-                  关闭通知
-                </el-button>
-              </template>
             </div>
-          </template>
 
-          <el-divider />
-
-          <!-- ==================== Bark 推送 ==================== -->
-          <div class="section-title">Bark 推送</div>
-          <div class="section-sub">手机上装 Bark App，填一个设备 ID 就能收</div>
-
-          <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px;">
-            <template #title>怎么拿到设备 ID</template>
-            在手机上装好 Bark App，打开后首页显示的那串字符就是设备 ID。
-            复制粘贴到下面即可（粘整条链接也行，会自动识别）。
-          </el-alert>
-
-          <el-form :model="barkForm" label-width="100px">
-            <el-form-item label="设备 ID">
-              <el-input
-                v-model="barkForm.bark_key"
-                placeholder="留空并保存 = 关闭推送"
-                clearable
-                @keyup.enter="handleBarkSave"
-              />
-            </el-form-item>
-          </el-form>
-
-          <!-- 校徽就是推送通知里显示的图标，让用户提前看到长什么样。
-               浏览器能看到不代表手机能看到，所以措辞上不把话说死 -->
-          <div v-if="iconUrl" class="icon-preview">
-            <img :src="iconUrl" alt="校徽" />
-            <span>通知里的头像就是这枚校徽（以手机实际收到为准）</span>
-          </div>
-
-          <div class="hint">
-            <div class="hint-title">会推到手机的情况</div>
-            <ul>
-              <li>自己的请假、信息修改有了审核结果 —— <b>时效性通知</b>，能穿透专注模式</li>
-              <li>有新的请假、信息修改等自己审核 —— <b>时效性通知</b></li>
-              <li>发布了新通知、上传了新公告 —— 普通通知</li>
-            </ul>
-            <div class="hint-note">
-              没填设备 ID 就不会收到任何推送，站内功能照常使用。
-              若手机开了专注模式或关掉了本应用的通知权限，通知可能不显示提醒。
+            <div class="hint-note footnote">
+              两个渠道都开着的话，同一台设备会收到两条通知（浏览器一条、Bark 一条）。
+              只想要其中一种，把另一种关掉即可。
             </div>
           </div>
+        </el-tab-pane>
 
-          <div class="actions">
-            <el-button size="small" :loading="barkTesting" @click="handleBarkTest">发送测试推送</el-button>
-            <el-button type="primary" size="small" :loading="barkSaving" @click="handleBarkSave">保存</el-button>
-            <el-button v-if="savedBarkKey" link type="danger" size="small" @click="handleBarkUnbind">
-              解除绑定
-            </el-button>
-          </div>
-
-          <div class="hint-note footnote">
-            两个渠道都开着的话，同一台设备会收到两条通知（浏览器一条、Bark 一条）。
-            只想要其中一种，把另一种关掉即可。
-          </div>
-        </div>
-      </el-tab-pane>
-
-      <!-- 办件空间：我申请的 / 我审批的 -->
-      <el-tab-pane label="办件空间" name="workspace">
-        <el-tabs v-model="workspaceTab" type="card" class="workspace-subtabs">
-          <!-- 我申请的 -->
-          <el-tab-pane label="我申请的" name="submitted">
-            <div v-loading="submittedLoading" class="workspace-list">
-              <div v-if="submittedList.length" class="case-list">
-                <div
-                  v-for="item in submittedList"
-                  :key="`${item.type}-${item.id}`"
-                  class="case-item"
-                  @click="goToDetail(item)"
-                >
-                  <div class="case-header">
-                    <el-tag size="small" type="info" effect="plain">{{ item.type_name }}</el-tag>
-                    <el-tag :type="item.status_type" size="small">{{ item.status_label }}</el-tag>
-                  </div>
-                  <div class="case-title">{{ item.title }}</div>
-                  <div class="case-meta">
-                    <span>提交时间：{{ formatDateTime(item.created_at) }}</span>
-                    <span v-if="item.updated_at && item.updated_at !== item.created_at">
-                      处理时间：{{ formatDateTime(item.updated_at) }}
-                    </span>
-                  </div>
-                  <div v-if="item.reviewer_name" class="case-meta">
-                    处理人：{{ item.reviewer_name }}
-                  </div>
-                  <div v-if="item.reason" class="case-reason">
-                    驳回理由：{{ item.reason }}
-                  </div>
-                  <div class="case-actions" @click.stop>
-                    <el-button size="small" type="primary" link @click="goToDetail(item)">
-                      查看详情
-                    </el-button>
+        <!-- 办件空间：我申请的 / 我审批的 -->
+        <el-tab-pane label="办件空间" name="workspace">
+          <el-tabs v-model="workspaceTab">
+            <!-- 我申请的 -->
+            <el-tab-pane label="我申请的" name="submitted">
+              <div v-loading="submittedLoading" class="workspace-list">
+                <div v-if="submittedList.length" class="case-list">
+                  <div
+                    v-for="item in submittedList"
+                    :key="`${item.type}-${item.id}`"
+                    class="case-item"
+                    @click="goToDetail(item)"
+                  >
+                    <div class="case-header">
+                      <el-tag size="small" type="info" effect="plain">{{ item.type_name }}</el-tag>
+                      <el-tag :type="item.status_type" size="small">{{ item.status_label }}</el-tag>
+                    </div>
+                    <div class="case-title">{{ item.title }}</div>
+                    <div class="case-meta">
+                      <span>提交时间：{{ formatDateTime(item.created_at) }}</span>
+                      <span v-if="item.updated_at && item.updated_at !== item.created_at">
+                        处理时间：{{ formatDateTime(item.updated_at) }}
+                      </span>
+                    </div>
+                    <div v-if="item.reviewer_name" class="case-meta">
+                      处理人：{{ item.reviewer_name }}
+                    </div>
+                    <div v-if="item.reason" class="case-reason">
+                      驳回理由：{{ item.reason }}
+                    </div>
+                    <div class="case-actions" @click.stop>
+                      <el-button size="small" type="primary" link @click="goToDetail(item)">
+                        查看详情
+                      </el-button>
+                    </div>
                   </div>
                 </div>
+                <el-empty v-else-if="!submittedLoading" description="还没有申请过任何办件" />
               </div>
-              <el-empty v-else-if="!submittedLoading" description="还没有申请过任何办件" />
-            </div>
-          </el-tab-pane>
+            </el-tab-pane>
 
-          <!-- 我审批的 -->
-          <el-tab-pane v-if="canReview" label="我审批的" name="involved">
-            <div v-loading="involvedLoading" class="workspace-list">
-              <div v-if="involvedList.length" class="case-list">
-                <div
-                  v-for="item in involvedList"
-                  :key="`${item.type}-${item.id}`"
-                  class="case-item"
-                  @click="goToDetail(item)"
-                >
-                  <div class="case-header">
-                    <el-tag size="small" type="info" effect="plain">{{ item.type_name }}</el-tag>
-                    <el-tag :type="item.status_type" size="small">{{ item.status_label }}</el-tag>
-                  </div>
-                  <div class="case-title">{{ item.title }}</div>
-                  <div class="case-meta">
-                    <span>申请人：{{ item.applicant_name || '-' }}
-                      <span v-if="item.applicant_no" style="color:#909399;">({{ item.applicant_no }})</span>
-                    </span>
-                  </div>
-                  <div class="case-meta">
-                    <span>申请时间：{{ formatDateTime(item.created_at) }}</span>
-                    <span v-if="item.updated_at">处理时间：{{ formatDateTime(item.updated_at) }}</span>
-                  </div>
-                  <div v-if="item.reason" class="case-reason">
-                    驳回理由：{{ item.reason }}
-                  </div>
-                  <div class="case-actions" @click.stop>
-                    <el-button size="small" type="primary" link @click="goToDetail(item)">
-                      查看详情
-                    </el-button>
+            <!-- 我审批的 -->
+            <el-tab-pane v-if="canReview" label="我审批的" name="involved">
+              <div v-loading="involvedLoading" class="workspace-list">
+                <div v-if="involvedList.length" class="case-list">
+                  <div
+                    v-for="item in involvedList"
+                    :key="`${item.type}-${item.id}`"
+                    class="case-item"
+                    @click="goToDetail(item)"
+                  >
+                    <div class="case-header">
+                      <el-tag size="small" type="info" effect="plain">{{ item.type_name }}</el-tag>
+                      <el-tag :type="item.status_type" size="small">{{ item.status_label }}</el-tag>
+                    </div>
+                    <div class="case-title">{{ item.title }}</div>
+                    <div class="case-meta">
+                      <span>申请人：{{ item.applicant_name || '-' }}
+                        <span v-if="item.applicant_no" style="color:#909399;">({{ item.applicant_no }})</span>
+                      </span>
+                    </div>
+                    <div class="case-meta">
+                      <span>申请时间：{{ formatDateTime(item.created_at) }}</span>
+                      <span v-if="item.updated_at">处理时间：{{ formatDateTime(item.updated_at) }}</span>
+                    </div>
+                    <div v-if="item.reason" class="case-reason">
+                      驳回理由：{{ item.reason }}
+                    </div>
+                    <div class="case-actions" @click.stop>
+                      <el-button size="small" type="primary" link @click="goToDetail(item)">
+                        查看详情
+                      </el-button>
+                    </div>
                   </div>
                 </div>
+                <el-empty v-else-if="!involvedLoading" description="还没有处理过任何办件" />
               </div>
-              <el-empty v-else-if="!involvedLoading" description="还没有处理过任何办件" />
-            </div>
-          </el-tab-pane>
-        </el-tabs>
-      </el-tab-pane>
-    </el-tabs>
+            </el-tab-pane>
+          </el-tabs>
+        </el-tab-pane>
+      </el-tabs>
+    </div>
 
     <!-- 照片查看器 -->
     <el-image-viewer
@@ -454,13 +439,15 @@ const detailColumns = computed(() => (isMobile.value ? 1 : 3))
 const activeTab = ref('info')
 
 // 同步 URL 的 tab 参数（支持分享链接直接定位到某个 tab）
+// 注意：这里必须认识全部 tab。漏掉一个的话，点它就会立刻被这个 watcher
+// 拽回默认 tab（切 tab 时同 URL 会被反写一次），表现成「点了没反应」
 watch(
   () => route.query.tab,
   (val) => {
-    if (val === 'account') {
-      activeTab.value = 'account'
-    } else if (val === 'info' && !userStore.isExternal) {
-      activeTab.value = 'info'
+    // 域外账号没有「基本信息」，其余 tab 都放行
+    const known = ['info', 'account', 'workspace']
+    if (known.includes(val) && !(val === 'info' && userStore.isExternal)) {
+      activeTab.value = val
     } else {
       // 默认 tab：学生 → info，域外 → account
       activeTab.value = userStore.isExternal ? 'account' : 'info'
@@ -523,7 +510,6 @@ const vapidKey = ref('')
 const barkSaving = ref(false)
 const barkTesting = ref(false)
 const savedBarkKey = ref('')
-const iconUrl = ref('')
 const barkForm = reactive({ bark_key: '' })
 
 const KEY_PATTERN = /^[A-Za-z0-9_-]{5,128}$/
@@ -538,7 +524,8 @@ const involvedLoading = ref(false)
 // 能不能看到「我审批的」tab：班委及以上
 const canReview = computed(() => rankOf(userStore.info?.role) >= rankOf('committee'))
 
-// 同步 URL 的 sub 参数（办件空间内的子 tab）
+// 同步 URL 的 sub 参数（办件空间内的子 tab）。
+// immediate 是为了让通知里的 ...&sub=involved 直接落到「我审批的」
 watch(
   () => route.query.sub,
   (val) => {
@@ -547,7 +534,8 @@ watch(
     } else {
       workspaceTab.value = 'submitted'
     }
-  }
+  },
+  { immediate: true }
 )
 
 watch(workspaceTab, (val) => {
@@ -912,7 +900,6 @@ async function fetchAccountData() {
   try {
     const data = await getBarkSetting()
     savedBarkKey.value = data.bark_key || ''
-    iconUrl.value = data.icon_url || ''
     barkForm.bark_key = savedBarkKey.value
   } catch (e) {
     // 读不到 Bark 设置不影响改密码
@@ -942,9 +929,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.my-info-tabs {
-  /* tab 下面的内容和卡片顶栏之间留点呼吸 */
-  --el-tabs-header-height: 50px;
+/* tab 内的分节：外层 page-card 已经给了白底和内边距，这里只要间距 */
+.tab-section {
+  margin-bottom: 28px;
+}
+
+.tab-section:last-child {
+  margin-bottom: 0;
 }
 
 .page-toolbar {
@@ -1046,43 +1037,6 @@ onMounted(async () => {
   margin: 12px 0 0 0;
 }
 
-.icon-preview {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 16px 0;
-  font-size: 12px;
-  color: #909399;
-}
-
-.icon-preview img {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  object-fit: contain;
-  border: 1px solid #ebeef5;
-  background: #fff;
-}
-
-.hint {
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: #f5f7fa;
-  font-size: 12px;
-  color: #606266;
-  line-height: 1.7;
-}
-
-.hint-title {
-  font-weight: 600;
-  margin-bottom: 2px;
-}
-
-.hint ul {
-  margin: 0;
-  padding-left: 18px;
-}
-
 .hint-note {
   color: #909399;
 }
@@ -1103,10 +1057,6 @@ onMounted(async () => {
 }
 
 /* ---------- 办件空间 ---------- */
-.workspace-subtabs {
-  margin-top: -4px;
-}
-
 .workspace-list {
   min-height: 200px;
 }
