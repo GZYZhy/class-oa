@@ -6,6 +6,7 @@
 
 import json
 import re
+from calendar import isleap
 from datetime import date
 
 from sqlalchemy.orm import Session
@@ -106,11 +107,29 @@ def dump_notify_nos(nos: list[str]) -> str:
 # ---------- 今日寿星 ----------
 
 def age_on(birth: date, today: date) -> int:
-    """生日当天算出的年龄。
+    """这个人在 today 这天**庆祝**的岁数。
 
-    和 student_service.get_statistics 里那份算法一字不差（那边是
-    student_service.py:325）。今天正好是生日时，算出来就是「今天要过的岁数」。
+    今天正好是生日时，算出来就是「今天要过的岁数」。
+
+    唯一要单独说的是 2 月 29 日出生的人：非闰年没有 02-29，birthday_month_days()
+    会把他们的生日提前到 02-28 过。可按普通日期比较，02-28 还排在 02-29 前面，
+    会被当成「今天还没过生日」而少算一岁 —— 条幅上写着「今天生日」，祝福语里
+    却写着「25 岁生日快乐」而他要过的是 26 岁，自相矛盾。所以提前庆祝的这一天，
+    就按生日当天算。
+
+    注：student_service.get_statistics（student_service.py:325）里那份算法**故意
+    不跟着改** —— 那边统计的是「实际年龄」，02-29 出生的人在非闰年的 02-28 确实
+    还差一天才满岁。一个算「庆祝几岁」、一个算「实际几岁」，用途不同，
+    不要为了「看起来一致」而合并回一份。
     """
+    if (
+        (birth.month, birth.day) == (2, 29)
+        and (today.month, today.day) == (2, 28)
+        and not isleap(today.year)
+    ):
+        # 只有非闰年会走到这里：闰年的 02-28 不是 02-29 出生者的生日，
+        # birthday_month_days() 也不会把他选进寿星名单
+        return today.year - birth.year
     return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
 
 
@@ -127,10 +146,10 @@ def birthday_month_days(today: date) -> set[str]:
     """
     key = today.strftime("%m-%d")
     days = {key}
-    if key == "02-28":
-        leap = today.year % 4 == 0 and (today.year % 100 != 0 or today.year % 400 == 0)
-        if not leap:
-            days.add("02-29")
+    # 闰年判断用标准库的 isleap（age_on 里还要用一次）：手写「四年一闰、
+    # 百年不闰、四百年再闰」是经典易错点，交给标准库更省心
+    if key == "02-28" and not isleap(today.year):
+        days.add("02-29")
     return days
 
 
