@@ -9,15 +9,64 @@
 由「按账号查日志」按 7 天窗口单独展示。两张表各管一类，不合并。
 """
 
+from datetime import datetime, timedelta
+
 from sqlalchemy.orm import Session
 
-from ..models import OperationLog, User
+from ..models import AccountEvent, OperationLog, User
 from .user_service import account_name
+
+# 「按账号查日志」里登录/改密事件的展示窗口与条数上限。
+# 窗口是查的时候限的，不是往里写的时候限的（account_events 只增不删）
+ACCOUNT_EVENT_DAYS = 7
+ACCOUNT_EVENT_LIMIT = 200
 
 
 def display_name(db: Session, user: User) -> str:
     """取当前用户的展示名（域外账号用自定义展示名，学生账号查学生表），取不到就退回登录名"""
     return account_name(db, user)
+
+
+def account_operations(db: Session, student_no: str, page: int = 1, page_size: int = 20):
+    """某个账号**作为操作人**留下的操作日志，分页。返回 (总数, 当前页条目)。
+
+    operator_no 是精确匹配。admin 的 /logs?operator= 走的是 LIKE %x%，
+    拿 2026012 去查会把 20260123、20260124 一起带出来，那种模糊匹配
+    不能用来「看某个账号」。
+    """
+    query = db.query(OperationLog).filter(OperationLog.operator_no == student_no)
+    total = query.count()
+    items = (
+        query.order_by(OperationLog.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return total, items
+
+
+def account_events(db: Session, student_no: str):
+    """某个账号最近 ACCOUNT_EVENT_DAYS 天的登录 / 自行改密事件。
+
+    返回 (窗口内总数, 展示的条目, 窗口左端)。总数可能大于条目数（超出上限），
+    调用方据此提示「只列了最近 N 条」，不做静默截断。
+    """
+    since = datetime.now() - timedelta(days=ACCOUNT_EVENT_DAYS)
+    query = db.query(AccountEvent).filter(
+        AccountEvent.student_no == student_no,
+        # created_at 是 Python 端写入的北京时间，这里也用 datetime.now()，
+        # 两边同源才比得了（SQLite 的 CURRENT_TIMESTAMP 是 UTC，混用就会错 8 小时）
+        AccountEvent.created_at >= since,
+    )
+    total = query.count()
+    items = (
+        # 按 created_at 倒序而不是 id 倒序：窗口本来就是拿 created_at 划的，
+        # 排序用同一个字段才自洽。id 倒序只在「写入顺序 = 时间顺序」时等价
+        query.order_by(AccountEvent.created_at.desc(), AccountEvent.id.desc())
+        .limit(ACCOUNT_EVENT_LIMIT)
+        .all()
+    )
+    return total, items, since
 
 
 def log_operation(

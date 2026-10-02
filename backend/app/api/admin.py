@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 from ..config import BASE_DIR, settings
 from ..database import get_db
 from ..models import (
-    AccountEvent,
     FileAccessLog,
     IpBan,
     OperationLog,
@@ -36,7 +35,9 @@ from ..schemas import (
     WatermarkExtractResponse,
 )
 from ..services import (
+    account_events,
     account_name,
+    account_operations,
     add_invisible_watermark,
     add_resource,
     ban_ip,
@@ -69,13 +70,6 @@ ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2MB，头像不需要更大
 # 域外账号登录名：不能有空白字符，否则登录时 strip 过就对不上了
 EXTERNAL_LOGIN_NAME_MAX = 20  # 与 users.student_no 的字段长度一致
-
-# 「按账号查日志」里登录 / 改密事件的查询窗口（天）。
-# 只是查询窗口，不删数据 —— account_events 只增不删
-ACCOUNT_EVENT_DAYS = 7
-# 窗口内的事件最多回这么多条，多出来的在 events_total 里报数，前端提示「仅显示最近 N 条」
-ACCOUNT_EVENT_LIMIT = 200
-
 
 def _save_avatar(file: UploadFile) -> str:
     """把上传的头像写到磁盘，返回裸文件名（库里只存文件名，不存路径）
@@ -404,16 +398,9 @@ def user_logs(
     """
     target = _get_user(db, student_no)
 
-    # operator_no 是精确匹配。现有的 /logs?operator= 走的是 LIKE %x%，
-    # 拿 2026012 去查会把 20260123、20260124 一起带出来，那种模糊匹配不能用来「看某个账号」
-    operations = db.query(OperationLog).filter(OperationLog.operator_no == student_no)
-    op_total = operations.count()
-    op_items = (
-        operations.order_by(OperationLog.id.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
+    # 操作日志与账号事件走 log_service 的共用查询 —— 「我的日志」（api/auth.py）
+    # 用的是同一份，两边的口径不会各走各的
+    op_total, op_items = account_operations(db, student_no, page, page_size)
 
     # 被操作记录：以这个账号为**对象**的操作。
     # 匹配两种情况：
@@ -441,23 +428,7 @@ def user_logs(
         .all()
     )
 
-    since = datetime.now() - timedelta(days=ACCOUNT_EVENT_DAYS)
-    events = db.query(AccountEvent).filter(
-        AccountEvent.student_no == student_no,
-        # created_at 是 Python 端写入的北京时间，这里也用 datetime.now()，
-        # 两边同源才比得了（SQLite 的 CURRENT_TIMESTAMP 是 UTC，混用就会错 8 小时）
-        AccountEvent.created_at >= since,
-    )
-    event_total = events.count()
-    event_items = (
-        # 按 created_at 倒序而不是 id 倒序：窗口本来就是拿 created_at 划的，
-        # 排序用同一个字段才自洽。id 倒序只在「写入顺序 = 时间顺序」时等价，
-        # 补数据、导数据时会露馅（本模块的注释也说了本表只增不删，
-        # 但没人保证一定是按时间顺序增的）
-        events.order_by(AccountEvent.created_at.desc(), AccountEvent.id.desc())
-        .limit(ACCOUNT_EVENT_LIMIT)
-        .all()
-    )
+    event_total, event_items, since = account_events(db, student_no)
 
     return AdminUserLogsResponse(
         student_no=student_no,
