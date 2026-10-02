@@ -44,7 +44,8 @@
 
 ## 技术栈
 
-后端 FastAPI + SQLAlchemy 2.0 + SQLite，前端 Vue 3 + Element Plus + Vite，
+后端 FastAPI + SQLAlchemy 2.0 + SQLite（可选 MySQL，见 `.env.example` 的
+`DATABASE_URL`），前端 Vue 3 + Element Plus + Vite，
 Docker Compose 部署（nginx 托管前端并反代后端）。
 
 ## 部署
@@ -78,6 +79,7 @@ IMAGE_TAG=2026-09-25 docker compose pull && IMAGE_TAG=2026-09-25 docker compose 
 
 默认只映射前端 `8080:80`，后端只绑宿主机回环地址。数据全部在 `data/backend/`
 （数据库、照片、资料文件、密钥），换镜像不影响它，备份迁移打包这一个目录即可。
+（**例外**：`DATABASE_URL` 指向 MySQL 时数据库不在这个目录里，备份得连那个库一起做。）
 
 ### 环境变量
 
@@ -181,8 +183,8 @@ python3 scripts/import_excel.py <Excel路径> [工作表名，默认「全部信
 python3 scripts/reset_data.py
 ```
 
-⚠️ **不可逆**，执行前先备份 `data/backend/`。做法和保留项见
-[docs/serve.md](docs/serve.md#数据重置)。
+⚠️ **不可逆**，执行前先备份 `data/backend/`（改用 MySQL 时数据库不在这里，要另外备份）。
+做法和保留项见 [docs/serve.md](docs/serve.md#数据重置)。
 
 ## 本地开发
 

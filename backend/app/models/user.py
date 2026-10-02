@@ -43,8 +43,11 @@ class User(Base):
     # 请求体模板。**必须是一个 JSON 对象**（发送时 json.loads 出来、在解析后的结构上
     # 替换占位符再 dumps），不是随意字符串 —— 直接对原始文本做替换会被注入出
     # 结构外的内容（甲填的标题能改写乙收到的 JSON）。空 = 用内置默认模板
+    # ⚠ 默认值那对括号不能省：MySQL 不允许 TEXT 列带裸的 DEFAULT ''（错误 1101），
+    # 写成表达式 DEFAULT ('') 才收（8.0.13 起）。SQLite 两种写法都认，
+    # 所以统一用带括号的这种，两边共用一份建表语句
     webhook_template = Column(
-        Text, nullable=False, default="", server_default=text("''"),
+        Text, nullable=False, default="", server_default=text("('')"),
         comment="webhook 请求体模板（JSON 对象），空表示用默认模板",
     )
     # webhook 渠道开关。默认关闭：这是给懂行的人用的渠道，不该有人稀里糊涂就开了。

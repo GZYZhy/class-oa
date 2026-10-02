@@ -5,7 +5,8 @@ SQLAlchemy 的 `Base.metadata.create_all` 只建「不存在的表」，**不会
 （本项目踩过一次：notices.updated_at 是靠手工 ALTER TABLE 补的）。
 
 本模块在 create_all 之后、任何查询之前运行：查出实际列，缺什么补什么。
-只用 SQLite 语法（PRAGMA），换别的数据库时请手工补列。
+只用 SQLite 语法（PRAGMA），**补列这条路只服务 SQLite 老库**；其它数据库上
+只支持全新安装（新库由 create_all 一次建全，没有老库可补），见 run_migrations。
 """
 
 from datetime import datetime
@@ -211,7 +212,14 @@ def _backfill_webhook_enabled(conn) -> None:
 def run_migrations() -> None:
     """补齐老库缺失的列；新库上什么都不做"""
     if engine.dialect.name != "sqlite":
-        print(f"[迁移] 跳过：当前数据库是 {engine.dialect.name}，请手工补列", flush=True)
+        # 全新安装时这里**正常就该跳过**：库是 create_all 刚建的，列一个不缺。
+        # 所以不能说成「请手工补列」——那会让运维以为哪里做错了。
+        # 真正的例外只有一种：把别处的老 SQLite 库搬进 MySQL，那才需要自己补
+        print(
+            f"[迁移] 跳过补列检查：{engine.dialect.name} 上只支持全新安装"
+            "（新库由 create_all 一次建全，没有老库要补列）",
+            flush=True,
+        )
         return
 
     seed_needed = False

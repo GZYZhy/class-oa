@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
 
+from ..database import month_day_expr
 from ..models import Student
 from ..schemas import StudentCreate, StudentUpdate
 
@@ -120,10 +121,9 @@ def get_students(
         from datetime import timedelta
         today = date.today()
         target_dates = {(today + timedelta(days=i)).strftime("%m-%d") for i in range(birthday_days + 1)}
-        # SQLite strftime 提取月日，与候选集合匹配
-        query = query.filter(
-            func.strftime("%m-%d", Student.birth_date).in_(target_dates)
-        )
+        # 提取月日与候选集合匹配。取月日的写法两个库不一样，交给 month_day_expr
+        # （它是 SQLite 的 strftime / MySQL 的 date_format，结果都是零填充的 "10-03"）
+        query = query.filter(month_day_expr(Student.birth_date).in_(target_dates))
 
     # 总数
     total = query.count()
@@ -365,7 +365,11 @@ def get_statistics(db: Session) -> dict:
     ).filter(Student.gaokao_score.isnot(None)).first()
 
     score_summary = {
-        "avg": round(score_query[0], 1) if score_query[0] else 0,
+        # 显式转 float：AVG() 在 SQLite 上返回 float，在 MySQL 上返回 Decimal
+        # （它对精确类型入参返回 DECIMAL）。现在靠 FastAPI 的 jsonable_encoder
+        # 恰好在出参时把 Decimal 转成同样的 float，但「两个库结果一致」不该
+        # 压在这层巧合上，就地收敛掉
+        "avg": round(float(score_query[0]), 1) if score_query[0] else 0,
         "max": score_query[1] or 0,
         "min": score_query[2] or 0,
     }

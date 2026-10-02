@@ -37,8 +37,10 @@ class BirthdaySettings(Base):
     )
     # 祝福语模板，占位符 {{name}} {{age}} {{class}}。空 = 用内置默认文案
     # （同 users.webhook_template 的约定：空表示用默认）
+    # ⚠ 默认值那对括号不能省：MySQL 不允许 TEXT 列带裸的 DEFAULT ''（错误 1101），
+    # 写成表达式 DEFAULT ('') 才收（8.0.13 起）。SQLite 两种写法都认
     greet_template = Column(
-        Text, nullable=False, default="", server_default=text("''"),
+        Text, nullable=False, default="", server_default=text("('')"),
         comment="祝福语模板，空表示用内置默认文案",
     )
     notify_enabled = Column(
@@ -48,8 +50,9 @@ class BirthdaySettings(Base):
     # 勾选的账号学号（JSON 数组串），照抄 OperationLog.target_student_nos 的做法。
     # **存学号不存 users.id**：账号以学号为业务主键，删号重建后学号不变，
     # 而且 recipients(only_no=...) 过滤的正是 User.student_no
+    # ⚠ 同上：TEXT 列的默认值必须写成 DEFAULT ('')
     notify_student_nos = Column(
-        Text, nullable=False, default="", server_default=text("''"),
+        Text, nullable=False, default="", server_default=text("('')"),
         comment="接收生日汇总通知的学号（JSON 数组）",
     )
     # 幂等标记：哪一天跑过每日任务。可空 = 一次都没跑过
