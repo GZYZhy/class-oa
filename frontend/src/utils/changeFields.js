@@ -8,6 +8,9 @@
 export const CHANGE_FIELDS = [
   { prop: 'qq', label: 'QQ号码', maxLength: 30, placeholder: '请输入 QQ 号码' },
   { prop: 'email', label: '电子邮箱', maxLength: 100, placeholder: '请输入电子邮箱' },
+  // 两个电话不卡格式：档案里有座机（010-…）也有带区号/分机的写法，前端卡正则只会误伤
+  { prop: 'phone', label: '本人电话', maxLength: 50, placeholder: '如：13800138000' },
+  { prop: 'family_phone', label: '家庭电话', maxLength: 100, placeholder: '如：010-12345678' },
   { prop: 'family_address', label: '家庭地址', maxLength: 200, placeholder: '请输入家庭通信地址' },
   { prop: 'postal_code', label: '邮政编码', maxLength: 10, placeholder: '6 位数字' },
   { prop: 'league_position', label: '团学会职务', maxLength: 50, placeholder: '没有就留空' },

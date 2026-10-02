@@ -15,6 +15,8 @@ class ChangeRequestCreate(BaseModel):
     """
     qq: Optional[str] = Field(None, max_length=30, description="QQ号码")
     email: Optional[str] = Field(None, max_length=100, description="电子邮箱")
+    phone: Optional[str] = Field(None, max_length=50, description="本人电话")
+    family_phone: Optional[str] = Field(None, max_length=100, description="家庭电话")
     family_address: Optional[str] = Field(None, max_length=200, description="家庭通信地址")
     postal_code: Optional[str] = Field(None, max_length=10, description="邮政编码")
     league_position: Optional[str] = Field(None, max_length=50, description="团学会职务")

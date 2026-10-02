@@ -25,6 +25,10 @@ REVIEWER_ROLES = ["admin", "committee"]
 EDITABLE_FIELDS = (
     "qq",
     "email",
+    # 两个电话不卡格式：真实档案里有座机（010-…）、有带区号/分机的写法，
+    # 卡正则只会把合法号码挡在外面，而这两个字段既不进邮件头也不参与鉴权
+    "phone",
+    "family_phone",
     "family_address",
     "postal_code",
     "league_position",

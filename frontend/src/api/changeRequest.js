@@ -2,7 +2,10 @@ import request from '@/utils/request'
 
 /**
  * 提交自己的信息修改申请
- * data 只放要改的字段（后端白名单：qq/email/family_address/postal_code/league_position/is_poor）
+ *
+ * data 只放要改的字段。可改字段的清单**不在这里抄一份** —— 那份清单是
+ * utils/changeFields.js 的 CHANGE_FIELDS（与后端 change_requests.EDITABLE_FIELDS 一一对应），
+ * 抄到这里只会像之前那样悄悄过期（原先这行注释就漏了 bed）。
  */
 export function submitChangeRequest(data) {
   return request({
