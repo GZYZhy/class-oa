@@ -144,249 +144,254 @@
 
         <!-- 账户设置：改密码 + 通知设置，所有登录用户都能看到 -->
         <el-tab-pane label="账户设置" name="account">
-          <!-- 修改密码 -->
-          <div class="tab-section">
-            <h3 class="page-title">修改密码</h3>
-            <el-form :model="pwdForm" label-width="100px" style="max-width: 480px; margin-top: 12px;">
-              <el-form-item label="原密码">
-                <el-input v-model="pwdForm.old_password" type="password" show-password />
-              </el-form-item>
-              <el-form-item label="新密码">
-                <el-input
-                  v-model="pwdForm.new_password"
-                  type="password"
-                  show-password
-                  placeholder="6-32 位，需同时包含字母和数字"
-                />
-              </el-form-item>
-              <el-form-item label="确认密码">
-                <el-input
-                  v-model="pwdForm.confirm"
-                  type="password"
-                  show-password
-                  @keyup.enter="handleChangePassword"
-                />
-              </el-form-item>
-              <el-form-item>
-                <el-button type="primary" :loading="pwdLoading" @click="handleChangePassword">
-                  确认修改
-                </el-button>
-              </el-form-item>
-            </el-form>
-          </div>
-
-          <!-- 通知设置：浏览器通知 + Bark 推送 -->
-          <div class="tab-section">
-            <h3 class="page-title">通知设置</h3>
-            <p class="section-sub" style="margin-bottom: 12px;">
-              有审核结果、新通知等情况时，通过以下方式推送给你
-            </p>
-
-            <!-- 安装到桌面：Chrome/Edge/Android 能触发原生安装横幅，iOS 没有 -->
-            <el-alert
-              v-if="!standalone && canInstall"
-              type="success"
-              :closable="false"
-              show-icon
-              style="margin-bottom: 16px;"
-            >
-              <template #title>把这个应用装到桌面</template>
-              <div class="install-row">
-                <span>装进桌面后像原生应用一样打开，全屏显示，没有地址栏。</span>
-                <el-button type="primary" size="small" :loading="installing" @click="handleInstall">
-                  安装应用
-                </el-button>
+          <!-- 账户设置内部再分三个子 tab。原来是一长条滚动页，加了 webhook 和邮件
+               两个渠道之后太长，而且「改密 / 通知 / 日志」本来也是各不相干的三件事 -->
+          <el-tabs v-model="accountTab">
+            <!-- ==================== 账号安全 ==================== -->
+            <el-tab-pane label="账号安全" name="security">
+              <!-- 修改密码 -->
+              <div class="tab-section">
+                <h3 class="page-title">修改密码</h3>
+                <el-form :model="pwdForm" label-width="100px" style="max-width: 480px; margin-top: 12px;">
+                  <el-form-item label="原密码">
+                    <el-input v-model="pwdForm.old_password" type="password" show-password />
+                  </el-form-item>
+                  <el-form-item label="新密码">
+                    <el-input
+                      v-model="pwdForm.new_password"
+                      type="password"
+                      show-password
+                      placeholder="6-32 位，需同时包含字母和数字"
+                    />
+                  </el-form-item>
+                  <el-form-item label="确认密码">
+                    <el-input
+                      v-model="pwdForm.confirm"
+                      type="password"
+                      show-password
+                      @keyup.enter="handleChangePassword"
+                    />
+                  </el-form-item>
+                  <el-form-item>
+                    <el-button type="primary" :loading="pwdLoading" @click="handleChangePassword">
+                      确认修改
+                    </el-button>
+                  </el-form-item>
+                </el-form>
               </div>
-            </el-alert>
+            </el-tab-pane>
 
-            <!-- ==================== 浏览器通知 ==================== -->
-            <div class="section-title">浏览器通知</div>
-            <div class="section-sub">用本机浏览器直接收，不用装任何东西</div>
+            <!-- ==================== 通知设置 ==================== -->
+            <el-tab-pane label="通知设置" name="notify">
+              <div class="tab-section">
+                <p class="section-sub" style="margin-bottom: 12px;">
+                  有审核结果、新通知等情况时，通过以下方式推送给你
+                </p>
 
-            <!-- 不支持 / 环境限制 -->
-            <el-alert v-if="webState === 'blocked'" type="warning" :closable="false" show-icon>
-              <template #title>当前环境用不了浏览器通知</template>
-              {{ webNote }}
-            </el-alert>
-
-            <!-- iPhone：普通标签页里连权限弹窗都弹不出来，必须先添加到主屏 -->
-            <el-alert v-else-if="webState === 'ios-tab'" type="info" :closable="false" show-icon>
-              <template #title>iPhone 上需要先「添加到主屏」</template>
-              在 Safari 里点底部的分享按钮 →「添加到主屏」，然后<b>从主屏图标打开</b>本应用，
-              再回到这里开启通知。普通标签页里收不到网页通知，这是 iOS 的限制。
-            </el-alert>
-
-            <!-- 浏览器记住了「不允许」 -->
-            <el-alert v-else-if="webState === 'denied'" type="warning" :closable="false" show-icon>
-              <template #title>本站的通知被浏览器拒绝了</template>
-              点地址栏左侧的站点设置，把「通知」改回「允许」，然后重新开启。
-            </el-alert>
-
-            <template v-else>
-              <div class="status-row">
-                <el-tag v-if="webState === 'on'" type="success" size="small">已开启</el-tag>
-                <el-tag v-else type="info" size="small">未开启</el-tag>
-                <span class="desc">
-                  {{ webState === 'on' ? '本机浏览器已订阅' : '开启后本机能收到站内通知' }}
-                </span>
-              </div>
-
-              <div v-if="webCount > 0" class="desc count">
-                本账号共有 {{ webCount }} 台设备已开启浏览器通知
-              </div>
-
-              <div class="actions">
-                <el-button
-                  v-if="webState === 'off'"
-                  type="primary"
-                  size="small"
-                  :loading="webBusy"
-                  @click="handleWebEnable"
+                <!-- 安装到桌面：Chrome/Edge/Android 能触发原生安装横幅，iOS 没有 -->
+                <el-alert
+                  v-if="!standalone && canInstall"
+                  type="success"
+                  :closable="false"
+                  show-icon
+                  style="margin-bottom: 16px;"
                 >
-                  开启通知
-                </el-button>
+                  <template #title>把这个应用装到桌面</template>
+                  <div class="install-row">
+                    <span>装进桌面后像原生应用一样打开，全屏显示，没有地址栏。</span>
+                    <el-button type="primary" size="small" :loading="installing" @click="handleInstall">
+                      安装应用
+                    </el-button>
+                  </div>
+                </el-alert>
+
+                <!-- ==================== 浏览器通知 ==================== -->
+                <div class="section-title">浏览器通知</div>
+                <div class="section-sub">用本机浏览器直接收，不用装任何东西</div>
+
+                <!-- 不支持 / 环境限制 -->
+                <el-alert v-if="webState === 'blocked'" type="warning" :closable="false" show-icon>
+                  <template #title>当前环境用不了浏览器通知</template>
+                  {{ webNote }}
+                </el-alert>
+
+                <!-- iPhone：普通标签页里连权限弹窗都弹不出来，必须先添加到主屏 -->
+                <el-alert v-else-if="webState === 'ios-tab'" type="info" :closable="false" show-icon>
+                  <template #title>iPhone 上需要先「添加到主屏」</template>
+                  在 Safari 里点底部的分享按钮 →「添加到主屏」，然后<b>从主屏图标打开</b>本应用，
+                  再回到这里开启通知。普通标签页里收不到网页通知，这是 iOS 的限制。
+                </el-alert>
+
+                <!-- 浏览器记住了「不允许」 -->
+                <el-alert v-else-if="webState === 'denied'" type="warning" :closable="false" show-icon>
+                  <template #title>本站的通知被浏览器拒绝了</template>
+                  点地址栏左侧的站点设置，把「通知」改回「允许」，然后重新开启。
+                </el-alert>
+
                 <template v-else>
-                  <el-button size="small" :loading="webTesting" @click="handleWebTest">
-                    发送测试
+                  <div class="status-row">
+                    <el-tag v-if="webState === 'on'" type="success" size="small">已开启</el-tag>
+                    <el-tag v-else type="info" size="small">未开启</el-tag>
+                    <span class="desc">
+                      {{ webState === 'on' ? '本机浏览器已订阅' : '开启后本机能收到站内通知' }}
+                    </span>
+                  </div>
+
+                  <div v-if="webCount > 0" class="desc count">
+                    本账号共有 {{ webCount }} 台设备已开启浏览器通知
+                  </div>
+
+                  <div class="actions">
+                    <el-button
+                      v-if="webState === 'off'"
+                      type="primary"
+                      size="small"
+                      :loading="webBusy"
+                      @click="handleWebEnable"
+                    >
+                      开启通知
+                    </el-button>
+                    <template v-else>
+                      <el-button size="small" :loading="webTesting" @click="handleWebTest">
+                        发送测试
+                      </el-button>
+                      <el-button size="small" :loading="webBusy" @click="handleWebDisable">
+                        关闭通知
+                      </el-button>
+                    </template>
+                  </div>
+                </template>
+
+                <el-divider />
+
+                <!-- ==================== Bark 推送 ==================== -->
+                <div class="section-title">Bark 推送</div>
+                <div class="section-sub">手机上装 Bark App，填一个设备 ID 就能收</div>
+
+                <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px;">
+                  <template #title>怎么拿到设备 ID</template>
+                  在手机上装好 Bark App，打开后首页显示的那串字符就是设备 ID。
+                  复制粘贴到下面即可（粘整条链接也行，会自动识别）。
+                </el-alert>
+
+                <el-form :model="barkForm" label-width="100px">
+                  <el-form-item label="设备 ID">
+                    <el-input
+                      v-model="barkForm.bark_key"
+                      placeholder="留空并保存 = 关闭推送"
+                      clearable
+                      @keyup.enter="handleBarkSave"
+                    />
+                  </el-form-item>
+                </el-form>
+
+                <div class="actions">
+                  <el-button size="small" :loading="barkTesting" @click="handleBarkTest">发送测试推送</el-button>
+                  <el-button type="primary" size="small" :loading="barkSaving" @click="handleBarkSave">保存</el-button>
+                  <el-button v-if="savedBarkKey" link type="danger" size="small" @click="handleBarkUnbind">
+                    解除绑定
                   </el-button>
-                  <el-button size="small" :loading="webBusy" @click="handleWebDisable">
-                    关闭通知
-                  </el-button>
+                </div>
+
+                <!-- ==================== 两个后加的渠道 ====================
+                     整块藏在 newChannelsAvailable 后面：新前端配旧后端时这几个接口是 404，
+                     与其给用户看半截能用、点一下报错的界面，不如不显示（见 fetchAccountData） -->
+                <template v-if="newChannelsAvailable">
+                  <el-divider />
+
+                  <WebhookSetting />
+
+                  <el-divider />
+
+                  <EmailNotifySetting />
                 </template>
               </div>
-            </template>
+            </el-tab-pane>
 
-            <el-divider />
-
-            <!-- ==================== Bark 推送 ==================== -->
-            <div class="section-title">Bark 推送</div>
-            <div class="section-sub">手机上装 Bark App，填一个设备 ID 就能收</div>
-
-            <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px;">
-              <template #title>怎么拿到设备 ID</template>
-              在手机上装好 Bark App，打开后首页显示的那串字符就是设备 ID。
-              复制粘贴到下面即可（粘整条链接也行，会自动识别）。
-            </el-alert>
-
-            <el-form :model="barkForm" label-width="100px">
-              <el-form-item label="设备 ID">
-                <el-input
-                  v-model="barkForm.bark_key"
-                  placeholder="留空并保存 = 关闭推送"
-                  clearable
-                  @keyup.enter="handleBarkSave"
+            <!-- ==================== 我的日志 ==================== -->
+            <el-tab-pane label="我的日志" name="logs">
+              <div class="tab-section">
+                <div class="section-title">操作日志</div>
+                <div class="section-sub">我自己做过的事（发布通知、审核办件、点名等），不记浏览</div>
+                <el-table
+                  v-loading="logsLoading"
+                  :data="myLogs.operations.items"
+                  stripe
+                  border
+                  style="width: 100%;"
+                >
+                  <el-table-column label="时间" width="160" align="center">
+                    <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+                  </el-table-column>
+                  <el-table-column prop="action" label="动作" width="120" align="center" />
+                  <el-table-column prop="target" label="对象" min-width="150" show-overflow-tooltip />
+                  <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+                </el-table>
+                <el-empty
+                  v-if="!logsLoading && !myLogs.operations.total"
+                  description="还没有操作记录"
+                  :image-size="60"
                 />
-              </el-form-item>
-            </el-form>
+                <div v-if="myLogs.operations.total" class="pagination-wrap">
+                  <el-pagination
+                    v-model:current-page="logPage"
+                    v-model:page-size="logPageSize"
+                    :page-sizes="[20, 50, 100, 200]"
+                    :total="myLogs.operations.total"
+                    layout="total, sizes, prev, pager, next"
+                    background
+                    @size-change="fetchMyLogs"
+                    @current-change="fetchMyLogs"
+                  />
+                </div>
 
-            <div class="actions">
-              <el-button size="small" :loading="barkTesting" @click="handleBarkTest">发送测试推送</el-button>
-              <el-button type="primary" size="small" :loading="barkSaving" @click="handleBarkSave">保存</el-button>
-              <el-button v-if="savedBarkKey" link type="danger" size="small" @click="handleBarkUnbind">
-                解除绑定
-              </el-button>
-            </div>
-
-            <div class="hint-note footnote">
-              浏览器和 Bark 同时开着的话，同一台设备会收到两条通知（浏览器一条、Bark 一条）。
-              只想要其中一种，把另一种关掉即可。
-            </div>
-
-            <!-- ==================== 两个后加的渠道 ====================
-                 整块藏在 newChannelsAvailable 后面：新前端配旧后端时这几个接口是 404，
-                 与其给用户看半截能用、点一下报错的界面，不如不显示（见 fetchAccountData） -->
-            <template v-if="newChannelsAvailable">
-              <el-divider />
-
-              <WebhookSetting />
-
-              <el-divider />
-
-              <EmailNotifySetting />
-            </template>
-          </div>
-
-          <!-- 我的日志：本人自助，口径同「系统管理 → 账号管理 → 查日志」 -->
-          <div class="tab-section">
-            <h3 class="page-title">我的日志</h3>
-
-            <div class="section-title">操作日志</div>
-            <div class="section-sub">我自己做过的事（发布通知、审核办件、点名等），不记浏览</div>
-            <el-table
-              v-loading="logsLoading"
-              :data="myLogs.operations.items"
-              stripe
-              border
-              style="width: 100%;"
-            >
-              <el-table-column label="时间" width="160" align="center">
-                <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
-              </el-table-column>
-              <el-table-column prop="action" label="动作" width="120" align="center" />
-              <el-table-column prop="target" label="对象" min-width="150" show-overflow-tooltip />
-              <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
-            </el-table>
-            <el-empty
-              v-if="!logsLoading && !myLogs.operations.total"
-              description="还没有操作记录"
-              :image-size="60"
-            />
-            <div v-if="myLogs.operations.total" class="pagination-wrap">
-              <el-pagination
-                v-model:current-page="logPage"
-                v-model:page-size="logPageSize"
-                :page-sizes="[20, 50, 100, 200]"
-                :total="myLogs.operations.total"
-                layout="total, sizes, prev, pager, next"
-                background
-                @size-change="fetchMyLogs"
-                @current-change="fetchMyLogs"
-              />
-            </div>
-
-            <div class="section-title" style="margin-top: 20px;">
-              登录与改密
-              <!-- 把 7 天这个边界显示出来，不然只会让人猜为什么只有这几条 -->
-              <span class="section-sub" style="margin-left: 8px;">
-                仅最近 7 天（{{ formatDateTime(myLogs.events_since) }} 起）
-              </span>
-            </div>
-            <el-table v-loading="logsLoading" :data="myLogs.events" stripe border style="width: 100%;">
-              <el-table-column label="时间" width="160" align="center">
-                <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
-              </el-table-column>
-              <el-table-column label="事件" width="120" align="center">
-                <template #default="{ row }">
-                  <el-tag v-if="row.event === 'login'" type="info" size="small">登录</el-tag>
-                  <el-tag v-else-if="row.event === 'change_password'" type="warning" size="small">
-                    修改密码
-                  </el-tag>
-                  <span v-else>{{ row.event }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="IP" min-width="150" align="center">
-                <template #default="{ row }">
-                  <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
-                  <span v-else style="color: #c0c4cc;">-</span>
-                </template>
-              </el-table-column>
-            </el-table>
-            <div v-if="myLogs.events_total > myLogs.events.length" class="hint-note">
-              7 天内共 {{ myLogs.events_total }} 条，这里只列出最近 {{ myLogs.events.length }} 条。
-            </div>
-            <el-empty
-              v-else-if="!logsLoading && !myLogs.events_total"
-              description="最近 7 天没有登录或改密记录"
-              :image-size="60"
-            />
-            <!-- 这个功能上线之前的登录/改密压根没入库，历史补不回来，说清楚免得以为漏查 -->
-            <div class="hint-note">登录与改密记录自功能上线起才开始保存，更早的记录查不到。</div>
-
-            <!-- 本人看不到「被操作记录」（别人对我账号做过什么），那是管理员视角 -->
-            <div class="hint-note">
-              这里只列我自己做的事。别人对我账号的操作记录不在此展示。
-            </div>
-          </div>
+                <div class="section-title" style="margin-top: 20px;">
+                  登录与改密
+                  <!-- 把 7 天这个边界显示出来，不然只会让人猜为什么只有这几条 -->
+                  <span class="section-sub" style="margin-left: 8px;">
+                    仅最近 7 天（{{ formatDateTime(myLogs.events_since) }} 起）
+                  </span>
+                </div>
+                <el-table v-loading="logsLoading" :data="myLogs.events" stripe border style="width: 100%;">
+                  <el-table-column label="时间" width="160" align="center">
+                    <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+                  </el-table-column>
+                  <el-table-column label="事件" width="120" align="center">
+                    <template #default="{ row }">
+                      <el-tag v-if="row.event === 'login'" type="info" size="small">登录</el-tag>
+                      <el-tag v-else-if="row.event === 'change_password'" type="warning" size="small">
+                        修改密码
+                      </el-tag>
+                      <span v-else>{{ row.event }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="IP" min-width="150" align="center">
+                    <template #default="{ row }">
+                      <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
+                      <span v-else style="color: #c0c4cc;">-</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-empty
+                  v-if="!logsLoading && !myLogs.events_total"
+                  description="最近 7 天没有登录或改密记录"
+                  :image-size="60"
+                />
+                <div v-if="myLogs.events_total" class="pagination-wrap">
+                  <el-pagination
+                    v-model:current-page="logEventPage"
+                    v-model:page-size="logEventPageSize"
+                    :page-sizes="[20, 50, 100, 200]"
+                    :total="myLogs.events_total"
+                    layout="total, sizes, prev, pager, next"
+                    background
+                    @size-change="fetchMyLogs"
+                    @current-change="fetchMyLogs"
+                  />
+                </div>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
         </el-tab-pane>
 
         <!-- 办件空间：我申请的 / 我审批的 -->
@@ -623,8 +628,11 @@ const newChannelsAvailable = ref(false)
 
 const KEY_PATTERN = /^[A-Za-z0-9_-]{5,128}$/
 
+// 账户设置内部的子 tab：账号安全 / 通知设置 / 我的日志
+const accountTab = ref('security')
+
 // ---------- 我的日志 ----------
-// 形状与后端 /auth/my-logs 一致：操作日志分页，登录/改密是 7 天窗口内的一次性列表
+// 形状与后端 /auth/my-logs 一致：操作日志、登录/改密各自分页
 const myLogs = ref({
   operations: { total: 0, items: [] },
   events: [],
@@ -634,13 +642,19 @@ const myLogs = ref({
 const logsLoading = ref(false)
 const logPage = ref(1)
 const logPageSize = ref(20)
+// 登录与改密那一块自己的页码：它和操作日志是两个独立的列表
+// （一个是全量历史、一个是 7 天窗口），共用一个页码会互相打架
+const logEventPage = ref(1)
+const logEventPageSize = ref(20)
 
 async function fetchMyLogs() {
   logsLoading.value = true
   try {
     myLogs.value = await getMyLogs({
       page: logPage.value,
-      page_size: logPageSize.value
+      page_size: logPageSize.value,
+      events_page: logEventPage.value,
+      events_page_size: logEventPageSize.value
     })
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '日志加载失败')
@@ -683,7 +697,10 @@ watch(workspaceTab, (val) => {
 async function fetchSubmitted() {
   submittedLoading.value = true
   try {
-    submittedList.value = await getMySubmitted()
+    // 兜一层：接口若返回 null/undefined（旧后端、代理异常），列表 ref 会变成
+    // undefined，模板里的 .length 立刻抛错、整个 tab 白屏 —— 连「暂无申请记录」
+    // 都显示不出来。退化成空数组至少还能正常显示空状态。
+    submittedList.value = (await getMySubmitted()) || []
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '加载失败')
   } finally {
@@ -695,7 +712,7 @@ async function fetchInvolved() {
   if (!canReview.value) return
   involvedLoading.value = true
   try {
-    involvedList.value = await getMyInvolved()
+    involvedList.value = (await getMyInvolved()) || []
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '加载失败')
   } finally {
@@ -1198,20 +1215,6 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   margin: 12px 0 0 0;
-}
-
-.hint-note {
-  /* 兼作表格下方的小字说明（.footnote 会覆盖 margin-top，见下） */
-  font-size: 12px;
-  color: #909399;
-  margin-top: 8px;
-}
-
-.footnote {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid #ebeef5;
-  line-height: 1.6;
 }
 
 .install-row {

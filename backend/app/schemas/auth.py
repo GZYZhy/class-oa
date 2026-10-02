@@ -76,17 +76,25 @@ class WebPushUnsubscribeRequest(BaseModel):
 
 
 class WebhookSettingRequest(BaseModel):
-    """自定义 webhook 的配置；两个字段都传空串表示关闭这条渠道
+    """自定义 webhook 的配置
+
+    `enabled` 决定发不发，`url` 决定发到哪 —— 和邮件渠道同一条约定。
+    两个字段都传空串（或 enabled=false）表示关闭这条渠道。
 
     这里只放字段形状。**地址的安全判定和模板的 JSON 校验都不在 schema 里做**，
     而是在接口里做：这两项失败要回一句能直接显示给用户的中文原因，而 schema 的
     field_validator 抛出异常会变成 422，前端拿到的 detail 是个数组 —— 它按字符串
     用（见 request.js 的调用方全是 e?.response?.data?.detail），会显示成怪东西。
     """
-    url: str = Field("", max_length=500, description="要 POST 过去的 https 地址；空 = 关闭")
+    url: str = Field("", max_length=500, description="要 POST 过去的 https 地址；空 = 没配地址")
     # 不加 max_length：长度上限由 webhook_service.MAX_TEMPLATE_LEN 一处管，
     # 那边给的是「模板太长了，请控制在 N 个字符以内」这种能看懂的话
     template: str = Field("", description="请求体 JSON 模板；空 = 用内置默认模板")
+    # 三态，别改成 bool：开关是后加的，而 webhook 渠道**已经在线上了** ——
+    # 浏览器里缓存的旧前端 PUT 过来时是不带这个字段的，若默认 False，用户
+    # 什么都不改、只点一下「保存」，正在收通知的 webhook 就被静默关掉了。
+    # None 表示「旧前端没传」，接口那边按老规则（有地址就是开着）处理
+    enabled: Optional[bool] = Field(None, description="是否往这个地址发通知；不传 = 沿用旧规则")
 
 
 class EmailNotifyRequest(BaseModel):
