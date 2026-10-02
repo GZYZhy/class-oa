@@ -292,6 +292,88 @@
               只想要其中一种，把另一种关掉即可。
             </div>
           </div>
+
+          <!-- 我的日志：本人自助，口径同「系统管理 → 账号管理 → 查日志」 -->
+          <div class="tab-section">
+            <h3 class="page-title">我的日志</h3>
+
+            <div class="section-title">操作日志</div>
+            <div class="section-sub">我自己做过的事（发布通知、审核办件、点名等），不记浏览</div>
+            <el-table
+              v-loading="logsLoading"
+              :data="myLogs.operations.items"
+              stripe
+              border
+              style="width: 100%;"
+            >
+              <el-table-column label="时间" width="160" align="center">
+                <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+              </el-table-column>
+              <el-table-column prop="action" label="动作" width="120" align="center" />
+              <el-table-column prop="target" label="对象" min-width="150" show-overflow-tooltip />
+              <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+            </el-table>
+            <el-empty
+              v-if="!logsLoading && !myLogs.operations.total"
+              description="还没有操作记录"
+              :image-size="60"
+            />
+            <div v-if="myLogs.operations.total" class="pagination-wrap">
+              <el-pagination
+                v-model:current-page="logPage"
+                v-model:page-size="logPageSize"
+                :page-sizes="[20, 50, 100, 200]"
+                :total="myLogs.operations.total"
+                layout="total, sizes, prev, pager, next"
+                background
+                @size-change="fetchMyLogs"
+                @current-change="fetchMyLogs"
+              />
+            </div>
+
+            <div class="section-title" style="margin-top: 20px;">
+              登录与改密
+              <!-- 把 7 天这个边界显示出来，不然只会让人猜为什么只有这几条 -->
+              <span class="section-sub" style="margin-left: 8px;">
+                仅最近 7 天（{{ formatDateTime(myLogs.events_since) }} 起）
+              </span>
+            </div>
+            <el-table v-loading="logsLoading" :data="myLogs.events" stripe border style="width: 100%;">
+              <el-table-column label="时间" width="160" align="center">
+                <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+              </el-table-column>
+              <el-table-column label="事件" width="120" align="center">
+                <template #default="{ row }">
+                  <el-tag v-if="row.event === 'login'" type="info" size="small">登录</el-tag>
+                  <el-tag v-else-if="row.event === 'change_password'" type="warning" size="small">
+                    修改密码
+                  </el-tag>
+                  <span v-else>{{ row.event }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="IP" min-width="150" align="center">
+                <template #default="{ row }">
+                  <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
+                  <span v-else style="color: #c0c4cc;">-</span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div v-if="myLogs.events_total > myLogs.events.length" class="hint-note">
+              7 天内共 {{ myLogs.events_total }} 条，这里只列出最近 {{ myLogs.events.length }} 条。
+            </div>
+            <el-empty
+              v-else-if="!logsLoading && !myLogs.events_total"
+              description="最近 7 天没有登录或改密记录"
+              :image-size="60"
+            />
+            <!-- 这个功能上线之前的登录/改密压根没入库，历史补不回来，说清楚免得以为漏查 -->
+            <div class="hint-note">登录与改密记录自功能上线起才开始保存，更早的记录查不到。</div>
+
+            <!-- 本人看不到「被操作记录」（别人对我账号做过什么），那是管理员视角 -->
+            <div class="hint-note">
+              这里只列我自己做的事。别人对我账号的操作记录不在此展示。
+            </div>
+          </div>
         </el-tab-pane>
 
         <!-- 办件空间：我申请的 / 我审批的 -->
@@ -331,7 +413,11 @@
                     </div>
                   </div>
                 </div>
-                <el-empty v-else-if="!submittedLoading" description="还没有申请过任何办件" />
+                <el-empty
+                  v-if="!submittedLoading && !submittedList.length"
+                  description="暂无申请记录"
+                  style="margin-top: 20px;"
+                />
               </div>
             </el-tab-pane>
 
@@ -369,7 +455,11 @@
                     </div>
                   </div>
                 </div>
-                <el-empty v-else-if="!involvedLoading" description="还没有处理过任何办件" />
+                <el-empty
+                  v-if="!involvedLoading && !involvedList.length"
+                  description="暂无处理记录"
+                  style="margin-top: 20px;"
+                />
               </div>
             </el-tab-pane>
           </el-tabs>
@@ -392,7 +482,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getMyInfo } from '@/api/student'
-import { changePassword } from '@/api/auth'
+import { changePassword, getMyLogs } from '@/api/auth'
 import { submitChangeRequest, getMyChangeRequests } from '@/api/changeRequest'
 import {
   getBarkSetting,
@@ -514,6 +604,32 @@ const barkForm = reactive({ bark_key: '' })
 
 const KEY_PATTERN = /^[A-Za-z0-9_-]{5,128}$/
 
+// ---------- 我的日志 ----------
+// 形状与后端 /auth/my-logs 一致：操作日志分页，登录/改密是 7 天窗口内的一次性列表
+const myLogs = ref({
+  operations: { total: 0, items: [] },
+  events: [],
+  events_total: 0,
+  events_since: null
+})
+const logsLoading = ref(false)
+const logPage = ref(1)
+const logPageSize = ref(20)
+
+async function fetchMyLogs() {
+  logsLoading.value = true
+  try {
+    myLogs.value = await getMyLogs({
+      page: logPage.value,
+      page_size: logPageSize.value
+    })
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '日志加载失败')
+  } finally {
+    logsLoading.value = false
+  }
+}
+
 // ---------- 办件空间 ----------
 const workspaceTab = ref('submitted')
 const submittedList = ref([])
@@ -568,15 +684,23 @@ async function fetchInvolved() {
   }
 }
 
-// 切到办件空间 tab 时才拉数据，避免浪费请求
-watch(activeTab, (val) => {
-  if (val === 'workspace') {
-    fetchSubmitted()
-    if (canReview.value && workspaceTab.value === 'involved') {
-      fetchInvolved()
+// 切到办件空间 / 账户设置时才拉数据，避免白跑请求。
+// immediate 是给「直接带着 ?tab=workspace 进来」用的（通知点击就是这条路径）：
+// 顶上那个读 URL 的 watcher 在 setup 阶段就把 activeTab 定好了，
+// 非 immediate 的 watcher 建的时候看到的就是终值，永远不会触发，页面就空着
+watch(
+  activeTab,
+  (val) => {
+    if (val === 'workspace') {
+      fetchSubmitted()
+      if (canReview.value && workspaceTab.value === 'involved') {
+        fetchInvolved()
+      }
     }
-  }
-})
+    if (val === 'account') fetchMyLogs()
+  },
+  { immediate: true }
+)
 
 watch(workspaceTab, (val) => {
   if (activeTab.value !== 'workspace') return
@@ -1014,6 +1138,14 @@ onMounted(async () => {
   color: #909399;
 }
 
+/* 日志表格底部翻页（与系统管理页一致）。Admin.vue 里那份是 scoped 的，
+   跨组件不生效，所以这边自己再来一份 */
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 .status-row {
   display: flex;
   align-items: center;
@@ -1038,7 +1170,10 @@ onMounted(async () => {
 }
 
 .hint-note {
+  /* 兼作表格下方的小字说明（.footnote 会覆盖 margin-top，见下） */
+  font-size: 12px;
   color: #909399;
+  margin-top: 8px;
 }
 
 .footnote {
