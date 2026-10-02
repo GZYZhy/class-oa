@@ -8,7 +8,15 @@ from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
 from ..database import get_db
-from ..models import ChangeRequest, LeaveRequest, PushSubscription, Student, User
+from ..models import (
+    CertificateRequest,
+    ChangeRequest,
+    EvPassRequest,
+    LeaveRequest,
+    PushSubscription,
+    Student,
+    User,
+)
 from ..schemas import (
     StudentResponse,
     StudentListResponse,
@@ -44,6 +52,7 @@ from ..schemas import (
     ImportConfirmRequest,
     ImportResultResponse,
 )
+from .certificates import student_files as certificate_files
 from .deps import (
     get_current_user,
     get_current_student,
@@ -52,6 +61,7 @@ from .deps import (
     is_committee,
     get_client_ip,
 )
+from .ev_passes import student_files as ev_pass_files
 
 router = APIRouter(prefix="/api/students", tags=["学生信息"])
 
@@ -102,6 +112,55 @@ def _remove_photo(file_name: str | None) -> None:
         (PHOTO_DIR / os.path.basename(file_name)).unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def _remove_files(paths: list[Path]) -> None:
+    """按路径删文件，文件已经不在了也不报错（理由同 _remove_photo）
+
+    用在删学生的时候：证明/通行证的附件和成品文件跟着记录一起清掉。
+    """
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _pending_blockers(db: Session, student: Student) -> list[str]:
+    """这个学生现在还不能删的理由（空列表 = 可以删）
+
+    单条删除和批量删除共用这一份判断。两处各写一遍的话，以后加一类申请就得改两个
+    地方，漏掉一个就会出现「批量能删、单条删不了」这种自相矛盾的行为。
+
+    拦住的是**待处理**的申请：办件还挂在半路上，学生先没了的话，班委点「通过」
+    会撞上「学生不存在」，那些待办就没法收尾了。
+    """
+    blockers = []
+    # 请假、信息修改是按**学号**挂的（它们存了姓名学号快照，本来就不依赖学生表）
+    for model, label in (
+        (LeaveRequest, "待审核的请假申请"),
+        (ChangeRequest, "待审核的信息修改申请"),
+    ):
+        n = (
+            db.query(model)
+            .filter(model.student_no == student.student_no, model.status == "pending")
+            .count()
+        )
+        if n:
+            blockers.append(f"{n} 条{label}")
+    # 证明、通行证是按**学生主键**挂的
+    for model, label in (
+        (CertificateRequest, "待处理的证明开具"),
+        (EvPassRequest, "待处理的电动车通行证"),
+    ):
+        n = (
+            db.query(model)
+            .filter(model.student_id == student.id, model.status == "pending")
+            .count()
+        )
+        if n:
+            blockers.append(f"{n} 条{label}")
+    return blockers
 
 
 def _ensure_can_view(user: User, student: Student) -> None:
@@ -347,15 +406,19 @@ def delete_student_api(
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
-    """删除学生，连同他的登录账号和照片文件一起清掉
+    """删除学生，连同他的登录账号、办件记录和照片文件一起清掉
 
     两道闸：
     1. 不能删当前登录的账号 —— 管理员本人也是学生，删了就没人管这个系统了
-    2. 还有待审核的请假 / 信息修改申请时拒绝 —— 否则班委点「通过」会撞上
-       「学生不存在」，那些待办也没法收尾了
+    2. 还有待处理的申请时拒绝（请假 / 信息修改 / 证明开具 / 电动车通行证）——
+       否则班委点「通过」会撞上「学生不存在」，那些待办也没法收尾了
 
     已审核过的请假、反馈、修改申请**原样保留**：它们存的是姓名学号的快照，
     不依赖学生表，属于历史记录，不该因为删人而消失。
+
+    证明和通行证不一样：它们挂的是学生主键、没有姓名快照，留着既查不出是谁开的、
+    又要撞 NOT NULL 外键，所以跟着学生一起删（见 student_service.delete_student），
+    占用的附件和成品文件也一并清掉。
     """
     student = get_student(db, student_id)
     if not student:
@@ -363,15 +426,7 @@ def delete_student_api(
     if student.student_no == user.student_no:
         raise HTTPException(status_code=400, detail="不能删除当前登录的账号")
 
-    pending = []
-    for model, label in ((LeaveRequest, "待审核的请假申请"), (ChangeRequest, "待审核的信息修改申请")):
-        n = (
-            db.query(model)
-            .filter(model.student_no == student.student_no, model.status == "pending")
-            .count()
-        )
-        if n:
-            pending.append(f"{n} 条{label}")
+    pending = _pending_blockers(db, student)
     if pending:
         raise HTTPException(
             status_code=400,
@@ -381,6 +436,8 @@ def delete_student_api(
     # 先取出后面要用的值：删除并 commit 之后再访问属性会报 ObjectDeletedError
     target = f"{student.student_no} {student.name}"
     photo_names = [student.gaokao_photo, student.on_site_photo]
+    # 办件文件也必须在删记录**之前**收集 —— 记录一没就查不出文件名了
+    request_files = certificate_files(db, student_id) + ev_pass_files(db, student_id)
 
     # 账号和推送订阅跟着学生走：人没了就别再留着账号，也别再往下推
     db.query(PushSubscription).filter(PushSubscription.student_no == student.student_no).delete()
@@ -389,9 +446,10 @@ def delete_student_api(
     log_operation(db, user, "删除学生", target=target, detail="已注销登录账号", ip=ip)
     db.commit()
 
-    # 提交成功后再删照片文件，中途失败也不会两头空
+    # 提交成功后再删文件，中途失败也不会两头空
     for name in photo_names:
         _remove_photo(name)
+    _remove_files(request_files)
     return {"message": "删除成功"}
 
 
@@ -571,10 +629,12 @@ def delete_students_batch(
 ):
     """批量删除学生：能删就删，不能删的返回理由
 
-    逐条判断，互不影响：删自己、有待审核的申请、学生不存在都算失败。
+    逐条判断，互不影响：删自己、有待处理的申请、学生不存在都算失败。
     返回 { success, failed: [{student_no, name, reason}], message }。
 
-    历史记录（已审核的请假/反馈/改信息申请）原样保留，跟单条删除一致。
+    历史记录（已审核的请假/反馈/改信息申请）原样保留，跟单条删除一致；
+    证明/通行证的申请挂的是学生主键、没存姓名快照，留不住，跟着学生一起删
+    （占用的磁盘文件也一并清掉）。
     """
     ids = list(dict.fromkeys(data.ids))  # 去重，保持顺序
     if not ids:
@@ -587,6 +647,7 @@ def delete_students_batch(
     success_count = 0
     failed_list: list[dict] = []
     deleted_photos: list[str] = []
+    deleted_files: list[Path] = []
     deleted_nos: list[str] = []
     deleted_names: list[str] = []
 
@@ -604,19 +665,8 @@ def delete_students_batch(
             })
             continue
 
-        # 第二道闸：有待审核的请假 / 信息修改申请
-        pending = []
-        for model, label in (
-            (LeaveRequest, "待审核请假"),
-            (ChangeRequest, "待审核信息修改"),
-        ):
-            n = (
-                db.query(model)
-                .filter(model.student_no == s.student_no, model.status == "pending")
-                .count()
-            )
-            if n:
-                pending.append(f"{n} 条{label}")
+        # 第二道闸：有待处理的申请（请假 / 信息修改 / 证明 / 通行证）
+        pending = _pending_blockers(db, s)
         if pending:
             failed_list.append({
                 "student_no": s.student_no, "name": s.name,
@@ -624,18 +674,20 @@ def delete_students_batch(
             })
             continue
 
-        # 收集照片文件名，commit 成功后再删文件
+        # 收集照片和办件文件，commit 成功后再删
         if s.gaokao_photo:
             deleted_photos.append(s.gaokao_photo)
         if s.on_site_photo:
             deleted_photos.append(s.on_site_photo)
+        # 办件文件也必须在删记录**之前**收集 —— 记录一没就查不出文件名了
+        deleted_files += certificate_files(db, s.id) + ev_pass_files(db, s.id)
         deleted_nos.append(s.student_no)
         deleted_names.append(s.name)
 
-        # 删账号、推送订阅、学生行
+        # 删账号、推送订阅、学生行（delete_student 里会连带删掉办件记录）
         db.query(PushSubscription).filter(PushSubscription.student_no == s.student_no).delete()
         db.query(User).filter(User.student_no == s.student_no).delete()
-        db.delete(s)
+        delete_student(db, s.id, commit=False)
         success_count += 1
 
     # 记一条操作日志（只覆盖成功删除的人）
@@ -654,9 +706,10 @@ def delete_students_batch(
 
     db.commit()
 
-    # 提交成功后删照片文件
+    # 提交成功后删文件
     for name in deleted_photos:
         _remove_photo(name)
+    _remove_files(deleted_files)
 
     return {
         "success": success_count,
