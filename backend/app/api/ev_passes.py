@@ -60,6 +60,20 @@ def _safe_license_name(original: str) -> str:
     return f"{uuid.uuid4().hex}{ext}"
 
 
+def student_files(db: Session, student_id: int) -> list[Path]:
+    """该生全部通行证申请占用的行驶证文件
+
+    删学生会连带删掉这些申请记录（见 student_service.delete_student），记录一没，
+    文件就成了没人引用的孤儿。所以在删之前先把路径收出来，**等事务提交成功之后**
+    再清磁盘（和删学生照片同一个套路）。只收集、不动磁盘。
+    """
+    return [
+        LICENSE_DIR / Path(req.license_file).name
+        for req in db.query(EvPassRequest).filter(EvPassRequest.student_id == student_id).all()
+        if req.license_file
+    ]
+
+
 def _to_response(db: Session, req: EvPassRequest) -> dict:
     """把 ORM 对象转成响应体（补上学生姓名/学号）"""
     student = db.query(Student).filter(Student.id == req.student_id).first()
