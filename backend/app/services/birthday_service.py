@@ -7,7 +7,7 @@
 import json
 import re
 from calendar import isleap
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
@@ -295,6 +295,12 @@ def run_daily(db: Session, today: date | None = None) -> bool:
     # 重新 get 一次，拿挂在新事务上的对象
     mark = get_or_create_settings(db)
     mark.last_run_date = today
+    # 下面三个只给管理员看运行状态（见 api/birthday.py 的设置接口）。和
+    # last_run_date 放在同一次提交里：页面上读到的「几点跑的 / 跑出什么结果」
+    # 永远配套，不会出现「时间更新了、人数还是上一次的」
+    mark.last_run_at = datetime.now()
+    mark.last_run_birthdays = len(people)
+    mark.last_run_notices = len(jobs)
     db.commit()
 
     # 每天跑完**一定**打一行，把「跑了」和结果一起说出来 —— 运维在 docker logs 里
