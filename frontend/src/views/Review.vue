@@ -23,7 +23,7 @@
           <el-table-column label="申请人" width="150" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
-              <div style="font-size: 12px; color: #909399;">{{ row.student_no }}</div>
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
             </template>
           </el-table-column>
           <el-table-column label="申请时间" width="160" align="center">
@@ -39,7 +39,7 @@
                 <el-icon class="diff-arrow"><Right /></el-icon>
                 <span class="diff-new">{{ next || '（清空）' }}</span>
               </div>
-              <span v-if="!Object.keys(row.changes || {}).length" style="color: #c0c4cc;">-</span>
+              <span v-if="!Object.keys(row.changes || {}).length" style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
 
@@ -48,7 +48,7 @@
               <el-tag :type="STATUS_TYPES[row.status]" size="small">
                 {{ STATUS_LABELS[row.status] || row.status }}
               </el-tag>
-              <div v-if="row.reviewer_name" style="font-size: 12px; color: #909399; margin-top: 4px;">
+              <div v-if="row.reviewer_name" style="font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px;">
                 {{ row.reviewer_name }}
                 <div>{{ formatDateTime(row.reviewed_at) }}</div>
               </div>
@@ -66,7 +66,7 @@
                 <el-button type="success" link @click="handleApproveChange(row)">通过</el-button>
                 <el-button type="danger" link @click="handleRejectChange(row)">驳回</el-button>
               </template>
-              <span v-else style="color: #c0c4cc;">已处理</span>
+              <span v-else style="color: var(--el-text-color-disabled);">已处理</span>
             </template>
           </el-table-column>
         </el-table>
@@ -90,7 +90,7 @@
           <el-table-column label="申请人" width="150" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
-              <div style="font-size: 12px; color: #909399;">{{ row.student_no }}</div>
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
             </template>
           </el-table-column>
           <el-table-column prop="leave_type" label="类型" width="70" align="center" />
@@ -145,7 +145,7 @@
                 >
                   驳回
                 </el-button>
-                <span v-else style="color: #909399; font-size: 12px;">需管理员审批</span>
+                <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">需管理员审批</span>
               </template>
             </template>
           </el-table-column>
@@ -170,7 +170,7 @@
           <el-table-column label="申请人" width="140" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
-              <div style="font-size: 12px; color: #909399;">{{ row.student_no }}</div>
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
             </template>
           </el-table-column>
           <el-table-column prop="brand" label="品牌" width="120" align="center" />
@@ -222,7 +222,7 @@
           <el-table-column label="申请人" width="140" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
-              <div style="font-size: 12px; color: #909399;">{{ row.student_no }}</div>
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
             </template>
           </el-table-column>
           <el-table-column prop="title" label="证明标题" min-width="160" show-overflow-tooltip />
@@ -288,7 +288,7 @@
           <el-table-column label="申请人" width="150" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
-              <div style="font-size: 12px; color: #909399;">{{ row.student_no }}</div>
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
             </template>
           </el-table-column>
           <el-table-column label="类型" width="140" align="center">
@@ -332,12 +332,12 @@
               </template>
               <template v-if="row.status === 'failed'">
                 <el-tooltip :content="row.error_msg" placement="top">
-                  <span style="font-size: 12px; color: #909399; cursor: help;">失败原因</span>
+                  <span style="font-size: 12px; color: var(--el-text-color-secondary); cursor: help;">失败原因</span>
                 </el-tooltip>
               </template>
               <template v-if="row.status === 'rejected'">
                 <el-tooltip :content="row.reject_reason" placement="top">
-                  <span style="font-size: 12px; color: #909399; cursor: help;">驳回理由</span>
+                  <span style="font-size: 12px; color: var(--el-text-color-secondary); cursor: help;">驳回理由</span>
                 </el-tooltip>
               </template>
               <template v-if="row.status === 'pending' && userStore.isAdmin">
@@ -371,7 +371,7 @@
           <el-table-column label="提交人" width="140" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
-              <div style="font-size: 12px; color: #909399;">{{ row.student_no }}</div>
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
             </template>
           </el-table-column>
           <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
@@ -495,7 +495,7 @@
         <div style="margin-bottom: 8px;">
           <strong>{{ certResultUploadRow.student_name }}</strong>（{{ certResultUploadRow.student_no }}）
         </div>
-        <div style="margin-bottom: 16px; color: #606266;">
+        <div style="margin-bottom: 16px; color: var(--el-text-color-regular);">
           证明标题：{{ certResultUploadRow.title }}
         </div>
         <el-upload
@@ -1204,7 +1204,7 @@ onMounted(handleTabChange)
 /* 起止时间竖排两行 */
 .time-sep {
   font-size: 12px;
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
   line-height: 1.4;
 }
 
@@ -1218,21 +1218,21 @@ onMounted(handleTabChange)
 
 .diff-label {
   width: 84px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   flex-shrink: 0;
 }
 
 .diff-old {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   text-decoration: line-through;
 }
 
 .diff-arrow {
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
 }
 
 .diff-new {
-  color: #303133;
+  color: var(--el-text-color-primary);
   font-weight: 500;
 }
 
@@ -1255,14 +1255,14 @@ onMounted(handleTabChange)
 
   .diff-new::before {
     content: '→ ';
-    color: #c0c4cc;
+    color: var(--el-text-color-disabled);
   }
 }
 
 /* 反馈详情弹窗里的样式 */
 .detail-header {
   padding-bottom: 12px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--el-border-color-lighter);
   margin-bottom: 16px;
 }
 
@@ -1276,7 +1276,7 @@ onMounted(handleTabChange)
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .detail-time {
@@ -1285,7 +1285,7 @@ onMounted(handleTabChange)
 
 .detail-body {
   line-height: 1.8;
-  color: #303133;
+  color: var(--el-text-color-primary);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -1293,13 +1293,13 @@ onMounted(handleTabChange)
 .attachment-block {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 
 .attachment-title {
   font-size: 13px;
   font-weight: 600;
-  color: #606266;
+  color: var(--el-text-color-regular);
   margin-bottom: 8px;
 }
 
@@ -1308,7 +1308,7 @@ onMounted(handleTabChange)
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   padding: 4px 0;
 }
 
@@ -1331,7 +1331,7 @@ onMounted(handleTabChange)
 .reply-block {
   margin-top: 20px;
   padding: 16px;
-  background: #f0f9eb;
+  background: var(--el-color-success-light-9);
   border-radius: 8px;
   border-left: 4px solid #67c23a;
 }
@@ -1347,7 +1347,7 @@ onMounted(handleTabChange)
 
 .reply-meta {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-bottom: 10px;
 }
 

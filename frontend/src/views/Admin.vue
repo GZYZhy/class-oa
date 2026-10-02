@@ -63,7 +63,7 @@
           <el-table-column prop="last_login_at" label="最近登录时间" width="170" align="center" sortable>
             <template #default="{ row }">
               <span v-if="row.last_login_at">{{ formatDateTime(row.last_login_at) }}</span>
-              <span v-else style="color: #c0c4cc;">从未登录</span>
+              <span v-else style="color: var(--el-text-color-disabled);">从未登录</span>
             </template>
           </el-table-column>
           <el-table-column prop="last_login_ip" label="最近登录IP" width="150" align="center">
@@ -71,13 +71,13 @@
               <span v-if="row.last_login_ip" style="font-family: monospace; font-size: 12px;">
                 {{ row.last_login_ip }}
               </span>
-              <span v-else style="color: #c0c4cc;">-</span>
+              <span v-else style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
           <el-table-column label="身份证号" width="100" align="center">
             <template #default="{ row }">
               <!-- 域外账号没有身份证号这一说 -->
-              <span v-if="row.is_external" style="color: #c0c4cc;">-</span>
+              <span v-if="row.is_external" style="color: var(--el-text-color-disabled);">-</span>
               <el-tag v-else-if="row.has_id_card" type="info" size="small">已录入</el-tag>
               <el-tag v-else type="danger" size="small">缺失</el-tag>
             </template>
@@ -154,14 +154,14 @@
           <el-table-column label="操作人" width="140" align="center">
             <template #default="{ row }">
               {{ row.operator_name || '-' }}
-              <div style="font-size: 12px; color: #909399;">{{ row.operator_no }}</div>
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.operator_no }}</div>
             </template>
           </el-table-column>
           <el-table-column prop="action" label="动作" width="130" align="center" />
           <el-table-column prop="ip" label="操作IP" width="140" align="center">
             <template #default="{ row }">
               <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
-              <span v-else style="color: #c0c4cc;">-</span>
+              <span v-else style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
           <el-table-column prop="target" label="对象" min-width="180" show-overflow-tooltip />
@@ -282,21 +282,21 @@
           <el-table-column label="访问人" width="140" align="center">
             <template #default="{ row }">
               {{ row.user_name || '-' }}
-              <div style="font-size: 12px; color: #909399;">{{ row.user_no }}</div>
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.user_no }}</div>
             </template>
           </el-table-column>
           <el-table-column label="动作" width="90" align="center">
             <template #default="{ row }">
               <el-tag v-if="row.action === 'download'" type="danger" size="small">下载</el-tag>
               <el-tag v-else-if="row.action === 'view'" type="primary" size="small">查看</el-tag>
-              <span v-else style="color: #c0c4cc;">-</span>
+              <span v-else style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
           <el-table-column prop="file_title" label="文件" min-width="200" show-overflow-tooltip />
           <el-table-column prop="ip" label="IP" width="140" align="center">
             <template #default="{ row }">
               <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
-              <span v-else style="color: #c0c4cc;">-</span>
+              <span v-else style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
         </el-table>
@@ -375,7 +375,7 @@
           <el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip>
             <template #default="{ row }">
               <span v-if="row.reason">{{ row.reason }}</span>
-              <span v-else style="color: #c0c4cc;">-</span>
+              <span v-else style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
           <el-table-column label="封禁时间" width="160" align="center">
@@ -391,9 +391,9 @@
             <template #default="{ row }">
               <template v-if="row.operator_no">
                 {{ row.operator_name || '-' }}
-                <div style="font-size: 12px; color: #909399;">{{ row.operator_no }}</div>
+                <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.operator_no }}</div>
               </template>
-              <span v-else style="color: #909399;">系统（自动）</span>
+              <span v-else style="color: var(--el-text-color-secondary);">系统（自动）</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="90" align="center">
@@ -637,7 +637,7 @@
           <el-table-column label="IP" min-width="150" align="center">
             <template #default="{ row }">
               <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
-              <span v-else style="color: #c0c4cc;">-</span>
+              <span v-else style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
         </el-table>
@@ -1516,14 +1516,14 @@ onMounted(() => {
 .tip {
   margin-top: 12px;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 /* ---------- 账号日志对话框 ---------- */
 .log-section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin: 0 0 10px;
   display: flex;
   align-items: baseline;
@@ -1538,7 +1538,7 @@ onMounted(() => {
 
 .log-section-hint {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-weight: normal;
 }
 
@@ -1559,8 +1559,8 @@ onMounted(() => {
   gap: 12px;
   padding: 10px 14px;
   margin-bottom: 12px;
-  background: #f0f9eb;
-  border: 1px solid #e1f3d8;
+  background: var(--el-color-success-light-9);
+  border: 1px solid var(--el-color-success-light-8);
   border-radius: 6px;
   flex-wrap: wrap;
 }
@@ -1578,12 +1578,12 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 
 .extract-file-input {
   font-size: 12px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 
 .extract-file-input::file-selector-button {
@@ -1591,7 +1591,7 @@ onMounted(() => {
   margin-right: 8px;
   border: 1px solid #67c23a;
   border-radius: 4px;
-  background: #fff;
+  background: var(--el-bg-color);
   color: #67c23a;
   cursor: pointer;
   font-size: 12px;
@@ -1612,7 +1612,7 @@ onMounted(() => {
 }
 
 .extract-ip {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-family: monospace;
   font-size: 12px;
 }
@@ -1623,7 +1623,7 @@ onMounted(() => {
   margin-top: 2px;
   font-size: 12px;
   line-height: 1.5;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .extract-result.found {
@@ -1635,7 +1635,7 @@ onMounted(() => {
 }
 
 .extract-result strong {
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin: 0 2px;
 }
 
@@ -1663,7 +1663,7 @@ onMounted(() => {
 .resource-group-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-bottom: 10px;
   display: flex;
   align-items: center;
@@ -1672,7 +1672,7 @@ onMounted(() => {
 
 .group-count {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-weight: normal;
   margin-left: 4px;
 }

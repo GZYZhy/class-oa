@@ -51,7 +51,7 @@
         <el-table-column prop="doc_number" label="文号" width="160" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.doc_number" type="info" size="small">{{ row.doc_number }}</el-tag>
-            <span v-else style="color: #c0c4cc;">-</span>
+            <span v-else style="color: var(--el-text-color-disabled);">-</span>
           </template>
         </el-table-column>
         <el-table-column label="发布人" width="120" align="center">
@@ -352,15 +352,15 @@ onMounted(fetchList)
 }
 
 .ann-title {
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .file-input {
   width: 100%;
   padding: 8px;
-  border: 1px dashed #c0c4cc;
+  border: 1px dashed var(--el-border-color-darker);
   border-radius: 6px;
-  background: #fafafa;
+  background: var(--el-fill-color-light);
 }
 
 .file-input::file-selector-button {
@@ -378,13 +378,13 @@ onMounted(fetchList)
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .selected-file {
   margin-top: 8px;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   display: flex;
   align-items: center;
   gap: 6px;

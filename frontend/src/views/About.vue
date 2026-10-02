@@ -6,7 +6,7 @@
         <img src="/logo.png" class="about-logo" alt="校徽" />
         <div>
           <h2 style="margin: 0 0 6px 0;">{{ SITE.shortName }}</h2>
-          <p style="margin: 0; color: #909399; font-size: 14px;">
+          <p style="margin: 0; color: var(--el-text-color-secondary); font-size: 14px;">
             {{ SITE.subtitle }}
           </p>
         </div>
@@ -75,7 +75,8 @@ onMounted(async () => {
   height: 72px;
   border-radius: 50%;
   object-fit: cover;
-  border: 3px solid #ebeef5;
+  border: 3px solid var(--el-border-color-lighter);
+  /* 固定白色，跟顶栏、家园横幅的校徽保持一致：白底圈是校徽的一部分 */
   background: #fff;
   padding: 4px;
   box-sizing: border-box;

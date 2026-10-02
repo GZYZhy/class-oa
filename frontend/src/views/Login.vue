@@ -242,7 +242,7 @@ function goHome() {
   /* 手机上留出左右边距，卡片不会顶到屏幕边 */
   max-width: 92%;
   padding: 36px 34px 24px;
-  background: #fff;
+  background: var(--el-bg-color);
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 21, 41, 0.3);
 }
@@ -278,20 +278,21 @@ function goHome() {
 .login-title {
   margin: 12px 0 4px;
   font-size: 20px;
-  color: #1f2d3d;
+  /* 卡片底色是 var(--el-bg-color)（会跟主题），标题就不能再写死近黑色 */
+  color: var(--el-text-color-primary);
 }
 
 .login-sub {
   margin: 0;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .login-banned-tip {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.6;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .captcha-row {
@@ -304,10 +305,10 @@ function goHome() {
   width: 120px;
   height: 40px;
   border-radius: 4px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--el-border-color);
   cursor: pointer;
   flex-shrink: 0;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
 }
 
 .login-options {

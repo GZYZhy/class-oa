@@ -85,7 +85,7 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
 .center-intro {
   margin: 0 0 18px 0;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   line-height: 1.6;
 }
 
@@ -100,8 +100,8 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
   align-items: center;
   gap: 16px;
   padding: 18px 20px;
-  background: #fafbfc;
-  border: 1px solid #ebeef5;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
@@ -110,7 +110,7 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
 }
 
 .service-card:hover {
-  background: #ecf5ff;
+  background: var(--el-color-primary-light-9);
   border-color: #409EFF;
   transform: translateX(2px);
 }
@@ -152,18 +152,18 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
   margin: 0 0 4px 0;
   font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .service-desc {
   margin: 0;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   line-height: 1.5;
 }
 
 .service-arrow {
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
   font-size: 18px;
   flex-shrink: 0;
 }
@@ -172,7 +172,7 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
   margin-top: 24px;
   text-align: center;
   font-size: 13px;
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
 }
 
 @media (max-width: 768px) {

@@ -278,7 +278,7 @@ onMounted(fetchList)
 
 .detail-header {
   padding-bottom: 12px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--el-border-color-lighter);
   margin-bottom: 16px;
 }
 
@@ -292,7 +292,7 @@ onMounted(fetchList)
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .detail-time {
@@ -301,26 +301,26 @@ onMounted(fetchList)
 
 .detail-body {
   line-height: 1.8;
-  color: #303133;
+  color: var(--el-text-color-primary);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .el-upload__tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .attachment-block {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 
 .attachment-title {
   font-size: 13px;
   font-weight: 600;
-  color: #606266;
+  color: var(--el-text-color-regular);
   margin-bottom: 8px;
 }
 
@@ -329,7 +329,7 @@ onMounted(fetchList)
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   padding: 4px 0;
 }
 
@@ -352,7 +352,7 @@ onMounted(fetchList)
 .reply-block {
   margin-top: 20px;
   padding: 16px;
-  background: #f0f9eb;
+  background: var(--el-color-success-light-9);
   border-radius: 8px;
   border-left: 4px solid #67c23a;
 }
@@ -368,7 +368,7 @@ onMounted(fetchList)
 
 .reply-meta {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-bottom: 10px;
 }
 

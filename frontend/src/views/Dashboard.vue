@@ -187,6 +187,7 @@ onMounted(() => {
   width: 72px;
   height: 72px;
   border-radius: 50%;
+  /* 固定白色，不跟深色模式：所在的家园横幅是写死的紫蓝渐变，同顶栏校徽 */
   background: #fff;
   padding: 6px;
   box-sizing: border-box;
@@ -208,7 +209,7 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: #fff;
+  background: var(--el-bg-color);
   border-radius: 8px;
   padding: 20px;
   display: flex;
@@ -242,13 +243,13 @@ onMounted(() => {
 .stat-value {
   font-size: 28px;
   font-weight: 700;
-  color: #303133;
+  color: var(--el-text-color-primary);
   line-height: 1.2;
 }
 
 .stat-label {
   font-size: 14px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 4px;
 }
 
