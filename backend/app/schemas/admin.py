@@ -206,3 +206,17 @@ class AdminUserLogsResponse(BaseModel):
     # 7 天窗口的左端。回给前端是为了让它把边界显示出来，
     # 而不是让人猜「为什么只有这几条」
     events_since: datetime
+
+
+class MyLogsResponse(BaseModel):
+    """「我的日志」：本人自助查看的两块（api/auth.py）
+
+    和管理员的 AdminUserLogsResponse 是同一套查询，少一块 `targeted`
+    （被操作记录）—— 那是管理员视角，本人看不到别人对自己做了什么。
+    """
+    # 我作为「操作人」留下的全部记录，分页
+    operations: OperationLogListResponse
+    # 最近 7 天的登录 / 自行改密，最多 200 条，超出在 events_total 里报数
+    events: list[AccountEventResponse]
+    events_total: int
+    events_since: datetime

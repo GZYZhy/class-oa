@@ -2,7 +2,7 @@ import os
 import re
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,11 @@ from ..config import (
 )
 from ..database import get_db
 from ..models import AccountEvent, IpBan, Student, User
+from ..schemas import (
+    AccountEventResponse,
+    MyLogsResponse,
+    OperationLogListResponse,
+)
 from ..schemas.auth import (
     BarkKeyRequest,
     LoginRequest,
@@ -25,7 +30,9 @@ from ..schemas.auth import (
     WebPushUnsubscribeRequest,
 )
 from ..services import (
+    account_events,
     account_name,
+    account_operations,
     ban_ip,
     clear_failures,
     get_active_ban,
@@ -402,6 +409,35 @@ def change_password(
     # 刷新会话标识，保持登录
     request.session["user_id"] = user.id
     return {"message": "密码修改成功"}
+
+
+# ---------- 我的日志 ----------
+
+@router.get("/my-logs", response_model=MyLogsResponse, summary="我的日志")
+def my_logs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """本人自助查看两块，和「系统管理 → 账号管理 → 查日志」共用同一套查询：
+
+    - 操作日志：我**作为操作人**留下的记录（发布通知、审核办件、点名……），分页
+    - 登录与改密：我自己的登录 / 自行改密，最近 7 天
+
+    故意不给「被操作记录」（别人对我做了什么）：那是管理员视角。本人看不了
+    别人对自己账号做过什么，也就少一处能反推出管理员操作的入口。
+    账号事件只记成功事件，登录失败不记 —— 别人拿错密码试的 IP 不该被看到。
+    """
+    op_total, op_items = account_operations(db, user.student_no, page, page_size)
+    event_total, event_items, since = account_events(db, user.student_no)
+
+    return MyLogsResponse(
+        operations=OperationLogListResponse(total=op_total, items=op_items),
+        events=[AccountEventResponse.model_validate(e) for e in event_items],
+        events_total=event_total,
+        events_since=since,
+    )
 
 
 # ---------- Bark 推送设置 ----------

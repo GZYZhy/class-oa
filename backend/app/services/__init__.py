@@ -30,7 +30,12 @@ from .user_service import (
     default_password,
     ensure_default_users,
 )
-from .log_service import log_operation, display_name
+from .log_service import (
+    account_events,
+    account_operations,
+    display_name,
+    log_operation,
+)
 from .export_service import scope_label
 from .login_guard import clear_failures, needs_captcha, record_failure
 from .ban_service import (
@@ -95,6 +100,8 @@ __all__ = [
     "ensure_default_users",
     "log_operation",
     "display_name",
+    "account_operations",
+    "account_events",
     "scope_label",
     "clear_failures",
     "needs_captcha",

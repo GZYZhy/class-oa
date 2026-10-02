@@ -47,6 +47,16 @@ export function changePassword(data) {
   return request({ url: '/auth/change-password', method: 'post', data })
 }
 
+/** 我的日志（本人自助）
+ *
+ * 返回 { operations: {total, items}, events, events_total, events_since }。
+ * operations 是我作为操作人的记录（分页）；events 是最近 7 天的登录 / 自行改密。
+ * 和管理员「查日志」是同一套查询，但**不给「被操作记录」** —— 那是管理员视角。
+ */
+export function getMyLogs(params) {
+  return request({ url: '/auth/my-logs', method: 'get', params })
+}
+
 /** 首页公开摘要（无需登录） */
 export function getPublicSummary() {
   return request({ url: '/public/summary', method: 'get' })
