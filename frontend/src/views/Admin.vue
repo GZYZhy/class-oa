@@ -556,10 +556,9 @@
               保存
             </el-button>
             <el-button :loading="testingBirthday" @click="handleTestBirthday">发送测试</el-button>
-            <span v-if="birthdayForm.last_run_date" class="tip birthday-inline-tip">
-              上次自动发送：{{ birthdayForm.last_run_date }}
-            </span>
           </div>
+          <!-- 运行状态：定时任务在不在跑、上次跑出什么结果、下次什么时候跑 -->
+          <div v-if="birthdayLoaded" class="birthday-status">{{ birthdayStatusText }}</div>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -1610,7 +1609,13 @@ const birthdayForm = reactive({
   greet_template: '',
   notify_enabled: false,
   notify_student_nos: [],
-  last_run_date: null // 只读展示，不提交
+  // 下面这些是只读的运行状态，不参与提交（见 birthdayPayload）
+  last_run_date: null,
+  last_run_at: null,
+  last_run_birthdays: null,
+  last_run_notices: null,
+  scheduler_state: '',
+  next_run_at: null
 })
 
 async function fetchBirthdaySettings() {
@@ -1624,7 +1629,13 @@ async function fetchBirthdaySettings() {
       greet_template: data.greet_template || '',
       notify_enabled: !!data.notify_enabled,
       notify_student_nos: data.notify_student_nos || [],
-      last_run_date: data.last_run_date || null
+      // 运行状态（后端只读字段）
+      last_run_date: data.last_run_date || null,
+      last_run_at: data.last_run_at || null,
+      last_run_birthdays: data.last_run_birthdays,
+      last_run_notices: data.last_run_notices,
+      scheduler_state: data.scheduler_state || '',
+      next_run_at: data.next_run_at || null
     })
     birthdayDefaults.template = data.default_greet_template || ''
     birthdayLoaded.value = true
@@ -1634,6 +1645,53 @@ async function fetchBirthdaySettings() {
     loadingBirthday.value = false
   }
 }
+
+/** 把后端的 ISO 时间显示成「MM-DD HH:MM」
+ *
+ * **只切字符串、不经过 new Date()**：后端给的是不带时区的本地时间串
+ * （容器 TZ=Asia/Shanghai），交给 Date 去解析会被按**浏览器所在时区**重新解释，
+ * 换个时区打开页面就显示成另一个时间了。截字符串永远不会错。
+ */
+function fmtRunTime(iso) {
+  if (!iso) return ''
+  const [day, clock] = String(iso).split('T')
+  const [, mm, dd] = (day || '').split('-')
+  return `${mm}-${dd} ${(clock || '').slice(0, 5)}`
+}
+
+/** 底部那行运行状态。三段用「；」连起来 */
+const birthdayStatusText = computed(() => {
+  const parts = []
+  const state = birthdayForm.scheduler_state
+  if (state === 'running') {
+    parts.push('检查正常运行中')
+  } else if (state === 'off') {
+    parts.push('定时检查已关闭（BIRTHDAY_SCHEDULER=0），不会自动发送')
+  } else {
+    parts.push('定时检查未在运行，请查看后端日志')
+  }
+
+  if (birthdayForm.last_run_at) {
+    parts.push(
+      `上次检查于 ${fmtRunTime(birthdayForm.last_run_at)}，` +
+        `${birthdayForm.last_run_birthdays ?? 0} 人生日，` +
+        `通知 ${birthdayForm.last_run_notices ?? 0} 条`
+    )
+  } else {
+    parts.push('还没有执行过检查')
+  }
+
+  // 只有确实在跑才谈得上「下次」：off / dead 时后端返回的 next_run_at 是 null，
+  // 再说一句「预计很快执行」就是谎话了
+  if (state === 'running') {
+    parts.push(
+      birthdayForm.next_run_at
+        ? `预计下次于 ${fmtRunTime(birthdayForm.next_run_at)} 执行检查`
+        : '预计很快会执行下一次检查'
+    )
+  }
+  return parts.join('；')
+})
 
 /** 提交时只送后端认的六个字段：last_run_date 是只读的 */
 function birthdayPayload() {
@@ -1764,6 +1822,14 @@ onMounted(() => {
   gap: 12px;
   flex-wrap: wrap;
   margin-top: 28px;
+}
+
+/* 运行状态行。是一整句长文案，行高放松一点才好读（.tip 是给短语用的） */
+.birthday-status {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--el-text-color-secondary);
 }
 
 @media (max-width: 768px) {

@@ -12,7 +12,7 @@ import os
 import threading
 import time
 import traceback
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from ..database import SessionLocal
 from .birthday_service import get_settings, run_daily
@@ -107,6 +107,53 @@ def status_line() -> str:
     if last is None:
         return f"从没跑过任何一天，今天（{today}）会在 {_run_hour()}:00 后执行第一次"
     return f"最近一次是 {last}，今天（{today}）还没跑"
+
+
+def state() -> str:
+    """调度器现在的状态，给页面显示用：running / off / dead
+
+    三种分开说，因为对管理员的意义完全不同：
+      running —— 正常，等着它干活就行
+      off     —— 有人用 BIRTHDAY_SCHEDULER=0 关掉了（本地开发、或专门停掉）
+      dead    —— 没被关，但线程没起来或已退出，**这是真故障**：此后的生日通知
+                 会全部静默消失，必须去看日志
+
+    把 off 和 dead 合并显示成「没在跑」是不行的：前者是预期内的，后者意味着
+    功能已经坏了 —— 那正是这行状态存在的意义。
+    """
+    if not _enabled():
+        return "off"
+    if _thread is not None and _thread.is_alive():
+        return "running"
+    return "dead"
+
+
+def next_run_at(now: datetime | None = None) -> datetime | None:
+    """预计下次执行检查的时刻。None = 就在接下来的某轮巡检里，给不出准确时刻
+
+    判断依据是「今天跑过没有」，不能光看几点钟 —— 要和 tick() 的 catch-up 语义
+    对齐：容器 10:00 才起来时，8:00 那个点早过了，但当天仍要补发。
+    """
+    # 线程不在跑（被关掉、或已经退出）就谈不上「下次」。后者尤其要说清楚：
+    # 否则页面会一本正经地显示一个永远不会发生的「预计下次 08:00」
+    if state() != "running":
+        return None
+    now = now or datetime.now()
+    db = SessionLocal()
+    try:
+        last = get_settings(db).last_run_date
+    except Exception:
+        # 库连不上。状态行不值得为此报错，交给启动日志去说
+        return None
+    finally:
+        db.close()
+    run_hour = _run_hour()
+    if last == now.date():
+        return datetime(now.year, now.month, now.day, run_hour) + timedelta(days=1)
+    if now.hour < run_hour:
+        return datetime(now.year, now.month, now.day, run_hour)
+    # 过了点、今天又还没跑：等下一轮巡检把它捡起来（≤ TICK_SECONDS 之后）
+    return None
 
 
 def start() -> None:

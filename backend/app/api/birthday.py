@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User
 from ..schemas import BirthdaySettingsUpdate
+from ..services import scheduler
 from ..services.birthday_service import (
     DEFAULT_GREET_TEMPLATE,
     build_summary,
@@ -69,6 +70,8 @@ def today_banner(
 @admin_router.get("/settings", summary="读取生日关怀设置")
 def get_birthday_settings(_: User = Depends(admin_required), db: Session = Depends(get_db)):
     cfg = get_settings(db)
+    # 先算一次：next_run_at() 内部要查库，在 return 的字典里调两遍就白查一遍
+    next_at = scheduler.next_run_at()
     return {
         "banner_enabled": bool(cfg.banner_enabled),
         "banner_show_names": bool(cfg.banner_show_names),
@@ -78,8 +81,16 @@ def get_birthday_settings(_: User = Depends(admin_required), db: Session = Depen
         "default_greet_template": DEFAULT_GREET_TEMPLATE,
         "notify_enabled": bool(cfg.notify_enabled),
         "notify_student_nos": parse_notify_nos(cfg.notify_student_nos),
-        # 让管理员看得见「上次什么时候自动跑过」，比只显示三个开关有用
+        # ---------- 运行状态（只读，保存时不提交）----------
+        # 让管理员看得见「上次什么时候自动跑过、跑出什么结果」，比只显示三个开关有用
         "last_run_date": cfg.last_run_date.isoformat() if cfg.last_run_date else None,
+        "last_run_at": cfg.last_run_at.isoformat() if cfg.last_run_at else None,
+        "last_run_birthdays": cfg.last_run_birthdays,
+        "last_run_notices": cfg.last_run_notices,
+        # 定时线程是不是活着。三种状态分开给，前端的文案也不同
+        "scheduler_state": scheduler.state(),
+        # None = 就在下一轮巡检里（今天已过点但还没跑），前端据此换一种说法
+        "next_run_at": next_at.isoformat() if next_at else None,
     }
 
 
