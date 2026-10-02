@@ -11,3 +11,11 @@ itsdangerous==2.2.0
 pywebpush==2.5.0
 pymupdf==1.28.2
 reportlab==4.2.2
+# MySQL 驱动：把 DATABASE_URL 指向 MySQL 时才真正用到（默认的 SQLite 不需要它）。
+# 纯 Python 实现，python:3.12-slim 里不用装 gcc / libmysqlclient-dev。
+#
+# 版本锁在 1.2.x 不只是图新：它默认以 PREFERRED 模式协商 TLS —— 服务端支持就加密
+# （MySQL 8 默认带自签证书），不支持会自动退回明文。所以连库这条链路默认是加密的。
+# 也正因为走了 TLS，MySQL 8 默认认证插件 caching_sha2_password 不需要 cryptography
+# 参与 RSA 加解密，这里就不必额外声明它（1.1.x 没有这个默认行为，别往下降）
+PyMySQL==1.2.3
