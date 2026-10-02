@@ -14,7 +14,6 @@ export const CHANGE_FIELDS = [
   { prop: 'family_address', label: '家庭地址', maxLength: 200, placeholder: '请输入家庭通信地址' },
   { prop: 'postal_code', label: '邮政编码', maxLength: 10, placeholder: '6 位数字' },
   { prop: 'league_position', label: '团学会职务', maxLength: 50, placeholder: '没有就留空' },
-  { prop: 'is_poor', label: '是否贫困生' },
   { prop: 'bed', label: '床位号', maxLength: 20, placeholder: '如：1 号床' }
 ]
 
