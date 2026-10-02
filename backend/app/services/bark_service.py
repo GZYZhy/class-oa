@@ -19,6 +19,10 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import User
+# 长度上限和 clip 是所有渠道共用的口径，放在 utils 里（原先寄生在本模块，
+# 导致 webpush 反向 import Bark）。这里再导出一次，是为了让
+# `from .bark_service import clip / TITLE_LIMIT` 这类既有写法继续能用
+from ..utils.notify_text import BODY_LIMIT, TITLE_LIMIT, clip  # noqa: F401
 
 # Bark 单次请求最多推 100 个设备，超了要分批（全班几十人够用，防的是以后人多）
 MAX_DEVICE_KEYS = 100
@@ -28,9 +32,6 @@ MAX_DEVICE_KEYS = 100
 TIMEOUT = 5
 # 批量失败后逐条重发的总时间预算，防止一堆坏 key 把线程占死
 FALLBACK_BUDGET = 20
-# 通知正文长度上限：手机通知栏就那么点地方，太长会被系统截断，不如我们自己截
-BODY_LIMIT = 120
-TITLE_LIMIT = 40
 
 
 def bark_keys(
@@ -55,16 +56,6 @@ def bark_keys(
     if exclude_no:
         query = query.filter(User.student_no != exclude_no)
     return [key for (key,) in query.all()]
-
-
-def clip(text: str, limit: int = 60) -> str:
-    """把用户输入的文字截短，超出部分用省略号收尾
-
-    通知栏就那么宽。与其让 _send 从尾巴硬切（屏幕上出现半句话，还看不出被截过），
-    不如调用方先截好、明确告诉用户后面还有。
-    """
-    text = (text or "").strip().replace("\n", " ")
-    return text if len(text) <= limit else text[:limit] + "…"
 
 
 def icon_url() -> str | None:

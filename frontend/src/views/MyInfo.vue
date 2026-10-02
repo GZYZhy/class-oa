@@ -288,9 +288,22 @@
             </div>
 
             <div class="hint-note footnote">
-              两个渠道都开着的话，同一台设备会收到两条通知（浏览器一条、Bark 一条）。
+              浏览器和 Bark 同时开着的话，同一台设备会收到两条通知（浏览器一条、Bark 一条）。
               只想要其中一种，把另一种关掉即可。
             </div>
+
+            <!-- ==================== 两个后加的渠道 ====================
+                 整块藏在 newChannelsAvailable 后面：新前端配旧后端时这几个接口是 404，
+                 与其给用户看半截能用、点一下报错的界面，不如不显示（见 fetchAccountData） -->
+            <template v-if="newChannelsAvailable">
+              <el-divider />
+
+              <WebhookSetting />
+
+              <el-divider />
+
+              <EmailNotifySetting />
+            </template>
           </div>
 
           <!-- 我的日志：本人自助，口径同「系统管理 → 账号管理 → 查日志」 -->
@@ -506,6 +519,9 @@ import { useIsMobile } from '@/composables/useIsMobile'
 import { useUserStore } from '@/store/user'
 import { rankOf } from '@/utils/roles'
 import { getMySubmitted, getMyInvolved } from '@/api/workspace'
+import { getWebhookSetting } from '@/api/notifyChannels'
+import WebhookSetting from '@/components/WebhookSetting.vue'
+import EmailNotifySetting from '@/components/EmailNotifySetting.vue'
 import {
   isSupported,
   isIos,
@@ -601,6 +617,9 @@ const barkSaving = ref(false)
 const barkTesting = ref(false)
 const savedBarkKey = ref('')
 const barkForm = reactive({ bark_key: '' })
+
+// 后端有没有自定义 webhook / 邮件这两个渠道的接口。探测失败（旧后端 404）就整块不显示
+const newChannelsAvailable = ref(false)
 
 const KEY_PATTERN = /^[A-Za-z0-9_-]{5,128}$/
 
@@ -1027,6 +1046,18 @@ async function fetchAccountData() {
     barkForm.bark_key = savedBarkKey.value
   } catch (e) {
     // 读不到 Bark 设置不影响改密码
+  }
+
+  // 探测后端有没有那两条新渠道的接口（webhook / 邮件），用来做灰度降级：
+  // 新前端配旧后端时这里会 404，而 request.js 只特判 401，404 会一路 reject
+  // 到用户脸上。与其让他看见「自定义 Webhook」展开后点什么都报错，不如整块不显示。
+  // 探到就用同一个 getWebhookSetting —— 组件挂载后自己还会再拉一次，多这一个小 GET
+  // 换「父组件不用替子组件保管数据」，值当。
+  try {
+    await getWebhookSetting()
+    newChannelsAvailable.value = true
+  } catch (e) {
+    newChannelsAvailable.value = false
   }
 }
 

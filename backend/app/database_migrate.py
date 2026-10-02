@@ -53,6 +53,16 @@ NEW_COLUMNS = [
     # 批量操作涉及的多个学号（JSON 数组）。用于被操作记录反查：
     # 一次导出涉及几十人，每个人查被操作记录时都能找到这条
     ("operation_logs", "target_student_nos", "TEXT DEFAULT ''"),
+    # ---------- 自定义 webhook 渠道 ----------
+    # 一律默认空串 = 没开这个渠道。补列后老账号行为和补列前完全一致
+    # （不会突然有人开始往某个地址发 POST）
+    ("users", "webhook_url", "VARCHAR(500) NOT NULL DEFAULT ''"),
+    ("users", "webhook_template", "TEXT NOT NULL DEFAULT ''"),
+    # ---------- 电子邮件渠道 ----------
+    # notify_email 默认空串 = 回退用学生档案里的邮箱；开关默认 0 = 不开启。
+    # 全班 36 人都有邮箱，默认打开等于上线当天给所有人发信，所以必须默认关
+    ("users", "notify_email", "VARCHAR(100) NOT NULL DEFAULT ''"),
+    ("users", "notify_email_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张邗语（班长）、赵梦婷（团支书）

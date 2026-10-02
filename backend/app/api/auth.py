@@ -11,6 +11,7 @@ from ..config import (
     login_ban_values,
     master_password_allowed_from,
     settings,
+    smtp_enabled,
     turnstile_enabled,
 )
 from ..database import get_db
@@ -22,33 +23,44 @@ from ..schemas import (
 )
 from ..schemas.auth import (
     BarkKeyRequest,
+    EmailNotifyRequest,
     LoginRequest,
     ChangePasswordRequest,
     SetInitialPasswordRequest,
     UserInfoResponse,
+    WebhookSettingRequest,
     WebPushSubscribeRequest,
     WebPushUnsubscribeRequest,
 )
 from ..services import (
+    DEFAULT_TEMPLATE_TEXT,
     account_events,
     account_name,
     account_operations,
     ban_ip,
+    check_template,
     clear_failures,
+    email_push,
     get_active_ban,
     icon_url,
     is_ban_candidate,
+    is_valid_email,
     needs_captcha,
+    parse_template,
     push,
     record_failure,
     vapid_public_key,
     web_subscriptions,
+    webhook_push,
     webpush_subscribe,
     webpush_unsubscribe,
 )
+from ..services.email_service import TEST_BUDGET as EMAIL_TEST_BUDGET
+from ..services.email_service import TEST_TIMEOUT as EMAIL_TEST_TIMEOUT
 from ..services.webpush_service import TEST_BUDGET
 from ..services.webpush_service import push as web_push
 from ..utils.security import hash_password, verify_password, verify_master_password
+from ..utils.url_guard import is_allowed_webhook_url
 from ..utils.captcha import generate_captcha
 from ..utils.turnstile import verify as turnstile_verify
 from .deps import get_current_user, get_client_ip
@@ -161,6 +173,9 @@ def build_user_info(db: Session, user: User, student: Student | None) -> UserInf
         must_change_password=user.must_change_password,
         is_external=bool(user.is_external),
         bark_key=user.bark_key or None,
+        # 前端靠它决定「电子邮件通知」那块能不能操作。管理员没把 SMTP 配齐时
+        # 任何人开了也收不到信，所以整块置灰比让人对着一个假开关强
+        smtp_enabled=smtp_enabled(),
     )
 
 
@@ -586,3 +601,200 @@ def test_webpush(user: User = Depends(get_current_user), db: Session = Depends(g
                    "若已允许仍失败，多半是服务器到推送服务的网络问题，请联系管理员",
         )
     return {"message": "已发送，请查看通知", "count": len(subs)}
+
+
+# ---------- 自定义 Webhook 设置 ----------
+# 第三个渠道。前两个（Bark、浏览器推送）都要用户先在自己的设备上做点什么才能收到，
+# 这个的卖点是「什么接收端都行」：企业微信 / 钉钉 / 飞书的群机器人、自建的服务。
+# 代价是地址完全由用户填 —— 等于让他指挥服务器去发请求，所以校验特别严，
+# 见 utils/url_guard（HTTPS-only + 解析出的每个 IP 都必须是公网 + 禁跳转）。
+
+
+@router.get("/webhook", summary="读取我的自定义 webhook 设置")
+def get_webhook(user: User = Depends(get_current_user)):
+    """只读自己的。别人的地址读不到 —— 那里面通常内嵌着密钥"""
+    return {
+        "url": user.webhook_url or "",
+        "template": user.webhook_template or "",
+        # 给前端当文本框的 placeholder，和实际生效的那份必须同一个常量
+        "default_template": DEFAULT_TEMPLATE_TEXT,
+    }
+
+
+@router.put("/webhook", summary="保存自定义 webhook 设置")
+def set_webhook(
+    data: WebhookSettingRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """只做本地校验后落库，**不发起任何网络请求**
+
+    早先打算「保存时顺便测一下，测不通就不给存」，那是错的：不少接收端会校验签名
+    或固定字段，对测试包直接回 401 —— 于是配置明明是对的，用户却永远存不上，
+    只能反复改一个没问题的地方。改成一保存就落库、测试走单独的 /test 端点，
+    用法和 Bark 完全一致；前端「发送测试」按钮是「先保存再发」，用户看到的一样。
+
+    地址传空串 = 关闭这条渠道。非空时完整校验一遍：形态 + **域名解析出来的每个
+    IP 都必须是公网**。校验失败返回 400 带一句能直接显示给用户的原因。
+    """
+    url = (data.url or "").strip()
+    template = (data.template or "").strip()
+
+    if url:
+        allowed, reason = is_allowed_webhook_url(url)
+        if not allowed:
+            raise HTTPException(status_code=400, detail=reason)
+
+    # 模板是自由文本，这里就渲染一遍样例数据，把「写错一个引号」暴露在保存那一刻。
+    # 不然要等到某天真有通知时，才在后台任务里报错 —— 用户完全看不到反馈，
+    # 只会觉得「我装了 webhook 但它从来没响过」
+    template_error = check_template(template)
+    if template_error:
+        raise HTTPException(status_code=400, detail=template_error)
+
+    user.webhook_url = url
+    user.webhook_template = template
+    db.commit()
+    return {
+        "message": "已保存。建议点一下「发送测试」确认对方收得到" if url else "已关闭 webhook 通知"
+    }
+
+
+@router.post("/webhook/test", summary="往我配置的地址发一条测试通知")
+def test_webhook(user: User = Depends(get_current_user)):
+    """同步发送、如实返回成败（同 Bark / 浏览器推送的测试端点）
+
+    **只发库里已经存好的地址，不接受请求体传 URL** —— 否则任何登录用户都能拿这个
+    接口当「任意地址 POST 器」，整套 SSRF 防护就从这儿被绕过去了。
+    """
+    if not user.webhook_url:
+        raise HTTPException(status_code=400, detail="请先保存 webhook 地址")
+
+    ok = webhook_push(
+        [{"url": user.webhook_url, "template": parse_template(user.webhook_template)}],
+        "测试通知",
+        f"{settings.app_name}的 webhook 通知已设置成功",
+        page="/",
+    )
+    if not ok:
+        # 失败原因只有后端日志里那行 [Webhook] 知道（对方 4xx/5xx、超时、要求跳转被拦…）。
+        # 不能把话说死成「地址不对」—— 那会让用户反复重填一个本来没错的地址，
+        # 而真正的原因永远查不到。所以两头都提一句
+        raise HTTPException(
+            status_code=400,
+            detail="消息没能发出去。请先确认地址是不是对方给的完整 https 地址；"
+                   "若确认无误仍失败，多半是对方服务器拒收或服务器网络问题，请联系管理员",
+        )
+    return {"message": "已发送，请查看接收端"}
+
+
+# ---------- 电子邮件通知设置 ----------
+# 和另外三条渠道不同的地方：地址默认取学生档案里的邮箱，所以**大多数人什么都不用填**，
+# 打开开关就能收信 —— 这是它唯一能覆盖到「偶尔才登录一次」那部分同学的原因。
+# 开关默认关：全班 36 人都有邮箱，默认打开等于上线当天给所有人发一轮信。
+
+
+@router.get("/email-notify", summary="读取我的邮件通知设置")
+def get_email_notify(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """default_email 是学生档案里**可用**的邮箱，给前端显示「留空就用 xxx」
+
+    只回可用的：真实库里有 2 个缺 @ 的邮箱（Excel 导入带进来的，形如
+    3681914218qq.com）。原样回给前端的话，页面上会写「留空则用 3681914218qq.com」，
+    而那个地址根本发不出去 —— 等于当着用户的面撒谎。回空串，前端改说
+    「档案里的邮箱不可用，请自己填一个」，和 PUT 的提示口径一致。
+
+    域外账号没有学生记录，也是空串 —— 前端据 is_external 换成「得自己填一个」
+    （它压根没有档案可以回退）。**这里只读，不写。**
+    """
+    student = _student_of(db, user)
+    archive = (student.email or "").strip() if student else ""
+    return {
+        "email": user.notify_email or "",
+        "enabled": bool(user.notify_email_enabled),
+        "default_email": archive if is_valid_email(archive) else "",
+        "smtp_enabled": smtp_enabled(),
+    }
+
+
+@router.put("/email-notify", summary="保存我的邮件通知设置")
+def set_email_notify(
+    data: EmailNotifyRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """**只写 users 表，绝不回写 students**
+
+    这也是「地址覆盖值放在 users 而不是复用 students.email」的原因：学生档案只能
+    由「基本信息 → 修改」那条审批流改，从表结构上就杜绝了「在这里顺手把档案改了」。
+    页面上的说明文案和这一点必须对得上。
+
+    管理员还没配 SMTP 时也允许保存 —— 等他配好就立即生效，不用麻烦用户再来一次。
+    但接口会如实说明现在开了也收不到，前端那边整块也是置灰的。
+    """
+    email = (data.email or "").strip()
+    if email and not is_valid_email(email):
+        raise HTTPException(status_code=400, detail="邮箱格式不正确")
+
+    user.notify_email = email
+    user.notify_email_enabled = bool(data.enabled)
+    db.commit()
+
+    if not data.enabled:
+        return {"message": "已保存，已关闭邮件通知"}
+
+    student = _student_of(db, user)
+    fallback = (student.email or "").strip() if student else ""
+    # 判的是「有没有**可用**的地址」，不是「字段是不是空」：真实库里有 2 个缺 @ 的
+    # 邮箱（Excel 导入带进来的，形如 3681914218qq.com），那些学生档案里明明"有"
+    # 邮箱，却永远收不到信。只判空的话他们看到的是一句「已保存」，
+    # 然后一直等一封不会来的邮件 —— 这正是这个功能最容易变成「装了但没用」的原因
+    if not (email or is_valid_email(fallback)):
+        return {"message": "已开启，但请在上面填一个邮箱 —— 学生档案里没有可用的地址"}
+    if not smtp_enabled():
+        return {"message": "已保存，但管理员还没配置发信服务，现在收不到邮件"}
+    return {"message": "已保存"}
+
+
+@router.post("/email-notify/test", summary="给我自己发一封测试邮件")
+def test_email_notify(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """同步发送、如实返回成败
+
+    **只发给当前账号自己的地址，不接受请求体传地址** —— 否则这就成了一个
+    人人可用的发信接口：可以拿它伪造出发自本站的邮件去轰炸别人，
+    而我们域名的 SPF 记录还会替这些信背书。
+    """
+    if not smtp_enabled():
+        raise HTTPException(
+            status_code=400, detail="管理员还没配置发信服务（SMTP），此功能暂不可用"
+        )
+
+    student = _student_of(db, user)
+    address = (user.notify_email or "").strip() or (
+        (student.email or "").strip() if student else ""
+    )
+    if not address:
+        raise HTTPException(status_code=400, detail="请先填写邮箱，或先在学生档案里补一个")
+    if not is_valid_email(address):
+        raise HTTPException(status_code=400, detail="这个邮箱格式不正确，发不出去")
+
+    ok = email_push(
+        [address],
+        "测试邮件",
+        f"{settings.app_name}的邮件通知已设置成功",
+        page="/",
+        # 用户正盯着看结果，不能让他等到 axios 超时。
+        # TIMEOUT 是**每步各算一次**的，连接+登录+发信最坏能叠到 45 秒，所以这里换短的那套
+        timeout=EMAIL_TEST_TIMEOUT,
+        budget=EMAIL_TEST_BUDGET,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail="邮件没能发出去。请先确认邮箱地址是否正确；"
+                   "若确认无误仍失败，多半是服务器到邮件服务商的网络问题，请联系管理员",
+        )
+    return {"message": f"已发送到 {address}，请查收（可能在垃圾邮件箱里）"}
