@@ -68,7 +68,8 @@
       >
         <div class="canvas-wrap">
           <canvas ref="canvasRef" class="pdf-canvas" />
-          <Watermark :text="watermarkText" class="canvas-watermark" />
+          <!-- keep-dark：水印铺在白纸画布上，深色模式下也不该反转 -->
+          <Watermark :text="watermarkText" class="canvas-watermark" keep-dark />
         </div>
       </div>
 
@@ -362,8 +363,8 @@ onBeforeUnmount(() => {
   align-items: center;
   padding: 8px 12px;
   margin-bottom: 12px;
-  background: #f5f7fa;
-  border: 1px solid #ebeef5;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
   flex-wrap: wrap;
   row-gap: 6px;
@@ -379,14 +380,14 @@ onBeforeUnmount(() => {
 
 .page-indicator {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   display: flex;
   align-items: center;
 }
 
 .scale-text {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   min-width: 48px;
   text-align: center;
 }
@@ -406,7 +407,8 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   overflow: auto;
-  background: #e9e9eb;
+  /* 白纸周围的留白。用 fill-color 而不是写死的浅灰，深色模式下才有一圈深灰衬着 */
+  background: var(--el-fill-color);
 }
 
 .canvas-wrap {
@@ -429,6 +431,8 @@ onBeforeUnmount(() => {
 .pdf-canvas {
   display: block;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  /* 这里固定白色，不跟深色模式：PDF 渲染出来就是一页白纸，
+     画布跟着变深反而会在纸的边缘露出一圈灰底 */
   background: #fff;
   /* 防止被拖拽保存 */
   -webkit-user-drag: none;
@@ -493,7 +497,7 @@ onBeforeUnmount(() => {
 }
 .bottom-page-text {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   min-width: 60px;
   text-align: center;
 }

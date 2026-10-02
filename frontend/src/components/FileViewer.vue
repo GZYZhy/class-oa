@@ -298,7 +298,7 @@ onBeforeUnmount(() => {
 .viewer-container {
   width: 100%;
   min-height: 300px;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   border-radius: 4px;
 }
 
@@ -336,14 +336,14 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: #fff;
-  border-bottom: 1px solid #ebeef5;
+  background: var(--el-bg-color);
+  border-bottom: 1px solid var(--el-border-color-lighter);
   flex-wrap: wrap;
 }
 
 .page-info {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   min-width: 90px;
   text-align: center;
 }
@@ -351,13 +351,13 @@ onBeforeUnmount(() => {
 .toolbar-divider {
   width: 1px;
   height: 20px;
-  background: #e4e7ed;
+  background: var(--el-border-color-light);
   margin: 0 6px;
 }
 
 .scale-text {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   min-width: 48px;
   text-align: center;
 }
@@ -374,6 +374,8 @@ onBeforeUnmount(() => {
 
 .pdf-canvas {
   display: block;
+  /* 这里固定白色，不跟深色模式：PDF 渲染出来就是一页白纸，
+     画布跟着变深反而会在纸的边缘露出一圈灰底 */
   background: #fff;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
   -webkit-user-drag: none;
@@ -387,7 +389,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   height: calc(90vh - 200px);
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .unsupported-icon {
@@ -402,6 +404,6 @@ onBeforeUnmount(() => {
 
 .unsupported-tip {
   font-size: 12px;
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
 }
 </style>

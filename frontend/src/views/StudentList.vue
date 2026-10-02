@@ -78,7 +78,7 @@
       <div class="table-header">
         <h3 class="page-title" style="margin-bottom: 0;">学生名单</h3>
         <div class="table-tools">
-          <span style="color: #909399; font-size: 14px; margin-right: 12px;">
+          <span style="color: var(--el-text-color-secondary); font-size: 14px; margin-right: 12px;">
             共 {{ total }} 人
           </span>
           <el-dropdown @command="handleSort">
@@ -111,7 +111,7 @@
               </el-button>
             </template>
             <div class="birthday-pop">
-              <p style="margin: 0 0 10px 0; font-size: 13px; color: #606266;">
+              <p style="margin: 0 0 10px 0; font-size: 13px; color: var(--el-text-color-regular);">
                 筛选未来 N 天内过生日的同学
               </p>
               <el-input-number v-model="birthdayDays" :min="1" :max="365" style="width: 100%;" />
@@ -237,7 +237,7 @@
         <el-table-column prop="remark" label="备注" min-width="180" align="center" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.remark">{{ row.remark }}</span>
-            <span v-else style="color: #c0c4cc;">-</span>
+            <span v-else style="color: var(--el-text-color-disabled);">-</span>
           </template>
         </el-table-column>
         <el-table-column prop="dormitory" label="宿舍" width="90" align="center" />
@@ -247,7 +247,7 @@
             <el-tag v-if="row.class_position && row.class_position !== '无'" type="warning" size="small">
               {{ row.class_position }}
             </el-tag>
-            <span v-else style="color: #c0c4cc;">-</span>
+            <span v-else style="color: var(--el-text-color-disabled);">-</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="190" fixed="right" align="center">
@@ -308,16 +308,16 @@
           </div>
           <div class="detail-info">
             <h2 style="margin: 0 0 8px 0; font-size: 22px;">{{ currentStudent.name }}</h2>
-            <p style="margin: 4px 0; color: #606266;">
+            <p style="margin: 4px 0; color: var(--el-text-color-regular);">
               学号：{{ currentStudent.student_no }}
               <el-button link type="primary" @click="copyText(currentStudent.student_no)">
                 <el-icon><CopyDocument /></el-icon>
               </el-button>
             </p>
-            <p style="margin: 4px 0; color: #606266;">
+            <p style="margin: 4px 0; color: var(--el-text-color-regular);">
               {{ currentStudent.class_name }}班 · {{ currentStudent.major }}专业
             </p>
-            <p style="margin: 4px 0; color: #606266;">
+            <p style="margin: 4px 0; color: var(--el-text-color-regular);">
               <el-tag :type="currentStudent.gender === '男' ? 'primary' : 'danger'" size="small" style="margin-right: 8px;">
                 {{ currentStudent.gender }}
               </el-tag>
@@ -405,7 +405,7 @@
 
         <!-- 照片展示区 -->
         <div class="photos-section" v-if="currentStudent.gaokao_photo || currentStudent.on_site_photo">
-          <h4 style="margin: 20px 0 12px 0; color: #303133; font-size: 15px;">
+          <h4 style="margin: 20px 0 12px 0; color: var(--el-text-color-primary); font-size: 15px;">
             <el-icon><Picture /></el-icon> 照片资料
           </h4>
           <div class="photos-row">
@@ -507,7 +507,7 @@
 
               <el-col :span="24">
                 <el-form-item label="照片">
-                  <div v-if="!editForm.id" style="color: #909399; font-size: 13px;">
+                  <div v-if="!editForm.id" style="color: var(--el-text-color-secondary); font-size: 13px;">
                     先保存学生信息，之后就能在这里上传照片
                   </div>
                   <div v-else class="edit-photos">
@@ -910,7 +910,7 @@
                 <el-radio value="excel_list">名单 Excel</el-radio>
                 <el-radio value="pdf_individual">个人信息表 PDF</el-radio>
               </el-radio-group>
-              <div style="font-size: 12px; color: #909399; margin-top: 10px;">
+              <div style="font-size: 12px; color: var(--el-text-color-secondary); margin-top: 10px;">
                 <template v-if="exportForm.export_type === 'excel_list'">
                   一张 Excel 表，可选导出哪些列
                 </template>
@@ -928,7 +928,7 @@
                 <el-radio value="id_range">学号范围</el-radio>
               </el-radio-group>
 
-              <div v-if="exportForm.scope_type === 'selected'" style="font-size: 13px; color: #606266; margin-top: 10px;">
+              <div v-if="exportForm.scope_type === 'selected'" style="font-size: 13px; color: var(--el-text-color-regular); margin-top: 10px;">
                 已选中 <b>{{ selectedStudents.length }}</b> 人
                 <el-button size="small" link type="primary" @click="exportDialogVisible = false">
                   去表格里勾选
@@ -941,7 +941,7 @@
                   placeholder="起始学号"
                   style="flex: 1;"
                 />
-                <span style="align-self: center; color: #909399;">至</span>
+                <span style="align-self: center; color: var(--el-text-color-secondary);">至</span>
                 <el-input
                   v-model="exportForm.end_no"
                   placeholder="结束学号"
@@ -1030,7 +1030,7 @@
                   {{ downloadProgress?.reqId === row.id && downloadPercent
                       ? downloadPercent + '%' : '下载' }}
                 </el-button>
-                <span v-else-if="row.status === 'rejected'" style="font-size: 12px; color: #909399;">
+                <span v-else-if="row.status === 'rejected'" style="font-size: 12px; color: var(--el-text-color-secondary);">
                   {{ row.reject_reason }}
                 </span>
               </template>
@@ -1885,11 +1885,11 @@ onMounted(() => {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
 }
 
 .detail-photo-img {
@@ -1916,7 +1916,7 @@ onMounted(() => {
   height: 130px;
   border-radius: 8px;
   overflow: hidden;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   cursor: zoom-in;
 }
 
@@ -1933,12 +1933,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
 }
 
 .edit-photo-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   margin: 6px 0 4px;
 }
 
@@ -1948,7 +1948,7 @@ onMounted(() => {
   height: 150px;
   object-fit: contain;
   display: block;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   padding: 8px;
   box-sizing: border-box;
 }
@@ -1956,7 +1956,7 @@ onMounted(() => {
 .photos-tip {
   text-align: center;
   font-size: 12px;
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
   margin: 8px 0 0 0;
 }
 
@@ -1964,7 +1964,8 @@ onMounted(() => {
   display: flex;
   gap: 24px;
   padding: 16px;
-  background: linear-gradient(135deg, #f0f7ff 0%, #e8f4ff 100%);
+  /* 走主题色浅色档：深色模式下会跟着变深，里面的字才不至于浅底白字 */
+  background: linear-gradient(135deg, var(--el-color-primary-light-9) 0%, var(--el-color-primary-light-8) 100%);
   border-radius: 8px;
   margin-bottom: 8px;
 }
@@ -1977,13 +1978,13 @@ onMounted(() => {
 .no-photo {
   width: 120px;
   height: 160px;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
   font-size: 14px;
   gap: 8px;
 }
@@ -2008,7 +2009,7 @@ onMounted(() => {
   cursor: zoom-in;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
 }
 
 .photo-label {
@@ -2058,7 +2059,7 @@ onMounted(() => {
   text-align: center;
   padding: 16px 8px;
   border-radius: 6px;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
 }
 .result-stats {
   justify-content: center;
@@ -2072,11 +2073,11 @@ onMounted(() => {
 }
 .stat-item .stat-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .stat-create .stat-num { color: #67c23a; }
 .stat-update .stat-num { color: #e6a23c; }
-.stat-skip .stat-num { color: #909399; }
+.stat-skip .stat-num { color: var(--el-text-color-secondary); }
 .stat-photo .stat-num { color: #409eff; }
 
 .import-sample + .import-sample {
@@ -2084,14 +2085,14 @@ onMounted(() => {
 }
 .import-sample .sample-title {
   font-size: 14px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   margin-bottom: 8px;
   font-weight: 500;
 }
 
 /* 导出弹框：字段分组 */
 .export-field-groups {
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
   padding: 12px 16px;
   max-height: 360px;
@@ -2100,12 +2101,12 @@ onMounted(() => {
 .field-group + .field-group {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px dashed #ebeef5;
+  border-top: 1px dashed var(--el-border-color-lighter);
 }
 .field-group-title {
   font-size: 13px;
   font-weight: 600;
-  color: #606266;
+  color: var(--el-text-color-regular);
   margin-bottom: 8px;
 }
 .field-group .el-checkbox {

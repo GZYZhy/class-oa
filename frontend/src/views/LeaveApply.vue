@@ -151,7 +151,7 @@
                 <span v-else-if="row.status === 'approved'" style="color: #67c23a;">
                   {{ row.reviewer_name || '管理员' }} 已通过
                 </span>
-                <span v-else style="color: #c0c4cc;">待审核</span>
+                <span v-else style="color: var(--el-text-color-disabled);">待审核</span>
               </template>
             </el-table-column>
           </el-table>
@@ -362,20 +362,20 @@ onMounted(() => {
 
 .form-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 4px;
 }
 
 /* 起止时间竖排两行，比一行 "a ~ b" 好读 */
 .time-sep {
   font-size: 12px;
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
   line-height: 1.4;
 }
 
 .el-upload__tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 /* 确认行：两句声明在手机上很长，而 Element Plus 的复选框默认

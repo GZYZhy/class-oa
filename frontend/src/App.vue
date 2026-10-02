@@ -339,6 +339,8 @@ onMounted(async () => {
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid rgba(64, 158, 255, 0.5);
+  /* 固定白色，不跟深色模式：顶栏是写死的深色，这层白底是给校徽图片垫的衬底，
+     翻成深色的话校徽自己反倒糊在底上了 */
   background: #fff;
   padding: 2px;
   box-sizing: border-box;
@@ -483,7 +485,7 @@ onMounted(async () => {
 }
 
 .layout-main {
-  background: #f0f2f5;
+  background: var(--el-bg-color-page);
   padding: 20px;
   overflow-y: auto;
 }
@@ -496,9 +498,9 @@ onMounted(async () => {
   text-align: center;
   font-size: 12px;
   line-height: 1.5;
-  color: #909399;
-  background: #fff;
-  border-top: 1px solid #ebeef5;
+  color: var(--el-text-color-secondary);
+  background: var(--el-bg-color);
+  border-top: 1px solid var(--el-border-color-lighter);
   flex-shrink: 0;
 }
 

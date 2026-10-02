@@ -355,7 +355,7 @@
                   <el-table-column label="IP" min-width="150" align="center">
                     <template #default="{ row }">
                       <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
-                      <span v-else style="color: #c0c4cc;">-</span>
+                      <span v-else style="color: var(--el-text-color-disabled);">-</span>
                     </template>
                   </el-table-column>
                 </el-table>
@@ -1109,7 +1109,7 @@ onMounted(async () => {
   width: 200px;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   cursor: zoom-in;
 }
 
@@ -1122,7 +1122,7 @@ onMounted(async () => {
   height: 160px;
   object-fit: contain;
   display: block;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   padding: 8px;
   box-sizing: border-box;
 }
@@ -1134,8 +1134,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #c0c4cc;
-  background: #f5f7fa;
+  color: var(--el-text-color-disabled);
+  background: var(--el-fill-color-light);
   font-size: 13px;
 }
 
@@ -1150,7 +1150,7 @@ onMounted(async () => {
 .photos-tip {
   text-align: center;
   font-size: 12px;
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
   margin: 8px 0 0 0;
   width: 100%;
   max-width: 420px;
@@ -1159,13 +1159,13 @@ onMounted(async () => {
 .section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .section-sub {
   margin: 2px 0 12px;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 /* 日志表格底部翻页（与系统管理页一致）。Admin.vue 里那份是 scoped 的，
@@ -1185,7 +1185,7 @@ onMounted(async () => {
 
 .desc {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .count {
@@ -1219,8 +1219,8 @@ onMounted(async () => {
 }
 
 .case-item {
-  background: #fff;
-  border: 1px solid #ebeef5;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
   padding: 14px 16px;
   cursor: pointer;
@@ -1242,14 +1242,14 @@ onMounted(async () => {
 .case-title {
   font-size: 15px;
   font-weight: 500;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-bottom: 6px;
   line-height: 1.4;
 }
 
 .case-meta {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   display: flex;
   gap: 16px;
   line-height: 1.8;

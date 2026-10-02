@@ -204,7 +204,7 @@ function dismissNever() {
   bottom: 0;
   z-index: 3001;
   padding: 8px 20px 20px;
-  background: #fff;
+  background: var(--el-bg-color);
   border-radius: 14px 14px 0 0;
   box-shadow: 0 -2px 20px rgba(0, 0, 0, 0.12);
   /* 项目的字体栈以 -apple-system 打头，在 iOS 上本来就是 SF，
@@ -252,7 +252,7 @@ function dismissNever() {
   margin: 0 0 18px;
   padding: 0;
   list-style: none;
-  background: #f2f2f7;
+  background: var(--el-fill-color-light);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -347,5 +347,30 @@ function dismissNever() {
 .ig-rise-enter-from,
 .ig-rise-leave-to {
   transform: translateY(100%);
+}
+
+/* ============ 深色模式 ============
+   这张卡片整个是照 iOS 系统面板画的，卡片底走的是 var(--el-bg-color)（会跟主题变深），
+   所以文字也不能再写死 iOS 浅色模式的色值 —— 系统自己就是这么定义的：
+   label 浅色是近黑、深色是纯白。下面这些是 iOS 深色模式的对应值。 */
+@media (prefers-color-scheme: dark) {
+  .ig-grabber {
+    background: #48484a;
+  }
+  .ig-title,
+  .ig-step {
+    color: #fff;
+  }
+  .ig-sub,
+  .ig-link {
+    color: rgba(235, 235, 245, 0.6);
+  }
+  /* 系统蓝在深色模式下本身就更亮一档 */
+  .ig-primary {
+    background: #0a84ff;
+  }
+  .ig-step + .ig-step {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
 }
 </style>

@@ -297,7 +297,7 @@ defineExpose({ open })
 .rc-tip {
   margin: 0 0 14px 0;
   font-size: 14px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 
 .rc-excluded {
@@ -330,7 +330,7 @@ defineExpose({ open })
 .rc-empty {
   margin: 16px 0 0;
   text-align: center;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 14px;
 }
 
@@ -347,7 +347,7 @@ defineExpose({ open })
   display: block;
   margin-bottom: 6px;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .rc-photo {
@@ -370,21 +370,21 @@ defineExpose({ open })
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f7fa;
-  color: #c0c4cc;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-disabled);
 }
 
 .rc-name {
   font-size: 30px;
   font-weight: 600;
   letter-spacing: 4px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .rc-no {
   margin-top: 6px;
   font-size: 14px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .rc-actions {
@@ -401,7 +401,7 @@ defineExpose({ open })
 .rc-keys {
   margin: 16px 0 0;
   font-size: 12px;
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
 }
 
 /* ---- 汇总 ---- */
@@ -423,7 +423,7 @@ defineExpose({ open })
 .rc-absent-list {
   max-height: 260px;
   overflow-y: auto;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
 }
 
@@ -432,7 +432,7 @@ defineExpose({ open })
   justify-content: space-between;
   padding: 10px 14px;
   font-size: 14px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .rc-absent-item:last-child {
@@ -444,7 +444,7 @@ defineExpose({ open })
 }
 
 .rc-absent-no {
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 @media (max-width: 768px) {

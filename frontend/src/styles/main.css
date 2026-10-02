@@ -10,33 +10,33 @@ html, body, #app {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  background: #f0f2f5;
-  color: #303133;
+  background: var(--el-bg-color-page);
+  color: var(--el-text-color-primary);
 }
 
-/* 滚动条美化 */
+/* 滚动条美化。颜色也走变量，否则深色下会留一条白边 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: var(--el-fill-color-light);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: var(--el-border-color-darker);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: var(--el-text-color-placeholder);
 }
 
 /* 卡片通用样式 */
 .page-card {
-  background: #fff;
+  background: var(--el-bg-color);
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
@@ -45,7 +45,7 @@ html, body, #app {
 .page-title {
   font-size: 18px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-bottom: 16px;
   display: flex;
   align-items: center;

@@ -129,7 +129,7 @@ onMounted(async () => {
 .group-title {
   font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-bottom: 12px;
   display: flex;
   align-items: center;
@@ -138,7 +138,7 @@ onMounted(async () => {
 
 .group-count {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-weight: normal;
   margin-left: 4px;
 }
@@ -148,14 +148,14 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
-  background: #f8f9fa;
+  background: var(--el-fill-color-light);
   border-radius: 8px;
   margin-bottom: 12px;
   transition: background 0.2s;
 }
 
 .resource-card:hover {
-  background: #eef4fc;
+  background: var(--el-color-primary-light-9);
 }
 
 .resource-icon {
@@ -183,7 +183,7 @@ onMounted(async () => {
 
 .resource-name {
   font-size: 14px;
-  color: #303133;
+  color: var(--el-text-color-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -191,13 +191,13 @@ onMounted(async () => {
 
 .resource-meta {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 3px;
 }
 
 .meta-sep {
   margin: 0 4px;
-  color: #dcdfe6;
+  color: var(--el-border-color);
 }
 
 /* 手机端：卡片内部竖排，按钮占满宽度，方便点 */
