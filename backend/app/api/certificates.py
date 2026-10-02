@@ -91,6 +91,32 @@ def _load_attachments(req: CertificateRequest) -> list[dict]:
         return []
 
 
+def student_files(db: Session, student_id: int) -> list[Path]:
+    """该生全部证明申请占用的磁盘文件（附件 + 成品 PDF）
+
+    删学生会连带删掉这些申请记录（见 student_service.delete_student），记录一没，
+    文件就成了没人引用的孤儿。所以在删之前先把路径收出来，**等事务提交成功之后**
+    再清磁盘 —— 中途失败时文件还得留着（和删学生照片同一个套路）。
+
+    只收集、不动磁盘。
+    """
+    paths: list[Path] = []
+    reqs = (
+        db.query(CertificateRequest)
+        .filter(CertificateRequest.student_id == student_id)
+        .all()
+    )
+    for req in reqs:
+        for item in _load_attachments(req):
+            name = item.get("file") if isinstance(item, dict) else None
+            if name:
+                # 取 basename：存盘名本是 uuid，但手工放进来的文件名不该能跑到目录外
+                paths.append(ATTACH_DIR / Path(name).name)
+        if req.result_file:
+            paths.append(RESULT_DIR / Path(req.result_file).name)
+    return paths
+
+
 def _to_response(db: Session, req: CertificateRequest) -> dict:
     """把 ORM 对象转成响应体（补上学生姓名/学号 + 解析附件）"""
     student = db.query(Student).filter(Student.id == req.student_id).first()

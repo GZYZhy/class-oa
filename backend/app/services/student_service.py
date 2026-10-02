@@ -5,7 +5,7 @@ from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
 
 from ..database import month_day_expr
-from ..models import Student
+from ..models import CertificateRequest, EvPassRequest, Student
 from ..schemas import StudentCreate, StudentUpdate
 
 # 关键词搜索覆盖的字段：学生表里所有承载信息的列，包括备注。
@@ -461,14 +461,26 @@ def update_student(
 
 
 def delete_student(db: Session, student_id: int, commit: bool = True) -> bool:
-    """删除学生信息
+    """删除学生信息，连同**依赖学生表**的办件记录
 
     commit=False 的含义同 create_student：删学生要连同他的登录账号、推送订阅
     一起提交，交给调用方一次做完。
+
+    为什么办件要跟着删：certificate_requests / ev_pass_requests 的 student_id 是
+    NOT NULL 外键，而且**没有存姓名学号的快照**（跟请假、反馈那种存快照的历史记录
+    不一样）—— 既不能置成 NULL（会撞 NOT NULL 报 IntegrityError，这就是以前删不掉
+    学生的原因），留着悬空也没有意义：记录里没有姓名，界面上只会显示成没有主人的
+    一行。两条路都走不通，所以跟学生一起走。
+
+    ⚠ 这两张表挂的是学生主键，和按学号存的请假/修改申请写法不同；
+    调用方若要清理磁盘文件，请**在调用本函数之前**收集（见 api/students.py）。
     """
     db_student = get_student(db, student_id)
     if not db_student:
         return False
+    # 先删子记录再删父记录：外键约束要求这个顺序
+    db.query(CertificateRequest).filter(CertificateRequest.student_id == student_id).delete()
+    db.query(EvPassRequest).filter(EvPassRequest.student_id == student_id).delete()
     db.delete(db_student)
     if commit:
         db.commit()
