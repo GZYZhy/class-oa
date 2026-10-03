@@ -269,6 +269,12 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="班级学生信息管理系统，支持分类查询、统计检索",
+    # 关掉交互式文档：/docs、/redoc、/openapi.json 默认对**未登录访客**返回 200，
+    # 等于把全部接口清单（路径、参数、字段名）白送给扫描器，省得它一个个猜。
+    # 本地开发要看文档，就把下面三行注释掉。
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # CORS 中间件

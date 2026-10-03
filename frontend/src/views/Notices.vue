@@ -299,6 +299,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import {
   getNotices,
   createNotice,
@@ -365,9 +366,15 @@ const unreadRemindable = computed(() => {
   ).length
 })
 
-// Markdown 渲染（marked 直接输出 HTML）
+// Markdown 渲染。**必须过 DOMPurify**：
+// 通知正文是班委写的，而列表接口连未登录访客都能读 —— 少这一步就是存储型 XSS，
+// 一篇通知足以在所有人的浏览器里跑脚本（会话 Cookie 有 HttpOnly 也挡不住
+// 「以你的身份调接口」，照样能读全班数据）。
+// 用默认白名单即可：Markdown 产出的标题/列表/表格/链接/图片/代码块、
+// 以及内联 style（标红这类）都保留，只剥 script、iframe、on* 事件属性、
+// javascript: 这类能执行的东西。改这一行前先想清楚它的作用。
 function renderMarkdown(text) {
-  return marked.parse(text || '')
+  return DOMPurify.sanitize(marked.parse(text || ''))
 }
 
 /** 后端返回 ISO 时间，展示为「2026-09-24 12:30」 */
