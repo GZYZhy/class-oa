@@ -32,6 +32,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from ..models.student import Student
 from ..utils.student_fields import FIELD_GROUPS, FIELD_MAP
 from .pdf_watermark_service import add_invisible_watermark
 
