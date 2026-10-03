@@ -106,6 +106,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getStudentList, logRollCall } from '@/api/student'
+// 名单规则与抽签共用，规则说明见 utils/roster.js
+import { pickByScope, splitBySchoolStatus } from '@/utils/roster'
 
 const visible = ref(false)
 const loading = ref(false)
@@ -118,24 +120,6 @@ const excluded = ref([]) // 被滤掉的人，只用来在第一步提示一句
 const queue = ref([])    // 本次要点的人
 const answers = ref([])  // 与 queue 一一对应的结果，true=到，false=无应答
 const photoBroken = ref(false)
-
-/** 在校状态为这个值才参与点名。
-    休学/退学/保留学籍这些叫到了也没意义 —— 人不在校，答不上来等于天天误报。
-    比对的是「不等于它就不参与」，所以字段为空也按不参与处理（空值在提示里显示「未填」） */
-const NORMAL_SCHOOL_STATUS = '正常'
-
-/** 范围名 → 学生表 gender 字段里的实际取值。
-    按钮上和日志里都写「男生」，但库里存的是「男」，这两个必须对上。
-    单独拎出来是因为踩过坑：筛选逻辑原来在 counts 和 startCall 里各写了一份，
-    counts 用了单字、startCall 却拿按钮上的「男生」直接比，于是选男生/女生
-    永远是空名单，只有不筛选的「全班」正常。 */
-const GENDER_BY_SCOPE = { 男生: '男', 女生: '女' }
-
-/** 按范围取人。counts 和 startCall 共用它，就不会再各写一套比法 */
-function pickByScope(list, scopeName) {
-  if (scopeName === '全班') return [...list]
-  return list.filter((s) => s.gender === GENDER_BY_SCOPE[scopeName])
-}
 
 const counts = computed(() => ({
   male: pickByScope(roster.value, '男生').length,
@@ -183,9 +167,9 @@ async function fetchRoster() {
     })
     // 过滤只在这里做一次，roster 只装能点名的人。counts 和 queue 都是从 roster
     // 出来的，所以按钮上的数字和实际叫到的人不会对不上
-    const all = res.items || []
-    roster.value = all.filter((s) => s.school_status === NORMAL_SCHOOL_STATUS)
-    excluded.value = all.filter((s) => s.school_status !== NORMAL_SCHOOL_STATUS)
+    const { active, excluded: skipped } = splitBySchoolStatus(res.items || [])
+    roster.value = active
+    excluded.value = skipped
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '读取学生名单失败')
   } finally {

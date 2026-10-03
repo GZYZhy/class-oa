@@ -63,6 +63,20 @@ export function logRollCall(data) {
 }
 
 /**
+ * 上报抽签（后端只写一条操作日志，不存业务数据）
+ *
+ * 一次抽签只报一条，「点一回取一个」中间点多少次都不额外上报。
+ * 详情只有人数，不带抽中名单。
+ */
+export function logDraw(data) {
+  return request({
+    url: '/students/draw',
+    method: 'post',
+    data
+  })
+}
+
+/**
  * 新增学生（仅管理员）
  *
  * 会连带开通登录账号。返回体里 fallback=true 表示该生没有身份证号、

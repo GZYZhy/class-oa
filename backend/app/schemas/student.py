@@ -98,6 +98,16 @@ class RollCallLogRequest(BaseModel):
     absent: list[RollCallAbsentItem] = Field(default_factory=list, description="无应答名单")
 
 
+class DrawLogRequest(BaseModel):
+    """抽签结果上报
+
+    和点名一样只写一条操作日志。**故意只收人数，不收抽中名单** ——
+    抽签结果是当场用掉的，把名字留下来反而成了「谁被抽中过」的名册。
+    """
+    scope: str = Field(..., description="抽取范围：从表格里选 / 男生 / 女生 / 全班")
+    count: int = Field(..., ge=0, description="本次抽中的人数")
+
+
 class BatchDeleteRequest(BaseModel):
     """批量删除学生的请求体"""
     ids: list[int] = Field(..., description="要删除的学生 id 列表")
