@@ -227,3 +227,19 @@ export function extractWatermark(file, onProgress) {
     onUploadProgress: progressHandler(onProgress)
   })
 }
+
+// ==================== 数据体检 ====================
+
+/**
+ * 学生数据体检（仅管理员）
+ *
+ * 一次返回全部分组的体检结果：身份证、联系方式、必填字段、照片。
+ * 只报告不改数据 —— 「身份证推出来的生日和库里的对不上」这种事，
+ * 错的是哪一边只有人知道。
+ */
+export function getDataHealth() {
+  return request({
+    url: '/admin/data-health',
+    method: 'get'
+  })
+}
