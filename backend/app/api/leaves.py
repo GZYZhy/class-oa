@@ -148,10 +148,13 @@ async def submit_leave(
     # 提醒管理员来审。待办性质，用 timeSensitive 让它能穿透专注模式。
     # 跳转必须带 ?tab=leave：审批在「审核中心」页，默认停在信息修改那个 tab，
     # 不带参数的话管理员点进来看到的是「没有修改申请」
+    #
+    # **不排除提交人自己**：他自己就是审批人时（管理员给自己提请假），这件照样
+    # 等着他审，排除掉就没人收到待办提醒了。详见 notify_service.recipients
     notify(
         db,
         background,
-        recipients(db, roles=APPROVER_ROLES, exclude_no=user.student_no),
+        recipients(db, roles=APPROVER_ROLES),
         "有新的请假申请待审核",
         f"{student.name} 提交了{leave_type}，等待你审核",
         level="timeSensitive",

@@ -157,10 +157,13 @@ async def submit_application(
     # 提醒管理员来审。待办性质，用 timeSensitive 让它能穿透专注模式。
     # 跳转必须带 ?tab=evpass：审批在「审核中心」页，不带参数会停在信息修改那个 tab，
     # 管理员点进来看到的不是这条申请
+    #
+    # **不排除提交人自己**：管理员给自己办的通行证也等着他审
+    # （理由见 notify_service.recipients，四个办件提交接口口径一致）
     notify(
         db,
         background,
-        recipients(db, roles=APPROVER_ROLES, exclude_no=user.student_no),
+        recipients(db, roles=APPROVER_ROLES),
         "有新的电动车通行证补办申请",
         f"{student.name} 提交了电动车通行证补办申请，等待你审核",
         level="timeSensitive",
