@@ -100,6 +100,7 @@ import {
   removeGradeSubject
 } from '@/api/grade'
 import { formatDate } from '@/utils/format'
+import { errText } from '@/utils/request'
 
 const emit = defineEmits(['done'])
 
@@ -153,7 +154,8 @@ async function load() {
     }
     tableKey.value += 1
   } catch (e) {
-    // 拦截器已弹错
+    // 拉到一半失败会把空表留在弹窗里，看着像「这场没录过成绩」，得说清楚
+    ElMessage.error(errText(e, '读取明细失败'))
   } finally {
     loading.value = false
   }
@@ -180,7 +182,9 @@ async function saveCell(row, subject, value) {
     row.values[String(subject.id)] = res.value
     refreshCounts()
   } catch (e) {
-    // 失败就写回旧值：不写回的话框里留着用户敲的错值，看着像存上了
+    // 失败就写回旧值：不写回的话框里留着用户敲的错值，看着像存上了。
+    // 光写回不够 —— 不弹一句的话，格子默默弹回原样，用户只会以为是自己没敲进去
+    ElMessage.error(errText(e, '保存失败'))
     row.values[String(subject.id)] = saved[key]
   } finally {
     inflight.delete(key)
@@ -210,7 +214,7 @@ async function handleAddSubject() {
     newSubject.value = ''
     await load()
   } catch (e) {
-    // 拦截器已弹错
+    ElMessage.error(errText(e, '添加科目失败'))
   } finally {
     subjectLoading.value = false
   }
@@ -233,7 +237,7 @@ async function handleRemoveSubject(subject) {
     ElMessage.success('已删除')
     await load()
   } catch (e) {
-    // 拦截器已弹错
+    ElMessage.error(errText(e, '删除科目失败'))
   }
 }
 

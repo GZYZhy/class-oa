@@ -149,6 +149,7 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { gradeImportConfirm, gradeImportPreview } from '@/api/grade'
+import { errText } from '@/utils/request'
 
 const emit = defineEmits(['done'])
 
@@ -208,7 +209,8 @@ async function doPreview() {
     keptSubjects.value = preview.value.columns.filter((c) => c.keep_default).map((c) => c.name)
     step.value = 2
   } catch (e) {
-    // 拦截器会弹错误消息（缺「学号」列的 400 文案由后端给）
+    // 缺「学号」列、没有可用的工作表这类 400 文案由后端给，原样弹出来
+    ElMessage.error(errText(e, '读取表格失败'))
   } finally {
     previewLoading.value = false
   }
@@ -241,7 +243,8 @@ async function doImport() {
     step.value = 3
     emit('done')
   } catch (e) {
-    // 拦截器会弹错
+    // 预览过期（超过 10 分钟）也走这里，后端会说清楚
+    ElMessage.error(errText(e, '录入失败'))
   } finally {
     confirmLoading.value = false
   }

@@ -86,6 +86,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { deleteGradeTest, getGradeList, updateGradeTest } from '@/api/grade'
 import { formatDate } from '@/utils/format'
+import { errText } from '@/utils/request'
 import GradeDetailDialog from '@/components/GradeDetailDialog.vue'
 import GradeImportDialog from '@/components/GradeImportDialog.vue'
 
@@ -110,7 +111,7 @@ async function fetchList() {
     rows.value = res.items || []
     total.value = res.total || 0
   } catch (e) {
-    // 拦截器已弹错
+    ElMessage.error(errText(e, '读取成绩列表失败'))
   } finally {
     loading.value = false
   }
@@ -145,7 +146,7 @@ async function handleEditSave() {
     editVisible.value = false
     fetchList()
   } catch (e) {
-    // 拦截器已弹错
+    ElMessage.error(errText(e, '保存失败'))
   } finally {
     editLoading.value = false
   }
@@ -167,7 +168,7 @@ async function handleDelete(row) {
     if (rows.value.length === 1 && currentPage.value > 1) currentPage.value -= 1
     fetchList()
   } catch (e) {
-    // 拦截器已弹错
+    ElMessage.error(errText(e, '删除失败'))
   }
 }
 </script>

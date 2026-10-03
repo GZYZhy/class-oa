@@ -199,12 +199,25 @@ class GradePreview:
 
 
 def _pick_sheet(workbook, sheet_name: str | None) -> str:
-    """定用哪张工作表：指定了就用指定的，否则第一张"""
+    """定用哪张工作表：指定了就用指定的，否则取第一张第一行带「学号」的
+
+    默认**不是「第一张」而是「第一张像成绩表的」**：实际收到的成绩表常把封面、
+    填表说明放在第一个工作表，数据在第二张。按第一张解析只会得到一句「缺「学号」列」，
+    班委除了回 Excel 删表没别的路。显式指定了工作表就照指定的来，那张表里没有
+    「学号」列照旧报错 —— 他要的就是那张。
+    """
     available = workbook.sheetnames
     if sheet_name:
         if sheet_name not in available:
             raise ValueError(f"工作表「{sheet_name}」不存在")
         return sheet_name
+    for name in available:
+        header = [str(c.value).strip() if c.value is not None else "" for c in workbook[name][1]]
+        if "学号" in header:
+            return name
+    if len(available) > 1:
+        # 单张表时报「必须有「学号」列」就够清楚了，多张才需要把名字列给他看
+        raise ValueError("这些工作表的第一行里都没有「学号」列：" + "、".join(available))
     return available[0]
 
 
