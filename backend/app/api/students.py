@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..config import BASE_DIR
 from ..database import get_db
 from ..models import (
     CertificateRequest,
@@ -47,11 +46,27 @@ from ..services.student_import_service import (
     load_preview,
     import_students,
     cleanup_expired_previews,
+    PHOTO_DIR,
+)
+# 照片领域的规则（后缀白名单 / 大小上限 / 类型→列名）只在 student_photo_service
+# 里定义一份，单张上传和批量导入共用
+from ..services.student_photo_service import (
+    ALLOWED_PHOTO_EXTENSIONS,
+    MAX_PHOTO_SIZE,
+    PHOTO_FIELDS,
+    save_zip,
+    load_zip,
+    drop_zip,
+    preview as preview_photo_zip,
+    apply as apply_photo_zip,
 )
 from ..schemas import (
     ImportPreviewResponse,
     ImportConfirmRequest,
     ImportResultResponse,
+    PhotoZipPreviewResponse,
+    PhotoZipConfirmRequest,
+    PhotoZipResultResponse,
 )
 from .certificates import student_files as certificate_files
 from .deps import (
@@ -66,17 +81,8 @@ from .ev_passes import student_files as ev_pass_files
 
 router = APIRouter(prefix="/api/students", tags=["学生信息"])
 
-# 照片目录
-PHOTO_DIR = BASE_DIR / "data" / "photos"
-
 # 班委能改的字段：只有备注。姓名、学号、身份证号这些只能由管理员改
 COMMITTEE_EDITABLE_FIELDS = {"remark"}
-
-# 上传学生照片：后缀白名单 + UUID 文件名，与域外账号头像、请假证明的做法一致
-ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
-MAX_PHOTO_SIZE = 10 * 1024 * 1024  # 10MB，手机拍的实地采集照片也不会更大
-# 前端传的类型 → 列名。两种照片各占一列，取法统一走 _photo_field
-PHOTO_FIELDS = {"gaokao": "gaokao_photo", "on_site": "on_site_photo"}
 
 
 def _photo_field(photo_type: str) -> str:
@@ -624,6 +630,83 @@ def import_excel_confirm(
         warnings=result["warnings"],
         message=message,
     )
+
+
+# ---------- 照片批量导入（zip，仅管理员） ----------
+
+# zip 包大小上限。单张照片 10MB 封顶、一个班几十人，正常远到不了这个数；
+# 真到了说明该分几次传。nginx 的 client_max_body_size 是 70MB，取 60MB 留在它之内
+_MAX_PHOTO_ZIP_SIZE = 60 * 1024 * 1024
+
+
+@router.post("/photos/import/preview", response_model=PhotoZipPreviewResponse,
+             summary="解析照片 zip 并预览（仅管理员，不写库）")
+async def photo_zip_preview(
+    file: UploadFile = File(..., description="zip 压缩包"),
+    photo_type: str = Query(..., description="gaokao=高考照片, on_site=实地采集"),
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    """上传 zip，逐张判断这张是谁的照片（不写库、不写文件）
+
+    返回里带一个 token，确认导入时连同 photo_type 一起传回来。
+    """
+    _photo_field(photo_type)  # 非法类型在这里就被拒了
+
+    ext = Path(file.filename or "").suffix.lower()
+    if ext != ".zip":
+        raise HTTPException(status_code=400, detail="只支持 .zip 压缩包")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="文件不能为空")
+    if len(content) > _MAX_PHOTO_ZIP_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"压缩包不能超过 {_MAX_PHOTO_ZIP_SIZE // 1024 // 1024}MB",
+        )
+
+    students = db.query(Student).all()
+    try:
+        result = preview_photo_zip(content, students, photo_type)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    token = save_zip(content, photo_type)
+    return PhotoZipPreviewResponse(token=token, photo_type=photo_type, **result)
+
+
+@router.post("/photos/import", response_model=PhotoZipResultResponse,
+             summary="确认导入照片（仅管理员）")
+def photo_zip_confirm(
+    body: PhotoZipConfirmRequest,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """按预览令牌真正落盘并写库
+
+    覆盖与否由这次请求的 overwrite 决定，不在预览阶段定 —— 预览时用户还没做选择。
+    """
+    _photo_field(body.photo_type)
+
+    content = load_zip(body.token, body.photo_type)
+    if not content:
+        raise HTTPException(status_code=404, detail="预览已过期或不存在，请重新上传")
+
+    students = db.query(Student).all()
+    try:
+        result = apply_photo_zip(
+            db, content, students, body.photo_type,
+            overwrite=body.overwrite, manual=body.manual, operator=user, ip=ip,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        # 用完就删，不用等 TTL。失败也一样删 —— 用户得重新上传
+        drop_zip(body.token, body.photo_type)
+
+    return PhotoZipResultResponse(**result)
 
 
 @router.post("/batch-delete", summary="批量删除学生（仅管理员）")
