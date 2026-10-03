@@ -1,0 +1,264 @@
+<template>
+  <div class="attendance">
+    <!-- 筛选区域 -->
+    <div class="page-card">
+      <el-form :inline="true" size="default">
+        <el-form-item label="日期">
+          <el-date-picker
+            v-model="dateRange"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+            style="width: 260px"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleSearch">
+            <el-icon><Search /></el-icon>查询
+          </el-button>
+          <el-button @click="handleReset">
+            <el-icon><Refresh /></el-icon>重置
+          </el-button>
+          <el-button :loading="exporting" @click="handleExport">
+            <el-icon><Download /></el-icon>导出
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </div>
+
+    <!-- 列表 -->
+    <div class="page-card">
+      <el-table
+        v-loading="loading"
+        :data="rows"
+        stripe
+        empty-text="这段时间还没有点名记录，在学生信息页点一次名就会出现在这里"
+      >
+        <el-table-column prop="call_date" label="日期" width="120" />
+        <el-table-column prop="scope" label="范围" width="90" />
+        <el-table-column label="点名时刻" width="150">
+          <template #default="{ row }">{{ formatDateTime(row.called_at) }}</template>
+        </el-table-column>
+        <el-table-column prop="operator_name" label="点名的人" width="110" />
+        <el-table-column label="应到" width="80" align="center">
+          <template #default="{ row }">{{ row.total }}</template>
+        </el-table-column>
+        <el-table-column label="实到" width="80" align="center">
+          <template #default="{ row }">{{ row.present }}</template>
+        </el-table-column>
+        <el-table-column label="请假" width="80" align="center">
+          <template #default="{ row }">
+            <span :class="{ 'at-warn': row.leave }">{{ row.leave }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="无应答" width="90" align="center">
+          <template #default="{ row }">
+            <span :class="{ 'at-danger': row.absent }">{{ row.absent }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="130" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openDetail(row)">明细</el-button>
+            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-pagination
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="total"
+        layout="total, sizes, prev, pager, next, jumper"
+        background
+        class="at-pager"
+        @size-change="handleSizeChange"
+        @current-change="fetchList"
+      />
+    </div>
+
+    <!-- 明细：逐个改状态。当天点错了、事后有人说「我其实到了」都在这儿改 -->
+    <el-dialog v-model="detailVisible" :title="detailTitle" width="560px">
+      <el-table v-loading="detailLoading" :data="detail.items" max-height="420">
+        <el-table-column prop="student_name" label="姓名" />
+        <el-table-column prop="student_no" label="学号" width="130" />
+        <el-table-column label="状态" width="120">
+          <template #default="{ row }">
+            <el-select
+              :model-value="row.status"
+              size="small"
+              :disabled="detailSaving"
+              @change="(value) => changeStatus(row, value)"
+            >
+              <el-option label="到" value="present" />
+              <el-option label="无应答" value="absent" />
+              <el-option label="请假" value="leave" />
+            </el-select>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  attendanceExportUrl,
+  deleteAttendance,
+  getAttendance,
+  getAttendanceList,
+  updateAttendanceItem
+} from '@/api/attendance'
+import { blobErrorDetail, downloadFile } from '@/utils/download'
+import { formatDateTime } from '@/utils/format'
+
+const loading = ref(false)
+const exporting = ref(false)
+const rows = ref([])
+const total = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const dateRange = ref(null)
+
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailSaving = ref(false)
+const detail = ref({ items: [], call_date: '', scope: '' })
+
+const detailTitle = computed(() =>
+  detail.value.id ? `${detail.value.call_date} ${detail.value.scope} 点名明细` : '点名明细'
+)
+
+async function fetchList() {
+  loading.value = true
+  try {
+    const params = { page: currentPage.value, page_size: pageSize.value }
+    if (dateRange.value?.length === 2) {
+      params.start = dateRange.value[0]
+      params.end = dateRange.value[1]
+    }
+    const res = await getAttendanceList(params)
+    rows.value = res.items || []
+    total.value = res.total || 0
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '读取考勤记录失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+function handleSearch() {
+  currentPage.value = 1
+  fetchList()
+}
+
+function handleReset() {
+  dateRange.value = null
+  handleSearch()
+}
+
+function handleSizeChange() {
+  currentPage.value = 1
+  fetchList()
+}
+
+async function openDetail(row) {
+  detailVisible.value = true
+  detailLoading.value = true
+  detail.value = { items: [], call_date: row.call_date, scope: row.scope }
+  try {
+    detail.value = await getAttendance(row.id)
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '读取明细失败')
+    detailVisible.value = false
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+/** 改一个人的状态。改完列表上的计数也要跟着变，所以两边都刷一次 */
+async function changeStatus(item, status) {
+  if (status === item.status) return
+  detailSaving.value = true
+  try {
+    detail.value = await updateAttendanceItem(detail.value.id, item.student_no, status)
+    ElMessage.success('已修改')
+    fetchList()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '修改失败')
+  } finally {
+    detailSaving.value = false
+  }
+}
+
+async function handleDelete(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除「${row.call_date} ${row.scope}」这条考勤记录吗？明细会一起删掉。`,
+      '提示',
+      { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await deleteAttendance(row.id)
+    ElMessage.success('已删除')
+    // 删掉当前页最后一条时要往前退一页，否则会停在空页上
+    if (rows.value.length === 1 && currentPage.value > 1) currentPage.value -= 1
+    fetchList()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
+  }
+}
+
+/** 导出当前日期区间的明细。
+ *  必须走 downloadFile（带登录态、会被 401 拦截器接住），
+ *  直接用 <a href> 拿到的是一个 401 的 JSON 还当成文件存下来。
+ *  存盘名要自己拼：走 blob 拿不到响应头里的名字 */
+async function handleExport() {
+  const start = dateRange.value?.[0] || '全部'
+  const end = dateRange.value?.[1] || '全部'
+  exporting.value = true
+  try {
+    await downloadFile(attendanceExportUrl(start === '全部' ? null : start, end === '全部' ? null : end),
+      `考勤记录_${start}_${end}.xlsx`)
+  } catch (e) {
+    ElMessage.error(await blobErrorDetail(e, '导出失败'))
+  } finally {
+    exporting.value = false
+  }
+}
+
+onMounted(fetchList)
+</script>
+
+<style scoped>
+.attendance {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.at-pager {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.at-warn {
+  color: var(--el-color-warning);
+  font-weight: 600;
+}
+
+.at-danger {
+  color: var(--el-color-danger);
+  font-weight: 600;
+}
+</style>

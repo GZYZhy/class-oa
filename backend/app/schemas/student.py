@@ -81,23 +81,6 @@ class StudentCreateResponse(BaseModel):
     fallback: bool = Field(False, description="密码是否因缺身份证号而退化")
 
 
-class RollCallAbsentItem(BaseModel):
-    """点名叫到但没人应答的一位同学"""
-    student_no: str = Field(..., description="学号")
-    name: str = Field(..., description="姓名")
-
-
-class RollCallLogRequest(BaseModel):
-    """点名结果上报
-
-    只用来写一条操作日志，不落任何业务表 —— 点名结果本身没有留存价值，
-    值得留下的是「谁在什么时候点了谁的名」。
-    """
-    scope: str = Field(..., description="点名范围：男生 / 女生 / 全班")
-    total: int = Field(..., ge=0, description="本次点名总人数")
-    absent: list[RollCallAbsentItem] = Field(default_factory=list, description="无应答名单")
-
-
 class DrawLogRequest(BaseModel):
     """抽签结果上报
 

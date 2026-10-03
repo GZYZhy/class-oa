@@ -41,6 +41,12 @@ const routes = [
     meta: { title: '分类统计', role: 'committee' }
   },
   {
+    path: '/attendance',
+    name: 'Attendance',
+    component: () => import('@/views/Attendance.vue'),
+    meta: { title: '考勤记录', role: 'committee' }
+  },
+  {
     path: '/review',
     name: 'Review',
     component: () => import('@/views/Review.vue'),

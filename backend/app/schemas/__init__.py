@@ -5,8 +5,6 @@ from .student import (
     StudentResponse,
     StudentListResponse,
     StudentCreateResponse,
-    RollCallAbsentItem,
-    RollCallLogRequest,
     DrawLogRequest,
     BatchDeleteRequest,
     student_response,
@@ -53,6 +51,14 @@ from .student_import import (
     ImportResultResponse,
 )
 from .certificate import CertificateRequestResponse, CertificateRejectRequest
+from .attendance import (
+    AttendanceCreate,
+    AttendanceItemIn,
+    AttendanceItemResponse,
+    AttendanceItemUpdate,
+    AttendanceListResponse,
+    AttendanceRecordResponse,
+)
 
 __all__ = [
     "StudentBase",
@@ -61,8 +67,6 @@ __all__ = [
     "StudentResponse",
     "StudentListResponse",
     "StudentCreateResponse",
-    "RollCallAbsentItem",
-    "RollCallLogRequest",
     "DrawLogRequest",
     "student_response",
     "AnnouncementResponse",
@@ -114,4 +118,10 @@ __all__ = [
     "ImportResultResponse",
     "CertificateRequestResponse",
     "CertificateRejectRequest",
+    "AttendanceCreate",
+    "AttendanceItemIn",
+    "AttendanceItemResponse",
+    "AttendanceItemUpdate",
+    "AttendanceListResponse",
+    "AttendanceRecordResponse",
 ]
