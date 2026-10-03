@@ -243,7 +243,7 @@ async def upload_announcement(
     db.commit()
 
     notify(
-        background, targets, f"新公告：{title}",
+        db, background, targets, f"新公告：{title}",
         f"{publisher} 上传了一份文件" + ("" if is_public else "（仅班委可见）"),
         level="active", page="/announcements",
     )

@@ -147,7 +147,7 @@ def test_birthday_notify(user: User = Depends(admin_required), db: Session = Dep
                    "开启 Bark、浏览器通知、Webhook 或邮件中的任意一个",
         )
 
-    ok = deliver_now(targets, f"【测试】{title}", prefix + body, page="/dashboard")
+    ok = deliver_now(db, targets, f"【测试】{title}", prefix + body, page="/dashboard")
     if not ok:
         # 同各渠道测试端点的口径：失败原因只有后端日志知道，不能把话说死成
         # 「你没配好」，否则用户会反复改一个本来没错的配置

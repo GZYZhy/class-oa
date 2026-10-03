@@ -1,7 +1,7 @@
 """侧边菜单红点的计数接口
 
-两类红点（通知未读 / 待我审核）合成一个接口返回：前端每换一次页面都要刷一次，
-合成一个省掉一半请求；更要紧的是「哪些算待办」这个口径是按角色分叉的，
+三类红点（通知未读 / 待我审核 / 站内信未读）合成一个接口返回：前端每换一次页面
+都要刷一次，合成一个省掉一半请求；更要紧的是「哪些算待办」这个口径是按角色分叉的，
 集中在一处写清楚，比散在通知、审核两个模块里各写一半好维护。
 """
 
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import CertificateRequest, ChangeRequest, EvPassRequest, ExportRequest, Feedback, LeaveRequest, User
 from ..services import unread_count
+from ..services.inbox_service import unread_count as inbox_unread_count
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/badges", tags=["未读红点"])
@@ -19,7 +20,12 @@ router = APIRouter(prefix="/api/badges", tags=["未读红点"])
 
 @router.get("", summary="菜单红点计数")
 def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """返回 {"notice_unread": 通知未读数, "review_tabs": 各分类待办数, "review_pending": 待办合计}
+    """返回 {"notice_unread": 通知未读数, "inbox_unread": 站内信未读数,
+    "review_tabs": 各分类待办数, "review_pending": 待办合计}
+
+    notice_unread 和 inbox_unread 是两回事，不合并：前者数的是「通知公告里有几篇
+    没看」，点进去是文章列表；后者数的是「收件箱里几条没看」，点进去是消息流水。
+    同一条通知在这两处各算一次是有意的 —— 一个页面一个口径。
 
     review_tabs 的键就是审核页的 tab 名，审核页每个 tab 上各显示自己那个数字。
 
@@ -53,6 +59,7 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
 
     return {
         "notice_unread": unread_count(db, user.student_no),
+        "inbox_unread": inbox_unread_count(db, user.student_no),
         "review_tabs": review_tabs,
         "review_pending": sum(review_tabs.values()),
     }

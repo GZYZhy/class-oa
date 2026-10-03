@@ -258,6 +258,7 @@ def create_request(
 
     # 推送给管理员
     notify(
+        db,
         background,
         recipients(db, roles=APPROVER_ROLES),
         "有新的导出申请待审核",
@@ -404,6 +405,7 @@ def approve_request(
 
     # 通知申请人
     notify(
+        db,
         background,
         recipients(db, only_no=req.student_no),
         "导出申请已通过",
@@ -455,6 +457,7 @@ def reject_request(
     db.commit()
 
     notify(
+        db,
         background,
         recipients(db, only_no=req.student_no),
         "导出申请被驳回",

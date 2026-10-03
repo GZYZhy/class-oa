@@ -604,12 +604,9 @@ async function handleRemind() {
 
   reminding.value = true
   try {
-    const { reminded, unreachable } = await remindUnread(readsNoticeId.value)
-    // 推不出去的人要单独说，否则「已提醒 X 人」会让人以为这些人都收到了
-    ElMessage.success(
-      `已提醒 ${reminded} 人` +
-        (unreachable ? `，另有 ${unreachable} 人没配置任何推送渠道，收不到提醒` : '')
-    )
+    const { reminded } = await remindUnread(readsNoticeId.value)
+    // 有了站内信，提醒一定落进对方的收件箱，不用再区分「推不出去的人」了
+    ElMessage.success(`已提醒 ${reminded} 人`)
     reads.value = await getNoticeReads(readsNoticeId.value)
   } catch (e) {
     ElMessage.error('提醒失败')

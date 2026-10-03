@@ -161,6 +161,7 @@ const MENU = [
   { path: '/attendance', title: '考勤记录', icon: 'Calendar', role: 'committee' },
   { path: '/review', title: '审核审批', icon: 'Checked', role: 'committee', badge: 'review_pending' },
   { path: '/notices', title: '通知公告', icon: 'Bell', public: true, badge: 'notice_unread' },
+  { path: '/inbox', title: '站内信', icon: 'Message', badge: 'inbox_unread' },
   { path: '/announcements', title: '文件公开', icon: 'Files' },
   { path: '/service', title: '办事中心', icon: 'Postcard', studentOnly: true },
   { path: '/downloads', title: '资料下载', icon: 'Download' },

@@ -230,6 +230,7 @@ async def submit_application(
 
     # 通知管理员
     notify(
+        db,
         background,
         recipients(db, roles=APPROVER_ROLES, exclude_no=user.student_no),
         "有新的证明开具申请",
@@ -374,7 +375,7 @@ def approve_application(
 
     if targets:
         notify(
-            background, targets, "证明开具申请已通过",
+            db, background, targets, "证明开具申请已通过",
             f"你的证明申请（{req.title}）已通过，请在成品上传后下载",
             level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
         )
@@ -411,7 +412,7 @@ def reject_application(
 
     if targets:
         notify(
-            background, targets, "证明开具申请被驳回",
+            db, background, targets, "证明开具申请被驳回",
             f"标题：{req.title}，理由：{clip(req.reject_reason)}",
             level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
         )
@@ -473,7 +474,7 @@ async def upload_result(
 
     if targets:
         notify(
-            background, targets, "证明已开好",
+            db, background, targets, "证明已开好",
             f"你的证明（{req.title}）已开好，现在可以下载",
             level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
         )

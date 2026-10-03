@@ -17,6 +17,7 @@ from .ev_passes import router as ev_passes_router
 from .exports import router as exports_router
 from .certificates import router as certificates_router
 from .workspace import router as workspace_router
+from .inbox import router as inbox_router
 from .birthday import router as birthday_router
 
 api_router = APIRouter()
@@ -36,5 +37,6 @@ api_router.include_router(ev_passes_router)      # 电动车通行证：学生�
 api_router.include_router(exports_router)        # 学生信息导出申请：班委提交，管理员审核
 api_router.include_router(certificates_router)   # 证明/介绍信开具：学生提交，班委只读，管理员审批+传成品
 api_router.include_router(workspace_router)      # 办件空间：我申请的/我审批的聚合列表
+api_router.include_router(inbox_router)          # 站内信：所有推送的存档，登录即可看自己的
 api_router.include_router(birthday_router)       # 生日关怀：条幅公开，设置与测试仅管理员
 api_router.include_router(admin_router)          # 系统管理：仅管理员

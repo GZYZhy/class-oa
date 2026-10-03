@@ -158,6 +158,7 @@ async def submit_application(
     # 跳转必须带 ?tab=evpass：审批在「审核中心」页，不带参数会停在信息修改那个 tab，
     # 管理员点进来看到的不是这条申请
     notify(
+        db,
         background,
         recipients(db, roles=APPROVER_ROLES, exclude_no=user.student_no),
         "有新的电动车通行证补办申请",
@@ -315,7 +316,7 @@ def approve_application(
 
     if targets:
         notify(
-            background, targets, "电动车通行证申请已通过",
+            db, background, targets, "电动车通行证申请已通过",
             f"你的电动车通行证申请（{req.plate_number}）已通过，现在可以下载申请表和承诺书",
             level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
         )
@@ -352,7 +353,7 @@ def reject_application(
 
     if targets:
         notify(
-            background, targets, "电动车通行证申请被驳回",
+            db, background, targets, "电动车通行证申请被驳回",
             f"牌照号 {req.plate_number}，理由：{clip(req.reject_reason)}",
             level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
         )

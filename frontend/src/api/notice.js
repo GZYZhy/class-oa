@@ -65,9 +65,9 @@ export function getNoticeReads(id) {
 /**
  * 提醒还没读这条通知的人（班委及以上）
  *
- * 返回 { reminded, unreachable }：reminded 是**真的推出去了**的人数，
- * unreachable 是没读、但四个推送渠道一个都没订阅、因此什么都收不到的人 ——
- * 两种都要告诉班委，否则「提醒了 10 人」会让人以为 10 个人都收到了。
+ * 返回 { reminded }。从前还有一个 unreachable（四个渠道都没订阅、因此什么都收不到
+ * 的人），加了站内信之后这类人不存在了 —— 提醒一定落进对方的收件箱，
+ * 所以这个数字就是真收到的人数。
  */
 export function remindUnread(id) {
   return request({ url: `/notices/${id}/remind`, method: 'post' })
