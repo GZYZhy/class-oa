@@ -21,9 +21,11 @@ Starlette 的 SessionMiddleware 只有一个全局 max_age，
 """
 
 import re
+
+from starlette import status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 
 class RememberMeMiddleware(BaseHTTPMiddleware):
@@ -57,3 +59,35 @@ class RememberMeMiddleware(BaseHTTPMiddleware):
             response.headers.setlist("set-cookie", new_cookies)
 
         return response
+
+
+# 天然幂等的方法。0-RTT 重放它们不会造成任何副作用，拦了纯属牺牲性能
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+class RejectEarlyDataMiddleware(BaseHTTPMiddleware):
+    """拒掉从 TLS 1.3 early data（0-RTT）里发来的写请求。
+
+    nginx 开了 ssl_early_data 之后，客户端可以把请求捎在握手的第一个包里发上来，
+    省一个往返。代价是这段数据**完全没有任何防重放保护** —— 攻击者只要能在链路上
+    看到它，就能原封不动地再发一遍。落到本站的场景就是「一个登录 POST 被重放」
+    「一次提交被重放」。
+
+    nginx 用 `proxy_set_header Early-Data $ssl_early_data;` 把「这个请求来自
+    early data」告诉后端（Early-Data 是 RFC 8470 定义的头）。这里只做最保守的一件事：
+    写请求 + Early-Data: 1 → 回 425 Too Early。浏览器收到 425 会自动去掉 0-RTT
+    重发一次，用户是无感的。
+
+    只拦写请求：GET / HEAD / OPTIONS 天然幂等，重放没有意义。
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if (
+            request.headers.get("early-data") == "1"
+            and request.method not in _SAFE_METHODS
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_425_TOO_EARLY,
+                content={"detail": "请求需在完整握手后重发，请重试"},
+            )
+        return await call_next(request)
