@@ -91,10 +91,12 @@ def submit(
     db.refresh(req)
 
     # 提醒班委来处理。待办性质，用 timeSensitive 让它能穿透专注模式
+    # **不排除提交人自己**：班委自己提的修改申请也等着他们审
+    # （理由见 notify_service.recipients，四个办件提交接口口径一致）
     notify(
         db,
         background,
-        recipients(db, roles=REVIEWER_ROLES, exclude_no=user.student_no),
+        recipients(db, roles=REVIEWER_ROLES),
         "有新的信息修改申请待审核",
         f"{student.name} 提交了 {len(changes)} 项修改，等待你审核",
         level="timeSensitive",
