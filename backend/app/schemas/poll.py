@@ -105,6 +105,12 @@ class PollListItem(BaseModel):
     has_voted: bool = Field(False, description="我投没投")
     results_visible: bool = Field(False, description="我能不能看结果")
     can_manage: bool = Field(False, description="我是不是发起人或管理员，能不能结束/催票/删除")
+    # **列表项也得有它**：列表页「操作」列的按钮靠它决定叫「投票」还是「查看结果」、
+    # 点了进投票弹窗还是结果弹窗。只在详情里给，列表页就会出现「状态写着待投票、
+    # 操作却只能点查看结果」——能投的人从列表投不了票
+    can_vote: bool = Field(
+        False, description="我现在能不能投（进行中 + 我在范围内 + 我还没投过）"
+    )
 
 
 class PollDetailResponse(PollListItem):
@@ -113,9 +119,6 @@ class PollDetailResponse(PollListItem):
     继承列表项而不是重写一遍：前端只维护一套读法。
     """
     questions: list[PollQuestionResponse] = Field(default_factory=list)
-    can_vote: bool = Field(
-        False, description="我现在能不能投（进行中 + 我在范围内 + 我还没投过）"
-    )
 
 
 class PollListResponse(BaseModel):

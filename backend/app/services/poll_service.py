@@ -79,16 +79,16 @@ def can_manage(poll: Poll, student_no: str, admin: bool) -> bool:
     return admin or poll.creator_no == student_no
 
 
-def can_vote(db: Session, poll: Poll, student_no: str, now: datetime | None = None) -> bool:
+def can_vote(poll: Poll, in_target: bool, voted: bool, now: datetime | None = None) -> bool:
     """我现在能不能投。三条缺一不可
 
     「还没投过」这一条就是**不许改票**的落地 —— 投过之后按钮就没了。
+
+    两条旗标由调用方传进来而不是自己查库：list_items 一次要算 20 条，
+    那边已经把「我在不在名单里 / 投没投」批量查好了（见 _my_poll_ids），
+    这里再各查一次就是 40 次多余查询。判定规则只留这一份。
     """
-    if poll_status(poll, now) != STATUS_OPEN:
-        return False
-    if not is_target(db, poll.id, student_no):
-        return False
-    return not has_voted(db, poll.id, student_no)
+    return poll_status(poll, now) == STATUS_OPEN and in_target and not voted
 
 
 def filter_visible(db: Session, query, student_no: str, admin: bool):
@@ -246,13 +246,16 @@ def list_items(db: Session, polls: list[Poll], student_no: str, admin: bool) -> 
     for poll in polls:
         # 看不到结果的人也不该看到投票率（参与者要等投票结束），所以两个计数给 0
         visible = results_visible(poll, student_no, admin)
+        status = poll_status(poll)
+        in_target = poll.id in my_targets
+        voted = poll.id in my_votes
         items.append(
             {
                 "id": poll.id,
                 "title": poll.title,
                 "description": poll.description or "",
                 "anonymous": bool(poll.anonymous),
-                "status": poll_status(poll),
+                "status": status,
                 "start_at": poll.start_at,
                 "end_at": poll.end_at,
                 "closed_at": poll.closed_at,
@@ -262,10 +265,16 @@ def list_items(db: Session, polls: list[Poll], student_no: str, admin: bool) -> 
                 "question_count": counts["questions"].get(poll.id, 0),
                 "target_count": counts["targets"].get(poll.id, 0) if visible else 0,
                 "voted_count": counts["voted"].get(poll.id, 0) if visible else 0,
-                "is_target": poll.id in my_targets,
-                "has_voted": poll.id in my_votes,
+                "is_target": in_target,
+                "has_voted": voted,
                 "results_visible": visible,
                 "can_manage": can_manage(poll, student_no, admin),
+                # **列表里也得给 can_vote**：列表页「操作」列那唯一一个按钮的文案和
+                # 去向全看它（utils/poll.js 的 actionText + Vote.vue 的 openDetail）。
+                # 只在详情里给过一次的后果是：状态列写着「待投票」，操作列却永远写
+                # 「查看结果」，点开是个没有作答控件的结果弹窗 —— 从列表根本投不了票，
+                # 只有从站内信的深链（读详情）进得来。
+                "can_vote": can_vote(poll, in_target, voted),
             }
         )
     return items
@@ -299,7 +308,7 @@ def detail(db: Session, poll: Poll, student_no: str, admin: bool) -> dict:
         }
         for question in questions
     ]
-    data["can_vote"] = can_vote(db, poll, student_no)
+    # can_vote 不用在这儿再算一遍：上面的 list_items 已经给过了（同一份规则）
     return data
 
 
