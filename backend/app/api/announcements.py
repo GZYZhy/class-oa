@@ -6,7 +6,6 @@ from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -30,8 +29,6 @@ from ..services import (
     delete_announcement,
     get_announcement,
     log_operation,
-    notify,
-    recipients,
 )
 from .deps import (
     get_current_user,
@@ -183,8 +180,6 @@ def _log_file_access(
 
 @router.post("", response_model=AnnouncementResponse, summary="上传PDF并发布公告（班委及以上）")
 async def upload_announcement(
-    # BackgroundTasks 必须放在最前：它没有默认值，排在下面那些带默认值的参数后面会语法报错
-    background: BackgroundTasks,
     title: str = Form(..., description="文件标题"),
     doc_number: str = Form("", description="文号"),
     publish_date: date = Form(..., description="发布时间"),
@@ -213,8 +208,7 @@ async def upload_announcement(
         f.write(content)
 
     # 发布人一律取当前登录账号的展示名，前端无法伪造。
-    # 用 account_name 而不是学生表：域外账号（老师）也可能有班委权限。
-    # 先取成变量：下面那条推送文案也要用，而且它是个普通字符串，不受 commit 过期影响
+    # 用 account_name 而不是学生表：域外账号（老师）也可能有班委权限
     publisher = account_name(db, user)
     created = create_announcement(
         db,
@@ -231,22 +225,10 @@ async def upload_announcement(
         detail="" if is_public else "仅班委可见",
         ip=ip,
     )
-    # 「仅班委可见」的文件如果推给全体，等于把不该看到的人也叫来了，
-    # 所以收件人必须和列表接口的可见范围保持一致（见上面的 get_list）
-    targets = recipients(
-        db,
-        roles=None if is_public else ["admin", "committee"],
-        exclude_no=user.student_no,
-    )
-    # commit 会让对象过期，之后访问属性要再查一次库，所以先把标题取出来
-    title = created.title
+    # **这里刻意不发通知**：文件公开是往档案架上放一份，不是待办、也不针对哪个人，
+    # 传完列表里就有，谁要用谁自己去翻。推给全班只是白响一声 —— 之前那份「新公告：
+    # xxx」的推送和「通知公告」发一篇新通知是两码事，后者才是真的有事要告知。
     db.commit()
-
-    notify(
-        db, background, targets, f"新公告：{title}",
-        f"{publisher} 上传了一份文件" + ("" if is_public else "（仅班委可见）"),
-        level="active", page="/announcements",
-    )
     return created
 
 
