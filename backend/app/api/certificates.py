@@ -228,11 +228,12 @@ async def submit_application(
     db.commit()
     db.refresh(req)
 
-    # 通知管理员
+    # 通知管理员。**不排除提交人自己**：管理员给自己提的申请也等着他审
+    # （理由见 notify_service.recipients，四个办件提交接口口径一致）
     notify(
         db,
         background,
-        recipients(db, roles=APPROVER_ROLES, exclude_no=user.student_no),
+        recipients(db, roles=APPROVER_ROLES),
         "有新的证明开具申请",
         f"{student.name} 提交了证明开具申请（{req.title}），等待你审核",
         level="timeSensitive",
