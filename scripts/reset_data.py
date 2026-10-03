@@ -43,6 +43,9 @@ from app.models import (  # noqa: E402
     Announcement,
     ChangeRequest,
     Feedback,
+    GradeItem,
+    GradeSubject,
+    GradeTest,
     IpBan,
     LeaveRequest,
     Notice,
@@ -68,6 +71,11 @@ CLEAR_MODELS = [
     # 而且它们的 notice_id 会砸到下一届新通知头上，把未读数算错
     NoticeRead,
     PushSubscription,
+    # 成绩按「明细 → 科目 → 测试」的顺序清（SQLite 默认不开外键，
+    # 靠顺序保证不留孤儿行，同 api/grades.py 删整次测试的写法）
+    GradeItem,
+    GradeSubject,
+    GradeTest,
 ]
 
 

@@ -129,6 +129,38 @@
           </el-tabs>
         </el-tab-pane>
 
+        <!-- 我的成绩：只有学生账号才有。**必须是顶层 tab** ——
+             「办件空间」那一层的二级 tab 被 ?sub= 占着，塞进去就没法从站内信直接跳过来 -->
+        <el-tab-pane v-if="!userStore.isExternal" label="我的成绩" name="grades">
+          <div v-loading="gradesLoading" class="workspace-list">
+            <div v-if="gradesList.length" class="case-list">
+              <div v-for="item in gradesList" :key="item.test_id" class="case-item">
+                <div class="case-header">
+                  <el-tag size="small" type="primary" effect="plain">{{ formatDate(item.tested_at) }}</el-tag>
+                </div>
+                <div class="case-title">{{ item.name }}</div>
+                <el-table :data="item.scores" size="small" class="grade-table">
+                  <el-table-column prop="subject" label="科目" min-width="120" />
+                  <el-table-column prop="value" label="成绩" width="120">
+                    <template #default="{ row }">
+                      <span v-if="row.value" :class="{ 'grade-mark': !isScore(row.value) }">
+                        {{ row.value }}
+                      </span>
+                      <span v-else class="grade-none">未录入</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div v-if="item.remark" class="case-meta">备注：{{ item.remark }}</div>
+              </div>
+            </div>
+            <el-empty
+              v-if="!gradesLoading && !gradesList.length"
+              description="还没有成绩记录"
+              style="margin-top: 20px;"
+            />
+          </div>
+        </el-tab-pane>
+
         <!-- 账户设置：改密码 + 通知设置，所有登录用户都能看到 -->
         <el-tab-pane label="账户设置" name="account">
           <!-- 账户设置内部再分三个子 tab。原来是一长条滚动页，加了 webhook 和邮件
@@ -518,11 +550,12 @@ import {
   STATUS_LABELS,
   STATUS_TYPES
 } from '@/utils/changeFields'
-import { formatDateTime } from '@/utils/format'
+import { formatDate, formatDateTime } from '@/utils/format'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useUserStore } from '@/store/user'
 import { rankOf } from '@/utils/roles'
 import { getMySubmitted, getMyInvolved } from '@/api/workspace'
+import { getMyGrades } from '@/api/grade'
 import { getWebhookSetting } from '@/api/notifyChannels'
 import WebhookSetting from '@/components/WebhookSetting.vue'
 import AccessTokenSetting from '@/components/AccessTokenSetting.vue'
@@ -556,7 +589,7 @@ watch(
   () => route.query.tab,
   (val) => {
     // 域外账号没有「基本信息」，其余 tab 都放行
-    const known = ['info', 'account', 'workspace']
+    const known = ['info', 'grades', 'account', 'workspace']
     if (known.includes(val) && !(val === 'info' && userStore.isExternal)) {
       activeTab.value = val
     } else {
@@ -693,6 +726,28 @@ watch(workspaceTab, (val) => {
   }
 })
 
+// ---------- 我的成绩 ----------
+
+const gradesList = ref([])
+const gradesLoading = ref(false)
+
+/** 这格是分数还是标记词（缺考/免修…）。空串永远不会走到这里，调用处已经挡了 */
+function isScore(value) {
+  return value !== '' && !Number.isNaN(Number(value))
+}
+
+async function fetchMyGrades() {
+  gradesLoading.value = true
+  try {
+    // 同下面几个：接口返回 null 时退化成空数组，否则模板里的 .length 会白屏
+    gradesList.value = (await getMyGrades()) || []
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '加载失败')
+  } finally {
+    gradesLoading.value = false
+  }
+}
+
 async function fetchSubmitted() {
   submittedLoading.value = true
   try {
@@ -733,6 +788,7 @@ watch(
       }
     }
     if (val === 'account') fetchMyLogs()
+    if (val === 'grades') fetchMyGrades()
   },
   { immediate: true }
 )
@@ -1229,6 +1285,20 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* 我的成绩：每次测试一张卡片，科目表紧跟在标题下面 */
+.grade-table {
+  margin-top: 8px;
+}
+
+/* 缺考 / 免修 / 缓考 / 违纪这些不是分数，换个颜色免得当成分数看 */
+.grade-mark {
+  color: var(--el-color-warning);
+}
+
+.grade-none {
+  color: var(--el-text-color-placeholder);
 }
 
 .case-item {
