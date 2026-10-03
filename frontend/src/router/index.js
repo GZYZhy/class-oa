@@ -47,6 +47,12 @@ const routes = [
     meta: { title: '考勤记录', role: 'committee' }
   },
   {
+    path: '/grades',
+    name: 'Grade',
+    component: () => import('@/views/Grade.vue'),
+    meta: { title: '成绩管理', role: 'committee' }
+  },
+  {
     path: '/review',
     name: 'Review',
     component: () => import('@/views/Review.vue'),
