@@ -24,6 +24,19 @@
         </div>
       </el-alert>
 
+      <!-- 请假的人不在场，逐个点名时不会叫到，但应到人数里得算一个「请假」——
+           不然「全班 34 人」点到一半变成 32 人，看着像漏了谁 -->
+      <el-alert v-if="onLeave.length" type="info" :closable="false" class="rc-excluded">
+        <template #title>
+          有 {{ onLeave.length }} 名同学当前在已批准的请假区间内，将自动记为「请假」
+        </template>
+        <div class="rc-excluded-list">
+          <span v-for="s in onLeave" :key="s.student_no" class="rc-excluded-item">
+            {{ s.student_name }}（{{ s.leave_type }}）
+          </span>
+        </div>
+      </el-alert>
+
       <div class="rc-scope-btns">
         <el-button size="large" :disabled="!counts.male" @click="startCall('男生')">
           <el-icon><Male /></el-icon>男生（{{ counts.male }}）
@@ -72,17 +85,21 @@
       <p class="rc-keys">Enter / 空格 = 到 · ← = 无应答 · Backspace = 回退</p>
     </div>
 
-    <!-- 第三步：汇总 -->
+    <!-- 第三步：汇总。应到 = 逐个点到的人 + 本范围内请假的人，
+         口径和「考勤记录」页完全一致（那边也是从明细里数出来的） -->
     <div v-else-if="step === 'result'" class="rc-result">
-      <div v-if="!absentList.length" class="rc-all-present">
+      <div v-if="!absentList.length && !leaveInScope.length" class="rc-all-present">
         <el-icon style="font-size: 40px; color: #67c23a;"><CircleCheck /></el-icon>
-        <p>全部到齐（共 {{ queue.length }} 人）</p>
+        <p>全部到齐（共 {{ scopeTotal }} 人）</p>
       </div>
       <template v-else>
         <p class="rc-tip">
-          {{ scope }}共 {{ queue.length }} 人，<strong class="rc-absent-count">无应答 {{ absentList.length }} 人</strong>：
+          {{ scope }}应到 {{ scopeTotal }} 人，实到 {{ presentCount }} 人，请假
+          {{ leaveInScope.length }} 人，<strong :class="absentList.length ? 'rc-absent-count' : ''"
+            >无应答 {{ absentList.length }} 人</strong
+          >
         </p>
-        <div class="rc-absent-list">
+        <div v-if="absentList.length" class="rc-absent-list">
           <div v-for="item in absentList" :key="item.student_no" class="rc-absent-item">
             <span class="rc-absent-name">{{ item.name }}</span>
             <span class="rc-absent-no">{{ item.student_no }}</span>
@@ -105,9 +122,11 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getStudentList, logRollCall } from '@/api/student'
+import { getStudentList } from '@/api/student'
+import { createAttendance } from '@/api/attendance'
+import { getLeaveList } from '@/api/leave'
 // 名单规则与抽签共用，规则说明见 utils/roster.js
-import { pickByScope, splitBySchoolStatus } from '@/utils/roster'
+import { onLeaveNow, pickByScope, splitByLeave, splitBySchoolStatus } from '@/utils/roster'
 
 const visible = ref(false)
 const loading = ref(false)
@@ -117,9 +136,16 @@ const step = ref('scope')
 const scope = ref('全班')
 const roster = ref([])   // 能参与点名的名单（open 时一次性拉回，已滤掉在校状态非正常的）
 const excluded = ref([]) // 被滤掉的人，只用来在第一步提示一句
-const queue = ref([])    // 本次要点的人
+const queue = ref([])    // 本次要点的人（不含请假的）
 const answers = ref([])  // 与 queue 一一对应的结果，true=到，false=无应答
 const photoBroken = ref(false)
+
+// 请假联动：这三项在第一次点名时定下来，汇总和上报都用它们
+const onLeave = ref([])      // 当前处在已批准请假区间内的人（第一步提示用）
+const leaveInScope = ref([]) // 本次范围内应记为「请假」的人
+const scopeTotal = ref(0)    // 本次应到人数 = queue + leaveInScope
+// 学号 → 请假记录。startCall 每次都拿它求交集，所以要留住
+const leaveByNoRef = ref(new Map())
 
 const counts = computed(() => ({
   male: pickByScope(roster.value, '男生').length,
@@ -139,6 +165,9 @@ const absentList = computed(() =>
   queue.value.filter((_, i) => answers.value[i] === false)
 )
 
+/** 点到的人里答「到」的；请假的不算在内（他们压根没被叫） */
+const presentCount = computed(() => answers.value.filter((a) => a === true).length)
+
 function open() {
   reset()
   visible.value = true
@@ -153,23 +182,32 @@ function reset() {
   queue.value = []
   answers.value = []
   photoBroken.value = false
+  onLeave.value = []
+  leaveInScope.value = []
+  scopeTotal.value = 0
+  leaveByNoRef.value = new Map()
 }
 
-/** 一次性拉全量名单：后端 page_size 上限 500，够全班用，无需分页 */
+/** 一次性拉全量名单 + 已批准的请假：后端 page_size 上限 500，够全班用，无需分页 */
 async function fetchRoster() {
   loading.value = true
   try {
-    const res = await getStudentList({
-      page: 1,
-      page_size: 500,
-      sort_by: 'student_no',
-      sort_order: 'asc'
-    })
+    const [res, leaves] = await Promise.all([
+      getStudentList({ page: 1, page_size: 500, sort_by: 'student_no', sort_order: 'asc' }),
+      // 请假列表是班委及以上才看得到，点名本来就只有班委点得了，权限对得上。
+      // 复用现成接口，不另开一个「查谁在请假」的接口 —— 那要把区间比较写两遍
+      getLeaveList('approved')
+    ])
     // 过滤只在这里做一次，roster 只装能点名的人。counts 和 queue 都是从 roster
     // 出来的，所以按钮上的数字和实际叫到的人不会对不上
     const { active, excluded: skipped } = splitBySchoolStatus(res.items || [])
     roster.value = active
     excluded.value = skipped
+
+    // 只看「此刻正落在请假区间内」的，判定规则见 utils/roster.js
+    const leaveByNo = onLeaveNow(active, leaves, Date.now())
+    onLeave.value = [...leaveByNo.values()]
+    leaveByNoRef.value = leaveByNo
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '读取学生名单失败')
   } finally {
@@ -179,9 +217,23 @@ async function fetchRoster() {
 
 function startCall(picked) {
   scope.value = picked
-  queue.value = pickByScope(roster.value, picked)
+  const inScope = pickByScope(roster.value, picked)
+
+  // 请假的人不在场（也就不该被叫到），从队列里剔掉，但留在应到人数里。
+  // splitByLeave 内部会和 inScope 求交集 —— 不然选「男生」时请假的女生也会被算进来
+  const { calling, onLeave: leaving } = splitByLeave(inScope, leaveByNoRef.value)
+  queue.value = calling
+  leaveInScope.value = leaving
+  scopeTotal.value = inScope.length
+
   answers.value = []
   photoBroken.value = false
+
+  // 整个范围都在请假时没人可点，直接出汇总（否则会卡在第二步不动）
+  if (!queue.value.length) {
+    finish()
+    return
+  }
   step.value = 'calling'
 }
 
@@ -204,14 +256,24 @@ function finish() {
   reportResult()
 }
 
-/** 上报日志：结果已经在界面上了，上报失败只提示，不回滚界面 */
+/** 上报落库：结果已经在界面上了，上报失败只提示，不回滚界面 */
 async function reportResult() {
   try {
-    await logRollCall({
-      scope: scope.value,
-      total: queue.value.length,
-      absent: absentList.value.map((s) => ({ student_no: s.student_no, name: s.name }))
-    })
+    // 点到的每个人都要报（不只是缺席的）：考勤明细要能逐个改状态，
+    // 后端也就存了全部人，两边的「应到」才是同一个数
+    const records = [
+      ...queue.value.map((s, i) => ({
+        student_no: s.student_no,
+        name: s.name,
+        status: answers.value[i] === false ? 'absent' : 'present'
+      })),
+      ...leaveInScope.value.map((s) => ({
+        student_no: s.student_no,
+        name: s.student_name,
+        status: 'leave'
+      }))
+    ]
+    await createAttendance({ scope: scope.value, records })
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '点名结果保存失败')
   }
@@ -221,6 +283,8 @@ function backToScope() {
   step.value = 'scope'
   queue.value = []
   answers.value = []
+  leaveInScope.value = []
+  scopeTotal.value = 0
 }
 
 /** 照片走带鉴权的接口，靠 Cookie 自动带凭证，与「学生信息」表格里一致 */

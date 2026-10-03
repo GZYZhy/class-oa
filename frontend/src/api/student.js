@@ -52,17 +52,6 @@ export function getFilterOptions() {
 }
 
 /**
- * 上报点名结果（后端只写一条操作日志，不存业务数据）
- */
-export function logRollCall(data) {
-  return request({
-    url: '/students/roll-call',
-    method: 'post',
-    data
-  })
-}
-
-/**
  * 上报抽签（后端只写一条操作日志，不存业务数据）
  *
  * 一次抽签只报一条，「点一回取一个」中间点多少次都不额外上报。

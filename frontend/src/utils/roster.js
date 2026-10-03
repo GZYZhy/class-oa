@@ -31,6 +31,43 @@ export function splitBySchoolStatus(list) {
 }
 
 /**
+ * 从已批准的请假里挑出「此刻正落在请假区间内」的人。
+ *
+ * 请假精确到小时、点名发生在某一时刻，所以直接用时刻比较，不引入「按天」的
+ * 第二套语义。一个人可能有多条记录（续假），只留第一条，免得占两个名额。
+ *
+ * @param {object[]} students 参与点名的名单，不在里面的忽略
+ * @param {object[]} leaves GET /api/leaves?status=approved 的结果
+ * @param {number} now 比较用的时刻（传 Date.now()）
+ * @returns {Map<string, object>} 学号 → 那条请假记录
+ */
+export function onLeaveNow(students, leaves, now) {
+  const inRoster = new Set(students.map((s) => s.student_no))
+  const byNo = new Map()
+  for (const leave of leaves || []) {
+    // 一个人只留一条，续假会有多条重叠
+    if (!inRoster.has(leave.student_no) || byNo.has(leave.student_no)) continue
+    if (new Date(leave.start_at).getTime() > now) continue
+    if (now > new Date(leave.end_at).getTime()) continue
+    byNo.set(leave.student_no, leave)
+  }
+  return byNo
+}
+
+/**
+ * 把某个范围里的人拆成「要逐个点名的」和「自动记为请假的」两份。
+ *
+ * **必须和范围求交集**：请假名册是全班范围的，直接拿去用的话，选「男生」点名时
+ * 一个请假的女生也会被算进这次记录，应到人数当场多一个。
+ */
+export function splitByLeave(list, leaveByNo) {
+  return {
+    calling: list.filter((s) => !leaveByNo.has(s.student_no)),
+    onLeave: list.filter((s) => leaveByNo.has(s.student_no))
+  }
+}
+
+/**
  * 洗牌后取前 n 个：取出的 n 个人互不重复，且每种组合等概率。
  * Fisher-Yates 洗到第 n 位就停，不必把整副牌洗一遍。
  */

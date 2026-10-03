@@ -23,7 +23,6 @@ from ..schemas import (
     StudentCreate,
     StudentCreateResponse,
     StudentUpdate,
-    RollCallLogRequest,
     DrawLogRequest,
     BatchDeleteRequest,
     student_response,
@@ -223,34 +222,6 @@ def filter_options(_: User = Depends(committee_required), db: Session = Depends(
 
 
 # 和 /statistics、/me 一样属于固定路径，必须定义在 /{student_id} 之前
-@router.post("/roll-call", summary="上报点名结果（写操作日志）")
-def log_roll_call(
-    data: RollCallLogRequest,
-    request: Request,
-    user: User = Depends(committee_required),
-    db: Session = Depends(get_db),
-):
-    """点名结束后记一条日志
-
-    权限沿用列表接口的 committee_required：看得到名单的人才点得了名。
-    点名结果不落库，只留痕 —— 这几行日志就是全部的留存。
-    """
-    names = "、".join(f"{a.name}({a.student_no})" for a in data.absent)
-    log_operation(
-        db,
-        user,
-        action="点名",
-        target=data.scope,
-        # log_operation 内部会把 detail 截断到 500 字，这里不用自己处理
-        detail=f"共 {data.total} 人，无应答 {len(data.absent)} 人"
-        + (f"：{names}" if names else "（全部到齐）"),
-        ip=get_client_ip(request),
-    )
-    db.commit()
-    return {"message": "已记录"}
-
-
-# 同样属于固定路径，必须定义在 /{student_id} 之前
 @router.post("/draw", summary="上报抽签（写操作日志）")
 def log_draw(
     data: DrawLogRequest,

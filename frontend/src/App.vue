@@ -158,6 +158,7 @@ const MENU = [
   { path: '/my-info', title: '我的信息', icon: 'UserFilled', studentOnly: true },
   { path: '/students', title: '学生信息', icon: 'List', role: 'committee' },
   { path: '/statistics', title: '分类统计', icon: 'PieChart', role: 'committee' },
+  { path: '/attendance', title: '考勤记录', icon: 'Calendar', role: 'committee' },
   { path: '/review', title: '审核审批', icon: 'Checked', role: 'committee', badge: 'review_pending' },
   { path: '/notices', title: '通知公告', icon: 'Bell', public: true, badge: 'notice_unread' },
   { path: '/announcements', title: '文件公开', icon: 'Files' },
