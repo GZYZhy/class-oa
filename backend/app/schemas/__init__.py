@@ -7,6 +7,7 @@ from .student import (
     StudentCreateResponse,
     RollCallAbsentItem,
     RollCallLogRequest,
+    DrawLogRequest,
     BatchDeleteRequest,
     student_response,
 )
@@ -62,6 +63,7 @@ __all__ = [
     "StudentCreateResponse",
     "RollCallAbsentItem",
     "RollCallLogRequest",
+    "DrawLogRequest",
     "student_response",
     "AnnouncementResponse",
     "NoticeCreate",

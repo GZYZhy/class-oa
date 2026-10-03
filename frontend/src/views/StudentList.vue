@@ -78,9 +78,7 @@
       <div class="table-header">
         <h3 class="page-title" style="margin-bottom: 0;">学生名单</h3>
         <div class="table-tools">
-          <span style="color: var(--el-text-color-secondary); font-size: 14px; margin-right: 12px;">
-            共 {{ total }} 人
-          </span>
+          <span class="tools-count">共 {{ total }} 人</span>
           <el-dropdown @command="handleSort">
             <el-button>
               <el-icon><Sort /></el-icon>
@@ -123,83 +121,83 @@
           </el-popover>
 
           <!-- 点名：独立弹窗承载「选范围 → 逐个叫 → 汇总」三步 -->
-          <el-button style="margin-left: 8px;" @click="rollCallRef?.open()">
+          <el-button @click="rollCallRef?.open()">
             <el-icon><Pointer /></el-icon>
             点名
           </el-button>
 
+          <!-- 抽签：独立弹窗，权限与页面一致（班委及以上） -->
+          <el-button v-if="userStore.isCommittee" @click="drawRef?.open()">
+            <el-icon><Aim /></el-icon>
+            抽签
+          </el-button>
+
           <!-- 导出：班委及以上可用，提交申请后管理员审批 -->
           <el-button
-            v-if="userStore.isCommittee || userStore.isAdmin"
+            v-if="userStore.isCommittee"
             type="success"
-            style="margin-left: 8px;"
             @click="exportDialogVisible = true"
           >
             <el-icon><Download /></el-icon>
             导出
           </el-button>
 
-          <!-- 批量导入 Excel：管理员专属 -->
-          <el-button
-            v-if="userStore.isAdmin"
-            type="primary"
-            plain
-            style="margin-left: 8px;"
-            @click="importDialogVisible = true"
-          >
-            <el-icon><Upload /></el-icon>
-            导入 Excel
-          </el-button>
-
-          <!-- 批量删除：只有管理员 + 有选中时显示 -->
-          <el-button
-            v-if="userStore.isAdmin && selectedStudents.length > 0"
-            type="danger"
-            style="margin-left: 8px;"
-            @click="handleBatchDelete"
-          >
-            <el-icon><Delete /></el-icon>
-            删除 {{ selectedStudents.length }} 人
-          </el-button>
-
-          <!-- 新增/删除学生都会连带处理登录账号，只给管理员 -->
-          <el-button
-            v-if="userStore.isAdmin"
-            type="primary"
-            style="margin-left: 8px;"
-            @click="handleCreate"
-          >
-            <el-icon><Plus /></el-icon>
-            添加学生
-          </el-button>
+          <!-- 管理员专属的三个低频操作收进「更多」：都摆出来窄屏就排不开了 -->
+          <el-dropdown v-if="userStore.isAdmin" @command="handleMore">
+            <el-button>
+              <el-icon><MoreFilled /></el-icon>
+              更多
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="import">
+                  <el-icon><Upload /></el-icon>导入 Excel
+                </el-dropdown-item>
+                <el-dropdown-item command="create">
+                  <el-icon><Plus /></el-icon>添加学生
+                </el-dropdown-item>
+                <!-- 批量删除：勾了人才出现 -->
+                <el-dropdown-item
+                  v-if="selectedStudents.length"
+                  command="batch-delete"
+                  divided
+                >
+                  <el-icon><Delete /></el-icon>删除选中 {{ selectedStudents.length }} 人
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
 
           <!-- 生日筛选生效时显示的标签 -->
-          <el-tag
-            v-if="birthdayFilter"
-            type="warning"
-            closable
-            @close="clearBirthday"
-            style="margin-left: 8px;"
-          >
+          <el-tag v-if="birthdayFilter" type="warning" closable @close="clearBirthday">
             未来 {{ birthdayDays }} 天生日 · {{ total }} 人
+          </el-tag>
+
+          <!-- 勾选跨页保留之后，当前页可能一个勾都没有，得让「手上还攥着人」可见 -->
+          <el-tag v-if="selectedStudents.length" type="info" closable @close="clearSelection">
+            已选 {{ selectedStudents.length }} 人
           </el-tag>
         </div>
       </div>
 
+      <!-- row-key + reserve-selection 一起才有跨页保留勾选的效果（前者认人，后者记住） -->
       <el-table
         ref="tableRef"
         :data="tableData"
+        row-key="id"
         v-loading="loading"
         stripe
         border
-        @selection-change="handleSelectionChange">
         style="width: 100%; margin-top: 16px;"
+        @selection-change="handleSelectionChange"
         @row-click="handleView"
         :row-style="{ cursor: 'pointer' }"
       >
         <el-table-column
           v-if="userStore.isCommittee || userStore.isAdmin"
           type="selection"
+          :reserve-selection="true"
           width="50"
           align="center"
         />
@@ -1055,6 +1053,9 @@
     <!-- 点名弹窗 -->
     <RollCallDialog ref="rollCallRef" />
 
+    <!-- 抽签弹窗。勾选要实时反映到「从表格里选（N）」上，所以走 prop 而不是 open 传参 -->
+    <DrawDialog ref="drawRef" :selected="selectedStudents" />
+
     <!-- 整页水印：记录「谁在什么时候看的」，防止名单被截图外传 -->
     <Watermark :text="watermarkText" />
   </div>
@@ -1085,14 +1086,16 @@ import {
 import { useUserStore } from '@/store/user'
 import Watermark from '@/components/Watermark.vue'
 import RollCallDialog from '@/components/RollCallDialog.vue'
+import DrawDialog from '@/components/DrawDialog.vue'
 import { useWatermark } from '@/composables/useWatermark'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { copyText } from '@/utils/clipboard'
 
 const userStore = useUserStore()
 
-// 点名弹窗（独立组件，靠 ref 调它的 open()）
+// 点名 / 抽签弹窗（独立组件，靠 ref 调它的 open()）
 const rollCallRef = ref(null)
+const drawRef = ref(null)
 
 // 满页个人信息，盖一层「谁在看」的水印
 const watermarkText = useWatermark()
@@ -1310,6 +1313,13 @@ function resetEditForm() {
   Object.keys(editForm).forEach((key) => delete editForm[key])
 }
 
+/** 「更多」下拉：管理员那三个低频操作 */
+function handleMore(command) {
+  if (command === 'import') importDialogVisible.value = true
+  else if (command === 'create') handleCreate()
+  else if (command === 'batch-delete') handleBatchDelete()
+}
+
 // 新增：空表单，只预填两个默认值（与后端 schema 的默认值一致）
 function handleCreate() {
   resetEditForm()
@@ -1415,6 +1425,9 @@ async function handleBatchDelete() {
   try {
     const ids = selectedStudents.value.map(s => s.id)
     const result = await batchDeleteStudents(ids)
+    // 勾选是跨页保留的，不清掉的话删掉的人会留在选中集里，下次「删除 N 人」会带上幽灵行。
+    // 部分失败时也清空：没删掉的人已经在结果弹窗里列出来了，重新勾比留着幽灵安全
+    clearSelection()
     fetchData()
     userStore.refreshTotal()
 
@@ -1642,6 +1655,13 @@ function handleSelectionChange(selection) {
   selectedStudents.value = selection
 }
 
+/** 清空勾选。「已选 N 人」标签上的 × 和批量删除成功之后都走这里 */
+function clearSelection() {
+  tableRef.value?.clearSelection()
+  // clearSelection 会触发 selection-change，但别指望它 —— 表格还没挂载时啥也不会发生
+  selectedStudents.value = []
+}
+
 async function loadFieldGroups() {
   if (fieldGroups.value.length) return
   try {
@@ -1836,9 +1856,19 @@ onMounted(() => {
   align-items: center;
 }
 
+/* 用 gap 统一间距。以前靠每个按钮自己 style="margin-left: 8px" 顶开，
+   一换行行首就多出一块空白 —— 按钮多了之后这是最先难看的地方 */
 .table-tools {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tools-count {
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
 }
 
 .pagination-wrap {
@@ -2013,17 +2043,18 @@ onMounted(() => {
   padding-top: 10px;
 }
 
-/* 工具栏有 4 个元素（人数/排序/近期生日/点名），手机上不换行会被顶出横向滚动条 */
+/* 工具栏按钮不少（人数/排序/近期生日/点名/抽签/导出/更多），手机上不换行会被顶出
+   横向滚动条。收成「标题一行、工具栏一行」并左对齐 —— 右对齐换行后行首参差不齐 */
 @media (max-width: 768px) {
   .table-header {
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: flex-start;
     row-gap: 10px;
   }
 
   .table-tools {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    row-gap: 8px;
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 
