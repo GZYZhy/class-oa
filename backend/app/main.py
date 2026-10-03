@@ -183,13 +183,23 @@ def warn_security_config() -> None:
             flush=True,
         )
 
-    if settings.master_password_allow_ips.strip():
+    # 通开密码是三态，横幅得说清是哪一种。只判白名单的话，功能关着的时候
+    # 会打出「未限制来源 IP」——读起来像有个危险开关正敞着，其实它根本没启用，
+    # 排查安全问题的第一眼就会被这行带偏。
+    if not settings.master_password:
+        note = (
+            "；MASTER_PASSWORD_ALLOW_IPS 已配置但当前不生效"
+            if settings.master_password_allow_ips.strip()
+            else ""
+        )
+        print(f"[安全] 通开密码未启用（MASTER_PASSWORD 为空）{note}", flush=True)
+    elif settings.master_password_allow_ips.strip():
         print(
-            f"[安全] 通开密码仅限白名单 IP：{settings.master_password_allow_ips}",
+            f"[安全] 通开密码已启用，仅限白名单 IP：{settings.master_password_allow_ips}",
             flush=True,
         )
     else:
-        print("[安全] 通开密码未限制来源 IP", flush=True)
+        print("[安全] 通开密码已启用且未限制来源 IP", flush=True)
 
 
 def warn_notify_channels() -> None:
