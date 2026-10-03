@@ -12,6 +12,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
 )
 from fastapi.responses import FileResponse
@@ -137,6 +138,78 @@ def get_reads(
     if not db.query(Notice.id).filter(Notice.id == notice_id).first():
         raise HTTPException(status_code=404, detail="通知不存在")
     return read_status(db, notice_id)
+
+
+@router.post("/{notice_id}/remind", summary="提醒未读的人（班委及以上）")
+def remind_unread(
+    # BackgroundTasks 没有默认值，必须排在那些带默认值的参数前面（见 leaves.py 的注释）
+    notice_id: int,
+    background: BackgroundTasks,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """给「还没读这条通知」的人各推一条提醒
+
+    名单直接用已读清单那份（read_status 的分母是 users 全表）。三条口径：
+    - **冻结账号跳过**：他们本来就读不了通知（读接口会拒），推了也白推
+    - **操作人自己跳过**：他正对着这条通知点「提醒未读」，再给自己推一条纯属噪音
+      （发布通知那条链路也是这么排除自己的，口径一致）
+    - 域外账号照推：名单里有他们，说明这条通知本来就发给了他们
+
+    前两条都要在前端算按钮上的「未读 N 人」时同样排除，否则按钮说 3 人、
+    提示说「已提醒 1 人」，班委会以为漏推了。
+
+    逐个人调 recipients(only_no=...)，不给 recipients 加「批量学号」参数 —— 那要
+    同时改 bark / webpush / email / webhook 四个渠道服务，而班级规模几十人、未读
+    通常十几人，循环几个查询在这个量级上更简单也更不容易改错。**别改成批量查询**。
+
+    recipients 必须在请求处理过程中调用（响应发出去之后 get_db 会把会话关掉，
+    见 notify_service.recipients 的注释），所以循环和 commit 都留在请求里。
+
+    不写操作日志的话，「我为什么收到这条提醒」事后查不到任何记录 ——
+    一次给几十人推送是对他们可见的动作，值得留痕。
+    """
+    notice = db.query(Notice).filter(Notice.id == notice_id).first()
+    if not notice:
+        raise HTTPException(status_code=404, detail="通知不存在")
+
+    unread = [
+        row
+        for row in read_status(db, notice_id)["rows"]
+        if row["read_at"] is None
+        and not row["frozen"]
+        and row["student_no"] != user.student_no
+    ]
+    # 没人可提醒就直接返回：按钮在 0 人时是禁用的，走到这里说明名单是刚变的
+    # （比如别人抢先读了）。这时写一条「已提醒 0 人」的日志只会让后来查日志的人困惑
+    if not unread:
+        return {"reminded": 0, "unreachable": 0}
+
+    reminded = 0
+    for row in unread:
+        targets = recipients(db, only_no=row["student_no"])
+        # 四个渠道一个都没订阅的人：notify 内部直接返回，什么都不会发出去。
+        # 计进 reminded 就是在骗班委，所以单独算一类
+        if not targets:
+            continue
+        notify(
+            background, targets, f"提醒：{notice.title}",
+            _preview(notice.content or ""), level="active", page="/notices",
+        )
+        reminded += 1
+
+    unreachable = len(unread) - reminded
+    log_operation(
+        db,
+        user,
+        action="提醒未读",
+        target=notice.title,
+        detail=f"已提醒 {reminded} 人" + (f"，另有 {unreachable} 人没有任何推送渠道" if unreachable else ""),
+        ip=get_client_ip(request),
+    )
+    db.commit()
+    return {"reminded": reminded, "unreachable": unreachable}
 
 
 def _attachments_from_db(notice: Notice) -> list:
