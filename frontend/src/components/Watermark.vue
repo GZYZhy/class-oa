@@ -33,19 +33,40 @@ const props = defineProps({
 })
 
 // 桌面端水印单元尺寸 / 字号
-const CELL_W = 260
-const CELL_H = 140
 const FONT_SIZE = 18
-// 手机端：更紧凑一点
-const MOBILE_CELL_W = 180
-const MOBILE_CELL_H = 100
-const MOBILE_FONT_SIZE = 13
+// 手机端字号。**别再往小了调**：水印的全部价值是「截图上认得出是谁在看」，
+// 13px 在手机上要凑到眼前才勉强看清，等于白盖一层。窄屏只是纸面变窄，
+// 人眼到屏幕的距离没变，字号就不该跟着缩
+const MOBILE_FONT_SIZE = 16
 
 const COLOR = 'rgba(0, 0, 0, 0.08)'
 const ROTATE = -24 // 度
+// 单元四周的留白（总宽）。旋转之后是四个角最贴边，留一点免得字压着边界
+const CELL_PAD = 28
+
+// 方块字（CJK、全角标点）按一个字宽算，其余（字母数字冒号）按 0.55 估。
+// 只求装得下不求精确：估宽一点只是水印稀疏些，估窄了会裁字（见 makeSvg）
+const FULL_WIDTH = /[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef]/
+
+function textWidthEm(text) {
+  let em = 0
+  for (const ch of text) em += FULL_WIDTH.test(ch) ? 1 : 0.55
+  return em
+}
 
 // 把文字渲染成一个 SVG 单元，转 data URI 当背景图
-function makeSvg(text, fontSize, cellW, cellH) {
+//
+// **单元的宽高按文字长度算，不写死。** SVG 根元素的 overflow 默认是 hidden，
+// 装不下的部分直接看不见 —— 写死 260×140 时，长名字盖出来会前后各缺一截：
+// 「示例姓名@示例班 10月3日 18:30」实际渲染成
+// 「兰·热斯白克@示例班 10月3日 18」，恰恰把「谁在看」裁掉了。
+// 所以这里先把文字转成旋转后的外接矩形，单元按它来定。
+function makeSvg(text, fontSize) {
+  const rad = (ROTATE * Math.PI) / 180
+  const textW = textWidthEm(text) * fontSize
+  const textH = fontSize * 1.2 // 给上下伸出的笔画留点余量
+  const cellW = Math.ceil(textW * Math.cos(rad) + textH * Math.abs(Math.sin(rad))) + CELL_PAD
+  const cellH = Math.ceil(textW * Math.abs(Math.sin(rad)) + textH * Math.cos(rad)) + CELL_PAD
   const cx = cellW / 2
   const cy = cellH / 2
   const svg =
@@ -62,8 +83,8 @@ function escapeXml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-const svgDataUrl = computed(() => makeSvg(props.text, FONT_SIZE, CELL_W, CELL_H))
-const svgDataUrlMobile = computed(() => makeSvg(props.text, MOBILE_FONT_SIZE, MOBILE_CELL_W, MOBILE_CELL_H))
+const svgDataUrl = computed(() => makeSvg(props.text, FONT_SIZE))
+const svgDataUrlMobile = computed(() => makeSvg(props.text, MOBILE_FONT_SIZE))
 </script>
 
 <style scoped>
