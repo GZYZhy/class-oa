@@ -45,11 +45,19 @@
             active-text-color="#409EFF"
             @select="drawerOpen = false"
           >
-            <el-menu-item v-for="item in visibleMenu" :key="item.path" :index="item.path">
-              <el-icon><component :is="item.icon" /></el-icon>
-              <span>{{ item.title }}</span>
-              <span v-if="badgeOf(item)" class="menu-item-badge">{{ badgeOf(item) }}</span>
+            <!-- 首页不归组，单独摆最上面 -->
+            <el-menu-item :index="HOME.path">
+              <el-icon><component :is="HOME.icon" /></el-icon>
+              <span>{{ HOME.title }}</span>
             </el-menu-item>
+
+            <el-menu-item-group v-for="group in visibleGroups" :key="group.title" :title="group.title">
+              <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
+                <el-icon><component :is="item.icon" /></el-icon>
+                <span>{{ item.title }}</span>
+                <span v-if="badgeOf(item)" class="menu-item-badge">{{ badgeOf(item) }}</span>
+              </el-menu-item>
+            </el-menu-item-group>
           </el-menu>
 
           <!-- 底部：已登录时显示退出登录 -->
@@ -149,26 +157,54 @@ watch(() => route.path, () => {
   if (userStore.isLogin) badgeStore.refresh()
 })
 
-// 侧边菜单。role = 可见的最低角色，不写则登录即可见；public = 未登录也可见。
-// studentOnly = 只有学生账号可见（域外账号没有学生记录，这些页面用不了）。
+// 首页不归组，单独拎出来，模板里直接渲染（它游客也看得见，摆最上面）
+const HOME = { path: '/dashboard', title: '首页', icon: 'HomeFilled', public: true }
+
+// 侧边菜单，**按组排**：15 项平铺时一眼看不出哪些是自己的、哪些是管理的，
+// 分组标题就是给这件事用的。组的先后 = 从「我的」到「管理」，越往下管得越宽。
+//
+// 组名只影响显示，不参与权限判断；组内可见项一个都没有时整组连标题一起不渲染
+// （比如游客只看得到「班级事务」里的通知公告，其余三组直接不出现）。
+//
+// 单项字段：role = 可见的最低角色，不写则登录即可见；public = 未登录也可见；
+// studentOnly = 只有学生账号可见（域外账号没有学生记录，这些页面用不了）；
 // badge = 右上角红点取哪个计数，键名对应后端 /api/badges 的返回字段。
 // 和 router 的 meta 保持一致（那里是防手敲地址，这里是控制显示）
-const MENU = [
-  { path: '/dashboard', title: '首页', icon: 'HomeFilled', public: true },
-  { path: '/my-info', title: '我的信息', icon: 'UserFilled', studentOnly: true },
-  { path: '/students', title: '学生信息', icon: 'List', role: 'committee' },
-  { path: '/statistics', title: '分类统计', icon: 'PieChart', role: 'committee' },
-  { path: '/attendance', title: '考勤记录', icon: 'Calendar', role: 'committee' },
-  { path: '/grades', title: '成绩管理', icon: 'Histogram', role: 'committee' },
-  { path: '/review', title: '审核审批', icon: 'Checked', role: 'committee', badge: 'review_pending' },
-  { path: '/notices', title: '通知公告', icon: 'Bell', public: true, badge: 'notice_unread' },
-  { path: '/inbox', title: '站内信', icon: 'Message', badge: 'inbox_unread' },
-  { path: '/vote', title: '投票', icon: 'Tickets' },
-  { path: '/announcements', title: '文件公开', icon: 'Files' },
-  { path: '/service', title: '办事中心', icon: 'Postcard', studentOnly: true },
-  { path: '/downloads', title: '资料下载', icon: 'Download' },
-  { path: '/about', title: '关于班级', icon: 'InfoFilled' },
-  { path: '/admin', title: '系统管理', icon: 'Setting', role: 'admin' }
+const MENU_GROUPS = [
+  {
+    title: '我的',
+    items: [
+      { path: '/my-info', title: '我的信息', icon: 'UserFilled', studentOnly: true },
+      { path: '/inbox', title: '站内信', icon: 'Message', badge: 'inbox_unread' },
+      { path: '/downloads', title: '资料下载', icon: 'Download' },
+      { path: '/about', title: '关于班级', icon: 'InfoFilled' }
+    ]
+  },
+  {
+    title: '班级事务',
+    items: [
+      { path: '/notices', title: '通知公告', icon: 'Bell', public: true, badge: 'notice_unread' },
+      { path: '/vote', title: '投票', icon: 'Tickets' },
+      { path: '/announcements', title: '文件公开', icon: 'Files' },
+      { path: '/service', title: '办事中心', icon: 'Postcard', studentOnly: true }
+    ]
+  },
+  {
+    title: '班级管理',
+    items: [
+      { path: '/students', title: '学生信息', icon: 'List', role: 'committee' },
+      { path: '/statistics', title: '分类统计', icon: 'PieChart', role: 'committee' },
+      { path: '/attendance', title: '考勤记录', icon: 'Calendar', role: 'committee' },
+      { path: '/grades', title: '成绩管理', icon: 'Histogram', role: 'committee' },
+      { path: '/review', title: '审核审批', icon: 'Checked', role: 'committee', badge: 'review_pending' }
+    ]
+  },
+  {
+    title: '系统管理',
+    items: [
+      { path: '/admin', title: '系统管理', icon: 'Setting', role: 'admin' }
+    ]
+  }
 ]
 
 /** 菜单项右上角要显示的红点文字；不显示时返回空串
@@ -183,13 +219,19 @@ function badgeOf(item) {
   return count > 99 ? '99+' : String(count)
 }
 
-const visibleMenu = computed(() =>
-  MENU.filter((item) => {
-    if (item.public) return true
-    if (!userStore.isLogin) return false
-    if (item.studentOnly && userStore.isExternal) return false
-    return rankOf(userStore.info?.role) >= rankOf(item.role || 'student')
-  })
+/** 一个菜单项对当前账号可不可见 */
+function canSee(item) {
+  if (item.public) return true
+  if (!userStore.isLogin) return false
+  if (item.studentOnly && userStore.isExternal) return false
+  return rankOf(userStore.info?.role) >= rankOf(item.role || 'student')
+}
+
+// 先按账号过滤组内各项，再把空组整个丢掉（连标题一起）
+const visibleGroups = computed(() =>
+  MENU_GROUPS
+    .map((group) => ({ title: group.title, items: group.items.filter(canSee) }))
+    .filter((group) => group.items.length > 0)
 )
 
 // 首次登录强制设置密码
@@ -433,6 +475,17 @@ onMounted(async () => {
   border-right: none;
   flex: 1;
   overflow-y: auto;
+}
+
+/* 分组标题：Element 默认是 12px / 行高 36px 的浅灰，摆在深色侧栏上又高又飘。
+   压成 11px 小字 + 偏白低透明度，更像一个分区标签；上下留白也收窄，
+   四项标题省下的高度够多放一个菜单项 */
+.side-menu :deep(.el-menu-item-group__title) {
+  padding: 12px 0 4px 20px;
+  font-size: 11px;
+  line-height: 16px;
+  color: rgba(255, 255, 255, 0.38);
+  letter-spacing: 0.5px;
 }
 
 /* 底部退出登录项，跟菜单项同高同风格 */
