@@ -17,7 +17,7 @@ from .config import (
     smtp_security,
     smtp_sender,
 )
-from .middleware import RememberMeMiddleware
+from .middleware import RejectEarlyDataMiddleware, RememberMeMiddleware
 from .api import api_router
 from .database import Base, database_kind, engine, SessionLocal
 from .database_migrate import backfill_notice_reads, run_migrations
@@ -298,6 +298,10 @@ app.add_middleware(
     same_site="lax",
     https_only=settings.session_cookie_secure,
 )
+
+# 最后注册 = 最外层：0-RTT 写请求在这里当场回 425，
+# 不再往下走到会话、鉴权和数据库。nginx 那边配合 proxy_set_header Early-Data
+app.add_middleware(RejectEarlyDataMiddleware)
 
 # 不挂载 /static：照片、资料、公告文件一律经带鉴权的接口下发，避免绕过登录直接猜 URL 拿到隐私文件
 
