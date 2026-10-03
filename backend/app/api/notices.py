@@ -169,6 +169,10 @@ def remind_unread(
 
     不写操作日志的话，「我为什么收到这条提醒」事后查不到任何记录 ——
     一次给几十人推送是对他们可见的动作，值得留痕。
+
+    返回值从前还有一个 unreachable（没读、但四个渠道一个都没订阅、因此什么都
+    收不到的人）。**加站内信之后这类人不存在了**：提醒一定落进对方的收件箱，
+    所以「已提醒 N 人」就是 N 个人真收到了，不用再分两类说。
     """
     notice = db.query(Notice).filter(Notice.id == notice_id).first()
     if not notice:
@@ -184,32 +188,28 @@ def remind_unread(
     # 没人可提醒就直接返回：按钮在 0 人时是禁用的，走到这里说明名单是刚变的
     # （比如别人抢先读了）。这时写一条「已提醒 0 人」的日志只会让后来查日志的人困惑
     if not unread:
-        return {"reminded": 0, "unreachable": 0}
+        return {"reminded": 0}
 
-    reminded = 0
     for row in unread:
-        targets = recipients(db, only_no=row["student_no"])
-        # 四个渠道一个都没订阅的人：notify 内部直接返回，什么都不会发出去。
-        # 计进 reminded 就是在骗班委，所以单独算一类
-        if not targets:
-            continue
+        # recipients 这里必然非空：站内信不看任何开关，每个人至少有一份存档。
+        # 从前那个「四个渠道都没订阅、所以什么都没发出去」的分支不用再判了 ——
+        # 站内信解决的正是那件事
         notify(
-            background, targets, f"提醒：{notice.title}",
+            db, background, recipients(db, only_no=row["student_no"]),
+            f"提醒：{notice.title}",
             _preview(notice.content or ""), level="active", page="/notices",
         )
-        reminded += 1
 
-    unreachable = len(unread) - reminded
     log_operation(
         db,
         user,
         action="提醒未读",
         target=notice.title,
-        detail=f"已提醒 {reminded} 人" + (f"，另有 {unreachable} 人没有任何推送渠道" if unreachable else ""),
+        detail=f"已提醒 {len(unread)} 人",
         ip=get_client_ip(request),
     )
     db.commit()
-    return {"reminded": reminded, "unreachable": unreachable}
+    return {"reminded": len(unread)}
 
 
 def _attachments_from_db(notice: Notice) -> list:
@@ -327,7 +327,7 @@ async def publish(
     db.commit()
 
     notify(
-        background, targets, f"新通知：{created.title}",
+        db, background, targets, f"新通知：{created.title}",
         _preview(created.content or ""), level="active", page="/notices",
     )
     return created

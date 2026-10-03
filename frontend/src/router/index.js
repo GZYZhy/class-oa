@@ -65,6 +65,12 @@ const routes = [
     meta: { title: '通知公告', public: true }
   },
   {
+    path: '/inbox',
+    name: 'Inbox',
+    component: () => import('@/views/Inbox.vue'),
+    meta: { title: '站内信' }
+  },
+  {
     path: '/announcements',
     name: 'Announcements',
     component: () => import('@/views/Announcements.vue'),
