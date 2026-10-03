@@ -57,7 +57,7 @@
         <el-table-column label="发布人" width="120" align="center">
           <template #default="{ row }">
             <!-- 本功能上线前录入的老数据没有发布人 -->
-            <span :style="{ color: row.publisher ? '#303133' : '#c0c4cc' }">
+            <span :style="{ color: row.publisher ? 'var(--el-text-color-primary)' : 'var(--el-text-color-disabled)' }">
               {{ row.publisher || '-' }}
             </span>
           </template>
@@ -73,7 +73,7 @@
         <!-- 在线查看次数（不含下载）。没人看过时淡化显示，免得 0 显得像加载失败 -->
         <el-table-column prop="view_count" label="查看次数" width="100" align="center">
           <template #default="{ row }">
-            <span :style="{ color: row.view_count ? '#303133' : '#c0c4cc' }">
+            <span :style="{ color: row.view_count ? 'var(--el-text-color-primary)' : 'var(--el-text-color-disabled)' }">
               {{ row.view_count || 0 }}
             </span>
           </template>
