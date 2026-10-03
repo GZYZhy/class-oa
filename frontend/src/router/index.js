@@ -74,14 +74,14 @@ const routes = [
     path: '/inbox',
     name: 'Inbox',
     component: () => import('@/views/Inbox.vue'),
-    meta: { title: '站内信' }
+    meta: { title: '我的消息' }
   },
   {
     // 不加 role：参与者是普通学生。发起投票靠页面里的按钮级权限（后端 committee_required 兜底）
     path: '/vote',
     name: 'Vote',
     component: () => import('@/views/Vote.vue'),
-    meta: { title: '投票' }
+    meta: { title: '投票表决' }
   },
   {
     path: '/announcements',

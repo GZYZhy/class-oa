@@ -175,7 +175,7 @@ const MENU_GROUPS = [
     title: '我的',
     items: [
       { path: '/my-info', title: '我的信息', icon: 'UserFilled', studentOnly: true },
-      { path: '/inbox', title: '站内信', icon: 'Message', badge: 'inbox_unread' },
+      { path: '/inbox', title: '我的消息', icon: 'Message', badge: 'inbox_unread' },
       { path: '/downloads', title: '资料下载', icon: 'Download' },
       { path: '/about', title: '关于班级', icon: 'InfoFilled' }
     ]
@@ -184,7 +184,7 @@ const MENU_GROUPS = [
     title: '班级事务',
     items: [
       { path: '/notices', title: '通知公告', icon: 'Bell', public: true, badge: 'notice_unread' },
-      { path: '/vote', title: '投票', icon: 'Tickets' },
+      { path: '/vote', title: '投票表决', icon: 'Tickets' },
       { path: '/announcements', title: '文件公开', icon: 'Files' },
       { path: '/service', title: '办事中心', icon: 'Postcard', studentOnly: true }
     ]

@@ -3,7 +3,7 @@
     <div class="page-card" v-loading="loading">
       <div class="inbox-head">
         <div>
-          <h3 class="page-title">站内信</h3>
+          <h3 class="page-title">我的消息</h3>
           <p class="inbox-sub">
             所有推送给你的消息都在这里 —— 通知公告、办件进度、审核结果、生日祝福。
             手机推送没开也漏不掉。
