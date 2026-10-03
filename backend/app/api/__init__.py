@@ -10,6 +10,7 @@ from .change_requests import router as change_requests_router
 from .admin import router as admin_router
 from .about import router as about_router
 from .leaves import router as leaves_router
+from .attendance import router as attendance_router
 from .feedback import router as feedback_router
 from .badges import router as badges_router
 from .ev_passes import router as ev_passes_router
@@ -28,6 +29,7 @@ api_router.include_router(resources_router)      # 资料下载：登录即可
 api_router.include_router(about_router)          # 关于班级：登录即可
 api_router.include_router(change_requests_router)  # 修改申请：学生提交，班委审核
 api_router.include_router(leaves_router)         # 请假申请：学生提交，管理员审核
+api_router.include_router(attendance_router)     # 考勤记录：班委及以上
 api_router.include_router(feedback_router)       # 意见反馈：学生提交，班委回复
 api_router.include_router(badges_router)         # 菜单红点：需登录
 api_router.include_router(ev_passes_router)      # 电动车通行证：学生提交，班委只读，管理员审核
