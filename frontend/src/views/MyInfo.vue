@@ -588,9 +588,11 @@ const activeTab = ref('info')
 watch(
   () => route.query.tab,
   (val) => {
-    // 域外账号没有「基本信息」，其余 tab 都放行
+    // 域外账号没有「基本信息」和「我的成绩」——这两块都挂在学生身份上，
+    // 带 ?tab=grades 进来若放行，pane 是 v-if 掉的、内容区空白，还会白拉一次接口吃 403
     const known = ['info', 'grades', 'account', 'workspace']
-    if (known.includes(val) && !(val === 'info' && userStore.isExternal)) {
+    const hidden = (val === 'info' || val === 'grades') && userStore.isExternal
+    if (known.includes(val) && !hidden) {
       activeTab.value = val
     } else {
       // 默认 tab：学生 → info，域外 → account
