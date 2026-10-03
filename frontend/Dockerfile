@@ -26,6 +26,8 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # 复制 nginx 配置模板（启动时用 envsubst 生成实际配置）
 RUN mkdir -p /etc/nginx/templates
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+# 安全响应头单独成文件，由 default.conf 里 include 引入（继承陷阱的说明见该文件）
+COPY security-headers.conf /etc/nginx/security-headers.conf
 
 # 品牌配置模板：启动时由 docker-entrypoint.sh 用 envsubst 渲染成
 # /usr/share/nginx/html/site-config.js（本地开发走 vite.config.js 里的同名插件，
