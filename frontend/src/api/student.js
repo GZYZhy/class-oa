@@ -160,6 +160,37 @@ export function importConfirm(token) {
 }
 
 /**
+ * 照片批量导入 - 解析 zip 并预览（不写库、不写文件）
+ * @param {File} file - zip 压缩包
+ * @param {'gaokao'|'on_site'} photoType
+ */
+export function photoImportPreview(file, photoType) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request({
+    url: '/students/photos/import/preview',
+    method: 'post',
+    params: { photo_type: photoType },
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+/**
+ * 照片批量导入 - 确认导入（仅管理员）
+ * @param {{token: string, photo_type: string, overwrite: boolean,
+ *          manual: Record<string, string>}} payload
+ *        manual：zip 成员名 → 学号，只填人工指认的那些
+ */
+export function photoImportConfirm(payload) {
+  return request({
+    url: '/students/photos/import',
+    method: 'post',
+    data: payload
+  })
+}
+
+/**
  * 批量删除学生（仅管理员）
  * @param {number[]} ids - 学生 id 列表
  */

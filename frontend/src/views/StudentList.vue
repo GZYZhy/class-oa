@@ -154,6 +154,9 @@
                 <el-dropdown-item command="import">
                   <el-icon><Upload /></el-icon>导入 Excel
                 </el-dropdown-item>
+                <el-dropdown-item command="photo-import">
+                  <el-icon><Picture /></el-icon>批量导入照片
+                </el-dropdown-item>
                 <el-dropdown-item command="create">
                   <el-icon><Plus /></el-icon>添加学生
                 </el-dropdown-item>
@@ -1052,6 +1055,7 @@
 
     <!-- 点名弹窗 -->
     <RollCallDialog ref="rollCallRef" />
+    <PhotoImportDialog ref="photoImportRef" @done="fetchList" />
 
     <!-- 抽签弹窗。勾选要实时反映到「从表格里选（N）」上，所以走 prop 而不是 open 传参 -->
     <DrawDialog ref="drawRef" :selected="selectedStudents" />
@@ -1087,6 +1091,7 @@ import { useUserStore } from '@/store/user'
 import Watermark from '@/components/Watermark.vue'
 import RollCallDialog from '@/components/RollCallDialog.vue'
 import DrawDialog from '@/components/DrawDialog.vue'
+import PhotoImportDialog from '@/components/PhotoImportDialog.vue'
 import { useWatermark } from '@/composables/useWatermark'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { copyText } from '@/utils/clipboard'
@@ -1096,6 +1101,7 @@ const userStore = useUserStore()
 // 点名 / 抽签弹窗（独立组件，靠 ref 调它的 open()）
 const rollCallRef = ref(null)
 const drawRef = ref(null)
+const photoImportRef = ref(null)
 
 // 满页个人信息，盖一层「谁在看」的水印
 const watermarkText = useWatermark()
@@ -1316,6 +1322,7 @@ function resetEditForm() {
 /** 「更多」下拉：管理员那三个低频操作 */
 function handleMore(command) {
   if (command === 'import') importDialogVisible.value = true
+  else if (command === 'photo-import') photoImportRef.value?.open()
   else if (command === 'create') handleCreate()
   else if (command === 'batch-delete') handleBatchDelete()
 }

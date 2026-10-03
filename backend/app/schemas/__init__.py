@@ -50,6 +50,12 @@ from .student_import import (
     ImportConfirmRequest,
     ImportResultResponse,
 )
+from .student_photo import (
+    PhotoZipItem,
+    PhotoZipPreviewResponse,
+    PhotoZipConfirmRequest,
+    PhotoZipResultResponse,
+)
 from .certificate import CertificateRequestResponse, CertificateRejectRequest
 from .attendance import (
     AttendanceCreate,
@@ -116,6 +122,10 @@ __all__ = [
     "ImportPreviewSample",
     "ImportConfirmRequest",
     "ImportResultResponse",
+    "PhotoZipItem",
+    "PhotoZipPreviewResponse",
+    "PhotoZipConfirmRequest",
+    "PhotoZipResultResponse",
     "CertificateRequestResponse",
     "CertificateRejectRequest",
     "AttendanceCreate",
