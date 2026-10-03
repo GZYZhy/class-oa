@@ -4,7 +4,8 @@ name: 构建并推送镜像
 # 纯文档改动不触发 —— 那类提交不会改变镜像内容，没必要占构建额度。
 #
 # 想在本地构建（比如要带 arm64、或者 GitHub 挂了）还是用
-# scripts/build_images.sh，两边的标签规则是同一套。
+# scripts/build_images.sh，镜像前缀和日期标签的算法两边一致
+#（它不带 sha 标签，也没有下面这条「发版提交额外打语义版本号」）。
 on:
   push:
     branches: [main]
@@ -33,6 +34,10 @@ jobs:
         service: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 下面靠「HEAD 上有没有 vX.Y.Z 标签」决定要不要多打一个版本号标签，
+          # 所以得把 tag 一起取下来（默认的浅克隆不带 tag）
+          fetch-depth: 0
 
       - name: 计算镜像名与标签
         id: meta
@@ -41,15 +46,42 @@ jobs:
           # 走 step output 而不是顶层 env：env 上下文在某些位置能不能用有讲究，
           # steps 上下文则各处都保证可用。
           prefix="ghcr.io/gzyzhy/class-oa"
+          service="${{ matrix.service }}"
           # 日期按**北京时间**算。本机跑 build_images.sh 得到的是本地日期（CST），
           # 这里要是用 runner 默认的 UTC，凌晨推送会打出前一天的标签，
           # 同一天用两种方式构建就会得到两个不同的版本号。
           version="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
           short_sha="$(git rev-parse --short=7 HEAD)"
-          echo "prefix=${prefix}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
-          echo "==> 本次标签：latest / ${version} / sha-${short_sha}"
+
+          # 发版那个提交上打着 v1.7.1 这样的标签时，镜像也带上 1.7.1。
+          # 只认 **HEAD 上的**标签：发完版之后还有几个改 bug 的提交，它们的
+          # app_version 同样是 1.7.1，但没打过标签，不会去覆盖已经推出去的 1.7.1
+          # —— 镜像标签是可变引用，同名的后推的赢，那样「1.7.1 指哪次构建」就说不清了。
+          #
+          # 标签要和 main **一起推**（git push origin main vX.Y.Z）：先推 main 再补推
+          # 标签的话，这次构建已经在跑了，checkout 时还看不到它，版本号就漏了。
+          version_tag="$(git tag --points-at HEAD --list 'v[0-9]*' | sed 's/^v//' | head -n 1)"
+
+          # 标签清单在这里拼好，下面 build 和「小结」两步共用一份 ——
+          # 各写一遍的话，条件分支一多，日志里说的和实际推的迟早对不上
+          tag_list=(
+            "${prefix}-${service}:latest"
+            "${prefix}-${service}:${version}"
+            "${prefix}-${service}:sha-${short_sha}"
+          )
+          if [ -n "$version_tag" ]; then
+            tag_list+=("${prefix}-${service}:${version_tag}")
+          fi
+          tags="$(printf '%s\n' "${tag_list[@]}")"
+
+          {
+            echo "tags<<EOF"
+            echo "${tags}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "==> 本次标签："
+          echo "${tags}" | sed 's/^/    /'
 
       - uses: docker/setup-buildx-action@v3
 
@@ -69,23 +101,21 @@ jobs:
           # 哪天要在 arm 机器上跑，再改成 linux/amd64,linux/arm64
           platforms: linux/amd64
           push: true
-          tags: |
-            ${{ steps.meta.outputs.prefix }}-${{ matrix.service }}:latest
-            ${{ steps.meta.outputs.prefix }}-${{ matrix.service }}:${{ steps.meta.outputs.version }}
-            ${{ steps.meta.outputs.prefix }}-${{ matrix.service }}:sha-${{ steps.meta.outputs.short_sha }}
+          tags: ${{ steps.meta.outputs.tags }}
           # 缓存放 GitHub 自己的存储里，下一次构建能复用绝大部分层。
           # scope 必须按镜像分开，否则后端和前端会互相覆盖对方的缓存
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
       - name: 小结
+        # 用 env 传多行输出：直接插进 run 里的话，换行会破坏脚本结构
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           {
             echo "### ${{ matrix.service }}"
             echo
             echo '```'
-            echo "${{ steps.meta.outputs.prefix }}-${{ matrix.service }}:latest"
-            echo "${{ steps.meta.outputs.prefix }}-${{ matrix.service }}:${{ steps.meta.outputs.version }}"
-            echo "${{ steps.meta.outputs.prefix }}-${{ matrix.service }}:sha-${{ steps.meta.outputs.short_sha }}"
+            echo "$TAGS"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

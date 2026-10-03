@@ -9,7 +9,7 @@
 #   ./scripts/build_images.sh --push --arm       # 额外带上 arm64（走 QEMU 模拟，慢）
 #   ./scripts/build_images.sh 2026-09-26 --push  # 指定版本号并推送
 #
-# 每个镜像打两个标签：版本号（可回溯、可回滚）和 latest（省事）。
+# 每个镜像打两个标签：版本号（不指定就是当天日期）和 latest（省事）。
 # 不推送时镜像留在本地，docker-compose.yml 用 image: 直接引用；
 # 推送后服务器 docker compose pull 就能拿到，不需要源码和构建链。
 
@@ -103,4 +103,3 @@ else
 fi
 echo
 echo "启动：docker compose up -d"
-echo "锁定版本：IMAGE_TAG=${VERSION} docker compose up -d"

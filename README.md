@@ -68,12 +68,6 @@ docker compose pull && docker compose up -d
 > `up -d` 单独执行**不会**去 registry 查有没有新版本（本地有镜像就一直用本地的），
 > 必须带上 `pull` 才会拿到新版镜像。
 
-回滚到某一天：
-
-```bash
-IMAGE_TAG=2026-09-25 docker compose pull && IMAGE_TAG=2026-09-25 docker compose up -d
-```
-
 镜像由 GitHub Actions 自动构建：往 `main` 推代码即触发，约 3~5 分钟出结果。
 只改文档的提交不会触发。GitHub 不可用时可在本机跑 `./scripts/build_images.sh --push`。
 

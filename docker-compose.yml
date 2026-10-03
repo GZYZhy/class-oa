@@ -7,7 +7,6 @@ services:
   backend:
     # 镜像来自 GHCR（私有包），由 scripts/build_images.sh --push 推上去。
     # 服务器上先 docker login ghcr.io 才能拉；拉新版用 docker compose pull。
-    # IMAGE_TAG 可锁定版本：IMAGE_TAG=2026-09-25 docker compose up -d
     image: ghcr.io/gzyzhy/class-oa-backend:${IMAGE_TAG:-latest}
     container_name: class-oa-backend
     restart: unless-stopped
