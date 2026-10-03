@@ -68,6 +68,7 @@ from .attendance import (
     AttendanceListResponse,
     AttendanceRecordResponse,
 )
+from .inbox import InboxListResponse, InboxMessageResponse
 
 __all__ = [
     "StudentBase",
@@ -114,6 +115,8 @@ __all__ = [
     "DataHealthItem",
     "DataHealthGroup",
     "DataHealthResponse",
+    "InboxMessageResponse",
+    "InboxListResponse",
     "CommitteeMember",
     "AboutResponse",
     "LeaveRequestCreate",

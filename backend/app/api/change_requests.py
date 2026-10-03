@@ -92,6 +92,7 @@ def submit(
 
     # 提醒班委来处理。待办性质，用 timeSensitive 让它能穿透专注模式
     notify(
+        db,
         background,
         recipients(db, roles=REVIEWER_ROLES, exclude_no=user.student_no),
         "有新的信息修改申请待审核",
@@ -191,7 +192,7 @@ def approve(
     targets = recipients(db, only_no=req.student_no)
     result = _finish(db, req, user, "approved", "通过修改申请", detail=detail, ip=ip)
     notify(
-        background, targets, "信息修改申请已通过",
+        db, background, targets, "信息修改申请已通过",
         f"你提交的 {len(changes)} 项修改已生效", level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
     )
     return result
@@ -210,7 +211,7 @@ def reject(
     targets = recipients(db, only_no=req.student_no)
     result = _finish(db, req, user, "rejected", "驳回修改申请", reason=payload.reason, ip=ip)
     notify(
-        background, targets, "信息修改申请被驳回",
+        db, background, targets, "信息修改申请被驳回",
         f"理由：{clip(payload.reason)}", level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
     )
     return result

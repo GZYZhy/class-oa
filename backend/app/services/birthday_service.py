@@ -289,7 +289,7 @@ def run_daily(db: Session, today: date | None = None) -> bool:
     # Recipients 是纯数据对象，会话关了照样能发（这正是它设计成纯数据的原因）。
     db.close()
     for targets, title, body in jobs:
-        deliver_now(targets, title, body, page="/dashboard")
+        deliver_now(db, targets, title, body, page="/dashboard")
 
     # ⚠ 上面 close() 之后 cfg 已脱离会话，在它身上赋值再 commit 是**静默不落库**的。
     # 重新 get 一次，拿挂在新事务上的对象

@@ -18,5 +18,6 @@ from .certificate_request import CertificateRequest
 from .access_token import AccessToken
 from .birthday import BirthdaySettings
 from .attendance import AttendanceRecord, AttendanceItem
+from .inbox_message import InboxMessage
 
-__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AttendanceRecord", "AttendanceItem"]
+__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AttendanceRecord", "AttendanceItem", "InboxMessage"]
