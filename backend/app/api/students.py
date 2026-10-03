@@ -24,6 +24,7 @@ from ..schemas import (
     StudentCreateResponse,
     StudentUpdate,
     RollCallLogRequest,
+    DrawLogRequest,
     BatchDeleteRequest,
     student_response,
 )
@@ -242,6 +243,34 @@ def log_roll_call(
         # log_operation 内部会把 detail 截断到 500 字，这里不用自己处理
         detail=f"共 {data.total} 人，无应答 {len(data.absent)} 人"
         + (f"：{names}" if names else "（全部到齐）"),
+        ip=get_client_ip(request),
+    )
+    db.commit()
+    return {"message": "已记录"}
+
+
+# 同样属于固定路径，必须定义在 /{student_id} 之前
+@router.post("/draw", summary="上报抽签（写操作日志）")
+def log_draw(
+    data: DrawLogRequest,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """抽签结束后记一条日志
+
+    权限沿用列表接口的 committee_required。「点一回取一个」在一次会话里可能点
+    几十下，但那属于同一次抽签 —— 由前端在关闭弹窗时上报一次，这里只收一条。
+
+    **日志里不写抽中了谁**，详情只有人数：抽签结果是当场用掉的，把名字留下来
+    反而成了「谁被抽中过」的名册。
+    """
+    log_operation(
+        db,
+        user,
+        action="抽签",
+        target=data.scope,
+        detail=f"抽取了 {data.count} 人",
         ip=get_client_ip(request),
     )
     db.commit()
