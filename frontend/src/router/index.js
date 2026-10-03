@@ -71,6 +71,13 @@ const routes = [
     meta: { title: '站内信' }
   },
   {
+    // 不加 role：参与者是普通学生。发起投票靠页面里的按钮级权限（后端 committee_required 兜底）
+    path: '/vote',
+    name: 'Vote',
+    component: () => import('@/views/Vote.vue'),
+    meta: { title: '投票' }
+  },
+  {
     path: '/announcements',
     name: 'Announcements',
     component: () => import('@/views/Announcements.vue'),

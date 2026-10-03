@@ -162,6 +162,7 @@ const MENU = [
   { path: '/review', title: '审核审批', icon: 'Checked', role: 'committee', badge: 'review_pending' },
   { path: '/notices', title: '通知公告', icon: 'Bell', public: true, badge: 'notice_unread' },
   { path: '/inbox', title: '站内信', icon: 'Message', badge: 'inbox_unread' },
+  { path: '/vote', title: '投票', icon: 'Tickets' },
   { path: '/announcements', title: '文件公开', icon: 'Files' },
   { path: '/service', title: '办事中心', icon: 'Postcard', studentOnly: true },
   { path: '/downloads', title: '资料下载', icon: 'Download' },
