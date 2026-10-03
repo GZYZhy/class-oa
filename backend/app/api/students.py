@@ -41,6 +41,7 @@ from ..services import (
     log_operation,
 )
 from ..utils.media_type import guess_media_type
+from ..utils.student_fields import describe_changes
 from ..services.student_import_service import (
     parse_excel,
     save_preview,
@@ -411,18 +412,23 @@ def update_student_api(
         raise HTTPException(status_code=400, detail="学号不能修改；确实要换号，请删除后重新新增")
 
     allowed = None if user.role == "admin" else COMMITTEE_EDITABLE_FIELDS
+    fields = student.model_dump(exclude_unset=True)
+    if allowed is not None:
+        fields = {k: v for k, v in fields.items() if k in allowed}
+    # 旧值必须赶在 update_student 之前取：它是就地改的对象，改完就只剩新值了
+    before = {k: getattr(current, k, None) for k in fields}
+
     updated = update_student(db, student_id, student, allowed_fields=allowed)
     if not updated:
         raise HTTPException(status_code=404, detail="学生不存在")
 
-    fields = student.model_dump(exclude_unset=True)
-    if allowed is not None:
-        fields = {k: v for k, v in fields.items() if k in allowed}
-    if fields:
+    # 前端保存时整个表单都会提交上来，所以不能照单全收 —— 这里只留真正变了的字段，
+    # 详情长成「备注：无 → 走读」。一个字段都没变就不记，省得日志里全是空动作
+    detail = describe_changes(before, fields)
+    if detail:
         log_operation(
             db, user, "修改学生信息", target=f"{updated.student_no} {updated.name}",
-            detail="；".join(f"{k}={v}" for k, v in fields.items()),
-            ip=ip,
+            detail=detail, ip=ip,
         )
         db.commit()
     return updated

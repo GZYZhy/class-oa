@@ -304,7 +304,7 @@
             <el-tab-pane label="我的日志" name="logs">
               <div class="tab-section">
                 <div class="section-title">操作日志</div>
-                <div class="section-sub">我自己做过的事（发布通知、审核办件、点名等），不记浏览</div>
+                <div class="section-sub">我自己做过的事（发布通知、审核办件、点名等）</div>
                 <el-table
                   v-loading="logsLoading"
                   :data="myLogs.operations.items"
