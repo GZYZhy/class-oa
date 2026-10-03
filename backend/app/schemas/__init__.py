@@ -69,6 +69,22 @@ from .attendance import (
     AttendanceRecordResponse,
 )
 from .inbox import InboxListResponse, InboxMessageResponse
+from .poll import (
+    PollAnswerIn,
+    PollBallotRow,
+    PollBallotsResponse,
+    PollCloseResponse,
+    PollCreate,
+    PollDetailResponse,
+    PollListItem,
+    PollListResponse,
+    PollQuestionIn,
+    PollQuestionResponse,
+    PollRemindResponse,
+    PollRosterItem,
+    PollRosterResponse,
+    PollVoteIn,
+)
 
 __all__ = [
     "StudentBase",
@@ -143,4 +159,18 @@ __all__ = [
     "AttendanceItemUpdate",
     "AttendanceListResponse",
     "AttendanceRecordResponse",
+    "PollCreate",
+    "PollQuestionIn",
+    "PollVoteIn",
+    "PollAnswerIn",
+    "PollQuestionResponse",
+    "PollListItem",
+    "PollDetailResponse",
+    "PollListResponse",
+    "PollBallotRow",
+    "PollBallotsResponse",
+    "PollRosterItem",
+    "PollRosterResponse",
+    "PollRemindResponse",
+    "PollCloseResponse",
 ]
