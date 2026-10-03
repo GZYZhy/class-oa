@@ -132,6 +132,32 @@ class WatermarkExtractResponse(BaseModel):
     message: Optional[str] = None
 
 
+class DataHealthItem(BaseModel):
+    """一条体检问题：哪个学生 + 一句人话说明"""
+    id: int
+    # 这两个理论上可能为空（库里的历史脏数据），空着也别让整个报告 500
+    student_no: Optional[str] = None
+    name: Optional[str] = None
+    reason: str
+
+
+class DataHealthGroup(BaseModel):
+    """一类体检结果，前端渲染成一张卡片"""
+    key: str
+    label: str
+    # error = 确实有问题；warn = 可疑或缺失，可能只是还没填。前端据此上色
+    level: str
+    items: list[DataHealthItem]
+
+
+class DataHealthResponse(BaseModel):
+    """学生数据体检报告（只读，不改任何数据）"""
+    checked_at: datetime
+    total_students: int
+    # 一项问题都没有的卡片不会出现在这里，前端直接顺序渲染
+    groups: list[DataHealthGroup]
+
+
 class IpBanRequest(BaseModel):
     """手动封禁请求
 

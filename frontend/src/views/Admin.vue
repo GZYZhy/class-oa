@@ -561,6 +561,50 @@
           <div v-if="birthdayLoaded" class="birthday-status">{{ birthdayStatusText }}</div>
         </div>
       </el-tab-pane>
+
+      <el-tab-pane label="数据体检" name="health">
+        <div v-loading="loadingHealth" class="health-wrap">
+          <div class="health-head">
+            <span v-if="healthLoaded" class="health-summary">
+              全班 {{ health.total_students }} 名学生，查出 {{ healthCount }} 处待确认
+            </span>
+            <span v-else class="health-summary">检查身份证、联系方式、必填字段、照片四类</span>
+            <el-button :loading="loadingHealth" @click="fetchHealth">重新检查</el-button>
+          </div>
+
+          <el-alert
+            v-if="healthLoaded && !health.groups.length"
+            type="success"
+            :closable="false"
+            show-icon
+            title="没查出问题"
+            description="四类检查都过了。这也包括「照片文件在磁盘上找得到」这种只有从数据库以外才看得出来的问题。"
+          />
+
+          <!-- 一项问题都没有的那类不会出现在结果里（后端就不返回），所以这里直接顺序渲染 -->
+          <div v-for="group in health.groups" :key="group.key" class="health-card">
+            <div class="health-card-head">
+              <el-tag :type="group.level === 'error' ? 'danger' : 'warning'" size="small">
+                {{ group.label }}
+              </el-tag>
+              <!-- 一个人可能在同一类里占两条（比如身份证号和生日都对不上），所以数的是「条」不是「人」 -->
+              <span class="health-count">{{ group.items.length }} 条</span>
+            </div>
+            <el-table :data="group.items" size="small" border>
+              <el-table-column prop="student_no" label="学号" width="130" />
+              <el-table-column prop="name" label="姓名" width="110" />
+              <el-table-column prop="reason" label="问题" min-width="260" />
+              <el-table-column label="操作" width="90" align="center">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click="openStudent(row.id)">
+                    查看
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </div>
+      </el-tab-pane>
     </el-tabs>
 
     <!-- ============ 新建 / 编辑域外账号 ============ -->
@@ -772,13 +816,15 @@ import {
   reorderResources,
   deleteResource,
   getFileAccessLogs,
-  extractWatermark
+  extractWatermark,
+  getDataHealth
 } from '@/api/admin'
 import {
   getBirthdaySettings,
   saveBirthdaySettings,
   testBirthdayNotify
 } from '@/api/birthday'
+import { useRouter } from 'vue-router'
 import { ROLE_LABELS } from '@/utils/roles'
 import { formatDateTime } from '@/utils/format'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -788,6 +834,7 @@ const MOBILE_PRIMARY = '重置密码'
 
 const activeTab = ref('users')
 const isMobile = useIsMobile()
+const router = useRouter()
 
 // ---------- 账号管理 ----------
 const users = ref([])
@@ -1369,6 +1416,8 @@ function handleTabChange(name) {
     fetchFileAccessLogs()
   }
   if (name === 'birthday' && !birthdayLoaded.value) fetchBirthdaySettings()
+  // 体检每次都重查：脏数据是改完才没的，缓存住上次的结果反而误导人
+  if (name === 'health') fetchHealth()
 }
 
 async function handleCreateBan() {
@@ -1731,6 +1780,38 @@ async function handleTestBirthday() {
   }
 }
 
+// ---------- 数据体检 ----------
+
+const healthLoaded = ref(false)
+const loadingHealth = ref(false)
+// 一份报告的形状：{total_students, checked_at, groups: [{key, label, level, items}]}
+const health = reactive({ total_students: 0, checked_at: null, groups: [] })
+
+/** 所有卡片加起来多少条。卡片标题里的数字是各类分开算的，这个用于顶部汇总 */
+const healthCount = computed(() =>
+  health.groups.reduce((sum, group) => sum + group.items.length, 0)
+)
+
+async function fetchHealth() {
+  loadingHealth.value = true
+  try {
+    const data = await getDataHealth()
+    health.total_students = data.total_students || 0
+    health.checked_at = data.checked_at || null
+    health.groups = data.groups || []
+    healthLoaded.value = true
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '数据体检失败')
+  } finally {
+    loadingHealth.value = false
+  }
+}
+
+/** 跳到学生名单并直接弹开这个学生的详情（学生名单页认 ?open=<id>） */
+function openStudent(id) {
+  router.push({ path: '/students', query: { open: String(id) } })
+}
+
 onMounted(() => {
   fetchUsers()
   fetchLogs()
@@ -1836,6 +1917,41 @@ onMounted(() => {
   .birthday-block-body {
     padding-left: 0;
   }
+}
+
+/* ---------- 数据体检 ---------- */
+.health-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.health-summary {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.health-card {
+  margin-bottom: 20px;
+}
+
+.health-card:last-child {
+  margin-bottom: 0;
+}
+
+.health-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.health-count {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 
 /* ---------- IP 封禁 ---------- */

@@ -1,4 +1,7 @@
-"""系统管理：仅管理员可用（账号角色、重置密码、冻结、域外账号、资料下载、操作日志）"""
+"""系统管理：仅管理员可用
+
+（账号角色、重置密码、冻结、域外账号、资料下载、操作日志、数据体检）
+"""
 
 import os
 import uuid
@@ -34,6 +37,7 @@ from ..schemas import (
     ResetPasswordResponse,
     RoleUpdateRequest,
     WatermarkExtractResponse,
+    DataHealthResponse,
 )
 from ..services import (
     account_events,
@@ -56,6 +60,7 @@ from ..services import (
     unban_ip,
     update_resource,
 )
+from ..services.data_health_service import check_data as data_health
 from ..utils.ip import normalize_target, parse_cidrs, parse_network, target_matches
 from ..utils.security import hash_password, validate_password
 from .deps import admin_required, get_client_ip
@@ -1110,3 +1115,17 @@ async def extract_watermark_from_pdf(
         "log_matched": log_matched,
         "message": "水印提取成功",
     }
+
+
+@router.get(
+    "/data-health",
+    response_model=DataHealthResponse,
+    summary="学生数据体检（仅管理员）",
+)
+def get_data_health(_: User = Depends(admin_required), db: Session = Depends(get_db)):
+    """把学生表里的脏数据逐项查出来（只报告，不改数据）
+
+    每次都全表扫一遍，不缓存也不落库：一个班几十人，查询本身就是毫秒级，
+    而「上次体检是什么时候」这种状态一旦存下来就得考虑失效。
+    """
+    return data_health(db)

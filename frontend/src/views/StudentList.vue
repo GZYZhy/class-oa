@@ -1066,7 +1066,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getStudentList,
@@ -1097,6 +1098,9 @@ import { useIsMobile } from '@/composables/useIsMobile'
 import { copyText } from '@/utils/clipboard'
 
 const userStore = useUserStore()
+// 读 ?open= 用（见 openFromQuery）
+const route = useRoute()
+const router = useRouter()
 
 // 点名 / 抽签弹窗（独立组件，靠 ref 调它的 open()）
 const rollCallRef = ref(null)
@@ -1840,10 +1844,30 @@ function typeLabel(t) {
   return { excel_list: '名单 Excel', pdf_individual: '个人信息表 PDF' }[t] || t
 }
 
+/**
+ * 别的页面点「查看学生」跳过来时带着 `?open=<学生 id>`，进来直接把详情弹开。
+ *
+ * 按 id 精确打开，**不走搜索框**：详情弹窗只用到 id，而按学号去搜会把
+ * 「2026012」这种前缀相同的一串人都搜出来。
+ *
+ * 打开后立刻把 query 抹掉：否则在同一个页面再点一次同一个学生（组件复用、
+ * onMounted 不重跑）没反应，而且刷新页面会莫名其妙又弹一次。
+ */
+function openFromQuery() {
+  const id = Number(route.query.open)
+  if (!id) return
+  handleView({ id })
+  router.replace({ query: {} })
+}
+
 onMounted(() => {
   fetchData()
   fetchFilterOptions()
+  openFromQuery()
 })
+
+// 已经在这个页面上时，别处再点「查看」只会改 query，onMounted 不会重跑
+watch(() => route.query.open, openFromQuery)
 </script>
 
 <style scoped>
