@@ -26,6 +26,9 @@ server {
 
     # 前端静态文件
     root   /usr/share/nginx/html;
+
+    # 安全响应头（含 CSP）。理由与白名单见 security-headers.conf 本身
+    include /etc/nginx/security-headers.conf;
     index  index.html;
 
     # API 代理到后端服务
@@ -55,6 +58,8 @@ server {
 
         # 含隐私数据的接口一律不缓存
         add_header Cache-Control "no-store";
+        # 本 location 有自己的 add_header，server 级的安全头在这里会被整份顶掉
+        include /etc/nginx/security-headers.conf;
     }
 
     # SPA 路由：所有不存在的路径都返回 index.html
@@ -75,6 +80,8 @@ server {
     # try_files 兜底回 /index.html 是内部重定向，会重新匹配到这里，所以 location / 也受这条管
     location = /index.html {
         add_header Cache-Control "no-cache";
+        # 同上：首页是唯一真正需要 CSP 的文档，这一行不能省
+        include /etc/nginx/security-headers.conf;
     }
 
     # 运行时注入的品牌文件与可运行时替换的品牌图片，绝不能落进下面那条按扩展名的

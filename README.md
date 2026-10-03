@@ -239,7 +239,7 @@ cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload
 cd frontend && npm install && npm run dev
 ```
 
-接口文档：`http://localhost:8000/docs`（Swagger UI）。
+接口文档：**默认关闭**（`/docs`、`/redoc`、`/openapi.json` 对未登录访客返回 200，等于把接口清单白送出去）。本地要看，把 `backend/app/main.py` 里 `FastAPI(...)` 的 `docs_url=None` 三行注释掉，再访问 `http://localhost:8000/docs`。
 
 本地开发时，页面上的品牌信息（班名等）由 `frontend/vite.config.js` 里的一个开发专用插件
 从项目根的 `.env` 现读现注入 —— 和后端读的是同一份文件，所以不用在仓库里再存一份。
