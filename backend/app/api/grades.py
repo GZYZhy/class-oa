@@ -17,6 +17,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -166,6 +167,12 @@ def import_confirm(
         raise HTTPException(
             status_code=400, detail=f"科目「{unknown[0]}」不在上传的表格里，请重新上传"
         )
+    # 同一场测试里科目名唯一（grade_subjects 上有唯一约束）。正常界面出不来重复项，
+    # 但构造请求能传进来 —— 不拦的话就是一条 IntegrityError 变成 500，
+    # 而约束的落点本该是一句中文提示
+    if len(set(body.subjects)) != len(body.subjects):
+        repeated = next(t for t in body.subjects if body.subjects.count(t) > 1)
+        raise HTTPException(status_code=400, detail=f"科目「{repeated}」重复了，请重新选择")
     if not preview.matched_count:
         raise HTTPException(status_code=400, detail="没有一行学号能对上班级名单，请检查表格")
 
@@ -416,6 +423,21 @@ def remove_subject(
     return {"message": "已删除"}
 
 
+def _write_cell(db: Session, test: GradeTest, subject: GradeSubject, student_no: str, value: str):
+    """写一个格子；撞上唯一约束就回滚重来一次
+
+    set_cell 是「先查、没有就插」，两个请求同时发现这格没记录时，只有一个插得进去，
+    另一个撞 uq_grade_item。同一格快速失焦两次、客户端超时重试、两个人同时补录
+    都会走到这儿 —— 回滚后重来这次会查到刚插进去的那行，自然改走 update 分支，
+    于是「并发写同一格」的结果是后到的赢，而不是 500。
+    """
+    try:
+        return set_cell(db, test, subject, student_no, value)
+    except IntegrityError:
+        db.rollback()
+        return set_cell(db, test, subject, student_no, value)
+
+
 @router.put("/{test_id}/scores", response_model=GradeScoreResponse,
             summary="写一个格子（班委及以上）")
 def put_score(
@@ -434,24 +456,37 @@ def put_score(
     subject = _get_subject(db, test_id, body.subject_id)
 
     student = db.query(Student).filter(Student.student_no == body.student_no).first()
-    if not student:
-        raise HTTPException(status_code=400, detail="这个学号不在班级名单里")
+    if student is not None:
+        name = student.name or student.student_no
+    else:
+        # 名单里没有的人**本场已经有成绩**时放行：学生是物理删除，毕业删档的人
+        # 在明细里只剩下 grade_items 上的名字快照，格子照旧得能改（明细页也照样
+        # 给他出格子）。但不能凭空造一个新学号 —— 那多半是敲错了，
+        # 只会留下一行谁也认不出的成绩
+        snapshot = (
+            db.query(GradeItem.student_name)
+            .filter(GradeItem.test_id == test.id, GradeItem.student_no == body.student_no)
+            .first()
+        )
+        if snapshot is None:
+            raise HTTPException(status_code=400, detail="这个学号不在班级名单里")
+        name = snapshot[0] or body.student_no
 
     try:
-        item, old, new = set_cell(db, test, subject, student.student_no, body.value)
+        item, old, new = _write_cell(db, test, subject, body.student_no, body.value)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     if old != new:
-        # 明细页可能给一个已经删档的人补分（只剩快照），顺手把名字补全
+        # 快照名字为空时顺手补全（新建的记录就靠它带名字）
         if item is not None and not item.student_name:
-            item.student_name = student.name or student.student_no
+            item.student_name = name
         log_operation(
             db, user, action="修改成绩",
-            target=f"{student.student_no} {student.name or ''}".strip(),
+            target=f"{body.student_no} {name}".strip(),
             detail=f"{test.name} {subject.name}：{old or '空'} → {new or '空'}", ip=ip,
         )
         db.commit()
     # 值没变就什么都不写：不 commit、不记日志（同考勤改状态那条口径）
 
-    return GradeScoreResponse(student_no=student.student_no, subject_id=subject.id, value=new)
+    return GradeScoreResponse(student_no=body.student_no, subject_id=subject.id, value=new)
