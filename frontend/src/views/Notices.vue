@@ -277,12 +277,25 @@
           </el-table-column>
         </el-table>
       </div>
+
+      <!-- 只提醒「还没读的、且没被冻结的」，人数与上面那行「未读 N 人」可能不等 -->
+      <template #footer>
+        <el-button
+          type="primary"
+          :loading="reminding"
+          :disabled="unreadRemindable === 0"
+          @click="handleRemind"
+        >
+          提醒未读的 {{ unreadRemindable }} 人
+        </el-button>
+        <el-button @click="readsVisible = false">关闭</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
@@ -292,7 +305,8 @@ import {
   updateNotice,
   deleteNotice,
   markNoticeRead,
-  getNoticeReads
+  getNoticeReads,
+  remindUnread
 } from '@/api/notice'
 import { downloadFile } from '@/utils/download'
 import { useUserStore } from '@/store/user'
@@ -336,6 +350,20 @@ const readsVisible = ref(false)
 const readsLoading = ref(false)
 const reads = ref(null)
 const readsTitle = ref('')
+// 提醒要按通知 id 发，弹窗里只留了标题
+const readsNoticeId = ref(null)
+const reminding = ref(false)
+
+// 能提醒的人数 = 未读、账号没被冻结、且不是自己。
+// 冻结账号连通知都读不了（读接口会拒）、给自己推一条纯属噪音，后端都跳过了，
+// 这里必须同样排除，否则按钮说 3 人、提示说「已提醒 1 人」，看着像漏推了。
+// （所以这个数字和上面那行「未读 N 人」对不上是正常的。）
+const unreadRemindable = computed(() => {
+  const me = userStore.info?.student_no
+  return (reads.value?.rows || []).filter(
+    (r) => !r.read_at && !r.frozen && r.student_no !== me
+  ).length
+})
 
 // Markdown 渲染（marked 直接输出 HTML）
 function renderMarkdown(text) {
@@ -546,6 +574,7 @@ async function handleDelete(item) {
 /** 打开某条通知的已读情况（按需请求，不在列表里逐条预取） */
 async function openReads(item) {
   readsTitle.value = item.title
+  readsNoticeId.value = item.id
   reads.value = null
   readsVisible.value = true
   readsLoading.value = true
@@ -556,6 +585,36 @@ async function openReads(item) {
     readsVisible.value = false
   } finally {
     readsLoading.value = false
+  }
+}
+
+/** 给没读的人各推一条提醒，推完刷新已读名单 */
+async function handleRemind() {
+  const n = unreadRemindable.value
+  if (!n) return
+  try {
+    await ElMessageBox.confirm(
+      `会给还没读的 ${n} 人各推一条通知，可能打扰到他们。确定提醒吗？`,
+      '提醒确认',
+      { type: 'warning', confirmButtonText: '提醒', cancelButtonText: '取消' }
+    )
+  } catch {
+    return // 点了取消
+  }
+
+  reminding.value = true
+  try {
+    const { reminded, unreachable } = await remindUnread(readsNoticeId.value)
+    // 推不出去的人要单独说，否则「已提醒 X 人」会让人以为这些人都收到了
+    ElMessage.success(
+      `已提醒 ${reminded} 人` +
+        (unreachable ? `，另有 ${unreachable} 人没配置任何推送渠道，收不到提醒` : '')
+    )
+    reads.value = await getNoticeReads(readsNoticeId.value)
+  } catch (e) {
+    ElMessage.error('提醒失败')
+  } finally {
+    reminding.value = false
   }
 }
 
