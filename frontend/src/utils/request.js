@@ -15,6 +15,19 @@ export const FILE_TIMEOUT = 5 * 60 * 1000
 /** 普通接口的超时，文件传输除外（见上面的 FILE_TIMEOUT） */
 const API_TIMEOUT = 15000
 
+/**
+ * 从请求异常里取一句能给用户看的话
+ *
+ * 后端的错误文案在 detail 里（都是中文，见 api/polls.py 的模块说明）。
+ * **但 detail 不一定是字符串**：422 的那种（字段长度、必填、类型不对）是个数组，
+ * 直接塞进 ElMessage 会显示成 "[object Object]" —— 所以数组和不认识的东西
+ * 一律退回兜底文案。调用点全是 `ElMessage.error(errText(e, '提交失败'))`。
+ */
+export function errText(error, fallback) {
+  const detail = error?.response?.data?.detail
+  return typeof detail === 'string' && detail ? detail : fallback
+}
+
 const request = axios.create({
   baseURL: '/api',
   timeout: API_TIMEOUT,

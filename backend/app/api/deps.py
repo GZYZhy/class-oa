@@ -338,3 +338,8 @@ admin_required = require_role("admin")
 def is_committee(user: User) -> bool:
     """是否班委及以上，用于需要按角色分支而非直接拦截的场景"""
     return ROLE_RANK.get(user.role or "student", 0) >= ROLE_RANK["committee"]
+
+
+def is_admin(user: User) -> bool:
+    """是否管理员，口径同 is_committee（角色只有 ROLE_RANK 这一处定义）"""
+    return ROLE_RANK.get(user.role or "student", 0) >= ROLE_RANK["admin"]
