@@ -14,6 +14,7 @@ from ..database import get_db
 from ..models import ChangeRequest, Student, User
 from ..schemas import ChangeRequestCreate, ChangeRequestResponse, RejectRequest
 from ..services import clip, display_name, log_operation, notify, recipients
+from ..utils.student_fields import describe_changes
 from .deps import committee_required, get_current_student, get_current_user, get_client_ip
 
 router = APIRouter(prefix="/api/change-requests", tags=["修改申请"])
@@ -82,7 +83,8 @@ def submit(
     db.add(req)
     log_operation(
         db, user, "提交修改申请", target=f"{student.student_no} {student.name}",
-        detail="；".join(f"{k}={v}" for k, v in changes.items()),
+        # 写成「本人电话：138… → 139…」，和通过申请时那条日志一个口径
+        detail=describe_changes({k: getattr(student, k, None) for k in changes}, changes),
         ip=ip,
     )
     db.commit()
@@ -174,17 +176,20 @@ def approve(
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
-    changes = json.loads(req.changes or "{}")
-    detail_parts = []
+    # 双保险：落库前再按白名单过滤一次，防止历史脏数据越权改字段
+    changes = {
+        key: value
+        for key, value in json.loads(req.changes or "{}").items()
+        if key in EDITABLE_FIELDS
+    }
+    # 详情要在 setattr 之前算：算完 student 就只剩新值了
+    detail = describe_changes({k: getattr(student, k, None) for k in changes}, changes)
     for key, value in changes.items():
-        # 双保险：落库前再按白名单过滤一次，防止历史脏数据越权改字段
-        if key in EDITABLE_FIELDS:
-            detail_parts.append(f"{key}: {getattr(student, key, None)} → {value}")
-            setattr(student, key, value)
+        setattr(student, key, value)
 
     # 先取收件人再收尾：_finish 只负责数据库，通知不该混进它里面
     targets = recipients(db, only_no=req.student_no)
-    result = _finish(db, req, user, "approved", "通过修改申请", detail="；".join(detail_parts), ip=ip)
+    result = _finish(db, req, user, "approved", "通过修改申请", detail=detail, ip=ip)
     notify(
         background, targets, "信息修改申请已通过",
         f"你提交的 {len(changes)} 项修改已生效", level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",

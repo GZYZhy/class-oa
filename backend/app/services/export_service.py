@@ -10,7 +10,6 @@ PDF 导出打不可见水印（复用 pdf_watermark_service），溯源是谁导
 import io
 import json
 import zipfile
-from datetime import date, datetime
 from pathlib import Path
 from typing import List
 
@@ -33,101 +32,11 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from ..models.student import Student
+from ..utils.student_fields import FIELD_GROUPS, FIELD_MAP
 from .pdf_watermark_service import add_invisible_watermark
 
-# ---------------------------------------------------------------------------
-# 字段白名单：prop → {label, group, getter}
-# getter 用来从 Student 对象取值并做格式化（日期、空值等）
-# ---------------------------------------------------------------------------
-
-def _fmt_date(val):
-    if val is None:
-        return ""
-    if isinstance(val, date):
-        return val.strftime("%Y-%m-%d")
-    if isinstance(val, datetime):
-        return val.strftime("%Y-%m-%d %H:%M")
-    return str(val)
-
-def _fmt_str(val):
-    return "" if val is None else str(val)
-
-def _fmt_int(val):
-    return "" if val is None else str(val)
-
-# 字段定义：按组排列，顺序就是 Excel 默认列的顺序
-# (prop, label, getter)
-FIELD_GROUPS = [
-    {
-        "key": "basic",
-        "label": "基本信息",
-        "fields": [
-            ("student_no", "学号", _fmt_str),
-            ("name", "姓名", _fmt_str),
-            ("gender", "性别", _fmt_str),
-            ("birth_date", "出生日期", _fmt_date),
-            ("ethnicity", "民族", _fmt_str),
-            ("political_status", "政治面貌", _fmt_str),
-            ("hometown", "生源地", _fmt_str),
-            ("id_card", "身份证号", _fmt_str),
-            ("major", "专业", _fmt_str),
-            ("class_name", "班级", _fmt_str),
-        ],
-    },
-    {
-        "key": "contact",
-        "label": "联系方式",
-        "fields": [
-            ("phone", "本人电话", _fmt_str),
-            ("qq", "QQ", _fmt_str),
-            ("email", "电子邮箱", _fmt_str),
-            ("family_phone", "家庭电话", _fmt_str),
-            ("family_address", "家庭通信地址", _fmt_str),
-            ("postal_code", "邮政编码", _fmt_str),
-        ],
-    },
-    {
-        "key": "study",
-        "label": "学习信息",
-        "fields": [
-            ("exam_no", "考生号", _fmt_str),
-            ("exam_category", "考生类别", _fmt_str),
-            ("subject_type", "科类", _fmt_str),
-            ("exam_type", "考试类型", _fmt_str),
-            ("admission_batch", "录取批次", _fmt_str),
-            ("gaokao_score", "高考总分", _fmt_int),
-            ("high_school", "毕业中学", _fmt_str),
-            ("registration_status", "报到状态", _fmt_str),
-            ("registration_time", "报到时间", _fmt_date),
-            ("school_status", "在校状态", _fmt_str),
-        ],
-    },
-    {
-        "key": "dorm",
-        "label": "宿舍与职务",
-        "fields": [
-            ("dormitory", "宿舍", _fmt_str),
-            ("bed", "床位", _fmt_str),
-            ("class_position", "班委职务", _fmt_str),
-            ("league_position", "团学会职务", _fmt_str),
-            ("is_poor", "是否贫困生", _fmt_str),
-        ],
-    },
-    {
-        "key": "other",
-        "label": "其他",
-        "fields": [
-            ("remark", "备注", _fmt_str),
-        ],
-    },
-]
-
-# 扁平化字典：prop → (label, getter)
-FIELD_MAP = {}
-for g in FIELD_GROUPS:
-    for prop, label, getter in g["fields"]:
-        FIELD_MAP[prop] = {"label": label, "getter": getter}
+# 字段清单 FIELD_GROUPS / FIELD_MAP 放在 utils/student_fields.py：操作日志也要用
+# 同一份中文名，各存一份迟早会走散（加字段只改一边，另一边冒英文 prop）。
 
 # 默认选中的字段（Excel 导出时前端默认勾上的）
 DEFAULT_FIELDS = [
