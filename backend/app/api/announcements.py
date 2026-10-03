@@ -212,6 +212,10 @@ async def upload_announcement(
     with open(save_path, "wb") as f:
         f.write(content)
 
+    # 发布人一律取当前登录账号的展示名，前端无法伪造。
+    # 用 account_name 而不是学生表：域外账号（老师）也可能有班委权限。
+    # 先取成变量：下面那条推送文案也要用，而且它是个普通字符串，不受 commit 过期影响
+    publisher = account_name(db, user)
     created = create_announcement(
         db,
         title=title,
@@ -219,9 +223,7 @@ async def upload_announcement(
         publish_date=publish_date,
         file_path=f"{URL_PREFIX}/{safe_name}",
         file_name=filename,
-        # 发布人一律取当前登录账号的展示名，前端无法伪造。
-        # 用 account_name 而不是学生表：域外账号（老师）也可能有班委权限
-        publisher=account_name(db, user),
+        publisher=publisher,
         is_public=is_public,
     )
     log_operation(
@@ -242,7 +244,7 @@ async def upload_announcement(
 
     notify(
         background, targets, f"新公告：{title}",
-        f"{student.name} 上传了一份文件" + ("" if is_public else "（仅班委可见）"),
+        f"{publisher} 上传了一份文件" + ("" if is_public else "（仅班委可见）"),
         level="active", page="/announcements",
     )
     return created
