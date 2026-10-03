@@ -18,6 +18,9 @@ Starlette 的 SessionMiddleware 只有一个全局 max_age，
 安全性说明：
   就算有人用浏览器开发者工具把 session cookie 改成持久化的，
   服务端签名的 max_age 还是 7 天，7 天后照样失效，不会无限延长。
+
+**注册顺序有要求**：本中间件必须注册在 SessionMiddleware 之后（后注册的在外层），
+否则读不到 Set-Cookie。原因见下面 dispatch 里的注释 —— 这里踩过坑。
 """
 
 import re
@@ -32,7 +35,12 @@ class RememberMeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
 
-        # 只处理设置了 oa_session cookie 的响应
+        # 必须在外层（注册在 SessionMiddleware 之后）才读得到下面的 Set-Cookie：
+        # oa_session 那个头是 SessionMiddleware 在**响应阶段**才追加的，
+        # 它一旦包在本中间件外面，等这里拿到响应时那个头还没写上去 ——
+        # 于是 found 恒为 False，整个中间件一行都不改，
+        # 结果就是所有人都拿到 SessionMiddleware 那个 7 天的持久 Cookie，
+        # 「不保持登录」勾选框彻底失效。这是本中间件的经典坑，改顺序前先想清楚。
         session = request.session
         remember = session.get("_remember", False) if session else False
 
@@ -56,7 +64,13 @@ class RememberMeMiddleware(BaseHTTPMiddleware):
                 new_cookies.append(cookie)
 
         if found:
-            response.headers.setlist("set-cookie", new_cookies)
+            # MutableHeaders 只有 getlist，**没有 setlist**（starlette 0.38 实测如此），
+            # 原来那行 setlist 一旦真被执行就是 AttributeError。
+            # 要整体替换只能先 del 再逐条 append：del 会一次清掉该 key 的全部值，
+            # 删完按原顺序（new_cookies 就是按原顺序攒的）补回去，顺序不变。
+            del response.headers["set-cookie"]
+            for cookie in new_cookies:
+                response.headers.append("set-cookie", cookie)
 
         return response
 

@@ -280,16 +280,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注意中间件顺序：后加的在内层，before 先执行、after 后执行。
-# RememberMeMiddleware 必须在外层：等 SessionMiddleware 把 cookie 写进响应头之后，
-# 它再根据 session["_remember"] 调整 Max-Age。
-
-# 外层：调整 cookie 有效期（最后执行 after）
-app.add_middleware(RememberMeMiddleware)
+# 注意中间件顺序：**后加的在外层**（add_middleware 把新中间件插到列表最前，
+# 构建时又从后往前包，净效果是最后注册的那个最先拿到请求、最后拿到响应）。
 
 # 内层：会话中间件，负责读/写签名会话
 # 全局 max_age 设成 7 天（签名层面的上限），
-# 具体 cookie 有效期由外层 RememberMeMiddleware 根据「保持登录」勾选动态调整
+# 具体 cookie 有效期由外层的 RememberMeMiddleware 根据「保持登录」勾选动态调整
 app.add_middleware(
     SessionMiddleware,
     secret_key=resolve_session_secret(),
@@ -298,6 +294,12 @@ app.add_middleware(
     same_site="lax",
     https_only=settings.session_cookie_secure,
 )
+
+# 外层：调整 cookie 有效期
+# 必须排在 SessionMiddleware **之后**：oa_session 那个 Set-Cookie 是它在响应阶段
+# 才追加的，注册成内层就永远读不到（那样「不保持登录」会静默失效，所有人都拿到
+# 7 天的持久 Cookie）。详见 middleware.RememberMeMiddleware 的注释。
+app.add_middleware(RememberMeMiddleware)
 
 # 最后注册 = 最外层：0-RTT 写请求在这里当场回 425，
 # 不再往下走到会话、鉴权和数据库。nginx 那边配合 proxy_set_header Early-Data
