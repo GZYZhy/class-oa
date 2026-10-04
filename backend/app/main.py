@@ -21,7 +21,12 @@ from .middleware import RejectEarlyDataMiddleware, RememberMeMiddleware
 from .api import api_router
 from .database import Base, database_kind, engine, SessionLocal
 from .database_migrate import backfill_notice_reads, run_migrations
-from .services import ensure_default_users, purge_expired, seed_from_catalog
+from .services import (
+    ensure_bootstrap_account,
+    ensure_default_users,
+    purge_expired,
+    seed_from_catalog,
+)
 from .services.birthday_service import ensure_settings
 from .services.scheduler import start as start_birthday_scheduler
 from .utils.ip import parse_cidrs
@@ -81,6 +86,23 @@ def init_login_accounts() -> None:
 
 
 init_login_accounts()
+
+
+def init_bootstrap_account() -> None:
+    """按需准备「初始化临时账号」（空库 / 一个管理员都没有时）
+
+    必须排在 init_login_accounts 之后：先按名单把该建的账号建出来，
+    再判断「库里究竟有没有管理员」才准（名单里本来就有人是管理员时，
+    这一步什么都不做）。
+    """
+    db = SessionLocal()
+    try:
+        ensure_bootstrap_account(db)
+    finally:
+        db.close()
+
+
+init_bootstrap_account()
 
 
 def init_resources() -> None:
@@ -284,6 +306,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # 跨域时浏览器**默认不给 JS**读自定义响应头，得在这里点名放行。
+    # 同源部署（nginx 反代 / 开发时 vite 代理）本来就读得到，
+    # 这一行是给「前端另起一个域名」那种配法兜底的，不加会是个很难查的坑
+    expose_headers=["X-Bootstrap-Required"],
 )
 
 # 注意中间件顺序：**后加的在外层**（add_middleware 把新中间件插到列表最前，

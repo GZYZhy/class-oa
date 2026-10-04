@@ -83,6 +83,17 @@ class User(Base):
         Boolean, nullable=False, default=False, server_default=text("0"),
         comment="是否域外账号（不与学生表关联）",
     )
+    # 是否「初始化临时账号」：库里一个管理员都没有时自动建的那个 admin，
+    # 用来完成首次初始化（建/导学生 + 指定一名管理员），条件满足后**整行删除**。
+    #
+    # ⚠ 判定**只认这一列，绝不认登录名** —— 将来完全可能有人建一个真的域外账号
+    # 叫 admin，那时按 student_no == "admin" 判断会把无辜的人当成临时账号
+    # （限制他的权限），或者反过来把临时账号当成真人放过去。
+    # 默认 0：老库补列时所有已存在的账号都视为正常账号
+    is_bootstrap = Column(
+        Boolean, nullable=False, default=False, server_default=text("0"),
+        comment="是否初始化临时账号（用完即删）",
+    )
     # 是否已冻结：禁止登录，且已登录的会话下一个请求就 401
     # （会话是签名 Cookie，服务端没有会话表，所以「踢掉在线会话」靠的是
     #   deps.get_current_user 里那道判断，不是去清什么服务端状态）

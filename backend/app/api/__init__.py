@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from .auth import router as auth_router
 from .public import router as public_router
+from .setup import router as setup_router
 from .students import router as students_router
 from .announcements import router as announcements_router
 from .resources import router as resources_router
@@ -25,6 +26,7 @@ from .grades import router as grades_router
 api_router = APIRouter()
 api_router.include_router(public_router)   # 首页摘要：公开
 api_router.include_router(auth_router)     # 登录/退出/改密
+api_router.include_router(setup_router)    # 初始化：空库引导，用完即废
 api_router.include_router(notices_router)  # 通知公告：列表公开，管理需班委
 api_router.include_router(students_router)      # 学生信息：班委及以上
 api_router.include_router(announcements_router)  # 文件公开：登录可看，管理需班委

@@ -1,6 +1,11 @@
 <template>
+  <!-- 初始化临时账号：整屏浮层，连布局都不渲染。
+       必须用 v-if 把这个外壳整个换掉 —— 拿个弹窗盖在上面的做法行不通：
+       底下的路由页面照样挂载、onMounted 照样发请求，然后撞一堵 403 墙 -->
+  <SetupWizard v-if="userStore.isBootstrap" />
+
   <!-- 登录页使用独立全屏布局 -->
-  <router-view v-if="route.meta.bare" />
+  <router-view v-else-if="route.meta.bare" />
 
   <el-container v-else class="layout-container">
     <el-header class="layout-header">
@@ -134,6 +139,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { setInitialPassword } from '@/api/auth'
 import IosInstallGuide from '@/components/IosInstallGuide.vue'
+import SetupWizard from '@/components/SetupWizard.vue'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
 import { rankOf } from '@/utils/roles'
@@ -154,7 +160,8 @@ const drawerOpen = ref(false)
 // 换页时顺手把红点重算一次（一次 COUNT 查询的代价），同时收起手机端抽屉
 watch(() => route.path, () => {
   drawerOpen.value = false
-  if (userStore.isLogin) badgeStore.refresh()
+  // 初始化账号不拉红点：它的会话被闸门限制着，这个接口必然 403
+  if (userStore.isLogin && !userStore.isBootstrap) badgeStore.refresh()
 })
 
 // 首页不归组，单独拎出来，模板里直接渲染（它游客也看得见，摆最上面）
@@ -248,6 +255,10 @@ const pwdForm = reactive({ new_password: '', confirm: '' })
 watch(
   () => userStore.isLogin,
   async (now) => {
+    // 初始化临时账号到此为止：它被闸门限制着，红点和推送接口都会 403。
+    // 浮层正在接管整个界面，这里也没有任何东西需要更新
+    if (userStore.isBootstrap) return
+
     // 红点与推送无关，所以放在 try 外面：推送这套失败不该连累红线
     // （只在登录时拉一次，未登录的游客不会去碰这个必然 401 的接口）
     if (now) badgeStore.refresh()

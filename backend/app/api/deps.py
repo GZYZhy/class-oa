@@ -181,6 +181,66 @@ def _user_from_pat(request: Request, db: Session) -> Optional[User]:
     return user
 
 
+# 初始化临时账号（is_bootstrap）在完成初始化之前只放行这几条路。
+#
+# 为什么是「HTTP 方法 + 精确路径」而不是路径前缀：students.py 里
+# POST /api/students（放行）和 DELETE /api/students/{id}、
+# POST /api/students/batch-delete、POST /api/students/{id}/photo 共用同一个前缀 ——
+# 按前缀放行等于把删学生的权限交给了这个临时账号。
+#
+# 为什么不给任何 /api/admin/*：POST /api/admin/external-users 能直接建一个
+# 管理员角色的账号，那等于绕过「管理员必须从学生里指定」这条约束。
+# 也不给 /api/auth/tokens：那能签一把长期令牌，而临时账号本该马上消失。
+#
+# 允许的就三件事：登录页要用的那几个接口、读初始化状态、以及「建/导入学生 + 收尾」。
+BOOTSTRAP_ALLOWED = {
+    ("GET", "/api/health"),
+    ("GET", "/api/auth/captcha"),
+    ("GET", "/api/auth/captcha-required"),
+    ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/logout"),
+    ("GET", "/api/auth/me"),
+    ("GET", "/api/auth/avatar"),
+    ("GET", "/api/public/summary"),
+    ("GET", "/api/setup/state"),
+    ("POST", "/api/setup/finish"),
+    ("POST", "/api/students"),
+    ("POST", "/api/students/import/preview"),
+    ("POST", "/api/students/import/preview/token"),
+    ("POST", "/api/students/import"),
+}
+
+# 初始化未完成时前端靠这个响应头认出「是我该弹初始化浮层」，而不是权限不足
+BOOTSTRAP_HEADER = "X-Bootstrap-Required"
+
+
+def _check_bootstrap(request: Request, user: User) -> None:
+    """临时账号在初始化完成前，只准干初始化该干的事
+
+    挂在依赖里而不是写成中间件，是因为**中间件拿不到会话**：
+    SessionMiddleware 注册在中间件链的内层（main.py），外层中间件在请求阶段读
+    request.session 会直接 AssertionError —— 那条路只有「响应阶段才读会话」的
+    RememberMeMiddleware 走得了。挂在依赖上还顺带省掉一次查询：
+    user 行本来就已加载，user.is_bootstrap 白拿。
+
+    判定**只看 is_bootstrap 这一列，绝不看登录名** —— 将来可能真有人建一个
+    叫 admin 的域外账号，按名字判会把他一起关进这个闸门里。
+    """
+    if not user.is_bootstrap:
+        return
+    # 用路由模板（/api/students/{id}）而不是实际路径：后者每个学生一个样，
+    # 白名单根本没法穷举
+    route = request.scope.get("route")
+    path = getattr(route, "path", None) or request.url.path
+    if (request.method, path) in BOOTSTRAP_ALLOWED:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="初始化还没完成，请先建/导入学生并指定一名管理员",
+        headers={BOOTSTRAP_HEADER: "1"},
+    )
+
+
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     """从签名会话（或访问令牌）中获取当前登录用户，未登录返回 401"""
     # 令牌优先：同时带了 Cookie 和 Bearer 时按令牌算 —— 让更严格的一侧胜出，
@@ -226,6 +286,9 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="会话已被吊销，请重新登录",
         )
+    # 初始化闸门放在最后：前面那些判断都可能 clear() 会话，
+    # 先过完它们，再决定这个（可能已经不成立的）身份还能干什么
+    _check_bootstrap(request, user)
     return user
 
 

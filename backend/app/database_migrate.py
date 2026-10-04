@@ -43,6 +43,9 @@ NEW_COLUMNS = [
     ("notices", "editors", "TEXT DEFAULT ''"),
     # 是否冻结账号。默认 0：补列时老账号一律视为未冻结，行为与补列前一致
     ("users", "is_frozen", "BOOLEAN NOT NULL DEFAULT 0"),
+    # 是否初始化临时账号。默认 0：补列时已有的账号全是正常账号，
+    # 不会有人被突然当成临时账号（那种会被限制权限、并在初始化完成后删除）
+    ("users", "is_bootstrap", "BOOLEAN NOT NULL DEFAULT 0"),
     # 会话代次。默认 0：补列前签发的会话 cookie 里没有这个字段，校验时按 0 处理，
     # 正好和这里的默认值对上，所以升级不会把已登录的人集体踢下线
     ("users", "session_epoch", "INTEGER NOT NULL DEFAULT 0"),

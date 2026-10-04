@@ -182,6 +182,10 @@ class UserInfoResponse(BaseModel):
     must_change_password: bool
     # 域外账号：前端据此隐藏「我的信息」「办事中心」等绑定学生身份的入口
     is_external: bool = False
+    # 初始化临时账号：前端据此弹出不可关闭的初始化浮层，逼着先把初始化做完。
+    # 判定只认 users.is_bootstrap 这一列，**与登录名是不是 admin 无关** ——
+    # 将来可能真有人建一个叫 admin 的域外账号
+    is_bootstrap: bool = False
     # Bark 推送设备 key，没开推送时为空。只返给本人（就是他在自己手机 App 首页看到的那串）
     bark_key: Optional[str] = None
     # 管理员有没有把 SMTP 配齐（config.smtp_enabled()）。
