@@ -285,8 +285,7 @@ cd backend && pip install -r requirements-dev.txt && python -m pytest tests -q
 cd frontend && npm test
 ```
 
-写测试的口径：**只钉要命的** —— 安全默认值、权限闸门不许漏、改错就不可逆的路径。
-细枝末节不写进测试，免得测试本身变成负担。
+测试跟着改动走：新增功能或修改行为时，一并补上对应的回归测试。
 
 ## 更多
 
