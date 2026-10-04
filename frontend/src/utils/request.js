@@ -105,6 +105,20 @@ request.interceptors.response.use(
     if (error.response?.status === 401 && !error.config?.skipAuthRedirect) {
       redirectToLogin()
     }
+
+    // 403 且带 X-Bootstrap-Required 头 = 当前是初始化临时账号，这个接口不在
+    // 白名单里（后端 api/deps.py 的闸门）。正常情况浮层已经整屏接管了界面，
+    // 走不到这里；真走到了就重新问一遍登录态 —— App.vue 靠 isBootstrap 决定
+    // 渲染浮层还是正常布局，问清楚就能对上。
+    // 不弹错：这是初始化期间的预期拒绝，浮层里已经讲明白了，再弹一个
+    // 「操作被拒绝」只会让人以为系统坏了
+    if (error.response?.headers?.['x-bootstrap-required']) {
+      console.warn('初始化未完成：该接口在完成初始化之前不可用')
+      import('@/store/user')
+        .then(({ useUserStore }) => useUserStore().fetchMe())
+        .catch(() => {})
+    }
+
     console.error('请求错误:', error)
     return Promise.reject(error)
   }

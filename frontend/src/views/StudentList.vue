@@ -715,185 +715,8 @@
       @close="viewerVisible = false"
     />
 
-    <!-- 导入 Excel 弹框 -->
-    <el-dialog
-      v-model="importDialogVisible"
-      title="批量导入学生"
-      width="620px"
-      :close-on-click-modal="false"
-      @closed="resetImportForm"
-    >
-      <!-- 步骤 1：上传文件 -->
-      <div v-if="importStep === 1" class="import-step">
-        <el-upload
-          ref="importUploadRef"
-          class="import-uploader"
-          drag
-          :auto-upload="false"
-          :limit="1"
-          accept=".xlsx"
-          :on-exceed="handleImportExceed"
-          :on-change="handleImportFileChange"
-        >
-          <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-          <div class="el-upload__text">
-            将 Excel 文件拖到此处，或 <em>点击上传</em>
-          </div>
-          <template #tip>
-            <div class="el-upload__tip">
-              只支持 .xlsx 格式，单文件不超过 20MB；支持的列名：学号、姓名、性别、专业、班级、出生日期、民族、
-              政治面貌、生源地、身份证号、考生号、考生类别、科类、考试类型、录取批次、高考总分、
-              毕业中学、报到状态、报到时间、在校状态、本人电话、家庭电话、QQ号码、本人电子邮箱、
-              家庭通信地址、邮政编码、宿舍、床位、班委、团学会职务、贫困生、备注、高考照片、实地采集
-            </div>
-          </template>
-        </el-upload>
-
-        <el-form v-if="importPreviewData?.available_sheets?.length > 1" style="margin-top: 16px;">
-          <el-form-item label="工作表">
-            <el-select v-model="importSheetName" style="width: 100%;" @change="handleSheetChange">
-              <el-option
-                v-for="sheet in importPreviewData.available_sheets"
-                :key="sheet"
-                :label="sheet"
-                :value="sheet"
-              />
-            </el-select>
-          </el-form-item>
-        </el-form>
-      </div>
-
-      <!-- 步骤 2：预览确认 -->
-      <div v-if="importStep === 2" class="import-step">
-        <el-alert
-          :title="`共解析 ${importPreviewData.total_rows} 行有效数据`"
-          type="info"
-          :closable="false"
-          show-icon
-          style="margin-bottom: 16px;"
-        />
-
-        <div class="import-stats">
-          <div class="stat-item stat-create">
-            <div class="stat-num">{{ importPreviewData.will_create }}</div>
-            <div class="stat-label">将新增</div>
-          </div>
-          <div class="stat-item stat-update">
-            <div class="stat-num">{{ importPreviewData.will_update }}</div>
-            <div class="stat-label">将覆盖</div>
-          </div>
-          <div class="stat-item stat-skip">
-            <div class="stat-num">{{ importPreviewData.skip_count }}</div>
-            <div class="stat-label">跳过</div>
-          </div>
-          <div class="stat-item stat-photo">
-            <div class="stat-num">{{ importPreviewData.photo_count }}</div>
-            <div class="stat-label">照片</div>
-          </div>
-        </div>
-
-        <el-alert
-          v-if="importPreviewData.warnings?.length"
-          :title="`有 ${importPreviewData.warnings.length} 条警告`"
-          type="warning"
-          :closable="false"
-          show-icon
-          style="margin-bottom: 16px;"
-        >
-          <template #default>
-            <ul style="margin: 0; padding-left: 20px; font-size: 13px;">
-              <li v-for="(w, i) in importPreviewData.warnings.slice(0, 10)" :key="i">{{ w }}</li>
-              <li v-if="importPreviewData.warnings.length > 10">... 还有 {{ importPreviewData.warnings.length - 10 }} 条</li>
-            </ul>
-          </template>
-        </el-alert>
-
-        <div v-if="importPreviewData.sample_create?.length" class="import-sample">
-          <div class="sample-title">新增样例（前 {{ importPreviewData.sample_create.length }} 条）</div>
-          <el-table :data="importPreviewData.sample_create" size="small" border stripe>
-            <el-table-column prop="student_no" label="学号" width="140" />
-            <el-table-column prop="name" label="姓名" width="100" />
-            <el-table-column prop="class_name" label="班级" />
-          </el-table>
-        </div>
-
-        <div v-if="importPreviewData.sample_update?.length" class="import-sample">
-          <div class="sample-title">覆盖样例（前 {{ importPreviewData.sample_update.length }} 条）</div>
-          <el-table :data="importPreviewData.sample_update" size="small" border stripe>
-            <el-table-column prop="student_no" label="学号" width="140" />
-            <el-table-column prop="name" label="姓名" width="100" />
-            <el-table-column prop="class_name" label="班级" />
-          </el-table>
-        </div>
-
-        <el-alert
-          title="覆盖规则：学号已存在的学生，只更新学生信息（姓名/班级/电话等），不动登录账号、密码、角色和推送订阅"
-          type="warning"
-          effect="dark"
-          :closable="false"
-          style="margin-top: 16px;"
-        />
-      </div>
-
-      <!-- 步骤 3：导入结果 -->
-      <div v-if="importStep === 3" class="import-step">
-        <el-result
-          icon="success"
-          title="导入完成"
-          :sub-title="importResult.message"
-        >
-          <template #extra>
-            <div class="import-stats result-stats">
-              <div class="stat-item stat-create">
-                <div class="stat-num">{{ importResult.created }}</div>
-                <div class="stat-label">新增</div>
-              </div>
-              <div class="stat-item stat-update">
-                <div class="stat-num">{{ importResult.updated }}</div>
-                <div class="stat-label">覆盖</div>
-              </div>
-              <div class="stat-item stat-skip">
-                <div class="stat-num">{{ importResult.skipped }}</div>
-                <div class="stat-label">跳过</div>
-              </div>
-            </div>
-          </template>
-        </el-result>
-
-        <el-alert
-          v-if="importResult.warnings?.length"
-          :title="`有 ${importResult.warnings.length} 条警告`"
-          type="warning"
-          :closable="false"
-          show-icon
-          style="margin-top: 16px;"
-        >
-          <template #default>
-            <ul style="margin: 0; padding-left: 20px; font-size: 13px;">
-              <li v-for="(w, i) in importResult.warnings.slice(0, 10)" :key="i">{{ w }}</li>
-            </ul>
-          </template>
-        </el-alert>
-      </div>
-
-      <template #footer>
-        <template v-if="importStep === 1">
-          <el-button @click="importDialogVisible = false">取消</el-button>
-          <el-button type="primary" :disabled="!importFile || importPreviewLoading" :loading="importPreviewLoading" @click="doImportPreview">
-            下一步：预览
-          </el-button>
-        </template>
-        <template v-else-if="importStep === 2">
-          <el-button @click="importStep = 1">上一步</el-button>
-          <el-button type="primary" :loading="importConfirmLoading" @click="doImportConfirm">
-            确认导入
-          </el-button>
-        </template>
-        <template v-else>
-          <el-button type="primary" @click="finishImport">完成</el-button>
-        </template>
-      </template>
-    </el-dialog>
+    <!-- 导入 Excel 弹框（与初始化浮层共用同一个组件） -->
+    <StudentImportDialog ref="importDialogRef" @done="fetchList" />
 
     <!-- 导出弹框 -->
     <el-dialog
@@ -1078,8 +901,6 @@ import {
   deleteStudent,
   uploadStudentPhoto,
   deleteStudentPhoto,
-  importPreview,
-  importConfirm,
   batchDeleteStudents
 } from '@/api/student'
 import {
@@ -1093,6 +914,7 @@ import Watermark from '@/components/Watermark.vue'
 import RollCallDialog from '@/components/RollCallDialog.vue'
 import DrawDialog from '@/components/DrawDialog.vue'
 import PhotoImportDialog from '@/components/PhotoImportDialog.vue'
+import StudentImportDialog from '@/components/StudentImportDialog.vue'
 import { useWatermark } from '@/composables/useWatermark'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { copyText } from '@/utils/clipboard'
@@ -1106,6 +928,7 @@ const router = useRouter()
 const rollCallRef = ref(null)
 const drawRef = ref(null)
 const photoImportRef = ref(null)
+const importDialogRef = ref(null)
 
 // 满页个人信息，盖一层「谁在看」的水印
 const watermarkText = useWatermark()
@@ -1325,7 +1148,7 @@ function resetEditForm() {
 
 /** 「更多」下拉：管理员那三个低频操作 */
 function handleMore(command) {
-  if (command === 'import') importDialogVisible.value = true
+  if (command === 'import') importDialogRef.value?.open()
   else if (command === 'photo-import') photoImportRef.value?.open()
   else if (command === 'create') handleCreate()
   else if (command === 'batch-delete') handleBatchDelete()
@@ -1539,97 +1362,6 @@ async function handleSaveRemark() {
   } finally {
     saving.value = false
   }
-}
-
-// ==================== 导入 Excel ====================
-
-const importDialogVisible = ref(false)
-const importStep = ref(1) // 1=上传 2=预览 3=结果
-const importFile = ref(null)
-const importUploadRef = ref(null)
-const importSheetName = ref('')
-const importPreviewLoading = ref(false)
-const importConfirmLoading = ref(false)
-const importPreviewData = ref(null)
-const importResult = ref(null)
-const _importToken = ref('') // 内部保存的预览令牌
-
-function resetImportForm() {
-  importStep.value = 1
-  importFile.value = null
-  importSheetName.value = ''
-  importPreviewData.value = null
-  importResult.value = null
-  _importToken.value = ''
-  // 清空上传组件的文件列表
-  if (importUploadRef.value) {
-    importUploadRef.value.clearFiles()
-  }
-}
-
-function handleImportFileChange(file) {
-  importFile.value = file.raw || file
-}
-
-function handleImportExceed() {
-  ElMessage.warning('只能上传一个文件')
-}
-
-async function doImportPreview() {
-  if (!importFile.value) {
-    ElMessage.warning('请先选择文件')
-    return
-  }
-  importPreviewLoading.value = true
-  try {
-    const data = await importPreview(importFile.value, importSheetName.value || undefined)
-    importPreviewData.value = data
-    _importToken.value = data.token || ''
-    importStep.value = 2
-  } catch (e) {
-    // request 拦截器会弹错误消息，这里只关 loading
-  } finally {
-    importPreviewLoading.value = false
-  }
-}
-
-async function handleSheetChange() {
-  // 切工作表时重新预览
-  if (!importFile.value) return
-  importPreviewLoading.value = true
-  try {
-    const data = await importPreview(importFile.value, importSheetName.value)
-    importPreviewData.value = data
-    _importToken.value = data.token || ''
-  } catch (e) {
-    // 拦截器会弹错
-  } finally {
-    importPreviewLoading.value = false
-  }
-}
-
-async function doImportConfirm() {
-  if (!_importToken.value) {
-    ElMessage.error('预览已过期，请重新上传')
-    return
-  }
-  importConfirmLoading.value = true
-  try {
-    const data = await importConfirm(_importToken.value)
-    importResult.value = data
-    importStep.value = 3
-    // 导入成功后刷新列表
-    fetchList()
-  } catch (e) {
-    // 拦截器弹错
-  } finally {
-    importConfirmLoading.value = false
-  }
-}
-
-function finishImport() {
-  importDialogVisible.value = false
-  resetImportForm()
 }
 
 // ==================== 导出 ====================
@@ -2087,54 +1819,6 @@ watch(() => route.query.open, openFromQuery)
     width: 100%;
     justify-content: flex-start;
   }
-}
-
-/* 导入弹框 */
-.import-step {
-  min-height: 200px;
-}
-.import-uploader :deep(.el-upload-dragger) {
-  padding: 32px 20px;
-}
-.import-stats {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.import-stats .stat-item {
-  flex: 1;
-  text-align: center;
-  padding: 16px 8px;
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
-}
-.result-stats {
-  justify-content: center;
-  padding: 0 40px;
-}
-.stat-item .stat-num {
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.2;
-  margin-bottom: 4px;
-}
-.stat-item .stat-label {
-  font-size: 13px;
-  color: var(--el-text-color-regular);
-}
-.stat-create .stat-num { color: #67c23a; }
-.stat-update .stat-num { color: #e6a23c; }
-.stat-skip .stat-num { color: var(--el-text-color-secondary); }
-.stat-photo .stat-num { color: #409eff; }
-
-.import-sample + .import-sample {
-  margin-top: 16px;
-}
-.import-sample .sample-title {
-  font-size: 14px;
-  color: var(--el-text-color-regular);
-  margin-bottom: 8px;
-  font-weight: 500;
 }
 
 /* 导出弹框：字段分组 */

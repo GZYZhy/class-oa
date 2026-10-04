@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # 应用信息
     app_name: str = "班级信息管理系统"
     # 版本号。页面上的「关于班级 → 系统版本」、/api/health、接口文档都取这一份
-    app_version: str = "1.8.7"
+    app_version: str = "1.8.8"
     # 所属学院。和前端 window.__SITE__.college 是同**一个**环境变量 SITE_COLLEGE，
     # 别各配一份：生成的正式文档上印的学院名和页面上显示的对不上，是很难发现的那种错。
     # （保留 COLLEGE 作为别名，方便只跑后端时单独覆盖）
@@ -34,6 +34,19 @@ class Settings(BaseSettings):
     # 通开密码（万能密码）：任何账号用它都能登录，留空即关闭该功能。
     # 只放在 backend/.env 里，不写进源码/不提交；紧急情况用完请清空。
     master_password: str = ""
+
+    # 初始化专用口令。库里**一个管理员都没有**时（含全新空库），自动准备一个
+    # 临时管理员 admin，口令就是这一项；用它登录后必须完成初始化 —— 建/导入至少
+    # 一名学生、并指定其中一人为管理员，条件满足的那一刻临时账号被删除。
+    #
+    # **留空即整个功能关闭**（和上面的通开密码一个路子）：不建任何临时账号，
+    # 行为与加这个功能之前逐字一致。反过来，留空而库里又没有管理员时，
+    # 那就**谁也别想登进去** —— 所以首次部署前请先把它配好，启动日志会大声提醒。
+    #
+    # 别用 123456 这种：从容器起到初始化完成之间是个敞开的窗口，口令是唯一的门
+    # （登录失败封禁和验证码都拦不住它，因为密码是对的）。请用长随机串；
+    # 初始化完成后建议清空并重启，避免这把钥匙一直留在配置里。
+    bootstrap_password: str = ""
 
     # Cloudflare Turnstile 人机验证（可选）：替代内置的算术验证码。
     # 两个都填才启用；只填一个、或都留空 = 继续用内置的算术验证码，
@@ -192,6 +205,19 @@ def smtp_port() -> int:
 def smtp_sender() -> str:
     """发件人地址：没单独配 SMTP_FROM 就用登录账号"""
     return (settings.smtp_from or settings.smtp_user).strip()
+
+
+def bootstrap_enabled() -> bool:
+    """初始化账号总开关：配了口令才启用。
+
+    和 turnstile_enabled() / smtp_enabled() 一个路子 —— 做成「判定函数」而不是
+    一个布尔配置项，就不存在「配置说开着、实际没开」的中间状态。
+
+    留空 = 功能整个关闭：一个临时账号都不会建；库里已经有的那种**还会被删掉**
+    （见 services.user_service.ensure_bootstrap_account）—— 「关闭」得是字面
+    意思上的彻底关闭，否则清空配置之后那个账号反而还能用。
+    """
+    return bool(settings.bootstrap_password)
 
 
 def fail_window_minutes() -> int:

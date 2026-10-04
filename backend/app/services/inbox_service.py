@@ -26,8 +26,12 @@ def recipient_nos(
 
     对象是 User 而不是 Student：域外账号（is_external）也会收到通知，
     而 Student 表里根本没有他们。
+
+    但**初始化临时账号（is_bootstrap）一律不发**：它是个马上就要被删掉的
+    占位账号，给它存档只会让「收件人」这类计数莫名其妙地多一个人，
+    而那个人是不存在的。
     """
-    query = db.query(User.student_no)
+    query = db.query(User.student_no).filter(User.is_bootstrap.is_(False))
     if roles:
         query = query.filter(User.role.in_(roles))
     if only_no:
