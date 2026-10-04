@@ -25,10 +25,15 @@ from .notice_service import (
     read_status,
 )
 from .user_service import (
+    BOOTSTRAP_LOGIN,
     account_name,
+    bootstrap_state,
     create_account_for,
     default_password,
+    ensure_bootstrap_account,
     ensure_default_users,
+    finish_bootstrap,
+    has_real_admin,
 )
 from .log_service import (
     account_events,
@@ -99,10 +104,15 @@ __all__ = [
     "read_notice_ids",
     "unread_count",
     "read_status",
+    "BOOTSTRAP_LOGIN",
     "account_name",
+    "bootstrap_state",
     "create_account_for",
     "default_password",
+    "ensure_bootstrap_account",
     "ensure_default_users",
+    "finish_bootstrap",
+    "has_real_admin",
     "log_operation",
     "display_name",
     "account_operations",

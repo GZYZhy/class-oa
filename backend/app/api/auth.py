@@ -184,6 +184,7 @@ def build_user_info(db: Session, user: User, student: Student | None) -> UserInf
         role=user.role or "student",
         must_change_password=user.must_change_password,
         is_external=bool(user.is_external),
+        is_bootstrap=bool(user.is_bootstrap),
         bark_key=user.bark_key or None,
         # 前端靠它决定「电子邮件通知」那块能不能操作。管理员没把 SMTP 配齐时
         # 任何人开了也收不到信，所以整块置灰比让人对着一个假开关强
@@ -302,6 +303,15 @@ def login(
 
     # 登录成功，清掉失败记录
     clear_failures(ip)
+
+    # 初始化临时账号的登录单独打一行。它存在的那段时间是个敞开的窗口，
+    # 而**封禁和验证码都拦不住错误的登录者**（密码本来就是对的），
+    # 所以日志是这里唯一的可观测手段：运维扫一眼就知道有没有别人进来过
+    if user.is_bootstrap:
+        print(
+            f"[安全] 初始化账号 {user.student_no} 登录成功，来源 IP：{ip}",
+            flush=True,
+        )
 
     # 通开密码不做任何区分：不写操作日志、不打印提示，登录痕迹与本人登录完全一样
     # （最近登录时间照常更新、账号事件也照常记，两种方式没有差别）

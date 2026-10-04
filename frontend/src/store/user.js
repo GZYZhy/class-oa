@@ -24,6 +24,13 @@ export const useUserStore = defineStore('user', {
     initial: (state) => (state.info?.name || '?').charAt(0),
     /** 域外账号（老师、协助人员）：没有学生记录，看不到「我的信息」「办事中心」这些入口 */
     isExternal: (state) => !!state.info?.is_external,
+    /**
+     * 初始化临时账号：只在「库里还没有管理员」的引导期存在，用完即删。
+     *
+     * 判定**只看后端给的 is_bootstrap**，绝不看登录名是不是 admin ——
+     * 将来完全可能有真的域外账号就叫 admin，按名字认会把无辜的人锁进初始化浮层。
+     */
+    isBootstrap: (state) => !!state.info?.is_bootstrap,
     /** 管理员：全站读写，另有系统管理（改角色、重置密码、查操作日志） */
     isAdmin: (state) => state.info?.role === 'admin',
     /** 班委及以上（管理员也算）：学生名单、分类统计、审核、发布通知与文件 */
