@@ -28,6 +28,10 @@ data/
 
 # 老路径（向后兼容，老版本数据放在 backend/data/）
 backend/data/
+# 本机开发时 backend/data 是指向 ../data/backend 的软链（后端按 BASE_DIR/data
+# 找照片、资料、密钥，指过去就能直接读到真实数据）。带尾斜杠的规则只匹配目录，
+# 匹配不到软链，所以这条得单独写。
+backend/data
 
 # IDE
 .idea/
