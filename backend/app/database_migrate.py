@@ -78,6 +78,13 @@ NEW_COLUMNS = [
     ("birthday_settings", "last_run_at", "DATETIME"),
     ("birthday_settings", "last_run_birthdays", "INTEGER"),
     ("birthday_settings", "last_run_notices", "INTEGER"),
+    # ---------- 学生备注附件 ----------
+    # 备注从纯文本升级成 Markdown + 附件。附件元信息以 JSON 串存在这一列，
+    # 老行补成空串 = 没有附件，与 noticies.attachments 的模式一致
+    ("students", "remark_attachments", "TEXT DEFAULT ''"),
+    # ---------- 自备证件照 ----------
+    # 第三种照片：学生自己上传的证件照，与高考照片、实地采集照片并列
+    ("students", "id_photo", "VARCHAR(200)"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张邗语（班长）、赵梦婷（团支书）

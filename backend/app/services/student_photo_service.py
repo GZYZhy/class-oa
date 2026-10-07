@@ -33,8 +33,16 @@ from .student_import_service import PHOTO_DIR, _remove_photo_safe
 # 很容易只改了其中一边
 ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 MAX_PHOTO_SIZE = 10 * 1024 * 1024  # 10MB，手机拍的实地采集照片也不会更大
-PHOTO_FIELDS = {"gaokao": "gaokao_photo", "on_site": "on_site_photo"}
-PHOTO_TYPE_LABELS = {"gaokao": "高考照片", "on_site": "实地采集照片"}
+PHOTO_FIELDS = {
+    "gaokao": "gaokao_photo",
+    "on_site": "on_site_photo",
+    "id": "id_photo",
+}
+PHOTO_TYPE_LABELS = {
+    "gaokao": "高考照片",
+    "on_site": "实地采集照片",
+    "id": "自备证件照",
+}
 
 # 待确认的 zip 放临时目录，10 分钟过期。文件名带 photos_ 前缀，于是客户端
 # 回传的 token 就算写成「../../x」也只会落在这一层里（"photos_.." 是个普通

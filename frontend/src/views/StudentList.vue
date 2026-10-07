@@ -224,7 +224,6 @@
           </template>
         </el-table-column>
         <el-table-column prop="name" label="姓名" width="90" align="center" />
-        <el-table-column prop="student_no" label="学号" width="130" align="center" />
         <el-table-column prop="gender" label="性别" width="60" align="center">
           <template #default="{ row }">
             <el-tag :type="row.gender === '男' ? 'primary' : 'danger'" size="small">
@@ -232,12 +231,14 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="student_no" label="学号" width="130" align="center" />
         <el-table-column prop="ethnicity" label="民族" width="90" align="center" />
         <el-table-column prop="political_status" label="政治面貌" width="100" align="center" />
         <!-- 生源地不再平铺展示，让位给备注：备注是班委内部记录，需要一眼看到 -->
+        <!-- 备注列：去掉 Markdown 语法符号后显示，避免表格里出现 # ** 等符号 -->
         <el-table-column prop="remark" label="备注" min-width="180" align="center" show-overflow-tooltip>
           <template #default="{ row }">
-            <span v-if="row.remark">{{ row.remark }}</span>
+            <span v-if="row.remark">{{ stripMarkdown(row.remark) }}</span>
             <span v-else style="color: var(--el-text-color-disabled);">-</span>
           </template>
         </el-table-column>
@@ -401,12 +402,41 @@
               {{ currentStudent.is_poor }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="备注" :span="detailColumns">{{ currentStudent.remark || '无' }}</el-descriptions-item>
         </el-descriptions>
+
+        <!-- 备注：独立一块，和照片资料平级 -->
+        <div class="remark-section">
+          <h4 class="section-title">
+            <el-icon><EditPen /></el-icon> 备注
+          </h4>
+          <div v-if="currentStudent.remark" class="markdown-body remark-detail-content" v-html="renderMarkdown(currentStudent.remark)"></div>
+          <div v-else style="color: var(--el-text-color-disabled);">暂无备注</div>
+
+          <!-- 备注附件列表 -->
+          <div v-if="currentStudent.remark_attachments?.length" class="remark-attach-section">
+            <div class="attach-title">
+              <el-icon><Paperclip /></el-icon>
+              附件（{{ currentStudent.remark_attachments.length }}）
+            </div>
+            <div class="attach-list">
+              <div
+                v-for="(att, idx) in currentStudent.remark_attachments"
+                :key="idx"
+                class="attach-item"
+                @click="downloadRemarkAttachment(currentStudent.id, idx, att.name)"
+              >
+                <el-icon><Document /></el-icon>
+                <span class="attach-name">{{ att.name }}</span>
+                <span class="attach-size">{{ formatFileSize(att.size) }}</span>
+                <el-icon class="attach-download"><Download /></el-icon>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- 照片展示区 -->
         <div class="photos-section" v-if="currentStudent.gaokao_photo || currentStudent.on_site_photo">
-          <h4 style="margin: 20px 0 12px 0; color: var(--el-text-color-primary); font-size: 15px;">
+          <h4 class="section-title">
             <el-icon><Picture /></el-icon> 照片资料
           </h4>
           <div class="photos-row">
@@ -500,11 +530,6 @@
                   <el-input v-model="editForm.id_card" />
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :sm="12">
-                <el-form-item label="在校状态">
-                  <el-input v-model="editForm.school_status" />
-                </el-form-item>
-              </el-col>
 
               <el-col :span="24">
                 <el-form-item label="照片">
@@ -595,7 +620,7 @@
             </el-row>
           </el-tab-pane>
 
-          <el-tab-pane label="学习信息" name="study">
+          <el-tab-pane label="入学信息" name="enrollment">
             <el-row :gutter="20">
               <el-col :xs="24" :sm="12">
                 <el-form-item label="高考总分">
@@ -633,18 +658,31 @@
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :sm="12">
-                <el-form-item label="是否贫困生">
-                  <el-select v-model="editForm.is_poor" style="width: 100%">
-                    <el-option label="是" value="是" />
-                    <el-option label="否" value="否" />
-                  </el-select>
+                <el-form-item label="报到状态">
+                  <el-input v-model="editForm.registration_status" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="报到时间">
+                  <el-date-picker
+                    v-model="editForm.registration_time"
+                    type="datetime"
+                    style="width: 100%"
+                    value-format="YYYY-MM-DD HH:mm:ss"
+                    placeholder="选择报到时间"
+                  />
                 </el-form-item>
               </el-col>
             </el-row>
           </el-tab-pane>
 
-          <el-tab-pane label="宿舍职务" name="dorm">
+          <el-tab-pane label="在校情况" name="school">
             <el-row :gutter="20">
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="在校状态">
+                  <el-input v-model="editForm.school_status" />
+                </el-form-item>
+              </el-col>
               <el-col :xs="24" :sm="12">
                 <el-form-item label="宿舍">
                   <el-input v-model="editForm.dormitory" />
@@ -665,9 +703,86 @@
                   <el-input v-model="editForm.league_position" />
                 </el-form-item>
               </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="是否贫困生">
+                  <el-select v-model="editForm.is_poor" style="width: 100%">
+                    <el-option label="是" value="是" />
+                    <el-option label="否" value="否" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-tab-pane>
+
+          <el-tab-pane label="备注" name="remark">
+            <el-row :gutter="20">
               <el-col :span="24">
-                <el-form-item label="备注">
-                  <el-input v-model="editForm.remark" type="textarea" :rows="3" />
+                <el-form-item label="备注内容">
+                  <el-input
+                    v-model="editForm.remark"
+                    type="textarea"
+                    :rows="10"
+                    placeholder="支持 Markdown 格式：# 标题、**加粗**、- 列表 等；班委内部记录，普通学生看不到"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="24">
+                <el-form-item label="附件">
+                  <div class="upload-area">
+                    <!-- 已有附件 -->
+                    <div v-if="editAttachments.length" class="existing-attachments">
+                      <div
+                        v-for="(att, idx) in editAttachments"
+                        :key="'edit-old-' + idx"
+                        class="attach-row"
+                      >
+                        <el-icon><Document /></el-icon>
+                        <span class="attach-name">{{ att.name }}</span>
+                        <span class="attach-size">{{ formatFileSize(att.size) }}</span>
+                        <el-button
+                          type="danger"
+                          link
+                          size="small"
+                          @click="removeEditAttachment(idx)"
+                        >移除</el-button>
+                      </div>
+                    </div>
+                    <!-- 新上传的文件 -->
+                    <div v-if="editNewAttachments.length" class="existing-attachments">
+                      <div
+                        v-for="(file, idx) in editNewAttachments"
+                        :key="'edit-new-' + idx"
+                        class="attach-row"
+                      >
+                        <el-icon><Document /></el-icon>
+                        <span class="attach-name">{{ file.name }}</span>
+                        <span class="attach-size">{{ formatFileSize(file.size) }}</span>
+                        <el-button
+                          type="danger"
+                          link
+                          size="small"
+                          @click="removeEditNewAttachment(idx)"
+                        >移除</el-button>
+                      </div>
+                    </div>
+                    <el-upload
+                      class="remark-upload"
+                      :auto-upload="false"
+                      :show-file-list="false"
+                      :on-change="handleEditAttachChange"
+                      :accept="REMARK_ALLOWED_EXTS"
+                      multiple
+                    >
+                      <el-button :disabled="editAttachments.length + editNewAttachments.length >= REMARK_MAX_TOTAL_ATTACHMENTS">
+                        <el-icon><Upload /></el-icon>
+                        上传附件
+                      </el-button>
+                    </el-upload>
+                    <div class="upload-tip">
+                      每次最多上传 {{ REMARK_MAX_NEW_ATTACHMENTS }} 个，每个 {{ REMARK_MAX_ATTACH_SIZE / 1024 / 1024 }}MB；
+                      总共最多 {{ REMARK_MAX_TOTAL_ATTACHMENTS }} 个附件
+                    </div>
+                  </div>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -686,7 +801,7 @@
     <el-dialog
       v-model="remarkVisible"
       :title="`编辑备注 - ${remarkForm.name || ''}`"
-      width="520px"
+      width="640px"
       :close-on-click-modal="false"
     >
       <el-form :model="remarkForm" label-width="70px">
@@ -694,11 +809,67 @@
           <el-input
             v-model="remarkForm.remark"
             type="textarea"
-            :rows="4"
-            maxlength="200"
-            show-word-limit
-            placeholder="班委内部记录，普通学生看不到"
+            :rows="10"
+            placeholder="支持 Markdown 格式：# 标题、**加粗**、- 列表 等；班委内部记录，普通学生看不到"
           />
+        </el-form-item>
+        <el-form-item label="附件">
+          <div class="upload-area">
+            <!-- 已有附件 -->
+            <div v-if="remarkAttachments.length" class="existing-attachments">
+              <div
+                v-for="(att, idx) in remarkAttachments"
+                :key="'old-' + idx"
+                class="attach-row"
+              >
+                <el-icon><Document /></el-icon>
+                <span class="attach-name">{{ att.name }}</span>
+                <span class="attach-size">{{ formatFileSize(att.size) }}</span>
+                <el-button
+                  type="danger"
+                  link
+                  size="small"
+                  @click="removeRemarkAttachment(idx)"
+                >移除</el-button>
+              </div>
+            </div>
+            <!-- 新上传的文件 -->
+            <div v-if="remarkNewAttachments.length" class="existing-attachments">
+              <div
+                v-for="(file, idx) in remarkNewAttachments"
+                :key="'new-' + idx"
+                class="attach-row"
+              >
+                <el-icon><Document /></el-icon>
+                <span class="attach-name">{{ file.name }}</span>
+                <span class="attach-size">{{ formatFileSize(file.size) }}</span>
+                <el-button
+                  type="danger"
+                  link
+                  size="small"
+                  @click="removeNewRemarkAttachment(idx)"
+                >移除</el-button>
+              </div>
+            </div>
+            <!-- 上传按钮 -->
+            <el-upload
+              class="remark-upload"
+              :auto-upload="false"
+              :show-file-list="false"
+              :on-change="handleRemarkAttachChange"
+              :accept="REMARK_ALLOWED_EXTS"
+              multiple
+            >
+              <el-button :disabled="remarkAttachments.length + remarkNewAttachments.length >= REMARK_MAX_TOTAL_ATTACHMENTS">
+                <el-icon><Upload /></el-icon>
+                上传附件
+              </el-button>
+            </el-upload>
+            <div class="upload-tip">
+              每次最多上传 {{ REMARK_MAX_NEW_ATTACHMENTS }} 个，每个 {{ REMARK_MAX_ATTACH_SIZE / 1024 / 1024 }}MB；
+              总共最多 {{ REMARK_MAX_TOTAL_ATTACHMENTS }} 个附件
+            </div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -918,6 +1089,15 @@ import StudentImportDialog from '@/components/StudentImportDialog.vue'
 import { useWatermark } from '@/composables/useWatermark'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { copyText } from '@/utils/clipboard'
+import { renderMarkdown, stripMarkdown, formatFileSize } from '@/utils/markdown'
+import { downloadFile } from '@/utils/download'
+
+// 备注附件限制（与后端对应）
+const REMARK_MAX_NEW_ATTACHMENTS = 3
+const REMARK_MAX_TOTAL_ATTACHMENTS = 15
+const REMARK_MAX_ATTACH_SIZE = 20 * 1024 * 1024
+const REMARK_ALLOWED_EXTS =
+  '.jpg,.jpeg,.png,.gif,.bmp,.webp,.heic,.heif,.mp4,.mov,.m4v,.avi,.mkv,.webm,.mp3,.m4a,.wav,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md,.wps,.et,.dps,.zip,.rar,.7z'
 
 const userStore = useUserStore()
 // 读 ?open= 用（见 openFromQuery）
@@ -967,6 +1147,9 @@ const editVisible = ref(false)
 const editForm = reactive({})
 const saving = ref(false)
 const activeTab = ref('basic')
+// 管理员弹窗里的备注附件
+const editAttachments = ref([])     // 保留的原附件
+const editNewAttachments = ref([])  // 本次新上传的附件
 
 // 弹窗里的两张照片。type 与后端 ?type= 的取值一致，field 是 students 表里对应的列
 const PHOTO_TYPES = [
@@ -982,6 +1165,8 @@ let photoPicking = '' // 这次点「选择图片」是想换哪一张
 // 备注单独一个弹窗：班委只能改备注，没必要给他们开全字段的表单
 const remarkVisible = ref(false)
 const remarkForm = reactive({ id: null, name: '', remark: '' })
+const remarkAttachments = ref([])     // 保留的原附件（按原下标，可能不连续）
+const remarkNewAttachments = ref([])  // 本次新上传的附件文件
 
 // 照片查看器
 const viewerVisible = ref(false)
@@ -1144,6 +1329,8 @@ async function handleView(row) {
  */
 function resetEditForm() {
   Object.keys(editForm).forEach((key) => delete editForm[key])
+  editAttachments.value = []
+  editNewAttachments.value = []
 }
 
 /** 「更多」下拉：管理员那三个低频操作 */
@@ -1168,12 +1355,18 @@ function handleEdit(row) {
   if (userStore.isAdmin) {
     resetEditForm()
     Object.assign(editForm, row)
+    // 备注附件初始化
+    editAttachments.value = (row.remark_attachments || []).map(a => ({ ...a }))
+    editNewAttachments.value = []
     editVisible.value = true
     activeTab.value = 'basic'
   } else {
     remarkForm.id = row.id
     remarkForm.name = row.name
     remarkForm.remark = row.remark || ''
+    // 原附件深拷贝一份（避免直接修改列表数据）
+    remarkAttachments.value = (row.remark_attachments || []).map(a => ({ ...a }))
+    remarkNewAttachments.value = []
     remarkVisible.value = true
   }
 }
@@ -1186,9 +1379,19 @@ async function handleSave() {
   saving.value = true
   try {
     if (editForm.id) {
-      await updateStudent(editForm.id, editForm)
+      // 编辑：备注附件也一起提交
+      const keepIndices = editAttachments.value.map(a => a.index)
+      await updateStudent(
+        editForm.id,
+        editForm,
+        {
+          remarkNewAttachments: editNewAttachments.value,
+          remarkKeepAttachments: keepIndices,
+        }
+      )
       ElMessage.success('保存成功')
     } else {
+      // 新增：先创建学生（新增时不带附件，附件等编辑时再加）
       const res = await createStudent(editForm)
       showCreateResult(res)
     }
@@ -1200,6 +1403,34 @@ async function handleSave() {
   } finally {
     saving.value = false
   }
+}
+
+// 管理员弹窗：移除已有附件
+function removeEditAttachment(idx) {
+  editAttachments.value.splice(idx, 1)
+}
+
+// 管理员弹窗：移除新上传的附件
+function removeEditNewAttachment(idx) {
+  editNewAttachments.value.splice(idx, 1)
+}
+
+// 管理员弹窗：上传文件变更
+function handleEditAttachChange(file) {
+  const total = editAttachments.value.length + editNewAttachments.value.length + 1
+  if (total > REMARK_MAX_TOTAL_ATTACHMENTS) {
+    ElMessage.warning(`备注附件总共最多 ${REMARK_MAX_TOTAL_ATTACHMENTS} 个`)
+    return
+  }
+  if (editNewAttachments.value.length >= REMARK_MAX_NEW_ATTACHMENTS) {
+    ElMessage.warning(`每次最多上传 ${REMARK_MAX_NEW_ATTACHMENTS} 个新附件`)
+    return
+  }
+  if (file.size > REMARK_MAX_ATTACH_SIZE) {
+    ElMessage.warning(`文件「${file.name}」超过 ${REMARK_MAX_ATTACH_SIZE / 1024 / 1024}MB`)
+    return
+  }
+  editNewAttachments.value.push(file.raw)
 }
 
 /** 新增成功后交代初始密码：没有身份证号的那批要管理员单独去说一声 */
@@ -1348,19 +1579,68 @@ async function handleDeletePhoto(type) {
   }
 }
 
-// 班委改备注：只提交 remark 一个字段（后端也只放行这一个字段）
+// 班委改备注：提交 remark + 附件（后端也只放行这两个字段）
 async function handleSaveRemark() {
   saving.value = true
   try {
-    await updateStudent(remarkForm.id, { remark: remarkForm.remark })
+    // 保留的旧附件下标（remarkAttachments 里的每一项都保留，它们的原始 index 存在 index 字段里）
+    const keepIndices = remarkAttachments.value.map(a => a.index)
+    await updateStudent(
+      remarkForm.id,
+      { remark: remarkForm.remark },
+      {
+        remarkNewAttachments: remarkNewAttachments.value,
+        remarkKeepAttachments: keepIndices,
+      }
+    )
     ElMessage.success('备注已保存')
     remarkVisible.value = false
     fetchData()
   } catch (e) {
-    ElMessage.error('保存失败')
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
     console.error(e)
   } finally {
     saving.value = false
+  }
+}
+
+// 备注附件：移除已有附件
+function removeRemarkAttachment(idx) {
+  remarkAttachments.value.splice(idx, 1)
+}
+
+// 备注附件：移除新上传的附件
+function removeNewRemarkAttachment(idx) {
+  remarkNewAttachments.value.splice(idx, 1)
+}
+
+// 备注附件：上传文件变更
+function handleRemarkAttachChange(file) {
+  // 已保留的 + 新上传的 总数检查
+  const total = remarkAttachments.value.length + remarkNewAttachments.value.length + 1
+  if (total > REMARK_MAX_TOTAL_ATTACHMENTS) {
+    ElMessage.warning(`备注附件总共最多 ${REMARK_MAX_TOTAL_ATTACHMENTS} 个`)
+    return
+  }
+  // 本次新增数检查
+  if (remarkNewAttachments.value.length >= REMARK_MAX_NEW_ATTACHMENTS) {
+    ElMessage.warning(`每次最多上传 ${REMARK_MAX_NEW_ATTACHMENTS} 个新附件`)
+    return
+  }
+  // 大小检查
+  if (file.size > REMARK_MAX_ATTACH_SIZE) {
+    ElMessage.warning(`文件「${file.name}」超过 ${REMARK_MAX_ATTACH_SIZE / 1024 / 1024}MB`)
+    return
+  }
+  remarkNewAttachments.value.push(file.raw)
+}
+
+// 下载备注附件
+async function downloadRemarkAttachment(studentId, index, name) {
+  try {
+    await downloadFile(`/api/students/${studentId}/remark-attachments/${index}`, name)
+  } catch (e) {
+    ElMessage.error('下载失败')
   }
 }
 
@@ -1844,11 +2124,164 @@ watch(() => route.query.open, openFromQuery)
   margin-right: 16px;
   margin-bottom: 6px;
 }
+
+/* 详情里的独立 section 标题（与照片资料那一节风格一致） */
+.section-title {
+  margin: 20px 0 12px 0;
+  color: var(--el-text-color-primary);
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 备注内容区 */
+.remark-detail-content {
+  padding: 12px 16px;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
+  min-height: 48px;
+}
+
+/* 备注附件 */
+.remark-attach-section {
+  margin: 8px 0 4px;
+  padding: 10px 14px;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+}
+
+.attach-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-regular);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attach-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--el-bg-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.attach-item:hover {
+  background: var(--el-color-primary-light-9);
+}
+
+.attach-item .attach-name {
+  flex: 1;
+  font-size: 13px;
+  color: #409eff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attach-item .attach-size {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+
+.attach-item .attach-download {
+  font-size: 14px;
+  color: #409eff;
+  flex-shrink: 0;
+}
+
+/* 弹窗里的上传区 */
+.upload-area {
+  width: 100%;
+}
+
+.existing-attachments {
+  margin-bottom: 8px;
+}
+
+.attach-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.attach-row .attach-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attach-row .attach-size {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+
+.upload-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
 </style>
 
 <!-- 非 scoped：批量删除结果弹窗挂在 body 上，scoped 样式选不到 -->
 <style>
 .batch-delete-result .el-message-box__message p {
   white-space: pre-wrap;
+}
+
+/* Markdown 样式：v-html 渲染的内容不受 scoped 影响，必须写在这里 */
+.markdown-body {
+  padding: 8px 4px;
+  color: var(--el-text-color-primary);
+  line-height: 1.7;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  margin: 12px 0 8px;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 24px;
+  margin: 8px 0;
+}
+
+.markdown-body code {
+  background: var(--el-fill-color-light);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 90%;
+}
+
+.markdown-body blockquote {
+  border-left: 4px solid #409EFF;
+  padding: 4px 12px;
+  margin: 8px 0;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-text-color-regular);
 }
 </style>
