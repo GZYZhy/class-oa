@@ -36,7 +36,11 @@ _TYPES = {
     # （video/x-matroska），Python 3.14 的标准库表里也是这两个值。
     ".m4v": "video/x-m4v",
     ".mkv": "video/x-matroska",
+    # 压缩包：.zip 在 3.12 的标准库表里就有，但 .rar / .7z 要到更高版本才补上
+    # （实测 3.12 两者都返回 None），所以三个一起写死，免得本地和容器表现不一致
     ".zip": "application/zip",
+    ".rar": "application/x-rar-compressed",
+    ".7z": "application/x-7z-compressed",
 }
 
 

@@ -233,7 +233,7 @@
                   @change="handleAttachChange"
                 />
                 <div class="upload-tip">
-                  最多 {{ maxAttachments }} 个，支持图片 / 视频 / 音频 / 文档，单文件不超过 20MB
+                  最多 {{ maxAttachments }} 个，支持图片 / 视频 / 音频 / 文档 / 压缩包，单文件不超过 20MB
                 </div>
               </div>
             </el-form-item>
@@ -314,7 +314,7 @@ import { useBadgeStore } from '@/store/badge'
 
 // 允许的附件扩展名（与后端 ALLOWED_ATTACHMENT_EXTENSIONS 对应）
 const ALLOWED_ATTACHMENT_EXTS =
-  '.jpg,.jpeg,.png,.gif,.bmp,.webp,.heic,.heif,.mp4,.mov,.m4v,.avi,.mkv,.webm,.mp3,.m4a,.wav,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md,.wps,.et,.dps'
+  '.jpg,.jpeg,.png,.gif,.bmp,.webp,.heic,.heif,.mp4,.mov,.m4v,.avi,.mkv,.webm,.mp3,.m4a,.wav,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md,.wps,.et,.dps,.zip,.rar,.7z'
 const MAX_ATTACHMENTS = 3
 const MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
 
