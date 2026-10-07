@@ -141,12 +141,23 @@
                 <div class="case-title">{{ item.name }}</div>
                 <el-table :data="item.scores" size="small" class="grade-table">
                   <el-table-column prop="subject" label="科目" min-width="120" />
-                  <el-table-column prop="value" label="成绩" width="120">
+                  <el-table-column label="成绩" width="200">
                     <template #default="{ row }">
-                      <span v-if="row.value" :class="{ 'grade-mark': !isScore(row.value) }">
+                      <!-- 通过制：通过 / 不通过本身就是成绩，用绿红两色，
+                           跟缺考那种橙色标记区分开 -->
+                      <div v-if="row.mode === 'pass_fail' && PASS_VALUES.includes(row.value)"
+                           :class="row.value === '通过' ? 'grade-pass' : 'grade-fail'">
                         {{ row.value }}
-                      </span>
-                      <span v-else class="grade-none">未录入</span>
+                      </div>
+                      <template v-else-if="row.value">
+                        <div :class="{ 'grade-mark': !isScore(row.value) }">{{ row.value }}</div>
+                        <!-- 位次只给自己的。平均分、最高最低、分数段、及格率
+                             都是班级层面的统计，一律班委及以上才看得到 -->
+                        <div v-if="row.rank_percent != null" class="grade-rank">
+                          排在班级前 {{ row.rank_percent }}%（{{ row.scored_count }} 人有成绩）
+                        </div>
+                      </template>
+                      <div v-else class="grade-none">未录入</div>
                     </template>
                   </el-table-column>
                 </el-table>
@@ -738,6 +749,10 @@ function isScore(value) {
   return value !== '' && !Number.isNaN(Number(value))
 }
 
+/** 通过制科目能填的两个值。与后端 models/grade.py 的 PASS_VALUES 一致 ——
+ *  改那边要一起改这边。别的词（缺考等）在通过制科目里也是标记词，照旧橙色 */
+const PASS_VALUES = ['通过', '不通过']
+
 async function fetchMyGrades() {
   gradesLoading.value = true
   try {
@@ -1297,6 +1312,22 @@ onMounted(async () => {
 /* 缺考 / 免修 / 缓考 / 违纪这些不是分数，换个颜色免得当成分数看 */
 .grade-mark {
   color: var(--el-color-warning);
+}
+
+/* 通过制的两个取值。跟标记词的橙色分开：这是成绩本身，不是「没考」 */
+.grade-pass {
+  color: var(--el-color-success);
+}
+
+.grade-fail {
+  color: var(--el-color-danger);
+}
+
+/* 位次小字：排在班级前 X% */
+.grade-rank {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
 }
 
 .grade-none {

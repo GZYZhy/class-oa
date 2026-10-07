@@ -35,6 +35,22 @@ MARK_VALUES = ("缺考", "免修", "缓考", "违纪")
 # 真靠范围去拦，早晚会拦下一张合法的满分卷。
 MAX_SCORE = 1000
 
+# 成绩形态。挂在**科目**上而不是整场测试上：一场考试里完全可以语文计分、
+# 体育只记通过 / 不通过。
+SUBJECT_MODES = ("score", "pass_fail")
+
+# 通过制科目的取值词表。**不并进 MARK_VALUES**：那个词表是「没参加考试」的原因，
+# 两种形态的科目都能填；通过 / 不通过是成绩本身，只有通过制科目能填。
+PASS_VALUES = ("通过", "不通过")
+
+# 及格线 = 满分 × 这个比例。分数段也按满分的百分比切（见 services.grade_service）
+PASS_RATIO = 0.6
+
+# 默认满分。绝大多数科目就是 100 分制；150 / 200 分制的在界面上改一次即可。
+# 通过制科目用不上它，但仍保留这个值 —— 设为可空会让统计、前端、导入三处都要判空，
+# 为一个用不上的场景不值得。
+DEFAULT_FULL_SCORE = 100
+
 
 class GradeTest(Base):
     """一次测试（一场卷子的成绩表）
@@ -80,6 +96,17 @@ class GradeSubject(Base):
     test_id = Column(Integer, index=True, nullable=False, comment="所属测试 ID")
     name = Column(String(50), nullable=False, comment="科目名（来自 Excel 表头）")
     sort = Column(Integer, comment="列序（前端写 0..n-1，排序用 (sort, id)）")
+
+    # 成绩形态：score（记分数）或 pass_fail（只记通过 / 不通过）。
+    # **改形态要挡住已有数据**（改的落点是 api/grades.py，理由写在那儿）
+    mode = Column(
+        String(20), nullable=False, default="score",
+        comment="score=计分 / pass_fail=通过制",
+    )
+    # 满分：决定及格线（满分 × PASS_RATIO）和分数段的划分
+    full_score = Column(
+        Float, nullable=False, default=DEFAULT_FULL_SCORE, comment="满分",
+    )
 
 
 class GradeItem(Base):
