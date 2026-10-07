@@ -154,7 +154,7 @@
                         <!-- 位次只给自己的。平均分、最高最低、分数段、及格率
                              都是班级层面的统计，一律班委及以上才看得到 -->
                         <div v-if="row.rank_percent != null" class="grade-rank">
-                          排在班级前 {{ row.rank_percent }}%（{{ row.scored_count }} 人有成绩）
+                          排在前 {{ row.rank_percent }}%
                         </div>
                       </template>
                       <div v-else class="grade-none">未录入</div>
@@ -1323,7 +1323,7 @@ onMounted(async () => {
   color: var(--el-color-danger);
 }
 
-/* 位次小字：排在班级前 X% */
+/* 位次小字：排在前 X% */
 .grade-rank {
   font-size: 12px;
   color: var(--el-text-color-secondary);

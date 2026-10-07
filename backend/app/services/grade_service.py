@@ -949,8 +949,11 @@ def subject_stats(db: Session, test: GradeTest) -> dict:
 def _my_entry(subject: GradeSubject, value: str, pool: dict[int, list[float]]) -> dict:
     """我的一格成绩 + 它在这一科的位次（pool 是这一科全部有分数的取值）
 
-    位次口径：**排在班级前 X%** = 名次 ÷ 有成绩人数。名次取「严格比我高的人数 + 1」,
+    位次口径：**排在前 X%** = 名次 ÷ 有成绩人数。名次取「严格比我高的人数 + 1」,
     并列同分时按最好名次算，不因为有人同分就把自己挤到后面。
+
+    分母（有成绩人数）只用来算这个比例，**不返回给学生** —— 学生端只给百分位，
+    不给「一共多少人考了」（用户口径）。
 
     只在**计分科目**且**我这一格确实是分数**时才算：
     - 通过制科目不算 —— 二元值的百分位没有意义
@@ -964,7 +967,6 @@ def _my_entry(subject: GradeSubject, value: str, pool: dict[int, list[float]]) -
         "value": value,
         "mode": subject.mode or "score",
         "rank_percent": None,
-        "scored_count": 0,
     }
     if entry["mode"] != "score" or not value:
         return entry
@@ -977,7 +979,6 @@ def _my_entry(subject: GradeSubject, value: str, pool: dict[int, list[float]]) -
     if group:
         ahead = sum(1 for other in group if other > score)
         entry["rank_percent"] = round((ahead + 1) / len(group) * 100, 1)
-        entry["scored_count"] = len(group)
     return entry
 
 
