@@ -49,7 +49,7 @@ _REQUIRED_PROPS = (
     "dormitory",
 )
 
-_PHOTO_PROPS = ("gaokao_photo", "on_site_photo")
+_PHOTO_PROPS = ("gaokao_photo", "on_site_photo", "id_photo")
 
 
 def check_data(db: Session) -> dict:

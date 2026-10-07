@@ -342,7 +342,8 @@ def student_photo(
 
 def _serve_photo(student: Student, photo_type: str) -> FileResponse:
     """返回照片文件；路径只取数据库字段中的文件名，杜绝路径穿越"""
-    field = student.gaokao_photo if photo_type == "gaokao" else student.on_site_photo
+    # 字段名走 PHOTO_FIELDS 字典，三种照片共用这一个出口
+    field = getattr(student, _photo_field(photo_type))
     if not field:
         raise HTTPException(status_code=404, detail="照片不存在")
 
@@ -997,6 +998,8 @@ def delete_students_batch(
             deleted_photos.append(s.gaokao_photo)
         if s.on_site_photo:
             deleted_photos.append(s.on_site_photo)
+        if s.id_photo:
+            deleted_photos.append(s.id_photo)
         # 办件文件也必须在删记录**之前**收集 —— 记录一没就查不出文件名了
         deleted_files += certificate_files(db, s.id) + ev_pass_files(db, s.id)
         # 备注附件也一起收集

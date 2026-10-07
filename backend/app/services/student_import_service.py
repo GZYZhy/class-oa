@@ -158,9 +158,16 @@ def _extract_photo_data(ws, header_map, student_no_col_idx):
     返回：{学号: {'gaokao': (文件名, bytes), 'on_site': (文件名, bytes)}}
     """
     gaokao_col_idx = header_map.get("高考照片")
+    # 「实地照片」是字段标签里的叫法，两种表头都认，免得用户照着标签改名
+    # 列下标可能是 0（falsy），必须用 is not None 判断
     shidi_col_idx = header_map.get("实地采集")
+    if shidi_col_idx is None:
+        shidi_col_idx = header_map.get("实地照片")
+    id_col_idx = header_map.get("证件照")
+    if id_col_idx is None:
+        id_col_idx = header_map.get("自备证件照")
 
-    if gaokao_col_idx is None and shidi_col_idx is None:
+    if gaokao_col_idx is None and shidi_col_idx is None and id_col_idx is None:
         return {}
 
     # 行号 → 学号（0-based）
@@ -188,6 +195,8 @@ def _extract_photo_data(ws, header_map, student_no_col_idx):
             photo_type = "gaokao"
         elif shidi_col_idx is not None and from_col == shidi_col_idx:
             photo_type = "on_site"
+        elif id_col_idx is not None and from_col == id_col_idx:
+            photo_type = "id"
         else:
             continue
 
@@ -369,6 +378,7 @@ def parse_excel(file_bytes: bytes, sheet_name: str | None = None,
             # 照片字段先留空，后面从 photo_data 补（只补文件名，不补字节）
             "gaokao_photo": None,
             "on_site_photo": None,
+            "id_photo": None,
         }
 
         # 补上照片文件名（只有名字，字节数据在 _photo_data 里）
@@ -377,6 +387,8 @@ def parse_excel(file_bytes: bytes, sheet_name: str | None = None,
             student_data["gaokao_photo"] = p["gaokao"][0]
         if "on_site" in p:
             student_data["on_site_photo"] = p["on_site"][0]
+        if "id" in p:
+            student_data["id_photo"] = p["id"][0]
 
         rows.append(student_data)
 

@@ -14,6 +14,7 @@
           <el-radio-group v-model="photoType">
             <el-radio-button value="gaokao">高考照片</el-radio-button>
             <el-radio-button value="on_site">实地采集</el-radio-button>
+            <el-radio-button value="id">自备证件照</el-radio-button>
           </el-radio-group>
         </el-form-item>
       </el-form>

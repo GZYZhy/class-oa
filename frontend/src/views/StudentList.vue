@@ -435,19 +435,21 @@
         </div>
 
         <!-- 照片展示区 -->
-        <div class="photos-section" v-if="currentStudent.gaokao_photo || currentStudent.on_site_photo">
+        <div class="photos-section" v-if="PHOTO_TYPES.some((p) => currentStudent[p.field])">
           <h4 class="section-title">
             <el-icon><Picture /></el-icon> 照片资料
           </h4>
           <div class="photos-row">
-            <div class="photo-item" v-if="currentStudent.gaokao_photo" @click="openStudentPhotos(currentStudent, 'gaokao')">
-              <img :src="getPhotoUrl(currentStudent, 'gaokao')" class="photo-item-img" @error="handleImgError($event)" />
-              <span class="photo-label">高考照片</span>
-            </div>
-            <div class="photo-item" v-if="currentStudent.on_site_photo" @click="openStudentPhotos(currentStudent, 'on_site')">
-              <img :src="getPhotoUrl(currentStudent, 'on_site')" class="photo-item-img" @error="handleImgError($event)" />
-              <span class="photo-label">实地采集</span>
-            </div>
+            <template v-for="p in PHOTO_TYPES" :key="p.type">
+              <div
+                class="photo-item"
+                v-if="currentStudent[p.field]"
+                @click="openStudentPhotos(currentStudent, p.type)"
+              >
+                <img :src="getPhotoUrl(currentStudent, p.type)" class="photo-item-img" @error="handleImgError($event)" />
+                <span class="photo-label">{{ p.label }}</span>
+              </div>
+            </template>
           </div>
           <p class="photos-tip">点击照片可放大查看</p>
         </div>
@@ -1151,11 +1153,14 @@ const activeTab = ref('basic')
 const editAttachments = ref([])     // 保留的原附件
 const editNewAttachments = ref([])  // 本次新上传的附件
 
-// 弹窗里的两张照片。type 与后端 ?type= 的取值一致，field 是 students 表里对应的列
+// 弹窗里的三种照片。type 与后端 ?type= 的取值一致，field 是 students 表里对应的列
 const PHOTO_TYPES = [
   { type: 'gaokao', field: 'gaokao_photo', label: '高考照片' },
-  { type: 'on_site', field: 'on_site_photo', label: '实地采集' }
+  { type: 'on_site', field: 'on_site_photo', label: '实地采集' },
+  { type: 'id', field: 'id_photo', label: '自备证件照' }
 ]
+// type → 照片配置的查找表，替代各处 type === 'on_site' 的二元判断
+const PHOTO_TYPE_MAP = Object.fromEntries(PHOTO_TYPES.map((p) => [p.type, p]))
 const photoInput = ref(null)
 const photoUploading = ref('') // 正在上传的那张照片的 type，用来显示按钮 loading
 // 照片上传进度百分比（算不出总大小时为 0，就不显示数字）
@@ -1179,20 +1184,19 @@ const viewerIndex = ref(0)
  * v 参数是照片文件名，后端不用它 —— 纯粹当版本号：换了照片文件名就变，
  * 地址跟着变，浏览器不会拿缓存里那张旧图接着显示
  * @param {object} student 学生对象（需要 id）
- * @param {string} type gaokao=高考照片，on_site=实地采集
+ * @param {string} type gaokao=高考照片，on_site=实地采集，id=自备证件照
  */
 function getPhotoUrl(student, type) {
   if (!student?.id) return ''
-  const fileName = type === 'on_site' ? student.on_site_photo : student.gaokao_photo
+  const fileName = student[PHOTO_TYPE_MAP[type]?.field]
   return `/api/students/${student.id}/photo?type=${type}&v=${encodeURIComponent(fileName || '')}`
 }
 
 /** 组装某学生可用的照片列表 [{ type, url }] */
 function studentPhotos(student) {
-  const photos = []
-  if (student?.gaokao_photo) photos.push({ type: 'gaokao', url: getPhotoUrl(student, 'gaokao') })
-  if (student?.on_site_photo) photos.push({ type: 'on_site', url: getPhotoUrl(student, 'on_site') })
-  return photos
+  return PHOTO_TYPES
+    .filter((p) => student?.[p.field])
+    .map((p) => ({ type: p.type, url: getPhotoUrl(student, p.type) }))
 }
 
 function handleImgError(e) {
@@ -1550,8 +1554,7 @@ async function handlePhotoPicked(e) {
     const res = await uploadStudentPhoto(editForm.id, type, file, (loaded, total) => {
       photoUploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
     })
-    const field = type === 'on_site' ? 'on_site_photo' : 'gaokao_photo'
-    editForm[field] = res.photo // 地址里的 v 参数跟着变，立刻显示新图
+    editForm[PHOTO_TYPE_MAP[type].field] = res.photo // 地址里的 v 参数跟着变，立刻显示新图
     ElMessage.success('照片已更新')
     fetchData()
   } catch (err) {
@@ -1570,8 +1573,7 @@ async function handleDeletePhoto(type) {
   }
   try {
     await deleteStudentPhoto(editForm.id, type)
-    const field = type === 'on_site' ? 'on_site_photo' : 'gaokao_photo'
-    editForm[field] = null
+    editForm[PHOTO_TYPE_MAP[type].field] = null
     ElMessage.success('照片已删除')
     fetchData()
   } catch (e) {
