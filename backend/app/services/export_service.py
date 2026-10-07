@@ -269,59 +269,47 @@ def generate_student_pdf(student: Student, photos_dir: Path) -> bytes:
     story.append(Paragraph("学生个人信息表", title_style))
     story.append(Spacer(1, 0.3 * cm))
 
-    # ---- 照片区：左右两张照片 ----
-    photo_items = []
-    for label, attr in [("高考照片", "gaokao_photo"), ("实地照片", "on_site_photo")]:
+    # ---- 顶部：基本信息表（固定宽度，不再与照片挤在一行）----
+    info_data = _build_info_table_data(student, font_name, normal_style)
+    info_table = Table(info_data, colWidths=[3 * cm, 12 * cm])
+    info_table.setStyle(_info_table_style())
+    story.append(info_table)
+
+    # ---- 照片区：三张照片横排在信息表下方 ----
+    photo_cells = []
+    for label, attr in [
+        ("高考照片", "gaokao_photo"),
+        ("实地照片", "on_site_photo"),
+        ("自备证件照", "id_photo"),
+    ]:
         photo_path = getattr(student, attr, None)
+        cell = Paragraph("（无照片）", normal_style)
         if photo_path:
             # 路径可能是 /static/photos/xxx，实际文件在 photos_dir
             fname = Path(photo_path).name
             full_path = photos_dir / fname
             if full_path.exists():
                 try:
-                    img = Image(str(full_path), width=4 * cm, height=5.6 * cm, kind="proportional")
-                    photo_items.append([img])
-                    photo_items.append([Paragraph(label, normal_style)])
+                    cell = Image(str(full_path), width=4 * cm, height=5.6 * cm, kind="proportional")
                 except Exception:
-                    photo_items.append([Paragraph("（无照片）", normal_style)])
-                    photo_items.append([Paragraph(label, normal_style)])
-            else:
-                photo_items.append([Paragraph("（无照片）", normal_style)])
-                photo_items.append([Paragraph(label, normal_style)])
-        else:
-            photo_items.append([Paragraph("（无照片）", normal_style)])
-            photo_items.append([Paragraph(label, normal_style)])
+                    pass
+        photo_cells.append((cell, Paragraph(label, normal_style)))
 
-    if photo_items:
-        # 两列：左边基本信息，右边两张照片
-        info_data = _build_info_table_data(student, font_name, normal_style)
-        info_table = Table(info_data, colWidths=[3 * cm, 5.5 * cm])
-        info_table.setStyle(_info_table_style())
-
-        photo_table_data = [[photo_items[0][0], photo_items[2][0]],
-                            [photo_items[1][0], photo_items[3][0]]]
-        photo_table = Table(photo_table_data, colWidths=[4.2 * cm, 4.2 * cm])
-        photo_table.setStyle(TableStyle([
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("FONTNAME", (0, 0), (-1, -1), font_name),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("TOPPADDING", (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ]))
-
-        top_layout = Table([[info_table, photo_table]], colWidths=[9 * cm, 9 * cm])
-        top_layout.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]))
-        story.append(top_layout)
-    else:
-        # 没有照片时直接放信息表
-        info_data = _build_info_table_data(student, font_name, normal_style)
-        info_table = Table(info_data, colWidths=[3 * cm, 12 * cm])
-        info_table.setStyle(_info_table_style())
-        story.append(info_table)
-
+    photo_table = Table(
+        [[c[0] for c in photo_cells], [c[1] for c in photo_cells]],
+        colWidths=[4.2 * cm] * 3,
+    )
+    photo_table.hAlign = "CENTER"
+    photo_table.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("FONTNAME", (0, 0), (-1, -1), font_name),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    story.append(Spacer(1, 0.4 * cm))
+    story.append(photo_table)
     story.append(Spacer(1, 0.5 * cm))
 
     # ---- 分组信息 ----
