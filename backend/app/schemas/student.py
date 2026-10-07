@@ -1,7 +1,16 @@
+import json
 from datetime import date, datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+class RemarkAttachment(BaseModel):
+    """备注附件项（格式与 NoticeAttachment 一致）"""
+    index: int = 0   # 前端用的下标（下载时定位用），不是库字段
+    file: str = ""   # 存盘名（UUID + 后缀）
+    name: str = ""   # 原始文件名
+    size: int = 0    # 字节数
 
 
 class StudentBase(BaseModel):
@@ -40,6 +49,7 @@ class StudentBase(BaseModel):
     remark: Optional[str] = Field(None, description="备注")
     gaokao_photo: Optional[str] = Field(None, description="高考照片URL")
     on_site_photo: Optional[str] = Field(None, description="实地采集照片URL")
+    id_photo: Optional[str] = Field(None, description="自备证件照URL")
 
 
 class StudentCreate(StudentBase):
@@ -56,6 +66,23 @@ class StudentUpdate(StudentBase):
 class StudentResponse(StudentBase):
     """学生信息响应 schema"""
     id: int
+    remark_attachments: list[RemarkAttachment] = []
+
+    @field_validator("remark_attachments", mode="before")
+    @classmethod
+    def parse_remark_attachments(cls, v):
+        """库里存的是 JSON 字符串，转成列表并补上 index（下载时按下标定位）"""
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str) and v.strip():
+            try:
+                items = json.loads(v)
+                for i, item in enumerate(items):
+                    item["index"] = i
+                return items
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return []
 
     class Config:
         from_attributes = True
@@ -99,9 +126,11 @@ class BatchDeleteRequest(BaseModel):
 def student_response(student: Any, viewer_role: str = "student") -> StudentResponse:
     """按查看者角色裁剪字段后再输出
 
-    备注属于班委内部记录，普通学生看不到任何人的备注（连自己那条也看不到）。
+    备注属于班委内部记录，普通学生看不到任何人的备注（连自己那条也看不到），
+    连带备注附件也一起清掉。
     """
     data = StudentResponse.model_validate(student)
     if viewer_role == "student":
         data.remark = None
+        data.remark_attachments = []
     return data

@@ -39,6 +39,10 @@ class Student(Base):
     class_position = Column(String(100), comment="班委职务")
     league_position = Column(String(100), comment="团学会职务")
     is_poor = Column(String(10), default="否", comment="是否贫困生")
-    remark = Column(Text, comment="备注")
+    remark = Column(Text, comment="备注（Markdown）")
+    # 备注附件列表，JSON 字符串（格式与 notices.attachments 一致）。
+    # 格式：[{"file": "uuid名", "name": "原始名", "size": 12345}, ...]
+    remark_attachments = Column(Text, default="", comment="备注附件列表（JSON）")
     gaokao_photo = Column(String(200), comment="高考照片路径")
     on_site_photo = Column(String(200), comment="实地采集照片路径")
+    id_photo = Column(String(200), comment="自备证件照路径")
