@@ -53,14 +53,15 @@ router = APIRouter(prefix="/api/notices", tags=["通知公告"])
 NOTICE_ATTACH_DIR = BASE_DIR / "data" / "notices"
 NOTICE_ATTACH_DIR.mkdir(parents=True, exist_ok=True)
 
-# 允许的附件类型：复用反馈附件的白名单（图片 / 视频 / 音频 / 文档）
-# 不收压缩包、不收 svg/html/js、不收带宏的 docm/xlsm/pptm。
+# 允许的附件类型：复用反馈附件的白名单（图片 / 视频 / 音频 / 文档）+ 压缩包
+# 不收 svg/html/js、不收带宏的 docm/xlsm/pptm。
 ALLOWED_ATTACHMENT_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".heif",
     ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm",
     ".mp3", ".m4a", ".wav",
     ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
     ".pdf", ".txt", ".md", ".wps", ".et", ".dps",
+    ".zip", ".rar", ".7z",
 }
 
 MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024  # 单文件 20MB
@@ -73,7 +74,7 @@ def _safe_attach_name(original: str) -> str:
     if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的附件类型：{ext or '（无后缀）'}，仅支持图片 / 视频 / 音频 / 文档",
+            detail=f"不支持的附件类型：{ext or '（无后缀）'}，仅支持图片 / 视频 / 音频 / 文档 / 压缩包",
         )
     return f"{uuid.uuid4().hex}{ext}"
 
