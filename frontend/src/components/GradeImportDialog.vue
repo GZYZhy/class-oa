@@ -24,7 +24,8 @@
           <div class="el-upload__tip">
             第一行要有 <code>学号</code> 列，可选 <code>姓名</code> 列，其余每一列都当一科成绩。<br />
             学号列请设成<strong>文本格式</strong>，否则 Excel 会把开头的 0 吃掉；
-            一格成绩填 0~1000 的数字，或 {{ (preview?.mark_values || []).join(' / ') || '缺考 / 免修 / 缓考 / 违纪' }}。
+            一格成绩填 0~1000 的数字，或 {{ (preview?.mark_values || []).join(' / ') || '缺考 / 免修 / 缓考 / 违纪' }}；
+            只记通过 / 不通过的科目在下一步选「通过制」。
           </div>
         </template>
       </el-upload>
@@ -41,14 +42,44 @@
 
       <el-form label-width="88px" class="gi-form">
         <el-form-item label="科目列">
-          <el-checkbox-group v-model="keptSubjects" class="gi-subjects">
-            <el-checkbox v-for="c in preview.columns" :key="c.name" :value="c.name">
-              {{ c.name }}
+          <!-- 每列一行：勾选 + 这科记分数还是记通过/不通过 + 满分。
+               不用 el-checkbox-group 是因为形态下拉得跟勾选框排在同一行，
+               塞进 checkbox 的 label 里点一下就顺手把勾给取消了 -->
+          <div class="gi-subjects">
+            <div v-for="c in preview.columns" :key="c.name" class="gi-subject-row">
+              <el-checkbox
+                :model-value="keptSubjects.includes(c.name)"
+                @update:model-value="(v) => toggleSubject(c.name, v)"
+              />
+              <span class="gi-subject-name" :class="{ 'is-off': !keptSubjects.includes(c.name) }">
+                {{ c.name }}
+              </span>
+              <el-select
+                v-model="subjectModes[c.name]"
+                size="small"
+                style="width: 92px"
+                :disabled="!keptSubjects.includes(c.name)"
+              >
+                <el-option label="计分" value="score" />
+                <el-option label="通过制" value="pass_fail" />
+              </el-select>
+              <el-input-number
+                v-if="subjectModes[c.name] !== 'pass_fail'"
+                v-model="subjectFullScores[c.name]"
+                size="small"
+                :min="1"
+                :max="1000"
+                :controls="false"
+                style="width: 76px"
+                :disabled="!keptSubjects.includes(c.name)"
+              />
+              <span v-else class="gi-pass-tag">只记 通过 / 不通过</span>
               <span v-if="c.sample?.length" class="gi-sample">（如 {{ c.sample.join('、') }}）</span>
-            </el-checkbox>
-          </el-checkbox-group>
+            </div>
+          </div>
           <div class="gi-hint">
-            不勾的列不会录进来（「序号」「总分」这类列已经默认不勾，勾回来可改）
+            不勾的列不会录进来（「序号」「总分」这类列已经默认不勾，勾回来可改）。
+            满分决定及格线（满分的 60%）和分数段的划分，150 分制就填 150
           </div>
         </el-form-item>
 
@@ -163,6 +194,10 @@ const preview = ref(null)
 const result = ref(null)
 // 保留哪些科目列：预览回来后按后端的默认预判填上
 const keptSubjects = ref([])
+// 科目名 → 形态 / 满分。用 reactive 对象而不是数组：模板里按列名直接取，
+// 不用为每一列去找下标
+const subjectModes = reactive({})
+const subjectFullScores = reactive({})
 const form = reactive({ name: '', tested_at: '', remark: '', notify: true })
 
 function today() {
@@ -181,6 +216,8 @@ function reset() {
   preview.value = null
   result.value = null
   keptSubjects.value = []
+  for (const key of Object.keys(subjectModes)) delete subjectModes[key]
+  for (const key of Object.keys(subjectFullScores)) delete subjectFullScores[key]
   form.name = ''
   form.tested_at = today() // 多数情况下就是今天考完当场录
   form.remark = ''
@@ -198,6 +235,15 @@ function handleExceed() {
   ElMessage.warning('只能上传一个文件')
 }
 
+// 手动维护 keptSubjects：模板里没有用 el-checkbox-group（理由见模板注释）
+function toggleSubject(name, checked) {
+  if (checked && !keptSubjects.value.includes(name)) {
+    keptSubjects.value = [...keptSubjects.value, name]
+  } else if (!checked) {
+    keptSubjects.value = keptSubjects.value.filter((n) => n !== name)
+  }
+}
+
 async function doPreview() {
   if (!file.value) {
     ElMessage.warning('请先选择 Excel 文件')
@@ -207,6 +253,11 @@ async function doPreview() {
   try {
     preview.value = await gradeImportPreview(file.value)
     keptSubjects.value = preview.value.columns.filter((c) => c.keep_default).map((c) => c.name)
+    for (const c of preview.value.columns) {
+      // 后端扫过这一列的取值：全是「通过 / 不通过」就预选通过制，班委可改回来
+      subjectModes[c.name] = c.suggest_pass_fail ? 'pass_fail' : 'score'
+      subjectFullScores[c.name] = 100
+    }
     step.value = 2
   } catch (e) {
     // 缺「学号」列、没有可用的工作表这类 400 文案由后端给，原样弹出来
@@ -231,13 +282,17 @@ async function doImport() {
   }
   confirmLoading.value = true
   try {
+    // 按预览里的列序传，勾选顺序不影响最终列序
+    const subjects = preview.value.columns
+      .map((c) => c.name).filter((n) => keptSubjects.value.includes(n))
     result.value = await gradeImportConfirm({
       token: preview.value.token,
       name: form.name.trim(),
       tested_at: form.tested_at,
       remark: form.remark,
-      // 按预览里的列序传，勾选顺序不影响最终列序
-      subjects: preview.value.columns.map((c) => c.name).filter((n) => keptSubjects.value.includes(n)),
+      subjects,
+      subject_modes: Object.fromEntries(subjects.map((n) => [n, subjectModes[n] || 'score'])),
+      subject_full_scores: Object.fromEntries(subjects.map((n) => [n, subjectFullScores[n] || 100])),
       notify: form.notify
     })
     step.value = 3
@@ -308,9 +363,33 @@ defineExpose({ open })
 }
 
 .gi-subjects {
+  /* 每列一行，勾掉的列不参与填写、但位置留着，方便回头勾回来 */
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.gi-subject-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gi-subject-name {
+  min-width: 72px;
+  font-size: 13px;
+}
+
+.gi-subject-name.is-off {
+  color: var(--el-text-color-disabled);
+}
+
+.gi-pass-tag {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .gi-sample {
