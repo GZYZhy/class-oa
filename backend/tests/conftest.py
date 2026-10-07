@@ -19,6 +19,15 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parent.parent
 
+# 让测试文件能直接 import app.*（比如 test_student_photos 要核对 PHOTO_FIELDS
+# 与 PHOTO_TYPE_LABELS 的键集合是否一一对应）。
+#
+# 后端子进程那侧是 tests.host 自己设的 PYTHONPATH；pytest 进程这侧得在这里补 ——
+# 不补的话，能 import 到什么完全取决于从哪个目录敲命令：`cd backend && pytest`
+# 因为 CWD 进了 sys.path 而侥幸能过，从仓库根跑就是 ModuleNotFoundError: No module
+# named 'app'。测试不该有这种隐含前提。
+sys.path.insert(0, str(BACKEND))
+
 
 def png_bytes() -> bytes:
     """一张 1×1 的真 PNG，给需要上传图片的用例共用
