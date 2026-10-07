@@ -12,12 +12,12 @@ tmp_path/photos），所以这里可以直接数盘上有几个文件 —— 判
 - 落盘和建申请在同一个请求里，但**检查排在落盘前面** —— 被 400 拒掉的那次不留文件
 - 通过才写档案并删旧图；驳回、落库失败都把新图删掉
 """
-import struct
-import zlib
 from types import SimpleNamespace
 
 import httpx
 import pytest
+
+from conftest import png_bytes
 
 PW = "initpass123"
 
@@ -31,25 +31,7 @@ STUDENT = ROSTER[1][0]
 STUDENT_PW = ROSTER[1][2]
 
 
-def _png() -> bytes:
-    """一张 1×1 的真 PNG
-
-    后端眼下只认后缀和字节数、不解析图片，随便凑几个字节也能过；但真图能让这组
-    用例在将来加了图片校验时安静地继续用，而不是莫名其妙地红掉。
-    """
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
-
-    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)   # 1×1、8 位、真彩色
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", ihdr)
-        + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00"))   # 过滤字节 0 + 一个红点
-        + chunk(b"IEND", b"")
-    )
-
-
-PNG = _png()
+PNG = png_bytes()
 
 
 # ---------- 小工具 ----------
