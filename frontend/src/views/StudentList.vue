@@ -215,6 +215,8 @@
                 v-if="row.gaokao_photo"
                 :src="getPhotoUrl(row, 'gaokao')"
                 class="thumb-img"
+                loading="lazy"
+                fetchpriority="low"
                 @error="handleImgError($event)"
               />
               <div v-else class="thumb-placeholder">
@@ -1316,11 +1318,15 @@ function handleCurrentChange(page) {
 }
 
 async function handleView(row) {
+  // 列表数据本就是完整的学生信息，先用它打开弹窗，交互零等待；
+  // 再后台请求详情接口静默刷新（差网络下也不阻塞弹窗操作）
+  currentStudent.value = row
+  detailVisible.value = true
   try {
     currentStudent.value = await getStudent(row.id)
-    detailVisible.value = true
   } catch (e) {
-    ElMessage.error('获取详情失败')
+    // 弹窗已经打开，不必打断用户；详情与列表数据一致，失败也无实质影响
+    console.error('详情刷新失败', e)
   }
 }
 
