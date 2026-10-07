@@ -564,6 +564,19 @@
                           {{ photoUploading === p.type && photoUploadProgress
                             ? `上传中 ${photoUploadProgress}%` : '选择图片' }}
                         </el-button>
+                        <!-- 只有现场采集的那张需要开相机。必须是 link 样式：带边框的按钮
+                             会把这一格撑得比另外两个照片框宽，三格就对不齐了。
+                             上传中锁住 —— 开相机会把页面切到后台，可能挂起正在传的那张 -->
+                        <el-button
+                          v-if="p.camera"
+                          size="small"
+                          link
+                          type="primary"
+                          :disabled="!!photoUploading"
+                          @click="pickPhoto(p.type, true)"
+                        >
+                          拍照
+                        </el-button>
                         <el-button
                           v-if="editForm[p.field]"
                           size="small"
@@ -576,11 +589,21 @@
                       </div>
                     </div>
                   </div>
-                  <!-- 隐藏的原生文件选择框：选完即传，不需要额外的「上传」按钮 -->
+                  <!-- 隐藏的原生文件选择框：选完即传，不需要额外的「上传」按钮。
+                       两个框共用 handlePhotoPicked —— 换哪一张由 pickPhoto 写进 photoPicking。
+                       第二个框靠 capture 唤起系统相机（手机）；桌面浏览器忽略它，退化成选文件 -->
                   <input
                     ref="photoInput"
                     type="file"
                     accept="image/*"
+                    style="display: none"
+                    @change="handlePhotoPicked"
+                  />
+                  <input
+                    ref="cameraInput"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
                     style="display: none"
                     @change="handlePhotoPicked"
                   />
@@ -1158,12 +1181,14 @@ const editNewAttachments = ref([])  // 本次新上传的附件
 // 弹窗里的三种照片。type 与后端 ?type= 的取值一致，field 是 students 表里对应的列
 const PHOTO_TYPES = [
   { type: 'gaokao', field: 'gaokao_photo', label: '高考照片' },
-  { type: 'on_site', field: 'on_site_photo', label: '实地采集' },
+  { type: 'on_site', field: 'on_site_photo', label: '实地采集', camera: true },
   { type: 'id', field: 'id_photo', label: '自备证件照' }
 ]
 // type → 照片配置的查找表，替代各处 type === 'on_site' 的二元判断
 const PHOTO_TYPE_MAP = Object.fromEntries(PHOTO_TYPES.map((p) => [p.type, p]))
 const photoInput = ref(null)
+// 第二个隐藏文件框：带 capture，手机上直接开相机（桌面浏览器忽略它，等同选文件）
+const cameraInput = ref(null)
 const photoUploading = ref('') // 正在上传的那张照片的 type，用来显示按钮 loading
 // 照片上传进度百分比（算不出总大小时为 0，就不显示数字）
 const photoUploadProgress = ref(0)
@@ -1536,10 +1561,12 @@ async function handleBatchDelete() {
 
 // ---------- 照片 ----------
 
-/** 点「选择图片」：记下要换的是哪一张，再转交给隐藏的 input */
-function pickPhoto(type) {
+/** 点「选择图片」/「拍照」：记下要换的是哪一张，再转交给对应的隐藏 input。
+ *  useCamera=true 走带 capture 的那个：手机上直接开相机，桌面上退化成选文件 */
+function pickPhoto(type, useCamera = false) {
   photoPicking = type
-  photoInput.value?.click()
+  const input = useCamera ? cameraInput : photoInput
+  input.value?.click()
 }
 
 async function handlePhotoPicked(e) {
