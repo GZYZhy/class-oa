@@ -156,16 +156,16 @@ class MyGradeEntry(BaseModel):
     **只给自己的位次**：平均分、最高最低、分数段、及格率属于班级层面的统计，
     一律班委及以上才看得到（用户口径）。
 
-    rank_percent 是「排在班级前百分之几」= 名次 ÷ 有成绩人数 × 100，
+    rank_percent 是「排在前百分之几」= 名次 ÷ 有成绩人数 × 100，
     并列同分按最好名次算。只有计分科目、且我这一格确实是分数时才有值；
     通过制科目和缺考之类的标记词都是 None。
-    scored_count 是那个分母（这一科实际有分数的人数），前端显示成「N 人有成绩」。
+
+    **不给分母**（这一科有多少人考了）：学生端只看到百分位本身（用户口径）。
     """
     subject: str
     value: str = Field("", description="数字，或缺考/免修/缓考/违纪；空串 = 没录")
     mode: str = Field("score", description="score=计分 / pass_fail=通过制")
-    rank_percent: float | None = Field(None, description="排在班级前百分之几；算不出来就是 null")
-    scored_count: int = Field(0, description="这一科有成绩的人数")
+    rank_percent: float | None = Field(None, description="排在前百分之几；算不出来就是 null")
 
 
 class MyGradeItem(BaseModel):
