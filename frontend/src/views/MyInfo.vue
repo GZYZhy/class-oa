@@ -15,7 +15,7 @@
             <el-tab-pane label="我的档案" name="profile">
               <div class="tab-section">
                 <template v-if="me">
-                  <!-- 两张照片：高考照片 + 实地采集，点一下放大 -->
+                  <!-- 三张照片：高考照片 + 实地采集 + 自备证件照，点一下放大 -->
                   <div class="photos-row">
                     <div
                       v-for="item in PHOTOS"
@@ -86,6 +86,35 @@
                         :maxlength="f.maxLength"
                       />
                     </el-form-item>
+                    <!-- 自备证件照单独一项：交的是文件，不是填字。
+                         只换照片也算一次有效申请，所以不选就是不改，不强制 -->
+                    <el-form-item label="自备证件照">
+                      <div class="photo-pick">
+                        <img
+                          v-if="photoPreview"
+                          :src="photoPreview"
+                          class="photo-pick-img"
+                          alt="新证件照预览"
+                        />
+                        <div>
+                          <el-upload
+                            :auto-upload="false"
+                            :show-file-list="false"
+                            accept=".jpg,.jpeg,.png,.gif,.bmp,.webp"
+                            :on-change="handlePhotoChange"
+                          >
+                            <el-button>{{ photoFile ? '重新选择' : '选择照片' }}</el-button>
+                          </el-upload>
+                          <div class="photo-pick-tip">
+                            支持 JPG / PNG 等图片，最大 10MB；不选就是不改。
+                            <el-button v-if="photoFile" link type="danger" @click="clearPhoto">
+                              取消
+                            </el-button>
+                          </div>
+                        </div>
+                      </div>
+                    </el-form-item>
+
                     <el-form-item>
                       <el-button type="primary" :loading="submitting" @click="handleSubmit">提交申请</el-button>
                     </el-form-item>
@@ -558,6 +587,7 @@ import {
 import {
   CHANGE_FIELDS,
   FIELD_LABELS,
+  PHOTO_FIELD,
   STATUS_LABELS,
   STATUS_TYPES
 } from '@/utils/changeFields'
@@ -620,10 +650,12 @@ watch(activeTab, (val) => {
   }
 })
 
-// 两个照片位：高考照片和实地采集，字段名与后端 students 表一致
+// 三个照片位，字段名与后端 students 表一致。前两张是考试院/学校采集的，
+// 只有自备证件照是学生自己交的 —— 所以也只有它能在「申请修改」里换（见 photoFile）
 const PHOTOS = [
   { type: 'gaokao', field: 'gaokao_photo', label: '高考照片' },
-  { type: 'on_site', field: 'on_site_photo', label: '实地采集' }
+  { type: 'on_site', field: 'on_site_photo', label: '实地采集' },
+  { type: 'id', field: 'id_photo', label: '自备证件照' }
 ]
 
 const loading = ref(false)
@@ -634,6 +666,12 @@ const submitting = ref(false)
 
 // 表单先摆全部字段，拿到自己的信息后再回填
 const form = reactive(Object.fromEntries(CHANGE_FIELDS.map((f) => [f.prop, ''])))
+
+// 申请修改里选中的新证件照。文件不进 form（form 里全是字符串），单独放这里：
+// 提交时作为 multipart 的 photo 一并发出，后端落盘后自己填 id_photo
+const photoFile = ref(null)
+// 本地预览地址。提交前就能看到选的这张，不用先传后端
+const photoPreview = ref('')
 
 /** 已经有一条排队等着审，就锁住表单（后端也会拒，前端锁住体验更好） */
 const pending = computed(() => records.value.find((r) => r.status === 'pending'))
@@ -848,10 +886,27 @@ function openPhotos(activeType) {
 
 /** 把 {"qq":"123","email":null} 说成「QQ号码：123；电子邮箱：（清空）」 */
 function describeChanges(changes) {
-  const parts = Object.entries(changes || {}).map(
-    ([key, value]) => `${FIELD_LABELS[key] || key}：${value ? value : '（清空）'}`
-  )
+  const parts = Object.entries(changes || {}).map(([key, value]) => {
+    // 照片那一项的值是服务端生成的文件名，甩给学生看没有任何意义
+    if (key === PHOTO_FIELD.prop) return `${PHOTO_FIELD.label}：已上传新照片`
+    return `${FIELD_LABELS[key] || key}：${value ? value : '（清空）'}`
+  })
   return parts.length ? parts.join('；') : '-'
+}
+
+/** 选中一张新证件照：留文件、生成本地预览。不设 limit，再选一张就是替换 */
+function handlePhotoChange(file) {
+  // el-upload 的 raw 才是真实文件对象
+  photoFile.value = file.raw || file
+  if (photoPreview.value) URL.revokeObjectURL(photoPreview.value)
+  photoPreview.value = URL.createObjectURL(photoFile.value)
+}
+
+function clearPhoto() {
+  // 预览地址是 blob:，不主动回收会一直占着那张图的内存
+  if (photoPreview.value) URL.revokeObjectURL(photoPreview.value)
+  photoPreview.value = ''
+  photoFile.value = null
 }
 
 /** 回填表单：显示当前值，学生在此基础上改 */
@@ -1092,12 +1147,17 @@ async function handleSubmit() {
   if (pending.value) return ElMessage.warning('已有一条待审核的申请')
   if (!validate()) return
   const changes = buildChanges()
-  if (!Object.keys(changes).length) return ElMessage.warning('没有修改任何内容')
+  // 只换一张照片也是一次有效申请，所以判据要带上传的文件
+  if (!Object.keys(changes).length && !photoFile.value) {
+    return ElMessage.warning('没有修改任何内容')
+  }
 
   submitting.value = true
   try {
-    await submitChangeRequest(changes)
+    // 选没选照片决定了这条路走 JSON 还是 multipart，判断在 api 层
+    await submitChangeRequest(changes, photoFile.value)
     ElMessage.success('已提交，等待班委审核')
+    clearPhoto()
     // 跳到「申请记录」：刚提交的那条就在最上面，能立刻看到它的待审核状态
     infoTab.value = 'records'
     await fetchStudentData()
@@ -1231,6 +1291,27 @@ onMounted(async () => {
   text-align: center;
   padding: 6px 0;
   font-size: 13px;
+}
+
+/* 申请修改里选新证件照的那一行：左边预览、右边按钮 */
+.photo-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.photo-pick-img {
+  width: 72px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--el-border-color);
+}
+
+.photo-pick-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .photos-tip {

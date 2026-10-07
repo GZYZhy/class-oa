@@ -1,5 +1,4 @@
 import json
-import os
 import uuid
 from pathlib import Path
 
@@ -49,14 +48,16 @@ from ..services.student_import_service import (
     load_preview,
     import_students,
     cleanup_expired_previews,
-    PHOTO_DIR,
 )
-# 照片领域的规则（后缀白名单 / 大小上限 / 类型→列名）只在 student_photo_service
-# 里定义一份，单张上传和批量导入共用
+# 照片领域的规则（后缀白名单 / 大小上限 / 类型→列名 / 落盘与取回）只在
+# student_photo_service 里定义一份，单张上传、批量导入、修改申请三处共用
 from ..services.student_photo_service import (
-    ALLOWED_PHOTO_EXTENSIONS,
-    MAX_PHOTO_SIZE,
     PHOTO_FIELDS,
+    PHOTO_TYPE_LABELS,
+    save_photo,
+    remove_photo,
+    photo_path,
+    photo_response,
     save_zip,
     load_zip,
     drop_zip,
@@ -133,40 +134,24 @@ def _photo_field(photo_type: str) -> str:
     """把前端传的 type 映射成列名，非法值直接拒绝"""
     field = PHOTO_FIELDS.get(photo_type)
     if not field:
-        raise HTTPException(status_code=400, detail="照片类型只能是 gaokao 或 on_site")
+        # 类型清单从 PHOTO_FIELDS 现取，别写死：原先那句「只能是 gaokao 或 on_site」
+        # 在加了自备证件照之后就成了误报
+        raise HTTPException(
+            status_code=400, detail="照片类型只能是 " + " / ".join(PHOTO_FIELDS)
+        )
     return field
 
 
-def _save_photo(file: UploadFile) -> str:
-    """把上传的照片写到磁盘，返回裸文件名（库里只存文件名，不存路径）"""
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in ALLOWED_PHOTO_EXTENSIONS:
-        allowed = " / ".join(sorted(e.lstrip(".") for e in ALLOWED_PHOTO_EXTENSIONS))
-        raise HTTPException(status_code=400, detail=f"照片只支持 {allowed} 格式")
-
-    content = file.file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="上传的文件是空的")
-    if len(content) > MAX_PHOTO_SIZE:
-        raise HTTPException(status_code=400, detail="照片不能超过 10MB")
-
-    safe_name = f"{uuid.uuid4().hex}{ext}"
-    (PHOTO_DIR / safe_name).write_bytes(content)
-    return safe_name
-
-
-def _remove_photo(file_name: str | None) -> None:
-    """删照片文件。文件已经不在了也不报错（手工清理过、换过盘都可能）"""
-    if not file_name:
-        return
+def _save_photo_or_400(file: UploadFile) -> str:
+    """落盘一张照片；后缀 / 大小 / 空文件不合规时把 service 的话原样转成 400"""
     try:
-        (PHOTO_DIR / os.path.basename(file_name)).unlink(missing_ok=True)
-    except OSError:
-        pass
+        return save_photo(file)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def _remove_files(paths: list[Path]) -> None:
-    """按路径删文件，文件已经不在了也不报错（理由同 _remove_photo）
+    """按路径删文件，文件已经不在了也不报错（理由同 remove_photo）
 
     用在删学生的时候：证明/通行证的附件和成品文件跟着记录一起清掉。
     """
@@ -327,7 +312,7 @@ def read_my_info(
 @router.get("/{student_id}/photo", summary="指定学生照片")
 def student_photo(
     student_id: int,
-    type: str = Query("gaokao", description="gaokao=高考照片, on_site=实地采集"),
+    type: str = Query("gaokao", description="gaokao=高考照片, on_site=实地采集, id=自备证件照"),
     # 版本号：只用于让浏览器别拿缓存里的旧图，后端不用（换照片后文件名会变）
     v: str = "",
     user: User = Depends(get_current_user),
@@ -347,23 +332,14 @@ def _serve_photo(student: Student, photo_type: str) -> FileResponse:
     if not field:
         raise HTTPException(status_code=404, detail="照片不存在")
 
-    file_path = PHOTO_DIR / os.path.basename(field)
-    if not file_path.exists():
+    # 两种 404 分开报：字段是空的、和文件丢了，排查方向完全不同
+    if not photo_path(field).exists():
         raise HTTPException(status_code=404, detail="照片文件丢失")
 
-    # 照片是在 <img> 里内联显示的（StudentList.vue），类型会真的被用上。
-    # 这里原先是「非 png 一律当 jpeg」，而上传白名单里还有 gif / bmp / webp ——
-    # 那三种被标成 image/jpeg。浏览器嗅探一般能救回来，但类型本来就不该错，
-    # 统一交给 guess_media_type（它认识白名单里的全部后缀）
-    #
-    # 浏览器缓存：URL 里带 v=文件名 版本号（见 getPhotoUrl），换照片后文件名变、
-    # 地址跟着变，所以可以放心缓存一年。private 防止经共享代理缓存造成隐私泄漏。
-    # 不标 immutable：用户手动刷新页面时浏览器仍会发条件请求向服务器确认一次
-    return FileResponse(
-        str(file_path),
-        media_type=guess_media_type(file_path.name),
-        headers={"Cache-Control": "private, max-age=31536000"},
-    )
+    # 可以缓存一年：URL 里带 v=文件名 版本号（见 getPhotoUrl），换照片后文件名变、
+    # 地址跟着变。缓存的其余取舍（media_type / private / 不标 immutable）见
+    # student_photo_service.photo_response
+    return photo_response(field)
 
 
 @router.get("/{student_id}", response_model=StudentResponse, summary="学生详情")
@@ -697,7 +673,7 @@ def delete_student_api(
 
     # 提交成功后再删文件，中途失败也不会两头空
     for name in photo_names:
-        _remove_photo(name)
+        remove_photo(name)
     _remove_files(request_files)
     _remove_files(remark_files)
     return {"message": "删除成功"}
@@ -707,7 +683,7 @@ def delete_student_api(
 def upload_student_photo(
     student_id: int,
     file: UploadFile = File(..., description="照片文件"),
-    type: str = Query("gaokao", description="gaokao=高考照片, on_site=实地采集"),
+    type: str = Query("gaokao", description="gaokao=高考照片, on_site=实地采集, id=自备证件照"),
     user: User = Depends(admin_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
@@ -719,27 +695,29 @@ def upload_student_photo(
         raise HTTPException(status_code=404, detail="学生不存在")
 
     old_name = getattr(student, field)
-    new_name = _save_photo(file)
+    new_name = _save_photo_or_400(file)
     setattr(student, field, new_name)
     log_operation(
         db, user, "更新学生照片", target=f"{student.student_no} {student.name}",
-        detail="高考照片" if type == "gaokao" else "实地采集照片", ip=ip,
+        # 名字从 PHOTO_TYPE_LABELS 取，别写「是 gaokao 吗？不是就当实地采集」——
+        # 加了自备证件照之后，那个三元把 id 也记成了「实地采集照片」
+        detail=PHOTO_TYPE_LABELS[type], ip=ip,
     )
     try:
         db.commit()
     except Exception:
         db.rollback()
-        _remove_photo(new_name)
+        remove_photo(new_name)
         raise
     # 只有真的换了才删旧文件：文件名变了，旧图不会再被任何地方引用
-    _remove_photo(old_name)
+    remove_photo(old_name)
     return {"message": "照片已更新", "photo": new_name}
 
 
 @router.delete("/{student_id}/photo", summary="删除学生照片（仅管理员）")
 def delete_student_photo(
     student_id: int,
-    type: str = Query("gaokao", description="gaokao=高考照片, on_site=实地采集"),
+    type: str = Query("gaokao", description="gaokao=高考照片, on_site=实地采集, id=自备证件照"),
     user: User = Depends(admin_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
@@ -756,10 +734,10 @@ def delete_student_photo(
     setattr(student, field, None)
     log_operation(
         db, user, "删除学生照片", target=f"{student.student_no} {student.name}",
-        detail="高考照片" if type == "gaokao" else "实地采集照片", ip=ip,
+        detail=PHOTO_TYPE_LABELS[type], ip=ip,
     )
     db.commit()
-    _remove_photo(old_name)
+    remove_photo(old_name)
     return {"message": "照片已删除"}
 
 
@@ -1041,7 +1019,7 @@ def delete_students_batch(
 
     # 提交成功后删文件
     for name in deleted_photos:
-        _remove_photo(name)
+        remove_photo(name)
     _remove_files(deleted_files)
 
     return {

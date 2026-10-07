@@ -20,6 +20,7 @@
 
 import io
 import json
+import os
 import time
 import uuid
 import tempfile
@@ -36,7 +37,10 @@ from .student_service import get_student_by_no, create_student
 from .user_service import create_account_for
 from .log_service import log_operation
 
-PHOTO_DIR = BASE_DIR / "data" / "photos"
+# 照片存放目录。可用 PHOTO_DIR 环境变量指到别处 —— 测试会指到临时目录，
+# 免得往真实的数据目录里写文件（和 DATABASE_URL 一个路子：那个变量只管库文件，
+# 库换成临时的而照片还落在真目录里，测试跑完就会留下一堆没人引用的图）
+PHOTO_DIR = Path(os.environ.get("PHOTO_DIR") or (BASE_DIR / "data" / "photos"))
 PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 
 # 预览令牌的临时存放目录。不用内存缓存是因为本项目没有这种基础设施，

@@ -20,7 +20,21 @@ class ChangeRequestCreate(BaseModel):
     family_address: Optional[str] = Field(None, max_length=200, description="家庭通信地址")
     postal_code: Optional[str] = Field(None, max_length=10, description="邮政编码")
     league_position: Optional[str] = Field(None, max_length=50, description="团学会职务")
+    dormitory: Optional[str] = Field(None, max_length=50, description="宿舍")
     bed: Optional[str] = Field(None, max_length=20, description="床位号")
+
+    # 照片字段在这里只当**探测器**用：它不开放给学生填值（值由后端落盘后注入），
+    # 声明出来是为了明确拒绝，而不是静默丢掉。不声明的话，学生塞进来的
+    # {"id_photo": "2024000002_id.jpg"} 会被 pydantic 忽略，申请照建不误 ——
+    # 而学生以为照片已经改了，这个误会要到班委点通过之后才会暴露
+    id_photo: Optional[str] = Field(None, description="自备证件照（只能上传文件，不接受直接传值）")
+
+    @field_validator("id_photo")
+    @classmethod
+    def reject_id_photo(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            raise ValueError("自备证件照请通过上传文件的方式提交")
+        return v
 
     @field_validator("email")
     @classmethod
