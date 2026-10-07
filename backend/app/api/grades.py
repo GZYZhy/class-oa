@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import GradeItem, GradeSubject, GradeTest, Student, User
+from ..models.grade import DEFAULT_FULL_SCORE, PASS_VALUES, SUBJECT_MODES
 from ..schemas import (
     GradeDetailResponse,
     GradeImportConfirm,
@@ -30,8 +31,10 @@ from ..schemas import (
     GradePreviewResponse,
     GradeScoreIn,
     GradeScoreResponse,
+    GradeStatsResponse,
     GradeSubjectCreate,
     GradeSubjectResponse,
+    GradeSubjectUpdate,
     GradeTestUpdate,
     MyGradeItem,
 )
@@ -47,6 +50,7 @@ from ..services.grade_service import (
     parse_grade_excel,
     save_preview,
     set_cell,
+    subject_stats,
     subjects_of,
 )
 from .deps import committee_required, get_client_ip, get_current_student
@@ -84,6 +88,26 @@ def _get_subject(db: Session, test_id: int, subject_id: int) -> GradeSubject:
     if not subject:
         raise HTTPException(status_code=404, detail="科目不存在")
     return subject
+
+
+def _check_mode(mode: str) -> str:
+    """科目形态只能是 SUBJECT_MODES 里的值。瞎传回 400，不静默存进去"""
+    if mode not in SUBJECT_MODES:
+        raise HTTPException(
+            status_code=400, detail=f"科目形态只能是 {' / '.join(SUBJECT_MODES)}"
+        )
+    return mode
+
+
+def _subject_response(subject: GradeSubject) -> GradeSubjectResponse:
+    """科目出参。形态和满分都要兜底 —— 老库补列后新列可能还没落到这个对象上"""
+    return GradeSubjectResponse(
+        id=subject.id,
+        name=subject.name,
+        sort=subject.sort or 0,
+        mode=subject.mode or "score",
+        full_score=float(subject.full_score or DEFAULT_FULL_SCORE) or DEFAULT_FULL_SCORE,
+    )
 
 
 # ---------- 上传：先预览，再确认 ----------
@@ -176,6 +200,14 @@ def import_confirm(
     if not preview.matched_count:
         raise HTTPException(status_code=400, detail="没有一行学号能对上班级名单，请检查表格")
 
+    # 科目形态与满分也是按科目名传的。形态值先在这里验一遍 —— 拼错一个词
+    # （"passfail"）只该回一句中文，不该等落库之后才在统计里显出怪样子
+    for text in body.subjects:
+        _check_mode(body.subject_modes.get(text, "score"))
+    for text, full in body.subject_full_scores.items():
+        if full <= 0:
+            raise HTTPException(status_code=400, detail=f"科目「{text}」的满分要大于 0")
+
     try:
         result = import_grade(
             db,
@@ -186,10 +218,18 @@ def import_confirm(
             subjects=body.subjects,
             operator=user,
             ip=ip,
+            subject_modes=body.subject_modes,
+            subject_full_scores=body.subject_full_scores,
         )
-    finally:
-        # 用完就删，不等 TTL；失败也一样删（同 api/students.py 的导入）
-        drop_preview(body.token)
+    except ValueError as e:
+        # 「这一列里有分数，不能按通过制录入」这类由 service 判，文案已经写好了。
+        #
+        # **预览令牌留着**：这种失败改个下拉、再点一次确认就过了，令牌一删，
+        # 班委看到的会是「预览已过期，请重新上传」—— 明明表格还在他手上。
+        # 上面那几个 400（科目名不对、一科都没勾）本来也留着令牌，口径一致
+        raise HTTPException(status_code=400, detail=str(e))
+    # 成功才删，不等 TTL（同 api/students.py 的导入）
+    drop_preview(body.token)
 
     # 同名同日期多半是「上传了两次」——提醒一句，但不拦：同一天两场同名小测是合理的
     warnings = list(preview.warnings)
@@ -288,6 +328,24 @@ def get_detail(
     return detail(db, _get_test(db, test_id))
 
 
+# 路径是两段式，不会跟上面的 /mine 撞 —— 但**必须带 test_id 一起过滤科目**，
+# 理由见 _get_subject 的注释
+@router.get("/{test_id}/stats", response_model=GradeStatsResponse,
+            summary="单科统计（班委及以上）")
+def get_stats(
+    test_id: int,
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """单科的平均分 / 最高 / 最低 / 及格率 / 分数段（通过制科目是「通过率」）。
+
+    **只有单科，没有总分、也没有跨科合计** —— 这个模块里不存在总分这个概念。
+    学生在「我的信息 → 我的成绩」里只看得到自己那一格的位次，
+    班级层面的这些数一律班委及以上（用户口径）。
+    """
+    return subject_stats(db, _get_test(db, test_id))
+
+
 @router.patch("/{test_id}", response_model=GradeDetailResponse, summary="改测试信息（班委及以上）")
 def update_test(
     test_id: int,
@@ -372,6 +430,7 @@ def add_subject(
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="科目名不能为空")
+    mode = _check_mode(body.mode)
 
     exists = (
         db.query(GradeSubject)
@@ -387,14 +446,90 @@ def add_subject(
         test_id=test.id,
         name=name,
         sort=(db.query(GradeSubject).filter(GradeSubject.test_id == test.id).count()),
+        mode=mode,
+        full_score=body.full_score,
     )
     db.add(subject)
     log_operation(
         db, user, action="成绩加科目",
-        target=f"{test.tested_at} {test.name}", detail=f"新增「{name}」", ip=ip,
+        target=f"{test.tested_at} {test.name}",
+        detail=f"新增「{name}」"
+        + ("（通过制）" if mode == "pass_fail" else f"（满分 {body.full_score:g}）"),
+        ip=ip,
     )
     db.commit()
-    return GradeSubjectResponse(id=subject.id, name=subject.name, sort=subject.sort or 0)
+    return _subject_response(subject)
+
+
+@router.patch("/{test_id}/subjects/{subject_id}", response_model=GradeSubjectResponse,
+              summary="改一科的形态 / 满分（班委及以上）")
+def update_subject(
+    test_id: int,
+    subject_id: int,
+    body: GradeSubjectUpdate,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """改某科记分数还是记通过 / 不通过，以及满分是多少（满分决定及格线与分数段）。
+
+    改形态前先看那一科**已有的数据跟不跟新形态对得上**：有分数却要改成通过制、
+    有「通过 / 不通过」却要改成计分，一律拒绝并说清是哪一科、有多少条。
+    **不做静默清空** —— 那是在替班委删数据：他点一下「改成通过制」不该弄丢一学期的分数。
+    """
+    test = _get_test(db, test_id)
+    subject = _get_subject(db, test_id, subject_id)
+
+    old_mode = subject.mode or "score"
+    mode = _check_mode(body.mode) if body.mode is not None else old_mode
+    full_score = body.full_score if body.full_score is not None else subject.full_score
+    if not full_score or full_score <= 0:
+        raise HTTPException(status_code=400, detail="满分要大于 0")
+
+    if mode != old_mode:
+        if mode == "pass_fail":
+            bad = (
+                db.query(GradeItem)
+                .filter(GradeItem.subject_id == subject.id, GradeItem.score.isnot(None))
+                .count()
+            )
+            if bad:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"「{subject.name}」已有 {bad} 条分数成绩，不能改成通过制"
+                    "（请先把这一列清空）",
+                )
+        else:
+            bad = (
+                db.query(GradeItem)
+                .filter(GradeItem.subject_id == subject.id, GradeItem.mark.in_(PASS_VALUES))
+                .count()
+            )
+            if bad:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"「{subject.name}」已有 {bad} 条「通过 / 不通过」，不能改成计分"
+                    "（请先把这一列清空）",
+                )
+
+    changes = []
+    if mode != old_mode:
+        subject.mode = mode
+        changes.append(f"形态 {old_mode} → {mode}")
+    if float(subject.full_score or 0) != float(full_score):
+        subject.full_score = full_score
+        changes.append(f"满分 → {full_score:g}")
+    if not changes:
+        # 什么都没改就不写日志（同 put_score「值没变就什么都不写」那条口径）
+        return _subject_response(subject)
+
+    log_operation(
+        db, user, action="成绩改科目",
+        target=f"{test.tested_at} {test.name}",
+        detail=f"「{subject.name}」：" + "；".join(changes), ip=ip,
+    )
+    db.commit()
+    return _subject_response(subject)
 
 
 @router.delete("/{test_id}/subjects/{subject_id}", summary="删一科（班委及以上）")

@@ -30,9 +30,10 @@
         </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
         <el-table-column prop="creator_name" label="录入人" width="110" />
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="detailRef.open(row)">明细</el-button>
+            <el-button link type="primary" @click="statsRef.open(row)">统计</el-button>
             <el-button link type="primary" @click="openEdit(row)">改信息</el-button>
             <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
@@ -54,6 +55,7 @@
 
     <GradeImportDialog ref="importRef" @done="fetchList" />
     <GradeDetailDialog ref="detailRef" @done="fetchList" />
+    <GradeStatsDialog ref="statsRef" />
 
     <!-- 改测试信息。日期该成哪天、备注写什么，都是录完才发现要改的 -->
     <el-dialog v-model="editVisible" title="修改测试信息" width="480px">
@@ -89,6 +91,7 @@ import { formatDate } from '@/utils/format'
 import { errText } from '@/utils/request'
 import GradeDetailDialog from '@/components/GradeDetailDialog.vue'
 import GradeImportDialog from '@/components/GradeImportDialog.vue'
+import GradeStatsDialog from '@/components/GradeStatsDialog.vue'
 
 const loading = ref(false)
 const rows = ref([])
@@ -97,6 +100,7 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const importRef = ref(null)
 const detailRef = ref(null)
+const statsRef = ref(null)
 
 const editVisible = ref(false)
 const editLoading = ref(false)

@@ -85,6 +85,11 @@ NEW_COLUMNS = [
     # ---------- 自备证件照 ----------
     # 第三种照片：学生自己上传的证件照，与高考照片、实地采集照片并列
     ("students", "id_photo", "VARCHAR(200)"),
+    # ---------- 成绩科目形态与满分 ----------
+    # 默认值就是「补列前的行为」：老成绩一律当计分科目、按 100 分制看。
+    # 若某场真是 150 分制，班委在科目设置里改一次满分即可
+    ("grade_subjects", "mode", "VARCHAR(20) NOT NULL DEFAULT 'score'"),
+    ("grade_subjects", "full_score", "FLOAT NOT NULL DEFAULT 100"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）

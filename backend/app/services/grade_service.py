@@ -25,10 +25,35 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import GradeItem, GradeSubject, GradeTest, Student, User
-from ..models.grade import MARK_VALUES, MAX_SCORE
+from ..models.grade import (
+    DEFAULT_FULL_SCORE,
+    MARK_VALUES,
+    MAX_SCORE,
+    PASS_RATIO,
+    PASS_VALUES,
+)
 
 # 允许的标记，拼成给人看的一句话（错误文案和后端回显共用一处）
 MARK_TEXT = " / ".join(MARK_VALUES)
+PASS_TEXT = " / ".join(PASS_VALUES)
+
+# 两种形态各自「这格能填什么」。**只写这两份**：解析预览里每一行的原因、
+# 单格保存时的 400 文案，用的都是它们，改词表不会再漂
+SCORE_HINT = f"只能填 0~{MAX_SCORE} 之间的数字（最多两位小数），或 {MARK_TEXT}"
+PASS_HINT = f"只能填 {PASS_TEXT}，或 {MARK_TEXT}"
+# 在通过制科目里填了数字 / 日期之类的非文本值
+_PASS_MODE_MSG = f"这是通过制科目，{PASS_HINT}"
+
+# 分数段：按**满分的百分比**切，与满分到底是多少无关。
+# 用百分比而不是分数区间 —— 150 分制下「90~104 分」没人看得懂，「60~69%」一眼就明白。
+# 最后一档敞开：万一满分被设小了、有人考出超过 100%，那一格也不会凭空消失
+SCORE_BUCKETS = [
+    ("不足 60%", 0.0, 0.6),
+    ("60~69%", 0.6, 0.7),
+    ("70~79%", 0.7, 0.8),
+    ("80~89%", 0.8, 0.9),
+    ("90% 以上", 0.9, float("inf")),
+]
 
 # 预览令牌的临时目录。**独立目录**，不和 Excel 导入（class-oa-import-preview）、
 # 照片导入（class-oa-photo-preview）共用 —— 各自清理自己的令牌，
@@ -97,11 +122,19 @@ def cell_value(item: GradeItem | None) -> str:
     return item.mark or ""
 
 
-def normalize_cell(raw) -> tuple[float | None, str | None]:
+def normalize_cell(raw, mode: str = "score") -> tuple[float | None, str | None]:
     """一格成绩 → (分数, 标记)，两者必有一个是 None
 
     (None, None) 表示**空格**（这格没录，不产生记录）。不合法抛 ValueError，
     消息里带上允许的取法 —— 它既是预览里那一行的原因，也是单格保存时的 400 文案。
+
+    `mode` 是这一科的形态：通过制科目只认 通过 / 不通过，计分科目只认数字。
+    **MARK_VALUES 两种形态都收** —— 通过制科目照样会有人缺考。两种形态都不收
+    对方的取值，而且「在计分科目里填了通过」要明说是计分科目：班委看到这句才知道
+    是自己敲错了词、还是科目形态配错了，光说「格式不对」他两边都得猜。
+
+    默认 `score` 是为兼容只关心数字的调用方（测试）；真正落库的两处 ——
+    解析和单格写入 —— 都会把科目形态传进来。
     """
     if raw is None:
         return None, None
@@ -112,18 +145,26 @@ def normalize_cell(raw) -> tuple[float | None, str | None]:
             return None, None
         if text in MARK_VALUES:
             return None, text
+        if text in PASS_VALUES:
+            if mode != "pass_fail":
+                raise ValueError(f"「{text}」是通过制科目的成绩，这一科按分数记，{SCORE_HINT}")
+            return None, text
+        if mode == "pass_fail":
+            raise ValueError(_PASS_MODE_MSG)
         if not _NUMBER_RE.match(text):
-            raise ValueError(f"只能填 0~{MAX_SCORE} 之间的数字（最多两位小数），或 {MARK_TEXT}")
+            raise ValueError(SCORE_HINT)
         value = float(text)
     elif isinstance(raw, bool):
         # isinstance(True, int) 在 Python 里为真，不显式拦的话 TRUE 会被当成 1 分
         # （同 services/poll_service.read_choices 那条注释）
         raise ValueError("TRUE / FALSE 不是成绩")
     elif isinstance(raw, (int, float)):
+        if mode == "pass_fail":
+            raise ValueError(_PASS_MODE_MSG)
         value = float(raw)
     else:
         # 日期格式的格子会走到这儿：与其猜不如让班委自己看
-        raise ValueError(f"只能填 0~{MAX_SCORE} 之间的数字（最多两位小数），或 {MARK_TEXT}")
+        raise ValueError(_PASS_MODE_MSG if mode == "pass_fail" else SCORE_HINT)
 
     if not 0 <= value <= MAX_SCORE:
         raise ValueError(f"分数要在 0~{MAX_SCORE} 之间")
@@ -296,15 +337,28 @@ def parse_grade_excel(
     if not raw_rows:
         raise ValueError("表格里没有数据行")
 
-    # 列预览：每列挑前几个非空值给班委看「这列到底是不是科目」
+    # 列预览：每列挑前几个非空值给班委看「这列到底是不是科目」。
+    # 顺便预判这一列是不是通过制 —— 整列的取值全是「通过 / 不通过」就建议按通过制录
+    # （确认页上默认选中，班委可改回来）。这个预判**同时是解析判据**：不拿它去解析的话，
+    # 通过制那一列的值会在解析阶段被逐格判成非法，班委看到满屏红字，
+    # 其实只是形态还没选而已
+    col_values = [
+        [v for v in (_display(r["cells"][i][1]) for r in raw_rows) if v]
+        for i in range(len(subject_cols))
+    ]
     columns = [
         {
-            "name": text,
-            "keep_default": text not in NON_SUBJECT_HEADERS,
-            "sample": [v for v in (_display(r["cells"][offset][1]) for r in raw_rows) if v][:3],
+            "name": subject_cols[i][1],
+            "keep_default": subject_cols[i][1] not in NON_SUBJECT_HEADERS,
+            "suggest_pass_fail": bool(values) and all(v in PASS_VALUES for v in values),
+            "sample": values[:3],
         }
-        for offset, (_, text) in enumerate(subject_cols)
+        for i, values in enumerate(col_values)
     ]
+    col_modes = {
+        columns[i]["name"]: ("pass_fail" if columns[i]["suggest_pass_fail"] else "score")
+        for i in range(len(subject_cols))
+    }
 
     sample_rows = [
         {
@@ -375,7 +429,7 @@ def parse_grade_excel(
         cells: dict[str, list] = {}
         for text, value in raw["cells"]:
             try:
-                score, mark = normalize_cell(value)
+                score, mark = normalize_cell(value, col_modes[text])
             except ValueError as exc:
                 # 一格填错只丢这一格，不连累整行、更不连累整张表
                 problems.append(
@@ -534,6 +588,8 @@ def import_grade(
     subjects: list[str],
     operator: User,
     ip: str | None = None,
+    subject_modes: dict[str, str] | None = None,
+    subject_full_scores: dict[str, float] | None = None,
 ) -> dict:
     """按预览把成绩写进库，返回统计（**不发通知**，通知由接口在 commit 之后发）
 
@@ -550,6 +606,27 @@ def import_grade(
     if not kept:
         raise ValueError("至少要保留一个科目")
 
+    subject_modes = subject_modes or {}
+    subject_full_scores = subject_full_scores or {}
+
+    # 形态和数据要对得上，**两个方向都要挡**。解析时用的是预览给的预判形态，
+    # 而班委在确认页上能把它改回来；改反了的话写进去的数据就和这一科的形态对不上，
+    # 事后谁也解释不清该怎么看，所以宁可当场拒掉并点名哪一科
+    for text in kept:
+        mode = subject_modes.get(text, "score")
+        cells = [row["cells"][text] for row in preview._rows if text in row["cells"]]
+        if mode == "pass_fail":
+            if any(score is not None for score, _ in cells):
+                raise ValueError(
+                    f"「{text}」这一列里有分数，不能按通过制录入"
+                    "（把它改成计分，或回 Excel 把这一列改成 通过 / 不通过）"
+                )
+        elif any(mark in PASS_VALUES for _, mark in cells):
+            raise ValueError(
+                f"「{text}」这一列里有通过 / 不通过，不能按计分录入"
+                "（把它改成通过制，或回 Excel 把这一列改成数字）"
+            )
+
     test = GradeTest(
         name=name,
         tested_at=tested_at,
@@ -562,7 +639,13 @@ def import_grade(
 
     db.add_all(
         [
-            GradeSubject(test_id=test.id, name=text, sort=index)
+            GradeSubject(
+                test_id=test.id,
+                name=text,
+                sort=index,
+                mode=subject_modes.get(text, "score"),
+                full_score=subject_full_scores.get(text, DEFAULT_FULL_SCORE),
+            )
             for index, text in enumerate(kept)
         ]
     )
@@ -623,7 +706,8 @@ def set_cell(
     「清空」是**删行**而不是留一行空记录：模型里「没有行 = 这格没录」，
     留空行会让「录入人数」这类聚合数字虚高。
     """
-    score, mark = normalize_cell(value)
+    # 按这一科的形态判取值：通过制科目填数字、计分科目填「通过」都要当场拒掉
+    score, mark = normalize_cell(value, subject.mode or "score")
     item = (
         db.query(GradeItem)
         .filter(GradeItem.subject_id == subject.id, GradeItem.student_no == student_no)
@@ -755,11 +839,146 @@ def detail(db: Session, test: GradeTest) -> dict:
 
     data = list_items(db, [test])[0]
     data["subjects"] = [
-        {"id": s.id, "name": s.name, "sort": s.sort or 0} for s in subjects
+        {
+            "id": s.id,
+            "name": s.name,
+            "sort": s.sort or 0,
+            # 形态和满分跟着科目一起下发：明细表头要立刻显示「150 分」「通过制」，
+            # 不能等统计接口回来才知道
+            "mode": s.mode or "score",
+            "full_score": float(s.full_score or DEFAULT_FULL_SCORE) or DEFAULT_FULL_SCORE,
+        }
+        for s in subjects
     ]
     data["rows"] = [rows[no] for no in sorted(rows)]
     data["mark_values"] = list(MARK_VALUES)
     return data
+
+
+def subject_stats(db: Session, test: GradeTest) -> dict:
+    """一场测试的**单科**统计（班委及以上看）
+
+    刻意只有单科、没有跨科合计 —— 这个模块里不存在「总分」这个概念
+    （用户口径），所以别在这里顺手加个总分列。
+
+    三类格子分开数：**有分数的**（平均/最高/最低/分数段/及格率的分母）、
+    **有标记词的**（缺考/免修/缓考/违纪）、**没录的**。混着数的话缺考会被当成 0 分
+    拽低平均分 —— 而缺考的人根本没参加这场考试，不该出现在任何分数里。
+    """
+    subjects = subjects_of(db, test.id)
+    # 一场最多 20 科 × 500 行，一次全捞出来在内存里分科；按科目发 20 次查询没必要
+    items = db.query(GradeItem).filter(GradeItem.test_id == test.id).all()
+    by_subject: dict[int, list[GradeItem]] = {}
+    for item in items:
+        by_subject.setdefault(item.subject_id, []).append(item)
+
+    # 统计范围内的人 = 学籍正常的学生 ∪ 这次已有记录的人（同 detail() 的口径，
+    # 后者保证毕业删档的人也算得进去）。「没录」这个数要靠它才数得出来
+    roster = {
+        s.student_no for s in db.query(Student).all() if (s.school_status or "") == "正常"
+    }
+    everyone = roster | {item.student_no for item in items}
+
+    rows = []
+    for subject in subjects:
+        group = by_subject.get(subject.id, [])
+        mode = subject.mode or "score"
+        # 满分为 0 或没设（`or` 一并兜住）就退回默认值，免得下面拿它做除数
+        full_score = float(subject.full_score or DEFAULT_FULL_SCORE) or DEFAULT_FULL_SCORE
+
+        # 判空一律 is not None：0 分是合法成绩，写成 if item.score 会把它当成没录
+        scores = [item.score for item in group if item.score is not None]
+        # 通过 / 不通过也存在 mark 列里，但它们是**成绩**、不是「没参加考试」的原因，
+        # 得跟缺考那几个分开数 —— 混在一起数的话，通过制科目的「标记人数」
+        # 会把全部有成绩的人都算进去
+        passed = [i for i in group if i.mark == PASS_VALUES[0]]
+        failed = [i for i in group if i.mark == PASS_VALUES[1]]
+        marked = [i for i in group if i.score is None and i.mark in MARK_VALUES]
+
+        # 四类互不重叠，加起来就是「有记录的人」，剩下的才是没录的
+        recorded = len(scores) + len(passed) + len(failed) + len(marked)
+        row = {
+            "subject_id": subject.id,
+            "name": subject.name,
+            "mode": mode,
+            "full_score": full_score,
+            # 有成绩的人数：计分科目是有分数的，通过制是记了通过 / 不通过的。
+            # 两种情况都正好是下面那个比例的分母
+            "scored_count": len(scores) if mode == "score" else len(passed) + len(failed),
+            "marked_count": len(marked),
+            "blank_count": len(everyone) - recorded,
+        }
+
+        if mode == "pass_fail":
+            row["passed_count"] = len(passed)
+            row["failed_count"] = len(failed)
+            # 通过率的分母只有真记了通过/不通过的人，缺考的两种都不是
+            row["pass_rate"] = (
+                round(len(passed) / len(passed + failed) * 100, 1)
+                if passed or failed else None
+            )
+        else:
+            # 显式 float()：AVG / 除法在 SQLite 上给 float、在 MySQL 上可能是 Decimal
+            row["avg"] = round(float(sum(scores) / len(scores)), 1) if scores else None
+            row["max"] = max(scores) if scores else None
+            row["min"] = min(scores) if scores else None
+            # 及格线 = 满分 × 比例。分数段按满分的百分比切，与满分具体是多少无关
+            row["pass_count"] = sum(1 for s in scores if s >= full_score * PASS_RATIO)
+            row["pass_rate"] = (
+                round(row["pass_count"] / len(scores) * 100, 1) if scores else None
+            )
+            row["ranges"] = [
+                {
+                    "label": label,
+                    "count": sum(1 for s in scores if low <= s / full_score < high),
+                }
+                for label, low, high in SCORE_BUCKETS
+            ]
+
+        rows.append(row)
+
+    return {
+        "test_id": test.id,
+        "name": test.name,
+        "tested_at": test.tested_at,
+        "subjects": rows,
+        "roster_count": len(everyone),
+    }
+
+
+def _my_entry(subject: GradeSubject, value: str, pool: dict[int, list[float]]) -> dict:
+    """我的一格成绩 + 它在这一科的位次（pool 是这一科全部有分数的取值）
+
+    位次口径：**排在班级前 X%** = 名次 ÷ 有成绩人数。名次取「严格比我高的人数 + 1」,
+    并列同分时按最好名次算，不因为有人同分就把自己挤到后面。
+
+    只在**计分科目**且**我这一格确实是分数**时才算：
+    - 通过制科目不算 —— 二元值的百分位没有意义
+    - 缺考/免修/缓考/违纪不算 —— 这些值 float() 会抛，本来也不是成绩
+    - 空格不算 —— 没录哪来的位次
+
+    班级层面的统计（平均分、及格率、分数段）一律不给学生，只有自己这一格。
+    """
+    entry = {
+        "subject": subject.name,
+        "value": value,
+        "mode": subject.mode or "score",
+        "rank_percent": None,
+        "scored_count": 0,
+    }
+    if entry["mode"] != "score" or not value:
+        return entry
+    try:
+        score = float(value)
+    except ValueError:
+        return entry  # 标记词（缺考等）走到这儿
+
+    group = pool.get(subject.id, [])
+    if group:
+        ahead = sum(1 for other in group if other > score)
+        entry["rank_percent"] = round((ahead + 1) / len(group) * 100, 1)
+        entry["scored_count"] = len(group)
+    return entry
 
 
 def my_grades(db: Session, student_no: str) -> list[dict]:
@@ -782,6 +1001,18 @@ def my_grades(db: Session, student_no: str) -> list[dict]:
         for s in db.query(GradeSubject).filter(GradeSubject.test_id.in_(test_ids)).all()
     }
 
+    # 位次：分母是**这一科实际有分数的人**（缺考/免修/缓考/违纪不算，与及格率同口径）。
+    # 一次把这些科目的所有分数捞回来在内存里比 —— 一场几十人，内存里算比逐科发
+    # 一条 count 查询省事得多
+    pool: dict[int, list[float]] = {}
+    if subjects:
+        for subject_id, score in (
+            db.query(GradeItem.subject_id, GradeItem.score)
+            .filter(GradeItem.subject_id.in_(list(subjects)), GradeItem.score.isnot(None))
+            .all()
+        ):
+            pool.setdefault(subject_id, []).append(score)
+
     mine: dict[int, dict[int, str]] = {}
     for item in items:
         mine.setdefault(item.test_id, {})[item.subject_id] = cell_value(item)
@@ -799,9 +1030,7 @@ def my_grades(db: Session, student_no: str) -> list[dict]:
                 "name": test.name,
                 "tested_at": test.tested_at,
                 "remark": test.remark or "",
-                "scores": [
-                    {"subject": s.name, "value": values.get(s.id, "")} for s in group
-                ],
+                "scores": [_my_entry(s, values.get(s.id, ""), pool) for s in group],
             }
         )
     result.sort(key=lambda row: (row["tested_at"], row["test_id"]), reverse=True)
