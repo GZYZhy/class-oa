@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # 应用信息
     app_name: str = "班级信息管理系统"
     # 版本号。页面上的「关于班级 → 系统版本」、/api/health、接口文档都取这一份
-    app_version: str = "1.9.0"
+    app_version: str = "1.9.1"
     # 所属学院。和前端 window.__SITE__.college 是同**一个**环境变量 SITE_COLLEGE，
     # 别各配一份：生成的正式文档上印的学院名和页面上显示的对不上，是很难发现的那种错。
     # （保留 COLLEGE 作为别名，方便只跑后端时单独覆盖）
