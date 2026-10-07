@@ -346,11 +346,17 @@ def parse_grade_excel(
         [v for v in (_display(r["cells"][i][1]) for r in raw_rows) if v]
         for i in range(len(subject_cols))
     ]
+    # 预判形态时**先把标记词剔掉**：缺考/免修/缓考/违纪两种形态都合法、不带形态信息。
+    # 不剔的话，「大多数人是通过、个别缺考」的体育列会被判成计分制，于是这一列的
+    # 「通过 / 不通过」在解析阶段逐格变成非法值 —— 班委就算在确认页把形态改回来，
+    # 数据也已经丢在预览里了，只能重传一份 Excel
+    form_values = [[v for v in values if v not in MARK_VALUES] for values in col_values]
     columns = [
         {
             "name": subject_cols[i][1],
             "keep_default": subject_cols[i][1] not in NON_SUBJECT_HEADERS,
-            "suggest_pass_fail": bool(values) and all(v in PASS_VALUES for v in values),
+            "suggest_pass_fail": bool(form_values[i])
+            and all(v in PASS_VALUES for v in form_values[i]),
             "sample": values[:3],
         }
         for i, values in enumerate(col_values)
