@@ -103,7 +103,11 @@ for g in FIELD_GROUPS:
 
 # 两个照片字段不参与导出（PDF 里单独排版），所以不在上面的组里；
 # 但它们能通过改学生信息的接口写进去，日志里也得有个中文名，不能漏出英文 prop
-_EXTRA_LABELS = {"gaokao_photo": "高考照片", "on_site_photo": "实地照片"}
+_EXTRA_LABELS = {
+    "gaokao_photo": "高考照片",
+    "on_site_photo": "实地照片",
+    "id_photo": "自备证件照",
+}
 
 
 def field_label(prop: str) -> str:

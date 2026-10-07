@@ -7,6 +7,7 @@ from .student import (
     StudentCreateResponse,
     DrawLogRequest,
     BatchDeleteRequest,
+    RemarkAttachment,
     student_response,
 )
 from .announcement import AnnouncementResponse

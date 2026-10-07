@@ -44,6 +44,8 @@ KEYWORD_SEARCH_COLUMNS = (
     Student.league_position,
     Student.is_poor,
     Student.remark,
+    # 备注附件：存的是 JSON 串（含原始文件名），LIKE 能命中文件名
+    Student.remark_attachments,
 )
 
 

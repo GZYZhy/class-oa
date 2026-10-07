@@ -109,12 +109,36 @@ export function deleteStudentPhoto(id, type) {
 
 /**
  * 更新学生信息
+ *
+ * 后端现在用 multipart/form-data（因为备注支持附件上传）：
+ * - student_data：JSON 字符串，字段与 StudentUpdate 一致
+ * - remark_new_attachments：备注新增附件（可选）
+ * - remark_keep_attachments：保留的原附件下标 JSON 数组字符串（可选）
+ *
+ * 如果没有附件，也可以继续传普通 JSON 对象（内部自动转成 FormData），
+ * 调用方不用感知差异。
  */
-export function updateStudent(id, data) {
+export function updateStudent(id, data, options = {}) {
+  const { remarkNewAttachments = [], remarkKeepAttachments = null } = options
+
+  // 没有附件时也走 FormData，与后端接口格式一致
+  const formData = new FormData()
+  formData.append('student_data', JSON.stringify(data))
+
+  if (remarkNewAttachments?.length) {
+    remarkNewAttachments.forEach(file => {
+      formData.append('remark_new_attachments', file)
+    })
+  }
+  if (remarkKeepAttachments !== null) {
+    formData.append('remark_keep_attachments', JSON.stringify(remarkKeepAttachments))
+  }
+
   return request({
     url: `/students/${id}`,
     method: 'put',
-    data
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
   })
 }
 

@@ -89,6 +89,77 @@ def _get_student_value(student: Student, prop: str) -> str:
     return info["getter"](val)
 
 
+def _markdown_to_paragraph_html(text: str) -> str:
+    """把简易 Markdown 转成 reportlab Paragraph 能用的 HTML 标签
+
+    只处理最常用的几种语法，够用就行：
+    - **粗体** → <b>...</b>
+    - *斜体* → <i>...</i>
+    - 行内代码 `code` → 等宽字体
+    - 链接 [text](url) → <a href="url" color="blue">text</a>
+    - 换行 → <br/>
+    - 列表（- 或 1. 开头）→ 缩进 + 项目符号
+
+    不处理标题（#）——标题一般写在段落开头，PDF 里用列表或加粗就够了。
+    """
+    if not text:
+        return ""
+
+    lines = text.replace("\r\n", "\n").split("\n")
+    result_lines = []
+
+    for line in lines:
+        if not line.strip():
+            result_lines.append("")
+            continue
+
+        # 行内格式化（粗体 / 斜体 / 代码 / 链接）
+        s = line
+        # 链接：[text](url)
+        import re as _re
+        s = _re.sub(
+            r"\[([^\]]+)\]\(([^)]+)\)",
+            r'<a href="\2" color="blue"><u>\1</u></a>',
+            s,
+        )
+        # 粗体：**text**
+        s = _re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
+        # 斜体：*text*（注意：粗体已经处理过了，剩下的 * 就是斜体）
+        s = _re.sub(r"(?<!\*)\*([^*\n]+?)\*(?!\*)", r"<i>\1</i>", s)
+        # 行内代码：`text`
+        s = _re.sub(r"`([^`]+)`", r'<font face="Courier">\1</font>', s)
+
+        # 无序列表：- / * / + 开头
+        list_match = _re.match(r"^\s*[-*+]\s+", s)
+        if list_match:
+            content = s[list_match.end():]
+            result_lines.append(f"&nbsp;&nbsp;•&nbsp;&nbsp;{content}")
+            continue
+
+        # 有序列表：1. / 2. 开头
+        ol_match = _re.match(r"^\s*\d+\.\s+", s)
+        if ol_match:
+            prefix = s[:ol_match.end()].strip()
+            content = s[ol_match.end():]
+            result_lines.append(f"&nbsp;&nbsp;{prefix}&nbsp;{content}")
+            continue
+
+        result_lines.append(s)
+
+    return "<br/>".join(result_lines)
+
+
+def _parse_remark_attachments_pdf(student: Student) -> list[dict]:
+    """从学生对象读备注附件列表（PDF 导出用）"""
+    if not getattr(student, "remark_attachments", ""):
+        return []
+    try:
+        items = json.loads(student.remark_attachments or "")
+    except (ValueError, TypeError):
+        return []
+    return items if isinstance(items, list) else []
+
+
 # ---------------------------------------------------------------------------
 # Excel 导出
 # ---------------------------------------------------------------------------
@@ -270,7 +341,7 @@ def generate_student_pdf(student: Student, photos_dir: Path) -> bytes:
         ("宿舍与职务", [
             ("宿舍", "dormitory"), ("床位", "bed"),
             ("班委职务", "class_position"), ("团学会职务", "league_position"),
-            ("是否贫困生", "is_poor"), ("备注", "remark"),
+            ("是否贫困生", "is_poor"),
         ]),
     ]
 
@@ -304,8 +375,68 @@ def generate_student_pdf(student: Student, photos_dir: Path) -> bytes:
             ]))
             story.append(t)
 
+    # ---- 备注：单独一个 section，支持 Markdown 渲染 + 附件清单 ----
+    remark_text = _get_student_value(student, "remark")
+    remark_attachments = _parse_remark_attachments_pdf(student)
+    if remark_text or remark_attachments:
+        story.append(Paragraph("备注", h2_style))
+        remark_content = []
+        if remark_text:
+            remark_html = _markdown_to_paragraph_html(remark_text)
+            remark_content.append([
+                Paragraph(remark_html, normal_style),
+            ])
+        else:
+            remark_content.append([Paragraph("（无）", normal_style)])
+
+        # 备注用单列表格，占满整行宽度
+        remark_table = Table(remark_content, colWidths=[17 * cm])
+        remark_table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), font_name),
+            ("FONTSIZE", (0, 0), (-1, -1), 10),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D0D7DE")),
+        ]))
+        story.append(remark_table)
+
+        # 附件清单
+        if remark_attachments:
+            story.append(Spacer(1, 0.2 * cm))
+            story.append(Paragraph(
+                f"附件（共 {len(remark_attachments)} 个）：",
+                ParagraphStyle(
+                    "AttachTitle", parent=normal_style,
+                    fontName=font_name, fontSize=9, textColor=colors.HexColor("#666666"),
+                ),
+            ))
+            for idx, att in enumerate(remark_attachments, 1):
+                name = att.get("name", "未知文件")
+                size = att.get("size", 0)
+                size_str = _format_file_size(size)
+                story.append(Paragraph(
+                    f"&nbsp;&nbsp;{idx}. {name} ({size_str})",
+                    ParagraphStyle(
+                        "AttachItem", parent=normal_style,
+                        fontName=font_name, fontSize=9, textColor=colors.HexColor("#666666"),
+                        leading=14,
+                    ),
+                ))
+
     doc.build(story)
     return buf.getvalue()
+
+
+def _format_file_size(size: int) -> str:
+    """把字节数格式化成易读的字符串（PDF 附件清单用）"""
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / 1024 / 1024:.1f} MB"
 
 
 def _build_info_table_data(student, font_name, style):

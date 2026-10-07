@@ -1,10 +1,13 @@
+import json
 import os
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+
+from ..config import BASE_DIR
 
 from ..database import get_db
 from ..models import (
@@ -81,8 +84,49 @@ from .ev_passes import student_files as ev_pass_files
 
 router = APIRouter(prefix="/api/students", tags=["学生信息"])
 
-# 班委能改的字段：只有备注。姓名、学号、身份证号这些只能由管理员改
-COMMITTEE_EDITABLE_FIELDS = {"remark"}
+# 班委能改的字段：备注和它的附件。姓名、学号、身份证号这些只能由管理员改
+COMMITTEE_EDITABLE_FIELDS = {"remark", "remark_attachments"}
+
+# ---------- 备注附件 ----------
+# 附件存放目录
+REMARK_ATTACH_DIR = BASE_DIR / "data" / "remark_attachments"
+REMARK_ATTACH_DIR.mkdir(parents=True, exist_ok=True)
+
+# 允许的附件类型：在通知附件白名单基础上加上压缩包（zip/rar/7z）
+ALLOWED_REMARK_ATTACH_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".heif",
+    ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm",
+    ".mp3", ".m4a", ".wav",
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".pdf", ".txt", ".md", ".wps", ".et", ".dps",
+    ".zip", ".rar", ".7z",
+}
+
+MAX_REMARK_ATTACH_SIZE = 20 * 1024 * 1024   # 单文件 20MB
+MAX_REMARK_NEW_ATTACHMENTS = 3               # 单次编辑最多新增几个
+MAX_REMARK_ATTACHMENTS_TOTAL = 15            # 每个学生备注总附件数上限
+
+
+def _safe_remark_attach_name(original: str) -> str:
+    """校验后缀并生成安全存盘名（UUID + 后缀）；不合法抛 400"""
+    ext = Path(original).suffix.lower() if original else ""
+    if ext not in ALLOWED_REMARK_ATTACH_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的附件类型：{ext or '（无后缀）'}，仅支持图片 / 视频 / 音频 / 文档 / 压缩包",
+        )
+    return f"{uuid.uuid4().hex}{ext}"
+
+
+def _parse_remark_attachments(student: Student) -> list:
+    """从库里的 JSON 串读附件列表；读不出来就当没有"""
+    if not student.remark_attachments:
+        return []
+    try:
+        items = json.loads(student.remark_attachments or "")
+    except (ValueError, TypeError):
+        return []
+    return items if isinstance(items, list) else []
 
 
 def _photo_field(photo_type: str) -> str:
@@ -371,17 +415,39 @@ def create_student_api(
 
 
 @router.put("/{student_id}", response_model=StudentResponse, summary="更新学生信息")
-def update_student_api(
+async def update_student_api(
     student_id: int,
-    student: StudentUpdate,
+    student_data: str = Form("", description="学生信息 JSON 字符串"),
+    remark_new_attachments: list[UploadFile] = File(
+        default=[], description="备注新增附件，单次最多 3 个"
+    ),
+    remark_keep_attachments: str = Form(
+        "", description="保留的原备注附件下标（JSON 数组，如 [0,2]）"
+    ),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
-    """管理员可改所有字段；班委只能改备注，其余的字段静静忽略（不是报错）"""
+    """管理员可改所有字段；班委只能改备注和附件，其余的字段静静忽略（不是报错）
+
+    请求体用 multipart/form-data，原因是备注要支持附件上传：
+    - student_data：JSON 字符串，字段与 StudentUpdate 一致；空串表示只改附件
+    - remark_new_attachments：本次新增的备注附件（最多 3 个）
+    - remark_keep_attachments：要保留的原附件下标 JSON 数组（空=全部保留）
+    """
     current = get_student(db, student_id)
     if not current:
         raise HTTPException(status_code=404, detail="学生不存在")
+
+    # 解析学生信息 JSON
+    if student_data.strip():
+        try:
+            student_dict = json.loads(student_data)
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=400, detail="student_data 格式错误")
+        student = StudentUpdate(**student_dict)
+    else:
+        student = StudentUpdate()
 
     # 学号就是登录账号：改了它，这个学生立刻登不上，请假/反馈里存的学号也对不上号。
     # 前端那个输入框是灰的，这里是防手敲和防旧版前端
@@ -395,20 +461,176 @@ def update_student_api(
     # 旧值必须赶在 update_student 之前取：它是就地改的对象，改完就只剩新值了
     before = {k: getattr(current, k, None) for k in fields}
 
+    # ---------- 处理备注附件 ----------
+    # 只有当 allowed 允许改 remark_attachments（班委）或管理员时才处理
+    handle_attachments = allowed is None or "remark_attachments" in allowed
+    final_attachments = None
+    removed_files = []  # 被移除的旧附件文件路径，commit 成功后删除
+    saved_new_files = []  # 已存的新附件路径，失败时回滚
+
+    if handle_attachments and (remark_new_attachments or remark_keep_attachments.strip()):
+        old_items = _parse_remark_attachments(current)
+
+        # 解析要保留的旧附件下标
+        keep_indices = set()
+        if remark_keep_attachments.strip():
+            try:
+                keep_indices = set(int(x) for x in json.loads(remark_keep_attachments))
+            except (ValueError, TypeError, json.JSONDecodeError):
+                raise HTTPException(status_code=400, detail="remark_keep_attachments 格式错误")
+        else:
+            # 不传表示全部保留
+            keep_indices = set(range(len(old_items)))
+
+        kept = [old_items[i] for i in sorted(keep_indices) if 0 <= i < len(old_items)]
+
+        # 校验：新增附件数不超过单次上限
+        if len(remark_new_attachments) > MAX_REMARK_NEW_ATTACHMENTS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"单次最多新增 {MAX_REMARK_NEW_ATTACHMENTS} 个备注附件",
+            )
+
+        # 校验：总附件数不超过上限
+        if len(kept) + len(remark_new_attachments) > MAX_REMARK_ATTACHMENTS_TOTAL:
+            raise HTTPException(
+                status_code=400,
+                detail=f"备注附件总共最多 {MAX_REMARK_ATTACHMENTS_TOTAL} 个"
+                       f"（当前保留 {len(kept)} 个，新增 {len(remark_new_attachments)} 个）",
+            )
+
+        # 保存新附件
+        new_meta = []
+        for f in remark_new_attachments:
+            if not f.filename:
+                raise HTTPException(status_code=400, detail="附件文件名不能为空")
+            safe_name = _safe_remark_attach_name(f.filename)
+            file_content = await f.read()
+            if len(file_content) > MAX_REMARK_ATTACH_SIZE:
+                # 回滚已存的
+                for p in saved_new_files:
+                    try:
+                        p.unlink()
+                    except OSError:
+                        pass
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"附件「{f.filename}」超过 {MAX_REMARK_ATTACH_SIZE // 1024 // 1024}MB",
+                )
+            save_path = REMARK_ATTACH_DIR / safe_name
+            with open(save_path, "wb") as fp:
+                fp.write(file_content)
+            saved_new_files.append(save_path)
+            new_meta.append({
+                "file": safe_name,
+                "name": f.filename,
+                "size": len(file_content),
+            })
+
+        # 最终附件列表
+        final_attachments = kept + new_meta
+
+        # 收集被移除的旧附件，commit 成功后删除
+        removed_indices = set(range(len(old_items))) - keep_indices
+        for i in removed_indices:
+            store_name = old_items[i].get("file", "")
+            if store_name:
+                p = REMARK_ATTACH_DIR / Path(store_name).name
+                if p.exists():
+                    removed_files.append(p)
+
+        # 把附件写入 fields，让 update_student 一起更新
+        fields["remark_attachments"] = (
+            json.dumps(final_attachments, ensure_ascii=False) if final_attachments else ""
+        )
+        before["remark_attachments"] = current.remark_attachments
+
     updated = update_student(db, student_id, student, allowed_fields=allowed)
     if not updated:
+        # 回滚新附件文件
+        for p in saved_new_files:
+            try:
+                p.unlink()
+            except OSError:
+                pass
         raise HTTPException(status_code=404, detail="学生不存在")
+
+    # 附件变更单独写库：remark_attachments 不在 StudentUpdate schema 里，
+    # update_student 不会碰它，所以手动 setattr 再 commit 一次
+    attach_changed = False
+    if final_attachments is not None:
+        new_value = json.dumps(final_attachments, ensure_ascii=False) if final_attachments else ""
+        if (current.remark_attachments or "") != new_value:
+            updated.remark_attachments = new_value
+            attach_changed = True
 
     # 前端保存时整个表单都会提交上来，所以不能照单全收 —— 这里只留真正变了的字段，
     # 详情长成「备注：无 → 走读」。一个字段都没变就不记，省得日志里全是空动作
     detail = describe_changes(before, fields)
+    # 附件数量变化也加到日志里
+    if attach_changed:
+        old_count = len(_parse_remark_attachments(current))
+        new_count = len(final_attachments) if final_attachments else 0
+        attach_part = f"备注附件：{old_count} 个 → {new_count} 个"
+        detail = detail + ("；" if detail else "") + attach_part
+
     if detail:
         log_operation(
             db, user, "修改学生信息", target=f"{updated.student_no} {updated.name}",
             detail=detail, ip=ip,
         )
+
+    # 附件有变更就提交一次（日志也在同一个事务里）
+    if attach_changed:
         db.commit()
+        db.refresh(updated)
+
+    # 提交成功后删被移除的旧附件
+    for p in removed_files:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
     return updated
+
+
+# ---------- 备注附件下载 ----------
+@router.get("/{student_id}/remark-attachments/{index}", summary="下载备注附件")
+def download_remark_attachment(
+    student_id: int,
+    index: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """按学生 id 和附件下标下载备注附件
+
+    权限：班委及以上能看所有人的；普通学生只能看自己的（与备注字段一致）。
+    """
+    student = get_student(db, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+    _ensure_can_view(user, student)
+
+    items = _parse_remark_attachments(student)
+    if index < 0 or index >= len(items):
+        raise HTTPException(status_code=404, detail="附件不存在")
+
+    item = items[index]
+    store_name = item.get("file", "")
+    # 防路径穿越：只取文件名部分
+    safe_name = Path(store_name).name
+    file_path = REMARK_ATTACH_DIR / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="附件文件不存在")
+
+    display_name = item.get("name", safe_name)
+    return FileResponse(
+        str(file_path),
+        media_type=guess_media_type(display_name, safe_name),
+        filename=display_name,
+        content_disposition_type="attachment",
+    )
 
 
 @router.delete("/{student_id}", summary="删除学生（仅管理员）")
@@ -447,9 +669,15 @@ def delete_student_api(
 
     # 先取出后面要用的值：删除并 commit 之后再访问属性会报 ObjectDeletedError
     target = f"{student.student_no} {student.name}"
-    photo_names = [student.gaokao_photo, student.on_site_photo]
+    photo_names = [student.gaokao_photo, student.on_site_photo, student.id_photo]
     # 办件文件也必须在删记录**之前**收集 —— 记录一没就查不出文件名了
     request_files = certificate_files(db, student_id) + ev_pass_files(db, student_id)
+    # 备注附件文件也一起收集
+    remark_files = [
+        REMARK_ATTACH_DIR / Path(item.get("file", "")).name
+        for item in _parse_remark_attachments(student)
+        if item.get("file")
+    ]
 
     # 账号和推送订阅跟着学生走：人没了就别再留着账号，也别再往下推
     db.query(PushSubscription).filter(PushSubscription.student_no == student.student_no).delete()
@@ -462,6 +690,7 @@ def delete_student_api(
     for name in photo_names:
         _remove_photo(name)
     _remove_files(request_files)
+    _remove_files(remark_files)
     return {"message": "删除成功"}
 
 
@@ -770,6 +999,10 @@ def delete_students_batch(
             deleted_photos.append(s.on_site_photo)
         # 办件文件也必须在删记录**之前**收集 —— 记录一没就查不出文件名了
         deleted_files += certificate_files(db, s.id) + ev_pass_files(db, s.id)
+        # 备注附件也一起收集
+        for item in _parse_remark_attachments(s):
+            if item.get("file"):
+                deleted_files.append(REMARK_ATTACH_DIR / Path(item["file"]).name)
         deleted_nos.append(s.student_no)
         deleted_names.append(s.name)
 
