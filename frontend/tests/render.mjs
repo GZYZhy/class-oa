@@ -342,6 +342,37 @@ console.log('\n▶ 审核页：照片给班委看新旧两张，不给文件名'
   check(html.includes('13800138000') && html.includes('13900139000'), '手机号仍然是原值 → 新值')
 }
 
+console.log('\n▶ 编辑学生信息：实地采集那一格能调摄像头拍照')
+{
+  // 弹窗正文 SSR 下不渲染（见文件头），所以这一节只断源码。
+  // 两个 input 都是静态属性：capture 得出现在初始 HTML 里，
+  // 而且 photoPicking 是普通 let，动态改属性根本不参与渲染
+  const list = readFileSync(`${ROOT}/src/views/StudentList.vue`, 'utf8')
+  const photoInputs = (list.match(/<input\b[^>]*>/g) || []).filter((t) =>
+    t.includes('handlePhotoPicked')
+  )
+
+  check(photoInputs.length === 2, '两个隐藏 input 都交给同一个 handlePhotoPicked')
+  check(photoInputs.every((t) => t.includes('accept="image/*"')), '两个都还限制 image/*（收窄会关掉安卓的相机入口）')
+  check(photoInputs.filter((t) => t.includes('capture')).length === 1, '只有拍照那个带 capture，选文件那个照旧')
+  check(list.includes('capture="environment"'), '拍的是后置摄像头（管理员持机对着学生拍）')
+  check(/const cameraInput = ref\(null\)/.test(list), '第二个 input 的 ref 声明了（漏了点「拍照」会直接抛错）')
+
+  // 按钮：只有实地采集那一格多一个「拍照」，且上传中不可点
+  const camBtn = list.match(/<el-button\b[^>]*pickPhoto\(p\.type, true\)[^>]*>[\s\S]{0,80}拍照/) || ['']
+  check(camBtn[0] !== '', '「拍照」按钮：点的是 pickPhoto(p.type, true)，文案是「拍照」')
+  check(camBtn[0].includes(':disabled'), '上传中拍照按钮禁用 —— 否则开相机会把页面切后台、挂起正在传的那张')
+  check(/v-if="p\.camera"[\s\S]{0,300}pickPhoto\(p\.type, true\)/.test(list), '「拍照」只挂在实地采集那一项上（p.camera）')
+  check((list.match(/pickPhoto\(p\.type, true\)/g) || []).length === 1, '「拍照」按钮只有一个')
+  check(/label: '实地采集', camera: true/.test(list), '实地采集那一项标了 camera: true，模板里没新写 type === 字面量')
+
+  // 原有链路一个字没动
+  check(/function pickPhoto\(type,\s*useCamera = false\)/.test(list), 'pickPhoto 多一个开关，默认仍走文件框')
+  check(/useCamera\s*\?\s*cameraInput\s*:\s*photoInput/.test(list), '按开关决定点哪个 input')
+  check(/pickPhoto\(p\.type\)/.test(list), '原来的「选择图片」还是不带第二个参数')
+  check(/photoUploading === p\.type/.test(list), '上传进度/loading 还挂在「选择图片」上')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
