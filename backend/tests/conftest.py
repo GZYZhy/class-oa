@@ -81,6 +81,10 @@ def backend(tmp_path):
                 "PYTHONPATH": str(BACKEND),
                 "TEST_PORT": str(port),
                 "DATABASE_URL": f"sqlite:///{db_path}",
+                # 照片也得另起一个目录：DATABASE_URL 只管库文件，照片走的是
+                # config.BASE_DIR 下那个真实数据目录 —— 不隔离的话，测试上传的图
+                # 会落在本机演示库的 photos 里，而且事后没人清得掉
+                "PHOTO_DIR": str(tmp_path / "photos"),
                 # 显式置空：不给的话会从仓库根或 backend/.env 里漏进来
                 "BOOTSTRAP_PASSWORD": "",
                 **env,

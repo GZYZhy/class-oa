@@ -35,9 +35,36 @@
             <template #default="{ row }">
               <div v-for="(next, key) in row.changes" :key="key" class="diff-line">
                 <span class="diff-label">{{ FIELD_LABELS[key] || key }}</span>
-                <span class="diff-old">{{ row.current?.[key] || '（空）' }}</span>
-                <el-icon class="diff-arrow"><Right /></el-icon>
-                <span class="diff-new">{{ next || '（清空）' }}</span>
+
+                <!-- 照片这一项存的是文件名，打出来谁看都没用：待审时并排两张缩略图。
+                     处理完之后不再画图 —— 旧图已经删了、新图也归到学生档案名下，
+                     这两个地址取到的已经不是「当时那两张」 -->
+                <template v-if="key === PHOTO_FIELD.prop">
+                  <template v-if="row.status === 'pending'">
+                    <img
+                      v-if="row.current?.[key]"
+                      :src="reviewPhotoUrl(row.id, 'old')"
+                      class="diff-photo"
+                      alt="原证件照"
+                      @error="onImgError"
+                    />
+                    <span v-else class="diff-old">（无）</span>
+                    <el-icon class="diff-arrow"><Right /></el-icon>
+                    <img
+                      :src="reviewPhotoUrl(row.id, 'new')"
+                      class="diff-photo"
+                      alt="新证件照"
+                      @error="onImgError"
+                    />
+                  </template>
+                  <span v-else class="diff-new">已上传新照片</span>
+                </template>
+
+                <template v-else>
+                  <span class="diff-old">{{ row.current?.[key] || '（空）' }}</span>
+                  <el-icon class="diff-arrow"><Right /></el-icon>
+                  <span class="diff-new">{{ next || '（清空）' }}</span>
+                </template>
               </div>
               <span v-if="!Object.keys(row.changes || {}).length" style="color: var(--el-text-color-disabled);">-</span>
             </template>
@@ -560,7 +587,7 @@ import {
   downloadEvPassDocx,
   downloadEvPassPromiseDocx
 } from '@/api/evPass'
-import { FIELD_LABELS, STATUS_LABELS, STATUS_TYPES } from '@/utils/changeFields'
+import { FIELD_LABELS, PHOTO_FIELD, STATUS_LABELS, STATUS_TYPES } from '@/utils/changeFields'
 import { formatDate, formatDateTime, formatFileSize } from '@/utils/format'
 import Watermark from '@/components/Watermark.vue'
 import FileViewer from '@/components/FileViewer.vue'
@@ -608,6 +635,21 @@ function tabBadge(tab) {
 // —— 信息修改申请 ——
 const changeList = ref([])
 const changeStatus = ref('pending')
+
+/**
+ * 待审照片的对照图。old = 学生现在档案里那张，new = 这条申请里传的那张。
+ *
+ * 走专门的接口而不是 GET /api/students/{id}/photo：新照片在通过之前还没写进学生表，
+ * 那条路两个方向都只会取到旧图。
+ */
+function reviewPhotoUrl(id, side) {
+  return `/api/change-requests/${id}/photo?side=${side}`
+}
+
+/** 图挂了就藏起来：历史申请的照片文件可能已经被清掉，别给班委一个碎图图标 */
+function onImgError(e) {
+  e.target.style.display = 'none'
+}
 
 async function fetchChangeList() {
   loading.value = true
@@ -1234,6 +1276,16 @@ onMounted(handleTabChange)
 .diff-new {
   color: var(--el-text-color-primary);
   font-weight: 500;
+}
+
+/* 待审照片的缩略图：按证件照的竖版比例，别把表格行撑得太高 */
+.diff-photo {
+  width: 42px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--el-border-color-lighter);
+  vertical-align: middle;
 }
 
 /* 手机上「原值 → 新值」一条可能折行，改成上下排列不容易串行 */
