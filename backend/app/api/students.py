@@ -355,7 +355,15 @@ def _serve_photo(student: Student, photo_type: str) -> FileResponse:
     # 这里原先是「非 png 一律当 jpeg」，而上传白名单里还有 gif / bmp / webp ——
     # 那三种被标成 image/jpeg。浏览器嗅探一般能救回来，但类型本来就不该错，
     # 统一交给 guess_media_type（它认识白名单里的全部后缀）
-    return FileResponse(str(file_path), media_type=guess_media_type(file_path.name))
+    #
+    # 浏览器缓存：URL 里带 v=文件名 版本号（见 getPhotoUrl），换照片后文件名变、
+    # 地址跟着变，所以可以放心缓存一年。private 防止经共享代理缓存造成隐私泄漏。
+    # 不标 immutable：用户手动刷新页面时浏览器仍会发条件请求向服务器确认一次
+    return FileResponse(
+        str(file_path),
+        media_type=guess_media_type(file_path.name),
+        headers={"Cache-Control": "private, max-age=31536000"},
+    )
 
 
 @router.get("/{student_id}", response_model=StudentResponse, summary="学生详情")
