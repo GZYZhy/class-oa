@@ -13,6 +13,7 @@ Excel 那条导入链路也支持照片，但它要求照片嵌在单元格里�
   新文件还没落库 = 没人引用（最多是个孤儿），旧数据完好
 """
 
+import os
 import re
 import tempfile
 import time
@@ -22,9 +23,12 @@ from collections import Counter
 from io import BytesIO
 from pathlib import Path
 
+from fastapi import UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..models import Student
+from ..utils.media_type import guess_media_type
 from .log_service import log_operation
 from .student_import_service import PHOTO_DIR, _remove_photo_safe
 
@@ -43,6 +47,66 @@ PHOTO_TYPE_LABELS = {
     "on_site": "实地采集照片",
     "id": "自备证件照",
 }
+
+
+# ========== 单张：落盘 / 删除 / 取回 ==========
+# 单张上传（改学生信息、提交修改申请）、取图、清理三处共用这几个工具。
+# 各写一份的话，「防路径穿越」这种必须处处都对的判断迟早会漏掉一处
+
+
+def save_photo(file: UploadFile) -> str:
+    """把上传的照片写到磁盘，返回裸文件名（库里只存文件名，不存路径）
+
+    抛 ValueError，文案是直接给用户看的，调用方原样转成 400（和 preview 一个路子）。
+    """
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_PHOTO_EXTENSIONS:
+        raise ValueError(f"照片只支持 {_allowed_text()} 格式")
+
+    content = file.file.read()
+    if not content:
+        raise ValueError("上传的文件是空的")
+    if len(content) > MAX_PHOTO_SIZE:
+        raise ValueError(f"照片不能超过 {MAX_PHOTO_SIZE // 1024 // 1024}MB")
+
+    # 随机文件名：库里只认这个名字，于是别人就算知道学号也拼不出这个文件名
+    safe_name = f"{uuid.uuid4().hex}{ext}"
+    (PHOTO_DIR / safe_name).write_bytes(content)
+    return safe_name
+
+
+def remove_photo(file_name: str | None) -> None:
+    """删照片文件。文件已经不在了也不报错（手工清理过、换过盘都可能）"""
+    if not file_name:
+        return
+    try:
+        (PHOTO_DIR / os.path.basename(file_name)).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def photo_path(file_name: str) -> Path:
+    """文件名 → 磁盘路径。**只取文件名部分**，于是拼进路径也穿越不出去"""
+    return PHOTO_DIR / os.path.basename(file_name)
+
+
+def photo_response(file_name: str, cache: str = "private, max-age=31536000") -> FileResponse:
+    """文件名 → FileResponse；存在性由调用方先判（它才知道该报哪种 404）
+
+    照片是在 <img> 里内联显示的（StudentList.vue），类型会真的被用上。
+    统一交给 guess_media_type —— 它认识白名单里的全部后缀，而原先那句
+    「非 png 一律当 jpeg」会把白名单里的 gif / bmp / webp 也标成 image/jpeg。
+
+    cache 由调用方给：地址里带文件名做版本号时可以缓存一年（换照片后文件名变、
+    地址跟着变）；而地址不变、图会变的那种（待审照片的「原图」）必须 no-store。
+    """
+    path = photo_path(file_name)
+    return FileResponse(
+        str(path),
+        media_type=guess_media_type(path.name),
+        headers={"Cache-Control": cache},
+    )
+
 
 # 待确认的 zip 放临时目录，10 分钟过期。文件名带 photos_ 前缀，于是客户端
 # 回传的 token 就算写成「../../x」也只会落在这一层里（"photos_.." 是个普通

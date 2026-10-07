@@ -134,6 +134,23 @@ async function renderWith(stateCode) {
 }
 
 /**
+ * MyInfo 的 onMounted 整段。
+ *
+ * 里面又 fetchMe 又探 PWA（要 window），SSR 下本来就不跑，整段换成灌数据最省事。
+ * 源码改了这段就跑不起来 —— renderPatched 里的 throw 是提醒，不是故障。
+ */
+const MYINFO_LOAD = `onMounted(async () => {
+  // 确保登录状态已解析（路由守卫通常已经做了，但以防万一）
+  if (!userStore.resolved) await userStore.fetchMe()
+
+  // 安装 PWA 提示
+  standalone.value = checkIsStandalone()
+  canInstall.value = checkCanInstall()
+
+  await fetchData()
+})`
+
+/**
  * 「完成初始化」按钮此刻是不是禁用的
  *
  * 必须严格匹配布尔属性：el-button 无论禁用与否都会渲染 aria-disabled="false"，
@@ -220,21 +237,9 @@ console.log('\n▶ 我的成绩：位次、通过制、标记词、未录入')
       ]
     }
   ]
-  // MyInfo 的 onMounted 整段：里面又 fetchMe 又探 PWA（要 window），SSR 下本来就不跑，
-  // 整段换成灌数据最省事。改了这段源码就跑不起来 —— 这里的 throw 是提醒，不是故障
-  const LOAD = `onMounted(async () => {
-  // 确保登录状态已解析（路由守卫通常已经做了，但以防万一）
-  if (!userStore.resolved) await userStore.fetchMe()
-
-  // 安装 PWA 提示
-  standalone.value = checkIsStandalone()
-  canInstall.value = checkCanInstall()
-
-  await fetchData()
-})`
   const { html, warns } = await renderPatched(
     '/src/views/MyInfo.vue',
-    LOAD,
+    MYINFO_LOAD,
     `gradesList.value = ${JSON.stringify(grades)}`
   )
   const count = (s) => html.split(s).length - 1
@@ -252,6 +257,89 @@ console.log('\n▶ 我的成绩：位次、通过制、标记词、未录入')
   check(!html.includes('人有成绩'), '不显示「N 人有成绩」——分母不返回给学生')
   check(!/排在前[^<]*人/.test(html), '位次小字里也不跟着人数')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+}
+
+console.log('\n▶ 我的档案：三张照片，自备证件照在里面')
+{
+  // records 留空 → pending 为空 → 「申请修改」那一格渲染表单而不是「有待审」的提示
+  const me = {
+    id: 1, student_no: '2024000002', name: '乙', dormitory: '3 号楼 502',
+    gaokao_photo: 'gk.png', on_site_photo: '', id_photo: 'id.png'
+  }
+  const { html, warns } = await renderPatched(
+    '/src/views/MyInfo.vue',
+    MYINFO_LOAD,
+    `me.value = ${JSON.stringify(me)}`
+  )
+  const count = (s) => html.split(s).length - 1
+
+  // 标签和成分之间还夹着 scoped 的 data-v 属性，别把整个开标签写死
+  const label = (text) => new RegExp(`<div class="photo-label"[^>]*>${text}</div>`).test(html)
+  check(label('高考照片'), '高考照片那一格还在')
+  check(label('实地采集'), '实地采集那一格还在')
+  check(label('自备证件照'), '自备证件照这一格补上了（原先漏的就是它）')
+  check(count('photo-label') === 3, '照片位正好三个，没有多也没有少')
+  check(count('暂无照片') === 1, '只有没照片的那一格写「暂无照片」')
+  // 取图要带鉴权（学生只能取自己的），所以断的是接口地址而不是文件名
+  check(html.includes('/api/students/1/photo?type=id'), '自备证件照走带鉴权的接口取，不是裸文件名')
+
+  // 「申请修改」的表单和档案在同一个 html 里（el-tab-pane 默认全渲染）
+  check(html.includes('选择照片'), '申请表里有换照片的按钮')
+  check(html.includes('不选就是不改'), '写明了只换照片也算一次申请')
+  check(
+    html.includes('accept=".jpg,.jpeg,.png,.gif,.bmp,.webp"'),
+    '只收图片格式，和后面的后缀白名单对齐'
+  )
+
+  // 照片交的是文件，混进 CHANGE_FIELDS 就会被 resetForm / buildChanges / el-input
+  // 当成文本框消费（界面上会多出一个要人填文件名的输入框）
+  const src = readFileSync(`${ROOT}/src/utils/changeFields.js`, 'utf8')
+  const list = (src.match(/CHANGE_FIELDS = \[([\s\S]*?)\]/) || [])[1] || ''
+  check(!list.includes('id_photo'), '照片没有混进 CHANGE_FIELDS')
+  check(list.includes("prop: 'dormitory'"), '宿舍进了 CHANGE_FIELDS')
+  check(/PHOTO_FIELD = \{ prop: 'id_photo'/.test(src), '它单独是 PHOTO_FIELD')
+  check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+}
+
+console.log('\n▶ 审核页：照片给班委看新旧两张，不给文件名')
+{
+  // 形状照抄后端 ChangeRequestResponse。pending 那条有照片，approved 那条也留一个 ——
+  // 处理完之后旧图已经删了、新图归到学生名下，那两个地址取到的已不是当时那两张，
+  // 所以只有待审的才画图
+  const rows = [
+    {
+      id: 7, student_no: '2024000002', student_name: '乙', status: 'pending',
+      created_at: '2026-10-07T10:00:00',
+      changes: { phone: '13900139000', id_photo: 'a1b2c3d4-新.png' },
+      current: { phone: '13800138000', id_photo: 'e5f6a7b8-旧.png' }
+    },
+    {
+      id: 8, student_no: '2024000003', student_name: '丙', status: 'approved',
+      created_at: '2026-10-06T10:00:00',
+      changes: { id_photo: 'c9d0e1f2-已过.png' },
+      current: { id_photo: 'a3b4c5d6-更旧.png' }
+    }
+  ]
+  const { html } = await renderPatched(
+    '/src/views/Review.vue',
+    'onMounted(handleTabChange)',
+    `changeList.value = ${JSON.stringify(rows)}`
+  )
+  const count = (s) => html.split(s).length - 1
+
+  check(html.includes('/api/change-requests/7/photo?side=old'), '左边那张取学生当前档案里的')
+  check(html.includes('/api/change-requests/7/photo?side=new'), '右边那张取这条申请里传的')
+  check(count('diff-photo') === 2, '待审那条正好两张缩略图')
+  check(!/change-requests\/8\/photo/.test(html), '已处理那条一个图地址都不给')
+
+  for (const name of ['a1b2c3d4-新.png', 'e5f6a7b8-旧.png', 'c9d0e1f2-已过.png', 'a3b4c5d6-更旧.png']) {
+    check(!html.includes(name), `文件名 ${name} 没露出来`)
+  }
+  check(html.includes('已上传新照片'), '已处理那条给一句话，而不是空着')
+  check(html.includes('自备证件照'), '这一行的字段名念得出来（FIELD_LABELS 认得它）')
+
+  // 文本字段照旧并排原值 → 新值，别被照片的特判带歪
+  check(html.includes('13800138000') && html.includes('13900139000'), '手机号仍然是原值 → 新值')
 }
 
 await server.close()
