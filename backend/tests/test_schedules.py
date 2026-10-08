@@ -4,8 +4,9 @@
 
 cd backend && python -m pytest tests/test_schedules.py -q
 """
+import re
 from io import BytesIO
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 import httpx
 import openpyxl
@@ -150,6 +151,24 @@ def test_end_before_start_rejected(b):
     data = _make_schedule(start="2026-10-12T10:00:00", end="2026-10-12T09:00:00")
     r = b.client.post("/api/schedules", json=data)
     assert r.status_code == 400
+
+
+def test_timezone_aware_input_normalized(b):
+    """带时区的时间（脚本 / PAT 客户端会这么传）换算成本地墙上时间
+
+    以前一端带时区一端不带时，接口里比 end <= start 直接 TypeError → 500；
+    两端都带时区则偏移被静默丢掉。容器里 TZ 是 Asia/Shanghai，所以 00:00Z 就是 08:00。
+    """
+    # 混着传：以前这一条 500
+    data = _make_schedule(start="2026-10-12T08:00:00", end="2026-10-12T09:00:00+08:00")
+    r = b.client.post("/api/schedules", json=data)
+    assert r.status_code == 200, r.text
+
+    # 两端都带 Z：按本地墙上时间落库，不再是「偏移直接消失」
+    data = _make_schedule(title="UTC时间", start="2026-10-13T00:00:00Z", end="2026-10-13T01:00:00Z")
+    r = b.client.post("/api/schedules", json=data)
+    assert r.status_code == 200, r.text
+    assert r.json()["start_time"] == "2026-10-13T08:00:00"
 
 
 # ---------- 全天事件（学生自己建的，不是导入的） ----------
@@ -310,6 +329,147 @@ def test_update_forward_of_repeat(b):
     assert by_date["2026-10-12"]["title"] == "原名称"
     assert by_date["2026-10-19"]["title"] == "新名称"
     assert by_date["2026-10-26"]["title"] == "新名称"
+
+
+def test_update_single_of_repeat_keeps_earlier(b):
+    """编辑重复日程的「仅本次」：本次之前的那几次必须原样留着
+
+    这个分支要同时表达「前半段」和「后半段」，只靠把模板的起始日挪到下一次的话，
+    instance_date 之前的发生日会跟着起点一起消失 —— 改中间一天等于把前面几天
+    静默删掉（后半段还在，所以看起来「改成功了」）。
+    """
+    data = _make_schedule(
+        title="原名称",
+        start="2026-10-12T08:00:00",  # 周一
+        end="2026-10-12T09:00:00",
+        repeat_type="weekly",
+        repeat_end_date="2026-10-26",
+    )
+    r = b.client.post("/api/schedules", json=data)
+    sid = r.json()["template_id"]
+
+    # 只改中间那次（10/19）
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-19"},
+        json={"title": "临时改名", "scope": "single"},
+    )
+    assert r.status_code == 200, r.text
+
+    r = b.client.get("/api/schedules", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-26",
+    })
+    items = r.json()
+    dates = sorted(it["instance_date"] for it in items)
+    assert dates == ["2026-10-12", "2026-10-19", "2026-10-26"], dates
+
+    by_date = {it["instance_date"]: it for it in items}
+    assert by_date["2026-10-12"]["title"] == "原名称"
+    assert by_date["2026-10-19"]["title"] == "临时改名"
+    # 本次之后仍是重复日程（后半段另立了一条模板）
+    assert by_date["2026-10-26"]["title"] == "原名称"
+    assert by_date["2026-10-26"]["repeat_type"] == "weekly"
+
+
+def test_update_single_of_repeat_first_occurrence(b):
+    """改「仅本次」且本次就是第一次：后面照常重复，前面本来就没有"""
+    data = _make_schedule(
+        title="原名称",
+        start="2026-10-12T08:00:00",
+        end="2026-10-12T09:00:00",
+        repeat_type="weekly",
+        repeat_end_date="2026-10-26",
+    )
+    r = b.client.post("/api/schedules", json=data)
+    sid = r.json()["template_id"]
+
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12"},
+        json={"title": "临时改名", "scope": "single"},
+    )
+    assert r.status_code == 200, r.text
+
+    r = b.client.get("/api/schedules", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-26",
+    })
+    items = r.json()
+    dates = sorted(it["instance_date"] for it in items)
+    assert dates == ["2026-10-12", "2026-10-19", "2026-10-26"], dates
+
+    by_date = {it["instance_date"]: it for it in items}
+    assert by_date["2026-10-12"]["title"] == "临时改名"
+    assert by_date["2026-10-19"]["title"] == "原名称"
+    assert by_date["2026-10-26"]["title"] == "原名称"
+
+
+def test_update_single_only_occurrence(b):
+    """只剩一次发生的重复日程改成「仅本次」：改完就是一条不重复的日程
+
+    这一次既是第一次也是最后一次，原模板没用了 —— 拆完必须被删掉，不能留一条
+    展开为空的僵尸行（页面上看不见它，但「第几周」那类按全表算的东西还看得到）。
+    顺带守住响应：原行没了之后接口不能去读一个已经删掉的对象。
+    """
+    data = _make_schedule(
+        title="只有一次",
+        start="2026-10-12T08:00:00",
+        end="2026-10-12T09:00:00",
+        repeat_type="weekly",
+        repeat_end_date="2026-10-12",
+    )
+    r = b.client.post("/api/schedules", json=data)
+    sid = r.json()["template_id"]
+
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12"},
+        json={"title": "改过了", "scope": "single"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["title"] == "改过了"
+    assert r.json()["repeat_type"] == "none"
+
+    r = b.client.get("/api/schedules", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-31",
+    })
+    items = r.json()
+    assert [(it["instance_date"], it["title"], it["repeat_type"]) for it in items] == [
+        ("2026-10-12", "改过了", "none"),
+    ]
+    # 原模板没了，只留下这一条
+    assert b.rows("SELECT COUNT(*) FROM schedules")[0][0] == 1
+
+
+def test_update_single_of_repeat_last_occurrence(b):
+    """改「仅本次」且本次是最后一次：前面照常重复，后面另立的那条不该出现"""
+    data = _make_schedule(
+        title="原名称",
+        start="2026-10-12T08:00:00",
+        end="2026-10-12T09:00:00",
+        repeat_type="weekly",
+        repeat_end_date="2026-10-26",
+    )
+    r = b.client.post("/api/schedules", json=data)
+    sid = r.json()["template_id"]
+
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-26"},
+        json={"title": "临时改名", "scope": "single"},
+    )
+    assert r.status_code == 200, r.text
+
+    r = b.client.get("/api/schedules", params={
+        "start_date": "2026-10-12", "end_date": "2026-12-31",
+    })
+    items = r.json()
+    dates = sorted(it["instance_date"] for it in items)
+    assert dates == ["2026-10-12", "2026-10-19", "2026-10-26"], dates
+
+    by_date = {it["instance_date"]: it for it in items}
+    assert by_date["2026-10-12"]["title"] == "原名称"
+    assert by_date["2026-10-19"]["title"] == "原名称"
+    assert by_date["2026-10-26"]["title"] == "临时改名"
 
 
 # ---------- 权限隔离 ----------
@@ -553,6 +713,73 @@ def test_all_day_section_reads_every_column(b):
     assert all(it["event_type"] == "" and it["location"] == "" for it in allday)
 
 
+def _typed_cell_xlsx() -> bytes:
+    """表头和时间列都是 Excel 的**真日期/真时间**格式（不是文本）
+
+    这种表非常常见：别人把单元格格式设成日期，值就不是字符串了。早先的解析只认
+    字符串，整张表会以「无法识别日期表头」「没有识别到时间列」被静默跳过 ——
+    预览里一条日程都没有，用户只会以为文件选错了。
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "第1周"
+    monday = date(2026, 10, 12)
+    ws.cell(row=1, column=2, value=datetime(2026, 10, 12))          # 真日期
+    ws.cell(row=1, column=3, value="10/13 周二")                    # 同一个表里混字符串
+    for row in range(90):
+        hour = 7 + row // 6
+        minute = (row % 6) * 10
+        ws.cell(row=row + 2, column=1, value=time(hour, minute))    # 真时间
+    ws.merge_cells(start_row=8, start_column=2, end_row=19, end_column=2)
+    ws.cell(row=8, column=2, value="高等数学\n课程\n励学楼101")
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_import_accepts_real_date_and_time_cells(b):
+    """表头 / 时间列是 Excel 的真日期、真时间格式时照样能导入"""
+    r = b.client.post(
+        "/api/schedules/import/preview",
+        files={"file": ("课表.xlsx", _typed_cell_xlsx(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["week_count"] == 1
+    assert data["warnings"] == []
+    items = [it for it in data["items"] if "高等数学" in it["title"]]
+    assert len(items) == 1
+    assert items[0]["start_date"] == "2026-10-12"
+    # 结束时间 = 最后一行（第 19 行 = 09:50）再往后一格
+    assert (items[0]["start_time"], items[0]["end_time"]) == ("08:00", "10:00")
+
+
+def test_import_header_not_monday(b):
+    """表头那天不是周一时按它所在周的周一算，并在警告里写清用了哪一天"""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "第1周"
+    ws.cell(row=1, column=2, value="10/14 周三")   # 2026-10-14 是周三
+    for row in range(90):
+        ws.cell(row=row + 2, column=1, value=f"{7 + row // 6:02d}:{(row % 6) * 10:02d}")
+    ws.merge_cells(start_row=8, start_column=2, end_row=19, end_column=2)
+    ws.cell(row=8, column=2, value="高等数学")
+    buf = BytesIO()
+    wb.save(buf)
+
+    r = b.client.post(
+        "/api/schedules/import/preview",
+        files={"file": ("课表.xlsx", buf.getvalue(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert any("2026-10-12" in w for w in data["warnings"]), data["warnings"]
+    # 块在 B 列（周一），所以落在那周的周一 10/12；表头那格 10/14 只用来定周
+    assert data["items"][0]["start_date"] == "2026-10-12"
+
+
 def test_import_confirm_writes_to_targets(b):
     """导入确认：目标学生都拿到了日程"""
     xlsx_bytes = _make_schedule_xlsx()
@@ -632,6 +859,100 @@ def test_ical_token_and_feed(b):
     assert "iCal测试课" in r.text
 
 
+def _ical_text(b) -> str:
+    """拿当前学生的订阅文件正文"""
+    token = b.client.get("/api/schedules/ical/token").json()["token"]
+    base = str(b.client.base_url).rstrip("/")
+    r = httpx.get(f"{base}/api/schedules/ical/{token}.ics")
+    assert r.status_code == 200, r.text
+    return r.text
+
+
+def test_ical_event_shape(b):
+    """iCal 正文的几处格式：备注换行不被二次转义、行不超 75 字节、DTSTAMP 是 UTC"""
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="远足", location="操场", description="带水\n带伞",
+        start="2026-10-12T08:00:00", end="2026-10-12T09:00:00",
+    ))
+    text = _ical_text(b)
+
+    # 换行写成「反斜杠 + n」两个字符。以前拼的是 '\\n'（本身就是两个字符），
+    # 再转义一次变成 「\\n」，客户端看到的是字面的 \n，不是换行
+    assert "DESCRIPTION:带水\\n带伞" in text
+    assert "\\\\n" not in text
+    # DTSTAMP 按 RFC5545 必须是 UTC（整行就是 CRLF 包的，别用 ^$ 匹配，
+    # 行尾那个 \r 会让 $ 对不上）
+    assert re.search(r"\r\nDTSTAMP:\d{8}T\d{6}Z\r\n", text)
+    # 每行（含续行）不超过 75 字节 —— 中文一个字 3 字节，长备注很容易超
+    for line in text.split("\r\n"):
+        assert len(line.encode("utf-8")) <= 75, line
+
+
+def test_ical_long_line_folded(b):
+    """超长的一行要折行，续行以空格开头，且不劈开多字节字符"""
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="很长的标题" * 20, description="备注" * 60,
+    ))
+    text = _ical_text(b)
+    lines = text.split("\r\n")
+    assert any(line.startswith(" ") for line in lines), "应该出现了续行"
+    for line in lines:
+        assert len(line.encode("utf-8")) <= 75
+        assert "�" not in line  # 按字符折，不会出现半截汉字
+
+
+def test_ical_repeat_dtstart_matches_page(b):
+    """单双周：订阅里的 DTSTART 是页面上第一次出现的日子，不是模板里那个开始日
+
+    奇偶按学期周次算（week_start 是导入时写进去的）。用户把开始日填在了相反的一周时，
+    页面从下一次才出现；iCal 若直接拿模板开始日当 DTSTART，整条订阅会错开一周。
+    """
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="单双周课", start="2026-10-27T08:00:00", end="2026-10-27T09:00:00"))
+    sid = r.json()["id"]
+    # 学期第 1 周周一 = 2026-09-07；10/27 落在第 8 周（双周），而这条是单周课
+    b.run(
+        "UPDATE schedules SET repeat_type='odd_week', repeat_end_date='2026-12-31', "
+        "week_start='2026-09-07' WHERE id=?",
+        sid,
+    )
+
+    r = b.client.get("/api/schedules", params={
+        "start_date": "2026-10-26", "end_date": "2026-11-08",
+    })
+    first_on_page = r.json()[0]["instance_date"]
+    assert first_on_page == "2026-11-03"   # 第 9 周（单周）的周二
+
+    text = _ical_text(b)
+    assert "DTSTART:20261103T080000" in text, text
+    assert "DTEND:20261103T090000" in text
+    # UNTIL 与 DTSTART 同为浮动本地时间（给浮动时间配 Z 的 UNTIL 不合 RFC5545）
+    assert "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU;UNTIL=20261231T090000" in text, text
+
+
+def test_ical_monthly_last_day(b):
+    """每月 31 号：页面那边没有 31 号的月份取月末，iCal 得用 BYMONTHDAY=-1 才对得上"""
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="月末总结", start="2026-01-31T08:00:00", end="2026-01-31T09:00:00"))
+    b.run(
+        "UPDATE schedules SET repeat_type='monthly', repeat_end_date='2026-04-30' WHERE id=?",
+        r.json()["id"],
+    )
+    text = _ical_text(b)
+    assert "BYMONTHDAY=-1" in text, text
+    # 全天事件的 UNTIL 是 DATE（DTSTART 也是 DATE）
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="月末假", start="2026-01-31T00:00:00", end="2026-01-31T23:59:00", all_day=True))
+    r2 = b.client.get("/api/schedules", params={"start_date": "2026-01-26", "end_date": "2026-02-01"})
+    b.run(
+        "UPDATE schedules SET repeat_type='monthly', repeat_end_date='2026-04-30' WHERE id=?",
+        [it for it in r2.json() if it["title"] == "月末假"][0]["id"],
+    )
+    text = _ical_text(b)
+    assert "DTSTART;VALUE=DATE:20260131" in text
+    assert "UNTIL=20260430" in text, text
+
+
 def test_ical_bad_token_404(b):
     """无效 token 返回 404（不泄露存在性）"""
     base = str(b.client.base_url).rstrip("/")
@@ -656,6 +977,16 @@ def test_ical_reset_token(b):
     # 旧 token 失效
     r = httpx.get(f"{base}/api/schedules/ical/{old_token}.ics")
     assert r.status_code == 404
+
+    # 再重置一次：唯一约束是 (student_id, is_active)，上一次那条 is_active=0 的行
+    # 留着就会让「把当前这行置为无效」撞约束 → 500。500 的话订阅链接就作废不掉了
+    r = b.client.post("/api/schedules/ical/token/reset")
+    assert r.status_code == 200, r.text
+    third = r.json()["token"]
+    assert third not in (old_token, new_token)
+    assert httpx.get(f"{base}/api/schedules/ical/{third}.ics").status_code == 200
+    # 上上轮那条也不该复活
+    assert httpx.get(f"{base}/api/schedules/ical/{new_token}.ics").status_code == 404
 
 
 # ---------- 批次管理 ----------
@@ -774,6 +1105,42 @@ def test_share_update_fans_out(b):
         ]
     # 三条都在库里（每人一条），不是只改了自己那条
     assert b.rows("SELECT COUNT(*) FROM schedules WHERE title='班会（改）'")[0][0] == 3
+
+
+def test_share_update_single_fans_out(b):
+    """「仅本次」下发：三个人表里都只剩本次改名，前后几次照样在
+
+    这是分配出去的重复日程最常见的改法。它在每个人表里都要把模板切成
+    前半段/后半段（见 update_schedule 的 SCOPE_SINGLE），任何一段没落好，
+    下发之后别人的页面上就会多一次或者少一次。
+    """
+    ids = _student_ids(b)
+    data = _make_schedule(
+        title="班会", start="2026-10-12T08:00:00", end="2026-10-12T09:00:00",
+        repeat_type="weekly", repeat_end_date="2026-10-26",
+        target_student_ids=[ids[ROSTER[1][0]], ids[ROSTER[2][0]]],
+    )
+    assert b.client.post("/api/schedules", json=data).status_code == 200
+
+    sid = [it for it in _list(b.client)
+           if it["title"] == "班会" and it["instance_date"] == "2026-10-19"][0]["id"]
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-19", "share": True},
+        json={"title": "班会（本次改的）", "scope": "single"},
+    )
+    assert r.status_code == 200, r.text
+
+    titles = [("2026-10-12", "班会"), ("2026-10-19", "班会（本次改的）"),
+              ("2026-10-26", "班会")]
+    # 甲自己看到 share_count=3，收件人看到 1；日期和标题三个人必须一模一样
+    assert [(d, t) for d, t, _ in _items_of(
+        _list(b.client, "2026-10-12", "2026-10-31"), "班会")] == titles
+    for idx in (1, 2):
+        got = _items_of(_list(as_student(b, idx), "2026-10-12", "2026-10-31"), "班会")
+        assert got == [(d, t, 1) for d, t in titles], got
+    # 每人被拆成三条：前半段、本次、后半段
+    assert b.rows("SELECT COUNT(*) FROM schedules WHERE title LIKE '班会%'")[0][0] == 9
 
 
 def test_update_without_share_keeps_others(b):

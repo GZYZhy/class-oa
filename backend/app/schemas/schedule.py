@@ -9,12 +9,34 @@ request.js 的 errText 遇到非字符串只会退回兜底文案，所以「标
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _local_naive(v: Optional[datetime]) -> Optional[datetime]:
+    """带时区的时间换算成本地墙上时间
+
+    库里存的一律是不带时区的本地时间（SQLite 没有时区概念），而脚本 / PAT 客户端
+    可能传 "2026-10-12T00:00:00Z" 这种带偏移的时间。不换算的话：一端带时区一端不带，
+    接口里比 end <= start 直接 TypeError，用户拿到 500；两端都带时区则偏移被静默
+    丢掉，日程整体错几个小时。容器里设了 TZ=Asia/Shanghai，astimezone() 换的就是东八区。
+    """
+    if v is None or v.tzinfo is None:
+        return v
+    return v.astimezone().replace(tzinfo=None)
+
+
+class _LocalTime:
+    """把 start_time / end_time 统一成本地墙上时间，创建和编辑都要"""
+
+    @field_validator("start_time", "end_time", check_fields=False)
+    @classmethod
+    def _normalize_times(cls, v):
+        return _local_naive(v)
 
 
 # ---------- 日程基础 ----------
 
-class ScheduleBase(BaseModel):
+class ScheduleBase(_LocalTime, BaseModel):
     title: str = Field(..., max_length=200, description="日程标题")
     event_type: str = Field("", max_length=20, description="事件类型，如 课程/体育/网络课")
     location: str = Field("", max_length=200, description="地点")
@@ -45,7 +67,7 @@ class ScheduleCreate(ScheduleBase):
     )
 
 
-class ScheduleUpdate(BaseModel):
+class ScheduleUpdate(_LocalTime, BaseModel):
     """编辑日程
 
     编辑重复日程时通过 scope 控制范围：

@@ -13,7 +13,7 @@
 import re
 import tempfile
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -159,34 +159,40 @@ def parse_schedule_excel(file_bytes: bytes) -> tuple[list[dict], list[str], int]
 def _parse_monday_from_header(ws, warnings: list[str], sheet_name: str) -> Optional[date]:
     """从第一行 B 列（周一）的表头里解析出日期
 
-    表头格式：「9/14 周一」
+    表头格式：「9/14 周一」；单元格被 Excel 设成日期格式时读出来是真 date/datetime，
+    也照收 —— 只认字符串的话，这样的表整张都会被「无法识别日期表头」跳过。
     """
     cell_value = ws.cell(row=1, column=2).value  # B1
     if not cell_value:
         return None
-    cell_str = str(cell_value).strip()
-    # 匹配 "M/D 周一" 格式
-    match = re.search(r"(\d{1,2})/(\d{1,2})", cell_str)
-    if not match:
-        return None
-    month, day = int(match.group(1)), int(match.group(2))
-    # 年份：根据当前月份推断 —— 如果当前月份 < 表头月份，说明是明年（跨学年）
-    # 更简单：用当前年份，如果解析出来比今天晚太多就减一年
-    # 实际上课表一般是秋季学期（9月开学），按当前年份即可
-    today = date.today()
-    year = today.year
-    try:
-        d = date(year, month, day)
-    except ValueError:
-        return None
-    # 如果解析出的日期比今天早超过 180 天，可能是去年的，加一年
-    if (today - d).days > 180:
-        d = date(year + 1, month, day)
-    # 验证它确实是周一
+
+    if isinstance(cell_value, date):
+        # 真日期单元格自带年月日，不用按今天反推年份
+        d = cell_value.date() if isinstance(cell_value, datetime) else cell_value
+    else:
+        # 匹配 "M/D 周一" 格式
+        match = re.search(r"(\d{1,2})/(\d{1,2})", str(cell_value).strip())
+        if not match:
+            return None
+        month, day = int(match.group(1)), int(match.group(2))
+        # 年份：课表都是秋季学期（9 月开学），先按今年算；比今天早半年以上，
+        # 说明表里写的是跨学年的「明年」那个日期
+        today = date.today()
+        try:
+            d = date(today.year, month, day)
+        except ValueError:
+            return None
+        if (today - d).days > 180:
+            try:
+                d = date(today.year + 1, month, day)
+            except ValueError:
+                pass  # 2/29：明年没有这一天，按今年的算，别为一天崩掉整张表
+
+    # 表头未必正好落在周一（转手来的表常这样），按它所在周的周一算
     if d.weekday() != 0:
-        warnings.append(f"{sheet_name}：表头日期 {d} 不是周一，已按实际计算")
-        # 调整到该周的周一
-        d = d - timedelta(days=d.weekday())
+        monday = d - timedelta(days=d.weekday())
+        warnings.append(f"{sheet_name}：表头日期 {d} 不是周一，已按它所在周的周一（{monday}）计算")
+        d = monday
     return d
 
 
@@ -196,6 +202,8 @@ def _parse_time_column(ws, warnings: list[str], sheet_name: str) -> dict[int, st
     """解析 A 列时间，返回 {行号: "HH:MM"}
 
     只识别 07:00–21:50 范围内、10 分钟对齐的时间。
+    A 列被 Excel 设成「时间」格式时读出来是 datetime.time（或 datetime），
+    不只是字符串 —— 只认字符串的话整张表会被「没有识别到时间列」跳过。
     """
     time_map: dict[int, str] = {}
     for row in range(2, ws.max_row + 1):
@@ -203,12 +211,18 @@ def _parse_time_column(ws, warnings: list[str], sheet_name: str) -> dict[int, st
         val = cell.value
         if val is None:
             continue
-        val_str = str(val).strip()
-        # 匹配 HH:MM 格式
-        match = re.match(r"^(\d{1,2}):(\d{2})$", val_str)
-        if not match:
-            continue
-        hour, minute = int(match.group(1)), int(match.group(2))
+
+        if isinstance(val, datetime):
+            val = val.time()
+        if isinstance(val, time):
+            hour, minute = val.hour, val.minute
+        else:
+            # 匹配 HH:MM（容忍表里写成 HH:MM:SS）
+            match = re.match(r"^(\d{1,2}):(\d{2})(?::\d{2})?$", str(val).strip())
+            if not match:
+                continue
+            hour, minute = int(match.group(1)), int(match.group(2))
+
         if not (DAY_START_HOUR <= hour < DAY_END_HOUR):
             continue
         if minute % TIME_SLOT_MINUTES != 0:
@@ -231,13 +245,12 @@ def _parse_merged_blocks(
         # 只看 B–H 列（2–7 列是周一到周日）
         if min_col < 2 or min_col > 8:
             continue
-        # 必须是纵向合并（多行单列）
-        if max_col != min_col:
-            # 横向合并的，取最左列
-            pass
         # 至少要 2 行才算块
         if max_row - min_row + 1 < 2:
             continue
+        # 横跨几天的横向合并按**最左列**那一天算（下面 weekday 取 min_col）。
+        # 真实课表只有底部全天事件区会横跨，那边由 _parse_all_day_section 逐日摊开；
+        # 课程区若出现横向合并，宁可只落一天，也不凭空给没课的几天加日程
 
         weekday = min_col - 1  # B列=周一=1
         if weekday < 1 or weekday > 7:
