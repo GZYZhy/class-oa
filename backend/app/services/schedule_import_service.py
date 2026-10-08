@@ -83,7 +83,8 @@ def parse_schedule_excel(file_bytes: bytes) -> tuple[list[dict], list[str], int]
     一条独立（repeat_type=none）日程，日期 = 该 sheet 周一 + 星期偏移。
     items 字段：title, event_type, location, description, start_date, weekday,
                 start_time, end_time, all_day, repeat_type, repeat_end_date,
-                sheet, cell_ref
+                sheet, cell_ref, week_start
+    week_start = 学期第 1 周的周一（由表名「第N周」折算），用来对齐页面上的周次
     """
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         f.write(file_bytes)
@@ -116,6 +117,13 @@ def parse_schedule_excel(file_bytes: bytes) -> tuple[list[dict], list[str], int]
             warnings.append(f"工作表 {sheet_name} 无法识别日期表头，已跳过")
             continue
 
+        # 学期第 1 周的周一 = 本表周一往前推 N-1 周，**以表名为准**。
+        # 页面上的「第几周」之后一律用它算，不再各自估算 —— 曾经前端按
+        # 「9 月 1 日所在周为第 1 周」硬估，和表名差了两周，表名「第4周」
+        # 的课在页面上显示成第 6 周。
+        week_no = int(week_match.group(1))
+        semester_first_monday = monday_date - timedelta(weeks=week_no - 1)
+
         # 解析时间行映射：行号 -> HH:MM 时间字符串
         time_map = _parse_time_column(ws, warnings, sheet_name)
         if not time_map:
@@ -136,6 +144,7 @@ def parse_schedule_excel(file_bytes: bytes) -> tuple[list[dict], list[str], int]
             block_date = monday_date + timedelta(days=item["weekday"] - 1)
             flat = dict(item)
             flat["start_date"] = block_date
+            flat["week_start"] = semester_first_monday
             all_items.append(flat)
 
     # 按日期、开始时间排序，方便预览核对
