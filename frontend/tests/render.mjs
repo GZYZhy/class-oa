@@ -719,6 +719,48 @@ console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没�
   check(/importTouched/.test(src), '反选到一条不剩时不当成「全选」')
 }
 
+console.log('\n▶ 我的日程：窄屏不把 7 天挤扁，今天默认居中')
+{
+  // 把某一列摆到正中间的换算（两端要夹住：滑到最右的周日不能滚出内容外）
+  const { centerScrollLeft } = await server.ssrLoadModule('/src/utils/schedule.js')
+  check(centerScrollLeft(410, 140, 1100, 0) === 0, '桌面上放得下 → 不滚')
+  check(centerScrollLeft(324, 132, 375, 609) === 202.5, '手机上把周三那列摆到正中间')
+  check(centerScrollLeft(60, 132, 375, 609) === 0, '周一本来就靠左，不往回滚')
+  check(centerScrollLeft(852, 132, 375, 609) === 609, '周日靠右 → 夹到最右，不滚出内容外')
+
+  // 「今天」钉在当周显示的那一周的周三：不然这条断言会随真实日期一起过期
+  const TODAY = `const today = new Date()
+  today.setHours(0, 0, 0, 0)`
+  const { html } = await renderPatched('/src/views/Schedule.vue', TODAY,
+    `${TODAY}
+  today.setTime(new Date(
+    currentMonday.value.getFullYear(), currentMonday.value.getMonth(),
+    currentMonday.value.getDate() + 2
+  ).getTime())`)
+
+  // 居中就是靠这个类找列的（.cal-header .cal-day-col.today），表头里必须正好一个。
+  // 按类名分词找、别按顺序：:class 渲染在静态 class 前面（「today cal-day-col」）
+  const head = html.slice(html.indexOf('cal-header'), html.indexOf('cal-allday'))
+  const cols = [...head.matchAll(/class="([^"]*)"/g)]
+    .map((m) => m[1].split(/\s+/))
+    .filter((list) => list.includes('cal-day-col'))
+    .map((list) => list.includes('today'))
+  check(cols.length === 7, '表头还是 7 列')
+  check(cols.filter(Boolean).length === 1 && cols[2] === true,
+    '正好一列带 today，就是当天那一列（滚动居中的钩子）')
+
+  const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
+  check(/\.calendar-wrapper\s*\{[^}]*overflow-x:\s*auto/.test(src), '表格能横向滚（不再 overflow: hidden 裁掉）')
+  check(/\.calendar-grid\s*\{[^}]*min-width:\s*calc\(60px \+ 7 \* 132px\)/.test(src),
+    '列宽有底线：时间列 + 7 × 132px —— 窄屏照电脑上的宽来，不挤窄')
+  check(/\.cal-time-col\s*\{[^}]*position:\s*sticky[^}]*left:\s*0/.test(src),
+    '时间刻度钉在左边（滑到今天那列还看得见几点）')
+  check(/ref="calendarWrapper"/.test(src) && /const calendarWrapper = ref\(null\)/.test(src),
+    '模板上的滚动容器 = 居中逻辑用的那个 ref')
+  check((src.match(/nextTick\(centerToday\)/g) || []).length === 2,
+    '居中接在「首次加载完」和「点今天」两处')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
