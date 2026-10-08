@@ -105,7 +105,7 @@ class Schedule(Base):
     )
     source_series_id = Column(
         String(64), nullable=True,
-        comment="重复序列 ID（同一条原始重复日程展开后共用，方便批量编辑溯源）",
+        comment="分组 ID（同一条原始日程发给多个学生时共用，用于跨学生下发/溯源）",
     )
 
     created_by = Column(Integer, nullable=True, comment="创建人学生 ID（班委批量分配时记录）")

@@ -201,15 +201,18 @@
           </span>
         </el-form-item>
 
-        <!-- 班委：影响范围 -->
-        <el-form-item v-if="userStore.isCommittee" label="影响范围">
+        <!-- 班委：影响范围（只在新建时有意义；编辑时改由下面那栏决定发给谁） -->
+        <el-form-item v-if="userStore.isCommittee && !editDialog.isEdit" label="影响范围">
           <el-radio-group v-model="editForm.scope_mode">
             <el-radio value="self">仅自己</el-radio>
             <el-radio value="all">全部学生</el-radio>
             <el-radio value="selected">指定学生</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item v-if="userStore.isCommittee && editForm.scope_mode === 'selected'" label="选择学生">
+        <el-form-item
+          v-if="userStore.isCommittee && !editDialog.isEdit && editForm.scope_mode === 'selected'"
+          label="选择学生"
+        >
           <el-button size="small" @click="studentPicker.open = true">
             已选 {{ selectedStudents.length }} 人
           </el-button>
@@ -221,6 +224,17 @@
             <el-radio value="single">仅本次</el-radio>
             <el-radio value="forward">本次及以后</el-radio>
             <el-radio value="all">全部</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
+        <!--
+          分配出去的日程（shareCount > 1）才有这一栏。个人日程、以及别人发给
+          自己的那份都是 1，不显示 —— 后者本来也没资格改到别人表里
+        -->
+        <el-form-item v-if="editDialog.isEdit && editDialog.shareCount > 1" label="改谁的表">
+          <el-radio-group v-model="editForm.share">
+            <el-radio :value="true">所有人的（{{ editDialog.shareCount }} 人）</el-radio>
+            <el-radio :value="false">仅我自己的</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
@@ -722,6 +736,8 @@ const editDialog = ref({
   currentId: null,
   currentInstanceDate: null,
   records: [],   // 编辑时这根条上的所有天（全天事件才可能不止一条）
+  shareCount: 1, // 这条日程在几个学生的表里；>1 才有「改谁的表」这一栏
+  shareFrom: null, // 沿用分组用：新添的全天天数按它取目标学生
 })
 
 const defaultForm = () => ({
@@ -740,6 +756,7 @@ const defaultForm = () => ({
   notify_minutes_before: 10,
   scope_mode: 'self',  // self / all / selected
   scope: 'all',        // 编辑范围
+  share: true,         // 编辑分配出去的日程时，默认改所有人的表
 })
 
 const editForm = ref(defaultForm())
@@ -767,6 +784,8 @@ function openCreate(date = null, time = null) {
     currentId: null,
     currentInstanceDate: editForm.value.date,
     records: [],
+    shareCount: 1,
+    shareFrom: null,
   }
 }
 
@@ -793,6 +812,7 @@ function openEdit(evt, records = null) {
     notify_minutes_before: evt.notify_minutes_before || 10,
     scope_mode: 'self',
     scope: 'all',
+    share: true,   // 默认「所有人的」，要只改自己那份得手动改
   }
   editDialog.value = {
     visible: true,
@@ -801,6 +821,8 @@ function openEdit(evt, records = null) {
     currentId: evt.id,
     currentInstanceDate: evt.instance_date,
     records: run,
+    shareCount: evt.share_count || 1,
+    shareFrom: run[0].id,
   }
 }
 
@@ -829,6 +851,12 @@ function targetFields() {
   }
 }
 
+// 这次改动要不要一并改掉别人的表。只有自己分配出去的日程（shareCount > 1）才有
+// 这一栏；没有这一栏时一律不带 share，免得给个人日程白带个参数
+function shareEnabled() {
+  return editDialog.value.shareCount > 1 && editForm.value.share
+}
+
 // 全天事件在库里是「一天一条」：模型里没有跨天日程，导入的跨天事件也是这么摊的
 // （见后端 schedule_import_service），页面上再按相邻同标题合回一条（allDayBars）。
 // 所以「起止日期」建的时候要摊开，编辑的时候要跟原来那几条对一遍：
@@ -836,6 +864,7 @@ function targetFields() {
 async function saveAllDay(days) {
   const form = editForm.value
   const base = { ...formFields(), all_day: true }
+  const share = shareEnabled()
   // 编辑前这根条上的那几条（按日期索引）；处理完还留在里面的就是要去掉的
   const left = new Map((editDialog.value.records || []).map(r => [r.instance_date, r]))
 
@@ -845,15 +874,20 @@ async function saveAllDay(days) {
     const hit = left.get(day)
     if (hit) {
       left.delete(day)
-      await updateSchedule(hit.id, day, { ...base, ...times, scope: 'all' })
+      await updateSchedule(hit.id, day, { ...base, ...times, scope: 'all' }, share)
     } else {
-      await createSchedule({ ...base, ...times, ...targetFields() })
+      // 新添的天也要发给原来那批人：不带 share_from 的话，把 3 天的活动改成
+      // 5 天，新加的两天只落在自己表里 —— 正是这次要消灭的那种「别人那儿没变」
+      await createSchedule({
+        ...base, ...times, ...targetFields(),
+        share_from: share ? editDialog.value.shareFrom : null,
+      })
     }
   }
 
   // 范围改小了：多出来的那几天删掉
   for (const gone of left.values()) {
-    await deleteSchedule(gone.id, gone.instance_date, 'all')
+    await deleteSchedule(gone.id, gone.instance_date, 'all', share)
   }
 }
 
@@ -896,18 +930,29 @@ async function handleSave() {
         await updateSchedule(
           editDialog.value.currentId,
           editDialog.value.currentInstanceDate,
-          { ...formFields(), ...times, all_day: false, scope: form.scope }
+          { ...formFields(), ...times, all_day: false, scope: form.scope },
+          shareEnabled()
         )
       } else {
         await createSchedule({ ...formFields(), ...times, all_day: false, ...targetFields() })
       }
     }
-    ElMessage.success(editDialog.value.isEdit ? '已更新' : '已创建')
+    ElMessage.success(saveToast())
     editDialog.value.visible = false
     loadSchedules()
+  } catch (e) {
+    // request.js 的拦截器不弹提示，不接住的话失败就是「点了保存什么都没发生」
+    ElMessage.error(errText(e, '保存失败'))
   } finally {
     saving.value = false
   }
+}
+
+/** 保存成功的提示：下发了就说清改了几个人，不然用户不知道别人的表动没动 */
+function saveToast() {
+  if (!editDialog.value.isEdit) return '已创建'
+  if (!shareEnabled()) return '已更新'
+  return `已更新，同时改掉了其他 ${editDialog.value.shareCount - 1} 人的表`
 }
 
 async function handleDelete() {
@@ -915,11 +960,17 @@ async function handleDelete() {
   // 只删点中的那一天，条会缺一块、剩下的还在
   const records = editDialog.value.records || []
   const whole = records.length > 1 ? records : null
+  const share = shareEnabled()
+  const others = share ? editDialog.value.shareCount - 1 : 0
+  // 会连别人的表一起动，先讲清楚。ElMessageBox 的 message 是纯文本，
+  // 别指望 \n 换行，拼成一句话
+  const extra = others ? `这条日程还发给了其他 ${others} 人，会从他们的表里一并删掉。` : ''
   try {
     await ElMessageBox.confirm(
-      whole
+      (whole
         ? `确定删除这条跨 ${whole.length} 天的全天事件？`
-        : (editDialog.value.isRepeat ? '确定删除？可选范围：仅本次 / 本次及以后 / 全部' : '确定删除此日程？'),
+        : (editDialog.value.isRepeat ? '确定删除？可选范围：仅本次 / 本次及以后 / 全部' : '确定删除此日程？')
+      ) + extra,
       '删除确认',
       { type: 'warning' }
     )
@@ -927,18 +978,22 @@ async function handleDelete() {
 
   try {
     if (whole) {
-      for (const r of whole) await deleteSchedule(r.id, r.instance_date, 'all')
+      for (const r of whole) await deleteSchedule(r.id, r.instance_date, 'all', share)
     } else {
       await deleteSchedule(
         editDialog.value.currentId,
         editDialog.value.currentInstanceDate,
-        editForm.value.scope
+        editForm.value.scope,
+        share
       )
     }
-    ElMessage.success('已删除')
+    ElMessage.success(others ? `已删除，其他 ${others} 人的表里也一并删掉了` : '已删除')
     editDialog.value.visible = false
     loadSchedules()
-  } catch {}
+  } catch (e) {
+    // 同上：不接住的话，403（这条不是你分配的）会表现成「点了删除什么都没发生」
+    ElMessage.error(errText(e, '删除失败'))
+  }
 }
 
 // ---------- 学生列表（班委用） ----------

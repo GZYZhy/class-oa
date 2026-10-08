@@ -15,12 +15,18 @@
 3. **批量分配**
    班委创建日程时如果选了多人，系统为每个目标学生各创建一条日程记录，
    它们共享同一个 source_batch_id，便于后续统一管理。
+
+   批次里可能有很多条互不相干的日程（导入一整张课表就是这样），所以「哪些
+   记录是同一条日程的副本」另用 source_series_id 标记：一条原始日程一个 ID，
+   发给多少人就复制多少份、共用这个 ID。改/删时靠它找到其他学生的副本
+   （见 update_shared / delete_shared）。
 """
 
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import Schedule, ScheduleBatch, Student, User
@@ -236,12 +242,16 @@ def list_by_range(
         .all()
     )
 
+    # 只查自己分配出去的那些：别人发给你的那份你没资格下发，前端也不该出现这一档
+    counts = share_counts(db, templates, student_id)
+
     instances = []
     for tpl in templates:
+        share_count = counts.get(tpl.source_series_id, 1)
         if tpl.repeat_type == REPEAT_NONE:
             d = tpl.start_time.date()
             if start_date <= d <= end_date:
-                instances.append(_to_instance(tpl, d))
+                instances.append(_to_instance(tpl, d, share_count))
         else:
             # 展开重复日程
             cursor = start_date
@@ -253,7 +263,7 @@ def list_by_range(
             # 从 cursor 开始找下一个发生日期
             occ = _next_occurrence(tpl, cursor)
             while occ is not None and occ <= range_end:
-                instances.append(_to_instance(tpl, occ))
+                instances.append(_to_instance(tpl, occ, share_count))
                 # 找下一个
                 occ = _next_occurrence(tpl, occ + timedelta(days=1))
 
@@ -262,8 +272,12 @@ def list_by_range(
     return instances
 
 
-def _to_instance(tpl: Schedule, instance_date: date) -> dict:
-    """把模板 + 具体日期展开成一个日程实例 dict"""
+def _to_instance(tpl: Schedule, instance_date: date, share_count: int = 1) -> dict:
+    """把模板 + 具体日期展开成一个日程实例 dict
+
+    share_count：这条日程现在在几个学生的表里（见 share_counts）。只有
+    list_by_range 会传真实值，别处保持默认 1 即可。
+    """
     t = tpl.start_time.time()
     e = tpl.end_time.time()
     # 如果结束时间 < 开始时间（跨天），实际场景不太会有，这里简单处理
@@ -287,6 +301,7 @@ def _to_instance(tpl: Schedule, instance_date: date) -> dict:
         "source_type": tpl.source_type,
         "source_batch_id": tpl.source_batch_id,
         "instance_date": instance_date,
+        "share_count": share_count,
     }
 
 
@@ -308,9 +323,15 @@ def create_schedule(
     source_type: str = SOURCE_PERSONAL,
     source_batch_id: Optional[int] = None,
     created_by: Optional[int] = None,
+    source_series_id: Optional[str] = None,
 ) -> Schedule:
-    """为单个学生创建一条日程（模板）"""
-    series_id = _generate_series_id() if data.get("repeat_type", REPEAT_NONE) != REPEAT_NONE else None
+    """为单个学生创建一条日程（模板）
+
+    source_series_id：分组 ID（同一条原始日程的副本共用）。批量分配时由
+    create_batch 统一生成传进来，这样多个学生的副本才能互相认出来。个人
+    日程没有副本，自己一个 ID 即可。
+    """
+    series_id = source_series_id or _generate_series_id()
 
     schedule = Schedule(
         student_id=student_id,
@@ -358,8 +379,12 @@ def create_batch(
     db.add(batch)
     db.flush()
 
+    # 分组 ID 在「每条日程」这一层生成，不能放在学生循环里 —— 同一个学生拿到的
+    # 每条日程要各不相同（导入一张课表就有几十条），而不同学生的同一节课要相同。
+    group_ids = [_generate_series_id() for _ in schedules_data]
+
     for sid in target_student_ids:
-        for sched_data in schedules_data:
+        for sched_data, group_id in zip(schedules_data, group_ids):
             create_schedule(
                 db,
                 student_id=sid,
@@ -367,6 +392,7 @@ def create_batch(
                 source_type=SOURCE_BATCH,
                 source_batch_id=batch.id,
                 created_by=operator_id,
+                source_series_id=group_id,
             )
 
     return batch
@@ -428,6 +454,9 @@ def update_schedule(
             db, student_id=student_id, data=merged,
             source_type=tpl.source_type, source_batch_id=tpl.source_batch_id,
             created_by=tpl.created_by,
+            # 拆分出来的这一段还是同一条原始日程，分组 ID 必须跟着走，
+            # 否则拆一次就和别人表里的副本认不出来了
+            source_series_id=tpl.source_series_id,
         )
 
         # 判断后面还有没有。此时原模板还没被改过（上面只新建了独立日程），
@@ -464,6 +493,7 @@ def update_schedule(
             db, student_id=student_id, data=new_data,
             source_type=tpl.source_type, source_batch_id=tpl.source_batch_id,
             created_by=tpl.created_by,
+            source_series_id=tpl.source_series_id,  # 后半段同属一条原始日程
         )
 
         # 原模板缩短到前一天
@@ -574,6 +604,7 @@ def delete_schedule(
                 db, student_id=student_id, data=new_data,
                 source_type=tpl.source_type, source_batch_id=tpl.source_batch_id,
                 created_by=tpl.created_by,
+                source_series_id=tpl.source_series_id,  # 后半段同属一条原始日程
             )
 
         db.flush()
@@ -586,6 +617,113 @@ def delete_schedule(
         return 1
 
     return 0
+
+
+# ---------- 跨学生下发 ----------
+
+def share_counts(
+    db: Session,
+    templates: list[Schedule],
+    student_id: int,
+) -> dict[str, int]:
+    """分组 ID → 这条原始日程在几个学生的表里（只算自己分配出去的）
+
+    用实际查出来的条数，不用 ScheduleBatch.target_count：那是创建时的快照，
+    有人删了自己那份之后就不准了。别人发给你的那份不计入 —— 你没资格再往下发，
+    前端也不该出现这一档。缺席的分组由调用方按 1 处理。
+    """
+    group_ids = [
+        t.source_series_id
+        for t in templates
+        if t.source_series_id and t.source_batch_id and t.created_by == student_id
+    ]
+    if not group_ids:
+        return {}
+
+    rows = (
+        db.query(
+            Schedule.source_series_id,
+            func.count(func.distinct(Schedule.student_id)),
+        )
+        .filter(Schedule.source_series_id.in_(group_ids))
+        .group_by(Schedule.source_series_id)
+        .all()
+    )
+    return {group_id: count for group_id, count in rows}
+
+
+def can_share(tpl: Schedule, student_id: int) -> bool:
+    """这条日程的副本能不能由当前学生下发 —— 只有分配它的那个人可以"""
+    return bool(tpl.source_batch_id) and tpl.created_by == student_id
+
+
+def _share_copies(db: Session, tpl: Schedule) -> list[Schedule]:
+    """同一条原始日程在其他学生表里的副本（不含自己那份）
+
+    返回的是「行」不是「学生」：同一个学生在同一分组里可能不止一行（他自己用
+    「本次及以后」拆过就成了两条模板），这些都要照顾到，所以不能按学生去重。
+    """
+    if not tpl.source_series_id:
+        # 老数据没有分组 ID，认不出副本，当作只有自己一条
+        return []
+    return (
+        db.query(Schedule)
+        .filter(
+            Schedule.source_series_id == tpl.source_series_id,
+            Schedule.student_id != tpl.student_id,
+        )
+        .all()
+    )
+
+
+def _occurs_on(tpl: Schedule, d: date) -> bool:
+    """d 是不是这条日程的一个发生日"""
+    if tpl.repeat_type == REPEAT_NONE:
+        return tpl.start_time.date() == d
+    return _next_occurrence(tpl, d) == d
+
+
+def update_shared(
+    db: Session,
+    tpl: Schedule,
+    update_data: dict,
+    scope: str = SCOPE_ALL,
+    instance_date: Optional[date] = None,
+) -> int:
+    """改这条日程，并下发到同一条原始日程的其他副本。返回受影响的条数。
+
+    scope=single/forward 是「针对某一次」的操作，只对确实包含这一次的副本生效，
+    别人自己改过的那部分不碰：硬套的话 forward 会把他的结束日期截到开始日期之前，
+    展开成空区间等于静默删掉他的日程；single 更会凭空造一个他从没有过的日期。
+    """
+    copies = _share_copies(db, tpl)
+    if scope != SCOPE_ALL and instance_date is not None:
+        copies = [c for c in copies if _occurs_on(c, instance_date)]
+
+    # 先取好副本再动手：single/forward 会在同一分组里新建记录，不能被卷进这一轮
+    total = update_schedule(db, tpl.id, tpl.student_id, update_data, scope, instance_date)
+    for copy in copies:
+        total += update_schedule(
+            db, copy.id, copy.student_id, update_data, scope, instance_date
+        )
+    return total
+
+
+def delete_shared(
+    db: Session,
+    tpl: Schedule,
+    scope: str = SCOPE_ALL,
+    instance_date: Optional[date] = None,
+) -> int:
+    """删这条日程，并下发到同一条原始日程的其他副本。返回删除的条数（守卫同上）"""
+    copies = _share_copies(db, tpl)
+    if scope != SCOPE_ALL and instance_date is not None:
+        copies = [c for c in copies if _occurs_on(c, instance_date)]
+
+    total = delete_schedule(db, tpl.id, tpl.student_id, scope, instance_date)
+    for copy in copies:
+        total += delete_schedule(db, copy.id, copy.student_id, scope, instance_date)
+    return total
 
 
 # ---------- 批量管理 ----------

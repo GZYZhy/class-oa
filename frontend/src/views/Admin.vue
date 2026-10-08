@@ -562,6 +562,16 @@
         </div>
       </el-tab-pane>
 
+      <!--
+        只有班委及以上能分配日程，但这一页是给管理员收拾烂摊子用的，所以按管理员
+        收口（本页面在系统管理里，路由 meta.role 已经是 admin）。后端接口权限照旧
+        （committee_required + 只能看自己建的），这里不做二次过滤 —— 后果是这个
+        tab 只列当前登录管理员自己建的批次，不是全站批次
+      -->
+      <el-tab-pane label="日程批次" name="schedule-batches">
+        <ScheduleBatchPanel />
+      </el-tab-pane>
+
       <el-tab-pane label="数据体检" name="health">
         <div v-loading="loadingHealth" class="health-wrap">
           <div class="health-head">
@@ -828,6 +838,7 @@ import { useRouter } from 'vue-router'
 import { ROLE_LABELS } from '@/utils/roles'
 import { formatDateTime } from '@/utils/format'
 import { useIsMobile } from '@/composables/useIsMobile'
+import ScheduleBatchPanel from '@/components/ScheduleBatchPanel.vue'
 
 // 手机上操作列只直显这一个按钮，其余收进「更多」下拉。想换直显项改这里一个词
 const MOBILE_PRIMARY = '重置密码'

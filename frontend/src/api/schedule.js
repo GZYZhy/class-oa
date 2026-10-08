@@ -55,12 +55,15 @@ export function createSchedule(data) {
  * @param {number} id - 日程 ID
  * @param {string} instanceDate - 实例日期
  * @param {object} data - 更新内容
+ * @param {boolean} share - 是否一并改掉其他学生的表（只有分配者能传 true）
  */
-export function updateSchedule(id, instanceDate, data) {
+export function updateSchedule(id, instanceDate, data, share = false) {
   return request({
     url: `/schedules/item/${id}`,
     method: 'put',
-    params: { instance_date: instanceDate },
+    // share 走 query 不走 body：后端把 body 里所有非 scope 字段当业务字段写入，
+    // 混一个开关进去迟早写坏数据
+    params: { instance_date: instanceDate, share },
     data
   })
 }
@@ -70,12 +73,13 @@ export function updateSchedule(id, instanceDate, data) {
  * @param {number} id - 日程 ID
  * @param {string} instanceDate - 实例日期
  * @param {string} scope - 删除范围 single/forward/all
+ * @param {boolean} share - 是否一并从其他学生的表里删掉（只有分配者能传 true）
  */
-export function deleteSchedule(id, instanceDate, scope = 'all') {
+export function deleteSchedule(id, instanceDate, scope = 'all', share = false) {
   return request({
     url: `/schedules/item/${id}`,
     method: 'delete',
-    params: { instance_date: instanceDate, scope }
+    params: { instance_date: instanceDate, scope, share }
   })
 }
 
