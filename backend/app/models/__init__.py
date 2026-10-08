@@ -21,5 +21,6 @@ from .attendance import AttendanceRecord, AttendanceItem
 from .inbox_message import InboxMessage
 from .poll import Poll, PollAnswer, PollQuestion, PollTarget
 from .grade import GradeItem, GradeSubject, GradeTest
+from .schedule import Schedule, ScheduleBatch, ICalToken
 
-__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AttendanceRecord", "AttendanceItem", "InboxMessage", "Poll", "PollQuestion", "PollTarget", "PollAnswer", "GradeTest", "GradeSubject", "GradeItem"]
+__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AttendanceRecord", "AttendanceItem", "InboxMessage", "Poll", "PollQuestion", "PollTarget", "PollAnswer", "GradeTest", "GradeSubject", "GradeItem", "Schedule", "ScheduleBatch", "ICalToken"]
