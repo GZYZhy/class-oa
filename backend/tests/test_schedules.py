@@ -152,6 +152,74 @@ def test_end_before_start_rejected(b):
     assert r.status_code == 400
 
 
+# ---------- 全天事件（学生自己建的，不是导入的） ----------
+
+def test_all_day_create_drops_times(b):
+    """全天事件不带时刻：传进来的 08:00–09:00 一律归到 00:00–23:59
+
+    表单里全天事件只有日期、没有时间框，这里是直接调接口的那条路径。
+    """
+    data = _make_schedule(
+        title="国庆放假",
+        start="2026-10-05T08:00:00", end="2026-10-05T09:00:00",
+        all_day=True,
+    )
+    r = b.client.post("/api/schedules", json=data)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["all_day"] is True
+    assert body["start_time"] == "2026-10-05T00:00:00"
+    assert body["end_time"] == "2026-10-05T23:59:00"
+
+    # 查库确认存的也是这一天两头，不是传进来的那个时刻
+    rows = b.rows("SELECT start_time, end_time FROM schedules WHERE title = ?", "国庆放假")
+    assert rows[0][0].startswith("2026-10-05 00:00")
+    assert rows[0][1].startswith("2026-10-05 23:59")
+
+
+def test_all_day_multi_day_is_one_row_per_day(b):
+    """跨天的全天事件是「一天一条」—— 前端按天建、这里逐条落库
+
+    模型里没有跨天日程这个概念：`_to_instance` 只取时刻、日期用 instance_date，
+    所以一条记 10-05~10-07 的记录在日历上只会出现在 10-05（iCal 导出倒是能表达
+    跨天，但列表路径表达不了）。页面上那根连着的条是前端合出来的（allDayBars）。
+    """
+    for day in ("2026-10-05", "2026-10-06", "2026-10-07"):
+        r = b.client.post("/api/schedules", json=_make_schedule(
+            title="国庆放假", start=f"{day}T00:00:00", end=f"{day}T23:59:00", all_day=True,
+        ))
+        assert r.status_code == 200, r.text
+
+    r = b.client.get("/api/schedules", params={
+        "start_date": "2026-10-05", "end_date": "2026-10-11",
+    })
+    items = r.json()
+    assert [it["instance_date"] for it in items] == ["2026-10-05", "2026-10-06", "2026-10-07"]
+    assert all(it["all_day"] and it["title"] == "国庆放假" for it in items)
+
+
+def test_all_day_update_also_drops_times(b):
+    """编辑成全天事件：时刻同样归到当天两头（前端会把日期一起传上来）"""
+    r = b.client.post("/api/schedules", json=_make_schedule(title="大扫除"))
+    sid = r.json()["id"]
+
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": r.json()["instance_date"]},
+        json={
+            "all_day": True,
+            "start_time": "2026-10-12T08:00:00",
+            "end_time": "2026-10-12T09:00:00",
+            "scope": "all",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["all_day"] is True
+    assert body["start_time"] == "2026-10-12T00:00:00"
+    assert body["end_time"] == "2026-10-12T23:59:00"
+
+
 # ---------- 重复日程 ----------
 
 def test_weekly_repeat_expands(b):
