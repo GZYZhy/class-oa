@@ -378,22 +378,25 @@ console.log('\n▶ 我的日程：事件按类型涂色')
   // 整段 onMounted 换成灌数据（onMounted 在 SSR 里不跑，见文件头）。
   // 同时钉住 currentMonday，周次才是可复现的：2026-10-05 那周，基准 09-14
   // → 第 4 周。用户报的就是这一条（表名「第4周」的课，页面显示成第 6 周）
-  const rows = [
-    { id: 1, title: '数学分析', event_type: '课程', location: 'A101', all_day: false,
-      instance_date: '2026-10-08', start_time: '2026-10-08T08:00:00', end_time: '2026-10-08T09:40:00' },
-    { id: 2, title: '篮球', event_type: '体育', location: '', all_day: false,
-      instance_date: '2026-10-08', start_time: '2026-10-08T10:00:00', end_time: '2026-10-08T11:40:00' },
-    { id: 3, title: '网课', event_type: '网络课', location: '', all_day: false,
-      instance_date: '2026-10-08', start_time: '2026-10-08T14:00:00', end_time: '2026-10-08T15:40:00' },
-    // 后面两个是「没认出来的类型」：手填的、老数据没填的 —— 都该走默认灰，
-    // 而不是没颜色
-    { id: 4, title: '社团', event_type: '社团', location: '', all_day: false,
-      instance_date: '2026-10-08', start_time: '2026-10-08T16:00:00', end_time: '2026-10-08T17:00:00' },
-    { id: 5, title: '没类型', event_type: '', location: '', all_day: false,
-      instance_date: '2026-10-08', start_time: '2026-10-08T18:00:00', end_time: '2026-10-08T19:00:00' },
-    { id: 6, title: '全天课', event_type: '课程', location: '', all_day: true,
-      instance_date: '2026-10-08', start_time: '2026-10-08T00:00:00', end_time: '2026-10-08T00:00:00' }
+  // [标题, 类型, 该落到的主题]。最后两行是「认不出来的类型」：手填的、
+  // 老数据没填的 —— 都该走默认灰，而不是没颜色
+  const CASES = [
+    ['数学分析', '课程', 'theme-primary'],
+    ['篮球', '体育', 'theme-success'],
+    ['网课', '网络课', 'theme-warning'],
+    ['班会', '会议', 'theme-danger'],
+    ['迎新', '活动', 'theme-info'],
+    ['社团', '社团', 'theme-info'],
+    ['没类型', '', 'theme-info']
   ]
+  const rows = CASES.map(([title, event_type], i) => ({
+    id: i + 1, title, event_type, location: '', all_day: false,
+    instance_date: '2026-10-08',
+    start_time: `2026-10-08T${String(8 + i).padStart(2, '0')}:00:00`,
+    end_time: `2026-10-08T${String(8 + i).padStart(2, '0')}:30:00`
+  }))
+  rows.push({ id: 99, title: '全天课', event_type: '课程', location: '', all_day: true,
+    instance_date: '2026-10-08', start_time: '2026-10-08T00:00:00', end_time: '2026-10-08T00:00:00' })
   const { html, warns } = await renderPatched(
     '/src/views/Schedule.vue',
     `onMounted(() => {
@@ -416,11 +419,14 @@ console.log('\n▶ 我的日程：事件按类型涂色')
       .map((a) => a.slice(7, -1).split(/\s+/))
       .filter((list) => names.every((n) => list.includes(n))).length
 
-  check(cls('cal-event', 'theme-primary') === 1, '「课程」是蓝的')
-  check(cls('cal-event', 'theme-success') === 1, '「体育」是绿的')
-  check(cls('cal-event', 'theme-warning') === 1, '「网络课」是橙的')
-  check(cls('cal-event', 'theme-info') === 2, '手填的和没填类型的都落到默认灰')
-  check(cls('cal-event') === 5, '五个定时事件都渲染了')
+  // 数各主题各几个，和 CASES 里的分配比：映射改错（比如会议挪去 info）
+  // 就会一边多一个一边少一个，跑不过
+  const want = {}
+  for (const [, , theme] of CASES) want[theme] = (want[theme] || 0) + 1
+  for (const [theme, n] of Object.entries(want)) {
+    check(cls('cal-event', theme) === n, `${theme} 正好 ${n} 个（${CASES.filter(c => c[2] === theme).map(c => c[1] || '没类型').join('、')}）`)
+  }
+  check(cls('cal-event') === CASES.length, `${CASES.length} 个定时事件都渲染了`)
 
   check(cls('all-day-item', 'theme-primary') === 1, '全天事件那块也跟着类型上色')
 

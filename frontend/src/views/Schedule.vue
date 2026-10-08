@@ -111,7 +111,7 @@
           <el-input v-model="editForm.title" maxlength="200" placeholder="请输入日程标题" />
         </el-form-item>
         <el-form-item label="类型">
-          <el-input v-model="editForm.event_type" maxlength="20" placeholder="如 课程 / 体育 / 网络课（可不填）" />
+          <el-input v-model="editForm.event_type" maxlength="20" placeholder="如 课程 / 体育 / 网络课 / 会议 / 活动（可不填）" />
         </el-form-item>
         <el-form-item label="日期" required>
           <el-date-picker
@@ -912,14 +912,17 @@ function repeatLabel(t) {
   return map[t] || t
 }
 
-// 事件类型 → 配色主题（CSS 里的 .theme-*）。只认课表解析出来的那三种
-// （见后端 schedule_import_service 的单元格解析），其余一律 info：
-// 用户手填的类型、老数据里没类型的、导入时识别不出来的，都归到这里，
-// 所以不会出现「这个类型没颜色」
+// 事件类型 → 配色主题（CSS 里的 .theme-*）。
+// 前三种是课表解析出来的（见后端 schedule_import_service 的单元格解析），
+// 会议、活动是学生自己新建日程时常用的两种。
+// Element 的调色板一共就五个色位，这里正好用完，所以「活动」和认不出来的
+// 类型同为灰 —— 想再区分就得自己造色值，那样深色模式也得跟着手写一份
 const TYPE_THEME = {
   '课程': 'primary',
   '体育': 'success',
-  '网络课': 'warning'
+  '网络课': 'warning',
+  '会议': 'danger',
+  '活动': 'info'
 }
 
 function evtTheme(type) {
