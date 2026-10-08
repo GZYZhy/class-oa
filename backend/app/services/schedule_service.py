@@ -30,10 +30,16 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import Schedule, ScheduleBatch, Student, User
+
+# 这里的名字都**只能**在模块级 import，不能挪进函数体：下面 get_student_by_ical_token
+# 的返回注解用到了 ICalToken，而注解是在 def 执行时求值的（3.12 如此，3.14 起才改成
+# 延迟求值）。之前 ICalToken 只在函数内 import，本地 3.14 跑测试全绿，3.12 的容器
+# 一 import 就 NameError、整个后端起不来 —— 1.10.0 上线时真栽过这一次。
 from ..models.schedule import (
     DAY_END_HOUR,
     DAY_START_HOUR,
     EDIT_SCOPES,
+    ICalToken,
     REPEAT_EVEN_WEEK,
     REPEAT_MONTHLY,
     REPEAT_NONE,
@@ -806,8 +812,6 @@ def get_or_create_ical_token(db: Session, student_id: int) -> tuple[str, str]:
 
     返回 (token, url_path) —— URL 路径形如 /api/schedules/ical/{token}.ics
     """
-    from ..models.schedule import ICalToken
-
     row = (
         db.query(ICalToken)
         .filter(
@@ -831,8 +835,6 @@ def reset_ical_token(db: Session, student_id: int) -> tuple[str, str]:
 
     返回 (新 token, 新 URL)
     """
-    from ..models.schedule import ICalToken
-
     # 先删掉已经失效的历史行，再把当前这条置为无效。
     # 唯一约束是 (student_id, is_active)，留着上次那条 is_active=0 的行的话，
     # 这一句 UPDATE 就会和它撞成 IntegrityError —— 第二次重置必 500，
@@ -870,8 +872,6 @@ def get_student_by_ical_token(db: Session, token: str) -> Optional[tuple[int, IC
     返回 (student_id, token_row) 或 None。
     同时更新 last_accessed_at（节流：每 5 分钟更新一次，避免每次都写库）。
     """
-    from ..models.schedule import ICalToken
-
     row = (
         db.query(ICalToken)
         .filter(
