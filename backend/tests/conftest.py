@@ -48,9 +48,19 @@ def png_bytes() -> bytes:
 
 
 def _free_port() -> int:
+    """问系统要一个空闲端口
+
+    注意这是「问完就还回去」的用法：返回的端口到子进程真正绑上它是有一瞬空档的，
+    别的进程（并行的另一个测试进程也算）可能抢先绑走 —— 此时子进程会当场退出，
+    见 _start 里的重试。真要杜绝这个空档得把套接字传给子进程，为此改启动方式不值。
+    """
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+class _BootFailed(RuntimeError):
+    """子进程在就绪之前就退了（端口被抢、依赖缺失、代码 import 不进去……）"""
 
 
 class Backend:
@@ -100,6 +110,17 @@ def backend(tmp_path):
     started = []
 
     def _start(db: str = "test.db", **env) -> Backend:
+        # 端口被别的进程抢走时子进程会立刻退出（见 _free_port）。这属于撞大运，
+        # 换个端口重来就是；只有连着三次都起不来才认为后端真有问题，把子进程的
+        # 输出抛出去。不重试的话，一次偶发撞车会报成「后端没起来」，让人去查代码
+        for attempt in range(3):
+            try:
+                return _start_once(db, **env)
+            except _BootFailed:
+                if attempt == 2:
+                    raise
+
+    def _start_once(db: str, **env) -> Backend:
         port = _free_port()
         db_path = tmp_path / db
         proc = subprocess.Popen(
@@ -127,7 +148,7 @@ def backend(tmp_path):
         client = httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=10)
         for _ in range(150):
             if proc.poll() is not None:
-                raise RuntimeError(f"后端没起来：\n{proc.stdout.read() if proc.stdout else ''}")
+                raise _BootFailed(f"后端没起来：\n{proc.stdout.read() if proc.stdout else ''}")
             try:
                 if client.get("/api/health").status_code == 200:
                     return Backend(client, proc, db_path)
