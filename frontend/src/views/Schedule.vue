@@ -33,7 +33,8 @@
         <div class="cal-header cal-row">
           <!-- 时间列顶上那一格本来是空的：放个当前时间（hh:mm），一眼看得出现在几点 -->
           <div class="cal-time-col">
-            <span class="now-clock">{{ nowClock }}</span>
+            <div class="now-clock-label">当前时间</div>
+            <div class="now-clock">{{ nowClock }}</div>
           </div>
           <div
             v-for="(day, idx) in weekDays"
@@ -1359,10 +1360,17 @@ async function handleResetToken() {
   border-right: 1px solid var(--el-border-color-lighter);
 }
 
-/* 表头角上的当前时间 */
+/* 表头角上的当前时间。60px 一格，字要小到 4 个字放得下 */
+.now-clock-label {
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--el-text-color-placeholder);
+}
+
 .now-clock {
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--el-text-color-primary);
   font-variant-numeric: tabular-nums;
 }
