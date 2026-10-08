@@ -9,7 +9,7 @@
 - 批量导入的日程写入每个目标学生自己的日程表，不是全局表
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from fastapi import (
@@ -91,6 +91,16 @@ def _validate_times(start_time: datetime, end_time: datetime) -> None:
         raise HTTPException(status_code=400, detail="结束时间必须晚于开始时间")
 
 
+def _all_day_times(day: date) -> tuple[datetime, datetime]:
+    """全天事件的起止时刻：当天 00:00 到 23:59 —— 全天就是不带时刻
+
+    库里现有的全天事件（导入进来的）就是这个形状，iCal 导出也是按 DATE 给的。
+    跨天的全天事件一律存成「一天一条」：模型里没有跨天日程这个概念，页面再按
+    相邻同标题合回一条（见 Schedule.vue 的 allDayBars）。
+    """
+    return datetime.combine(day, time(0, 0)), datetime.combine(day, time(23, 59))
+
+
 # ---------- 个人日程查询 ----------
 
 @router.get("", response_model=list[ScheduleResponse])
@@ -167,13 +177,20 @@ def create_schedule(
     班委及以上：可通过 target_all / target_student_ids 批量创建
     """
     _check_repeat_type(data.repeat_type)
-    _validate_times(data.start_time, data.end_time)
     # 重复日程依赖 repeat_end_date 展开，缺了会在展开/删除时静默出错，强制必填。
     # 前端表单已拦一道，这里兜底挡掉直接调接口的路径。
     if data.repeat_type != REPEAT_NONE and not data.repeat_end_date:
         raise HTTPException(status_code=400, detail="重复日程必须设置结束日期")
 
     sched_data = data.model_dump(exclude={"target_all", "target_student_ids"})
+    if sched_data["all_day"]:
+        # 全天事件不给时刻：表单里干脆没有时间框，这里兜的是直接调接口的路径。
+        # 不认跨天 —— 跨天请按天建多条（前端就是这么展开的）
+        sched_data["start_time"], sched_data["end_time"] = _all_day_times(
+            sched_data["start_time"].date()
+        )
+    else:
+        _validate_times(data.start_time, data.end_time)
 
     if not is_committee(user) or (not data.target_all and not data.target_student_ids):
         # 普通学生，或班委选择「仅自己」
@@ -293,8 +310,13 @@ def update_schedule(
         if update_data["repeat_type"] != REPEAT_NONE and not update_data.get("repeat_end_date"):
             raise HTTPException(status_code=400, detail="重复日程必须设置结束日期")
 
-    # 如果改了起止时间，校验
-    if "start_time" in update_data and "end_time" in update_data:
+    if update_data.get("all_day"):
+        # 全天事件不给时刻（同新建）。日期取这次传的，没传就用库里那条的 ——
+        # 从「普通日程」改成「全天」时前端会连着日期一起传
+        day = (update_data.get("start_time") or tpl.start_time).date()
+        update_data["start_time"], update_data["end_time"] = _all_day_times(day)
+    elif "start_time" in update_data and "end_time" in update_data:
+        # 如果改了起止时间，校验
         if update_data["start_time"] and update_data["end_time"]:
             _validate_times(update_data["start_time"], update_data["end_time"])
 
@@ -476,7 +498,6 @@ def import_confirm(
 
 def _parse_time_str(s: str) -> datetime.time:
     """把 HH:MM 字符串解析成 time 对象"""
-    from datetime import time
     h, m = map(int, s.split(":"))
     return time(h, m)
 

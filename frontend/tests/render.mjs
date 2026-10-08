@@ -77,7 +77,21 @@ const ElTableColumnStub = {
   }
 }
 
-async function render(path) {
+/**
+ * 会渲染正文的 el-dialog。SSR 下弹窗正文本来是不渲染的（见文件头），要断里面的
+ * 表单项就只能盖掉它。**按 modelValue 决定渲不渲染**：无条件渲染的话，页面里
+ * 其它没打开的弹窗内容会一起混进断言（踩过一次）。
+ * 只给需要的那一节传（render 的第二个参数），不进全局 —— 免得别的节跟着变。
+ */
+const ElDialogStub = {
+  name: 'ElDialogStub',
+  props: { modelValue: Boolean, title: String },
+  setup(props, { slots }) {
+    return () => (props.modelValue ? h('div', [slots.default?.(), slots.footer?.()]) : null)
+  }
+}
+
+async function render(path, extraComponents = {}) {
   const app = createSSRApp((await server.ssrLoadModule(path)).default)
   app.use(ElementPlus)
   app.use(createPinia()) // 组件里那句 useUserStore() 得有活的 pinia
@@ -91,7 +105,8 @@ async function render(path) {
   // 全局 console（不受 config.warnHandler 管），只能从注册这一步本身绕开
   Object.assign(app._context.components, {
     ElTable: ElTableStub,
-    ElTableColumn: ElTableColumnStub
+    ElTableColumn: ElTableColumnStub,
+    ...extraComponents
   })
   // 页面组件会 useRoute() / useRouter()，而这里没装 vue-router。给两个够用的替身，
   // 省得为了"渲染一个页面"去搭一整套路由。真跨页跳转的逻辑本来也不该在这儿验
@@ -114,7 +129,7 @@ async function render(path) {
  * 临时文件写在**原组件同一个目录**，它里面的 `@/` 别名和相对导入才照旧解析。
  */
 let seq = 0
-async function renderPatched(relPath, marker, replacement) {
+async function renderPatched(relPath, marker, replacement, extraComponents = {}) {
   const src = readFileSync(`${ROOT}${relPath}`, 'utf8')
   if (!src.includes(marker)) throw new Error(`${relPath} 里找不到要替换的那段：${marker}`)
   const dir = relPath.slice(0, relPath.lastIndexOf('/'))
@@ -122,7 +137,7 @@ async function renderPatched(relPath, marker, replacement) {
   const tmp = `${ROOT}${dir}/${file}`
   writeFileSync(tmp, src.replace(marker, replacement), 'utf8')
   try {
-    return await render(`${dir}/${file}`)
+    return await render(`${dir}/${file}`, extraComponents)
   } finally {
     unlinkSync(tmp)
   }
@@ -462,6 +477,67 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
   // 周次跟后端给的基准走
   check(html.includes('10月5日 - 11日'), '本周区间念得出来')
   check(html.includes('（第4周）'), '这一周是第 4 周 —— 跟表名走，不是前端按 9 月估的')
+  check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+}
+
+
+console.log('\n▶ 我的日程：全天事件给「起止日期」，不给时刻')
+{
+  // 单测那段纯日期展开（跨月、含首尾最容易写错）
+  const { daysInRange } = await server.ssrLoadModule('/src/utils/schedule.js')
+  check(
+    daysInRange('2026-10-05', '2026-10-07').join(' ') === '2026-10-05 2026-10-06 2026-10-07',
+    '跨三天：首尾都算上，中间不落'
+  )
+  check(daysInRange('2026-10-30', '2026-11-02').join(' ') === '2026-10-30 2026-10-31 2026-11-01 2026-11-02',
+    '跨月不差一天')
+  check(daysInRange('2026-10-05').join(' ') === '2026-10-05', '只有开始日期时按单天算')
+  check(daysInRange('2026-10-07', '2026-10-05').length === 0, '结束早于开始 → 空（提示交给调用方）')
+
+  // 弹窗正文在 SSR 里本来不渲染（见文件头），这里配一个会渲染正文的桩。
+  // 又因为 onMounted 不跑，「打开弹窗」得在 setup 里直接调 openEdit —— 替换点
+  // 选在 editForm 声明那一行之后，放到 onMounted 的位置会撞上 const 的暂时性死区
+  const MARKER = 'const editForm = ref(defaultForm())'
+  const EVT = (o) => ({
+    repeat_type: 'none', repeat_end_date: null, notify_enabled: false, notify_minutes_before: 10,
+    location: '', description: '', event_type: '', ...o
+  })
+  // 一根条压着三天：库里是一天一条（导入摊的、自己建跨天的都是），点这根条要拿到整条
+  const run = ['2026-10-05', '2026-10-06', '2026-10-07'].map((d, i) => EVT({
+    id: i + 1, title: '国庆放假', all_day: true, instance_date: d,
+    start_time: `${d}T00:00:00`, end_time: `${d}T23:59:00`
+  }))
+  const { html, warns } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    `${MARKER}
+    schedules.value = ${JSON.stringify(run)}
+    currentMonday.value = new Date(2026, 9, 5)
+    openEdit(schedules.value[0], schedules.value)`, { ElDialog: ElDialogStub })
+
+  // 取表单项的标签。别拿 includes('结束日期') 去断 —— 模板里的 HTML 注释也是 SSR
+  // 输出的一部分，源码注释里就有这几个字，会假通过（踩过）
+  const labels = (h) => [...h.matchAll(/class="el-form-item__label"[^>]*>(?:<!--\[-->)?([^<]+)/g)].map(m => m[1])
+  check(labels(html).includes('结束日期'), '全天事件能设结束日期（跨天就是日历上连着的一条）')
+  check(labels(html).includes('开始日期'), '日期那一栏改叫开始日期')
+  check(!labels(html).includes('时间'), '全天事件没有「时间」那一栏')
+  // 开关确实开着 —— 不然上面那条「没有时间」是假通过
+  check(/全天(?:<!--\]-->)<\/div>[\s\S]{0,600}?role="switch" aria-checked="true"/.test(html),
+    '「全天」开关是打开的')
+
+  // 对照组：普通日程仍然要时间、不要结束日期。没这条的话，上面那句
+  // 「没有时间」也可能是因为弹窗压根没渲染出来
+  const timed = await renderPatched('/src/views/Schedule.vue', MARKER,
+    `${MARKER}
+    schedules.value = ${JSON.stringify([EVT({
+      id: 9, title: '数学分析', all_day: false, instance_date: '2026-10-08',
+      start_time: '2026-10-08T08:00:00', end_time: '2026-10-08T09:00:00',
+      repeat_type: 'weekly', repeat_end_date: '2026-11-02'
+    })])}
+    currentMonday.value = new Date(2026, 9, 5)
+    openEdit(schedules.value[0])`, { ElDialog: ElDialogStub })
+  check(labels(timed.html).includes('时间'), '普通日程照旧有「时间」那一栏')
+  check(!labels(timed.html).includes('结束日期'), '普通日程没有结束日期')
+  // 重复那一栏本来也叫「结束日期」，会和全天这栏撞名 —— 现在叫「重复到」
+  check(labels(timed.html).includes('重复到'), '重复到哪天那栏叫「重复到」，不会和全天的结束日期分不清')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
 }
 

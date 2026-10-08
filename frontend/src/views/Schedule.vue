@@ -54,7 +54,7 @@
               class="all-day-item"
               :class="'theme-' + evtTheme(bar.evt.event_type)"
               :style="bar.style"
-              @click.stop="openEdit(bar.evt)"
+              @click.stop="openEdit(bar.evt, bar.evts)"
             >
               <span class="all-day-title">{{ bar.evt.title }}</span>
             </div>
@@ -118,7 +118,7 @@
         <el-form-item label="类型">
           <el-input v-model="editForm.event_type" maxlength="20" placeholder="如 课程 / 体育 / 网络课 / 会议 / 活动（可不填）" />
         </el-form-item>
-        <el-form-item label="日期" required>
+        <el-form-item :label="editForm.all_day ? '开始日期' : '日期'" required>
           <el-date-picker
             v-model="editForm.date"
             type="date"
@@ -126,7 +126,22 @@
             placeholder="选择日期"
           />
         </el-form-item>
-        <el-form-item label="时间" required>
+        <el-form-item label="全天">
+          <el-switch v-model="editForm.all_day" />
+          <span style="margin-left: 12px; color: var(--el-text-color-secondary); font-size: 13px">
+            只要日期，不设起止时刻
+          </span>
+        </el-form-item>
+        <!-- 全天事件给「起止日期」（跨天就是日历上连着的一条），普通的才要时刻 -->
+        <el-form-item v-if="editForm.all_day" label="结束日期">
+          <el-date-picker
+            v-model="editForm.end_date"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="和开始同一天"
+          />
+        </el-form-item>
+        <el-form-item v-else label="时间" required>
           <el-time-select
             v-model="editForm.start_time"
             :start="'07:00'"
@@ -160,7 +175,9 @@
             <el-radio value="even_week">双周</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item v-if="editForm.repeat_type !== 'none'" label="结束日期">
+        <!-- 标签叫「重复到」而不是「结束日期」：全天事件那一栏也叫结束日期，
+             两个挨着放会分不清哪个是哪个 -->
+        <el-form-item v-if="editForm.repeat_type !== 'none'" label="重复到">
           <el-date-picker
             v-model="editForm.repeat_end_date"
             type="date"
@@ -431,6 +448,7 @@ import {
   getIcalToken, resetIcalToken, getSemesterInfo
 } from '@/api/schedule'
 import { getStudentList } from '@/api/student'
+import { daysInRange } from '@/utils/schedule'
 import { errText } from '@/utils/request'
 
 const userStore = useUserStore()
@@ -648,7 +666,12 @@ const allDayBars = computed(() => {
     for (let k = 1; k <= list.length; k++) {
       // 断开：下一条不是紧挨着的下一天（k === list.length 是收尾）
       if (k === list.length || list[k].i !== list[k - 1].i + 1) {
-        bars.push({ start: run[0].i, end: run[run.length - 1].i, evt: run[0].evt })
+        bars.push({
+          start: run[0].i,
+          end: run[run.length - 1].i,
+          evt: run[0].evt,
+          evts: run.map(r => r.evt)   // 这根条上的每一天，编辑和删除要整条处理
+        })
         run = k < list.length ? [list[k]] : []
       } else {
         run.push(list[k])
@@ -698,14 +721,17 @@ const editDialog = ref({
   isRepeat: false,
   currentId: null,
   currentInstanceDate: null,
+  records: [],   // 编辑时这根条上的所有天（全天事件才可能不止一条）
 })
 
 const defaultForm = () => ({
   title: '',
   event_type: '',
   date: formatDate(new Date()),
+  end_date: '',
   start_time: '08:00',
   end_time: '09:00',
+  all_day: false,
   location: '',
   description: '',
   repeat_type: 'none',
@@ -721,7 +747,10 @@ const saving = ref(false)
 
 function openCreate(date = null, time = null) {
   editForm.value = defaultForm()
-  if (date) editForm.value.date = date
+  if (date) {
+    editForm.value.date = date
+    editForm.value.end_date = date   // 打开「全天」时先当单天，要跨天再往后拖
+  }
   if (time) {
     editForm.value.start_time = time
     // 默认 1 小时
@@ -737,16 +766,25 @@ function openCreate(date = null, time = null) {
     isRepeat: false,
     currentId: null,
     currentInstanceDate: editForm.value.date,
+    records: [],
   }
 }
 
-function openEdit(evt) {
+function openEdit(evt, records = null) {
+  const allDay = !!evt.all_day
+  // 全天事件在库里是一天一条（导入的跨天事件、自己新建跨天的都是这么存的），
+  // 日历上一根条可能压着好几条。传进来就按一整条来编辑，见 allDayBars
+  const run = records?.length ? records : [evt]
   editForm.value = {
     title: evt.title,
     event_type: evt.event_type || '',
-    date: evt.instance_date,
-    start_time: evt.start_time.split('T')[1]?.substring(0, 5) || '08:00',
-    end_time: evt.end_time.split('T')[1]?.substring(0, 5) || '09:00',
+    date: run[0].instance_date,
+    end_date: run[run.length - 1].instance_date,
+    // 全天事件库里存的时刻是 00:00–23:59，直接填进时间框会落在可选范围外
+    // （框里是空的）。关掉「全天」时给个正常的上课时间
+    start_time: allDay ? '08:00' : (evt.start_time.split('T')[1]?.substring(0, 5) || '08:00'),
+    end_time: allDay ? '09:00' : (evt.end_time.split('T')[1]?.substring(0, 5) || '09:00'),
+    all_day: allDay,
     location: evt.location || '',
     description: evt.description || '',
     repeat_type: evt.repeat_type,
@@ -762,65 +800,109 @@ function openEdit(evt) {
     isRepeat: evt.repeat_type !== 'none',
     currentId: evt.id,
     currentInstanceDate: evt.instance_date,
+    records: run,
+  }
+}
+
+// 表单里那些与「有没有时刻」无关的字段
+function formFields() {
+  const form = editForm.value
+  return {
+    title: form.title.trim(),
+    event_type: form.event_type,
+    location: form.location,
+    description: form.description,
+    repeat_type: form.repeat_type,
+    repeat_end_date: form.repeat_end_date || null,
+    notify_enabled: form.notify_enabled,
+    notify_minutes_before: form.notify_minutes_before,
+  }
+}
+
+// 班委的分配范围（普通学生传了后端也会忽略）
+function targetFields() {
+  const form = editForm.value
+  return {
+    target_all: userStore.isCommittee && form.scope_mode === 'all',
+    target_student_ids: userStore.isCommittee && form.scope_mode === 'selected'
+      ? selectedStudents.value : [],
+  }
+}
+
+// 全天事件在库里是「一天一条」：模型里没有跨天日程，导入的跨天事件也是这么摊的
+// （见后端 schedule_import_service），页面上再按相邻同标题合回一条（allDayBars）。
+// 所以「起止日期」建的时候要摊开，编辑的时候要跟原来那几条对一遍：
+// 日期还在的就地改，新添的日期建出来，去掉了的日期删掉
+async function saveAllDay(days) {
+  const form = editForm.value
+  const base = { ...formFields(), all_day: true }
+  // 编辑前这根条上的那几条（按日期索引）；处理完还留在里面的就是要去掉的
+  const left = new Map((editDialog.value.records || []).map(r => [r.instance_date, r]))
+
+  for (const day of days) {
+    // 全天事件不带时刻：一天的头和尾（跟导入、iCal 导出的约定一致）
+    const times = { start_time: `${day}T00:00:00`, end_time: `${day}T23:59:00` }
+    const hit = left.get(day)
+    if (hit) {
+      left.delete(day)
+      await updateSchedule(hit.id, day, { ...base, ...times, scope: 'all' })
+    } else {
+      await createSchedule({ ...base, ...times, ...targetFields() })
+    }
+  }
+
+  // 范围改小了：多出来的那几天删掉
+  for (const gone of left.values()) {
+    await deleteSchedule(gone.id, gone.instance_date, 'all')
   }
 }
 
 async function handleSave() {
-  if (!editForm.value.title.trim()) {
+  const form = editForm.value
+  if (!form.title.trim()) {
     ElMessage.warning('请输入日程标题')
     return
   }
-  if (editForm.value.start_time >= editForm.value.end_time) {
+  if (!form.all_day && form.start_time >= form.end_time) {
     ElMessage.warning('结束时间必须晚于开始时间')
     return
   }
-  if (editForm.value.repeat_type !== 'none' && !editForm.value.repeat_end_date) {
+  if (form.repeat_type !== 'none' && !form.repeat_end_date) {
     ElMessage.warning('请设置重复结束日期')
+    return
+  }
+
+  const days = form.all_day ? daysInRange(form.date, form.end_date) : []
+  if (form.all_day && !days.length) {
+    ElMessage.warning('结束日期不能早于开始日期')
+    return
+  }
+  // 每个目标学生一天一条，一天一次请求。范围拉太大就是几百次请求，拦一道
+  if (days.length > 31) {
+    ElMessage.warning('全天事件一次最多 31 天')
     return
   }
 
   saving.value = true
   try {
-    const data = {
-      title: editForm.value.title.trim(),
-      event_type: editForm.value.event_type,
-      location: editForm.value.location,
-      description: editForm.value.description,
-      start_time: `${editForm.value.date}T${editForm.value.start_time}:00`,
-      end_time: `${editForm.value.date}T${editForm.value.end_time}:00`,
-      all_day: false,
-      repeat_type: editForm.value.repeat_type,
-      repeat_end_date: editForm.value.repeat_end_date || null,
-      notify_enabled: editForm.value.notify_enabled,
-      notify_minutes_before: editForm.value.notify_minutes_before,
-      target_all: userStore.isCommittee && editForm.value.scope_mode === 'all',
-      target_student_ids: userStore.isCommittee && editForm.value.scope_mode === 'selected'
-        ? selectedStudents.value : [],
-    }
-
-    if (editDialog.value.isEdit) {
-      await updateSchedule(
-        editDialog.value.currentId,
-        editDialog.value.currentInstanceDate,
-        {
-          title: data.title,
-          event_type: data.event_type,
-          location: data.location,
-          description: data.description,
-          start_time: data.start_time,
-          end_time: data.end_time,
-          repeat_type: data.repeat_type,
-          repeat_end_date: data.repeat_end_date,
-          notify_enabled: data.notify_enabled,
-          notify_minutes_before: data.notify_minutes_before,
-          scope: editForm.value.scope,
-        }
-      )
-      ElMessage.success('已更新')
+    if (form.all_day) {
+      await saveAllDay(days)
     } else {
-      await createSchedule(data)
-      ElMessage.success('已创建')
+      const times = {
+        start_time: `${form.date}T${form.start_time}:00`,
+        end_time: `${form.date}T${form.end_time}:00`,
+      }
+      if (editDialog.value.isEdit) {
+        await updateSchedule(
+          editDialog.value.currentId,
+          editDialog.value.currentInstanceDate,
+          { ...formFields(), ...times, all_day: false, scope: form.scope }
+        )
+      } else {
+        await createSchedule({ ...formFields(), ...times, all_day: false, ...targetFields() })
+      }
     }
+    ElMessage.success(editDialog.value.isEdit ? '已更新' : '已创建')
     editDialog.value.visible = false
     loadSchedules()
   } finally {
@@ -829,20 +911,30 @@ async function handleSave() {
 }
 
 async function handleDelete() {
+  // 跨天的全天事件是「一天一条」，日历上看着是一根条。删就整条一起删 ——
+  // 只删点中的那一天，条会缺一块、剩下的还在
+  const records = editDialog.value.records || []
+  const whole = records.length > 1 ? records : null
   try {
     await ElMessageBox.confirm(
-      editDialog.value.isRepeat ? '确定删除？可选范围：仅本次 / 本次及以后 / 全部' : '确定删除此日程？',
+      whole
+        ? `确定删除这条跨 ${whole.length} 天的全天事件？`
+        : (editDialog.value.isRepeat ? '确定删除？可选范围：仅本次 / 本次及以后 / 全部' : '确定删除此日程？'),
       '删除确认',
       { type: 'warning' }
     )
   } catch { return }
 
   try {
-    await deleteSchedule(
-      editDialog.value.currentId,
-      editDialog.value.currentInstanceDate,
-      editForm.value.scope
-    )
+    if (whole) {
+      for (const r of whole) await deleteSchedule(r.id, r.instance_date, 'all')
+    } else {
+      await deleteSchedule(
+        editDialog.value.currentId,
+        editDialog.value.currentInstanceDate,
+        editForm.value.scope
+      )
+    }
     ElMessage.success('已删除')
     editDialog.value.visible = false
     loadSchedules()
