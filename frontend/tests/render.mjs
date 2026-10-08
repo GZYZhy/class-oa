@@ -373,6 +373,68 @@ console.log('\n▶ 编辑学生信息：实地采集那一格能调摄像头拍�
   check(/photoUploading === p\.type/.test(list), '上传进度/loading 还挂在「选择图片」上')
 }
 
+console.log('\n▶ 我的日程：事件按类型涂色')
+{
+  // 整段 onMounted 换成灌数据（onMounted 在 SSR 里不跑，见文件头）。
+  // 同时钉住 currentMonday，周次才是可复现的：2026-10-05 那周，基准 09-14
+  // → 第 4 周。用户报的就是这一条（表名「第4周」的课，页面显示成第 6 周）
+  const rows = [
+    { id: 1, title: '数学分析', event_type: '课程', location: 'A101', all_day: false,
+      instance_date: '2026-10-08', start_time: '2026-10-08T08:00:00', end_time: '2026-10-08T09:40:00' },
+    { id: 2, title: '篮球', event_type: '体育', location: '', all_day: false,
+      instance_date: '2026-10-08', start_time: '2026-10-08T10:00:00', end_time: '2026-10-08T11:40:00' },
+    { id: 3, title: '网课', event_type: '网络课', location: '', all_day: false,
+      instance_date: '2026-10-08', start_time: '2026-10-08T14:00:00', end_time: '2026-10-08T15:40:00' },
+    // 后面两个是「没认出来的类型」：手填的、老数据没填的 —— 都该走默认灰，
+    // 而不是没颜色
+    { id: 4, title: '社团', event_type: '社团', location: '', all_day: false,
+      instance_date: '2026-10-08', start_time: '2026-10-08T16:00:00', end_time: '2026-10-08T17:00:00' },
+    { id: 5, title: '没类型', event_type: '', location: '', all_day: false,
+      instance_date: '2026-10-08', start_time: '2026-10-08T18:00:00', end_time: '2026-10-08T19:00:00' },
+    { id: 6, title: '全天课', event_type: '课程', location: '', all_day: true,
+      instance_date: '2026-10-08', start_time: '2026-10-08T00:00:00', end_time: '2026-10-08T00:00:00' }
+  ]
+  const { html, warns } = await renderPatched(
+    '/src/views/Schedule.vue',
+    `onMounted(() => {
+  loadSchedules()
+  loadSemesterInfo()
+  if (userStore.isCommittee) {
+    loadStudents()
+  }
+})`,
+    `schedules.value = ${JSON.stringify(rows)}
+    currentMonday.value = new Date(2026, 9, 5)
+    semesterFirstMonday.value = new Date(2026, 8, 14)`
+  )
+  // 按类名分词数，别拿全串 count()：all-day-date 里含 day-date、
+  // cal-events-overlay 里含 cal-event，都会多算（踩过）。
+  // 另外 :class 渲染在静态 class **前面**（class="theme-primary cal-event"），
+  // 所以是按「同时含这几个类」找，不指望顺序
+  const cls = (...names) =>
+    (html.match(/class="([^"]*)"/g) || [])
+      .map((a) => a.slice(7, -1).split(/\s+/))
+      .filter((list) => names.every((n) => list.includes(n))).length
+
+  check(cls('cal-event', 'theme-primary') === 1, '「课程」是蓝的')
+  check(cls('cal-event', 'theme-success') === 1, '「体育」是绿的')
+  check(cls('cal-event', 'theme-warning') === 1, '「网络课」是橙的')
+  check(cls('cal-event', 'theme-info') === 2, '手填的和没填类型的都落到默认灰')
+  check(cls('cal-event') === 5, '五个定时事件都渲染了')
+
+  check(cls('all-day-item', 'theme-primary') === 1, '全天事件那块也跟着类型上色')
+
+  // 表头：mm.dd 而不是拼出来的怪串
+  check(cls('day-date') === 7, '表头七天都在')
+  check(html.includes('>10.05<') && html.includes('>10.11<'), '表头日期是 mm.dd（10.05 / 10.11）')
+  check(!html.includes('/2026-'), '没有「10/2026-10-08」那种拼接')
+
+  // 周次跟后端给的基准走
+  check(html.includes('10月5日 - 11日'), '本周区间念得出来')
+  check(html.includes('（第4周）'), '这一周是第 4 周 —— 跟表名走，不是前端按 9 月估的')
+  check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

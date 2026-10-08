@@ -5,7 +5,7 @@
       <div class="week-nav">
         <el-button :icon="ArrowLeft" circle @click="prevWeek" />
         <span class="week-label">
-          {{ weekLabel }}（第{{ weekOfSemester }}周）
+          {{ weekLabel }}<template v-if="weekOfSemester">（第{{ weekOfSemester }}周）</template>
         </span>
         <el-button :icon="ArrowRight" circle @click="nextWeek" />
         <el-button size="small" @click="goToday">今天</el-button>
@@ -36,7 +36,7 @@
             :class="{ today: day.isToday }"
           >
             <div class="day-weekday">{{ day.weekdayLabel }}</div>
-            <div class="day-date">{{ day.month }}/{{ day.date }}</div>
+            <div class="day-date">{{ day.md }}</div>
           </div>
         </div>
 
@@ -69,7 +69,7 @@
               v-for="evt in positionedEvents"
               :key="evt.key"
               class="cal-event"
-              :class="{ 'batch': evt.source_type === 'batch' }"
+              :class="'theme-' + evtTheme(evt.event_type)"
               :style="evt.style"
               @click.stop="openEdit(evt)"
             >
@@ -90,7 +90,7 @@
             v-for="evt in allDayEvents"
             :key="evt.id + '-' + evt.instance_date"
             class="all-day-item"
-            :class="{ 'batch': evt.source_type === 'batch' }"
+            :class="'theme-' + evtTheme(evt.event_type)"
             @click="openEdit(evt)"
           >
             <span class="all-day-date">{{ formatDateShort(evt.instance_date) }}</span>
@@ -423,7 +423,7 @@ import {
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule,
   importPreview as apiImportPreview, importConfirm as apiImportConfirm,
-  getIcalToken, resetIcalToken
+  getIcalToken, resetIcalToken, getSemesterInfo
 } from '@/api/schedule'
 import { getStudentList } from '@/api/student'
 import { errText } from '@/utils/request'
@@ -469,6 +469,9 @@ const weekDays = computed(() => {
       date: formatDate(d),
       month: d.getMonth() + 1,
       day: d.getDate(),
+      // 表头就写「10.08」。别用 date（那是 2026-10-08 完整串，
+      // 和 month 拼起来会渲染成「10/2026-10-08」，踩过）
+      md: `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, '0')}`,
       weekday: i + 1,
       weekdayLabel: '周' + weekdays[i],
       isToday: d.getTime() === today.getTime()
@@ -486,18 +489,33 @@ const weekLabel = computed(() => {
   return `${start.month}月${start.day}日 - ${end.month}月${end.day}日`
 })
 
+// 学期第 1 周的周一，由后端给（课表导入时按表名「第N周」折算出来的）。
+// 千万别在前端按「9 月 1 日所在周」自己估：估出来比表名早两周，
+// 表名「第4周」的课在页面上会显示成第 6 周（踩过一次）。
+const semesterFirstMonday = ref(null)
+
+async function loadSemesterInfo() {
+  try {
+    const data = await getSemesterInfo()
+    if (!data.week_start) {
+      semesterFirstMonday.value = null
+      return
+    }
+    // 手动拼日期：new Date('2026-09-14') 是按 UTC 解析的，换个时区就差一天
+    const [y, m, d] = data.week_start.split('-').map(Number)
+    semesterFirstMonday.value = new Date(y, m - 1, d)
+  } catch (e) {
+    // 拿不到只是不显示周次，别影响看日程
+    semesterFirstMonday.value = null
+  }
+}
+
 const weekOfSemester = computed(() => {
-  // 简单估算：以当年 9 月第一周为第 1 周（秋季学期）
-  const now = currentMonday.value
-  const year = now.getFullYear()
-  const month = now.getMonth() + 1
-  let startYear = year
-  if (month < 8) startYear = year - 1  // 上半年是上一学年秋季学期起
-  const sep1 = new Date(startYear, 8, 1)  // 9 月 1 日
-  const sepMonday = getMonday(sep1)
-  const diffDays = Math.floor((now - sepMonday) / (1000 * 60 * 60 * 24))
+  if (!semesterFirstMonday.value) return null
+  const diffDays = Math.round((currentMonday.value - semesterFirstMonday.value) / 86400000)
   const week = Math.floor(diffDays / 7) + 1
-  return week > 0 ? week : 1
+  // 学期外的周（寒暑假）不显示，免得冒出「第 -3 周」
+  return week >= 1 ? week : null
 })
 
 function prevWeek() {
@@ -557,6 +575,7 @@ watch(currentMonday, () => {
 
 onMounted(() => {
   loadSchedules()
+  loadSemesterInfo()
   if (userStore.isCommittee) {
     loadStudents()
   }
@@ -893,6 +912,20 @@ function repeatLabel(t) {
   return map[t] || t
 }
 
+// 事件类型 → 配色主题（CSS 里的 .theme-*）。只认课表解析出来的那三种
+// （见后端 schedule_import_service 的单元格解析），其余一律 info：
+// 用户手填的类型、老数据里没类型的、导入时识别不出来的，都归到这里，
+// 所以不会出现「这个类型没颜色」
+const TYPE_THEME = {
+  '课程': 'primary',
+  '体育': 'success',
+  '网络课': 'warning'
+}
+
+function evtTheme(type) {
+  return TYPE_THEME[type] || 'info'
+}
+
 // ---------- 订阅 ----------
 const subscribeDialog = ref({ open: false })
 const subscribeLoading = ref(false)
@@ -1031,8 +1064,8 @@ async function handleResetToken() {
 }
 
 .day-date {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   margin-top: 2px;
 }
 
@@ -1073,10 +1106,39 @@ async function handleResetToken() {
   pointer-events: none;
 }
 
+/* 按事件类型涂色。--evt 是主色、--evt-bg 是同色系的浅底，
+   一律取 Element 的调色板变量，深色模式跟着自动切。
+   只认常见的几种类型，其余的（包括用户自己填的、以及没填类型的）
+   走默认灰 —— 不写死 switch，也就不会出现「这个类型没颜色」 */
+.theme-primary {
+  --evt: var(--el-color-primary);
+  --evt-bg: var(--el-color-primary-light-8);
+}
+
+.theme-success {
+  --evt: var(--el-color-success);
+  --evt-bg: var(--el-color-success-light-8);
+}
+
+.theme-warning {
+  --evt: var(--el-color-warning);
+  --evt-bg: var(--el-color-warning-light-8);
+}
+
+.theme-danger {
+  --evt: var(--el-color-danger);
+  --evt-bg: var(--el-color-danger-light-8);
+}
+
+.theme-info {
+  --evt: var(--el-color-info);
+  --evt-bg: var(--el-color-info-light-8);
+}
+
 .cal-event {
   position: absolute;
-  background: var(--el-color-primary-light-8);
-  border-left: 3px solid var(--el-color-primary);
+  background: var(--evt-bg, var(--el-color-info-light-8));
+  border-left: 3px solid var(--evt, var(--el-color-info));
   border-radius: 3px;
   padding: 2px 6px;
   font-size: 12px;
@@ -1090,11 +1152,6 @@ async function handleResetToken() {
 .cal-event:hover {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   z-index: 10;
-}
-
-.cal-event.batch {
-  background: var(--el-color-warning-light-8);
-  border-left-color: var(--el-color-warning);
 }
 
 .evt-title {
@@ -1147,8 +1204,8 @@ async function handleResetToken() {
 }
 
 .all-day-item {
-  background: var(--el-color-primary-light-8);
-  border-left: 3px solid var(--el-color-primary);
+  background: var(--evt-bg, var(--el-color-info-light-8));
+  border-left: 3px solid var(--evt, var(--el-color-info));
   padding: 4px 10px;
   border-radius: 3px;
   font-size: 13px;
@@ -1156,11 +1213,6 @@ async function handleResetToken() {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.all-day-item.batch {
-  background: var(--el-color-warning-light-8);
-  border-left-color: var(--el-color-warning);
 }
 
 .all-day-date {

@@ -16,6 +16,17 @@ export function listSchedules(startDate, endDate) {
 }
 
 /**
+ * 学期第 1 周的周一。页面上的「第几周」按它算：
+ * 由课表导入时按表名「第N周」折算，别在前端另估一套
+ */
+export function getSemesterInfo() {
+  return request({
+    url: '/schedules/semester',
+    method: 'get'
+  })
+}
+
+/**
  * 获取单条日程详情
  * @param {number} id - 日程 ID
  * @param {string} instanceDate - 实例日期 YYYY-MM-DD
