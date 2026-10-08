@@ -406,6 +406,11 @@ def _make_schedule_xlsx() -> bytes:
             # 同一天（周日）还有第二条事件
             ws.cell(row=93, column=1, value="事件2")
             ws.cell(row=93, column=8, value="收假返校")
+            # 跨周三、四、五三天，写成**横向合并**（D–F 一格）—— 合并之后只有
+            # 左上角 D94 有值，逐格取会让这件事件只落在周三一天
+            ws.cell(row=94, column=1, value="事件3")
+            ws.merge_cells(start_row=94, start_column=4, end_row=94, end_column=6)
+            ws.cell(row=94, column=4, value="国庆放假")
 
     buf = BytesIO()
     wb.save(buf)
@@ -446,11 +451,16 @@ def test_import_preview_faithful(b):
 def test_all_day_section_reads_every_column(b):
     """全天事件区逐格取：跨天的事件每天各出一条，同一天可以有好几条
 
-    两个曾经踩过的坑：
+    三个曾经踩过的坑：
     1. 只读 B 列 —— 事件写在它覆盖的那一天的列里，真实课表的「国庆放假」
        横跨 7 列，只读 B 列会让后面 6 天整片消失；
     2. 把全天事件塞进以「星期+开始时间」为键的字典 —— 凌晨 00:00 撞车，
-       同一天的第二条会把第一条覆盖掉。
+       同一天的第二条会把第一条覆盖掉；
+    3. 跨天写成横向合并时只认左上角 —— 合并之后只有最左边那格存着文字，
+       逐格读会让 D94:F94 的「国庆放假」只落在周三，后面两天整片消失。
+
+    跨天的两种写法（逐列重复写、横向合并）都摊成**一天一条**，页面上再由
+    allDayBars 把相邻的同名条连回一条 —— 模型里没有「跨天日程」这个概念。
     """
     xlsx_bytes = _make_schedule_xlsx()
     r = b.client.post(
@@ -462,8 +472,11 @@ def test_all_day_section_reads_every_column(b):
     allday = [it for it in r.json()["items"] if it["all_day"]]
     assert [(it["start_date"], it["title"]) for it in allday] == [
         ("2026-10-12", "正式活动 10/12"),   # 第 1 周周一
-        ("2026-10-17", "运动会"),           # 周六
-        ("2026-10-18", "运动会"),           # 周日（同一段文字的第二列）
+        ("2026-10-14", "国庆放假"),         # 横向合并 D94:F94 → 周三
+        ("2026-10-15", "国庆放假"),         #                   周四
+        ("2026-10-16", "国庆放假"),         #                   周五
+        ("2026-10-17", "运动会"),           # 周六（同一段文字写了两列）
+        ("2026-10-18", "运动会"),           # 周日
         ("2026-10-18", "收假返校"),         # 周日同一天的第二条
         ("2026-10-19", "正式活动 10/19"),   # 第 2 周周一
     ]
@@ -481,6 +494,7 @@ def test_import_confirm_writes_to_targets(b):
         files={"file": ("课表.xlsx", xlsx_bytes,
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
+    preview_items = r.json()["items"]
     token = r.json()["token"]
 
     # 先拿学生 ID
@@ -497,10 +511,12 @@ def test_import_confirm_writes_to_targets(b):
     })
     assert r.status_code == 200, r.text
     result = r.json()
-    # 夹具忠实展平共 8 条（高数2 + 英语1 + 全天5），每人一份
+    # 条数从预览里数，不写死：夹具展平出什么由 test_all_day_section_reads_every_column
+    # 逐条钉着，这里只关心「每个目标学生都拿到了同样多的一份」
+    expected = len(preview_items)
     assert result["target_count"] == len(all_ids)
-    assert result["schedule_per_student"] == 8
-    assert result["total_created"] == 8 * len(all_ids)
+    assert result["schedule_per_student"] == expected
+    assert result["total_created"] == expected * len(all_ids)
 
     # 学生乙能看到导入的课
     student2 = as_student(b, 1)
