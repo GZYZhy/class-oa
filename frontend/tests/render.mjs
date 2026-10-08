@@ -691,6 +691,7 @@ console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没�
   // 左上角那格显示当前时间（hh:mm）：表头本来空着，正好放
   const clock = html.match(/class="now-clock"[^>]*>([^<]*)</)
   check(clock && /^\d{2}:\d{2}$/.test(clock[1]), `表头角上是 hh:mm 的当前时间（实际：${clock && clock[1]}）`)
+  check(html.includes('当前时间'), '时钟上方写着「当前时间」')
 
   const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
   // 时钟靠定时器走，离开页面必须停掉，否则每进一次日程页就多一个永不回收的定时器
