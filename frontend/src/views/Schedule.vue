@@ -40,6 +40,27 @@
           </div>
         </div>
 
+        <!-- 全天事件行：紧跟表头，和下面一样按 7 个格子组织。
+             格线由那 7 个空的 .cal-day-col 画，事件本身绝对定位跨列铺开，
+             所以跨天的（导入时写成横向合并、或逐列重复写同一段文字）是连着的
+             一条。高度随条数增长，见 allDayHeight -->
+        <div class="cal-row cal-allday" :style="{ minHeight: allDayHeight }">
+          <div class="cal-time-col">全天</div>
+          <div v-for="(day, idx) in weekDays" :key="idx" class="cal-day-col"></div>
+          <div class="cal-allday-overlay">
+            <div
+              v-for="bar in allDayBars"
+              :key="bar.key"
+              class="all-day-item"
+              :class="'theme-' + evtTheme(bar.evt.event_type)"
+              :style="bar.style"
+              @click.stop="openEdit(bar.evt)"
+            >
+              <span class="all-day-title">{{ bar.evt.title }}</span>
+            </div>
+          </div>
+        </div>
+
         <!-- 时间行 + 日程块 overlay：包在同一个定位容器里，
              overlay 的 (0,0) 才正好对齐「首行顶部、时间列右侧」 -->
         <div class="cal-body">
@@ -82,22 +103,6 @@
         </div>
       </div>
 
-      <!-- 全天事件区 -->
-      <div v-if="allDayEvents.length" class="all-day-section">
-        <div class="all-day-label">全天事件</div>
-        <div class="all-day-list">
-          <div
-            v-for="evt in allDayEvents"
-            :key="evt.id + '-' + evt.instance_date"
-            class="all-day-item"
-            :class="'theme-' + evtTheme(evt.event_type)"
-            @click="openEdit(evt)"
-          >
-            <span class="all-day-date">{{ formatDateShort(evt.instance_date) }}</span>
-            <span class="all-day-title">{{ evt.title }}</span>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- 新建/编辑弹窗 -->
@@ -541,11 +546,6 @@ function formatDate(d) {
   return `${y}-${m}-${day}`
 }
 
-function formatDateShort(dateStr) {
-  const d = new Date(dateStr)
-  return `${d.getMonth() + 1}/${d.getDate()}`
-}
-
 // ---------- 数据加载 ----------
 const loading = ref(false)
 const schedules = ref([])
@@ -620,9 +620,70 @@ const positionedEvents = computed(() => {
   return events
 })
 
-const allDayEvents = computed(() => {
-  return schedules.value.filter(e => e.all_day)
-    .sort((a, b) => new Date(a.instance_date) - new Date(b.instance_date))
+// ---------- 全天事件：排一行，按格子定位，跨天的连成一条 ----------
+//
+// 导入的课表里，一个跨天事件有两种写法：横向合并（B5:D5 一格）、或者在它覆盖
+// 的每一天的列里重复写同一段文字。后端两种都摊成「一天一条」（模型里没有
+// 「跨天日程」这个概念），所以这里再把相邻几天、标题相同的那几条合回一条 ——
+// 两种写法在页面上都是连着的一条。
+const allDayBars = computed(() => {
+  const dayIdx = {}
+  weekDays.value.forEach((d, i) => { dayIdx[d.date] = i })
+
+  // 先按标题归拢，每条记住落在第几列。同一天出现两次同名事件时，下面按顺序
+  // 逐个消费，两条都会画出来，不会少一条
+  const byTitle = new Map()
+  for (const evt of schedules.value) {
+    if (!evt.all_day) continue
+    const i = dayIdx[evt.instance_date]
+    if (i === undefined) continue   // 不在本周（查询就是按周取的，到不了这）
+    if (!byTitle.has(evt.title)) byTitle.set(evt.title, [])
+    byTitle.get(evt.title).push({ i, evt })
+  }
+
+  const bars = []
+  for (const list of byTitle.values()) {
+    list.sort((a, b) => a.i - b.i)
+    let run = [list[0]]
+    for (let k = 1; k <= list.length; k++) {
+      // 断开：下一条不是紧挨着的下一天（k === list.length 是收尾）
+      if (k === list.length || list[k].i !== list[k - 1].i + 1) {
+        bars.push({ start: run[0].i, end: run[run.length - 1].i, evt: run[0].evt })
+        run = k < list.length ? [list[k]] : []
+      } else {
+        run.push(list[k])
+      }
+    }
+  }
+
+  // 贪心分行：同一列上撞车了才需要第二行。占满一周的「国庆放假」下面再放
+  // 「收假返校」就靠这个错开
+  bars.sort((a, b) => a.start - b.start || b.end - a.end)
+  const lineEnds = []
+  for (const bar of bars) {
+    let li = lineEnds.findIndex(end => end < bar.start)
+    if (li === -1) {
+      li = lineEnds.length
+      lineEnds.push(bar.end)
+    } else {
+      lineEnds[li] = bar.end
+    }
+    bar.line = li
+    bar.key = `${bar.evt.id}-${bar.start}-${bar.end}`
+    bar.style = {
+      top: `${bar.line * 24 + 3}px`,
+      left: `calc(${(bar.start * 100) / 7}% + 3px)`,
+      width: `calc(${((bar.end - bar.start + 1) * 100) / 7}% - 6px)`
+    }
+  }
+  return bars
+})
+
+// 行高得跟着行数走：里面是绝对定位，撑不起父容器的高度。
+// 一条都没有时也留出一行，免得切周的时候整块日历上下跳
+const allDayHeight = computed(() => {
+  const lines = allDayBars.value.reduce((m, b) => Math.max(m, b.line + 1), 0)
+  return `${Math.max(lines, 1) * 24 + 6}px`
 })
 
 // ---------- 点击格子新建 ----------
@@ -1183,44 +1244,53 @@ async function handleResetToken() {
   color: var(--el-text-color-secondary);
 }
 
-/* 全天事件区 */
-.all-day-section {
-  border-top: 2px solid var(--el-border-color);
-  padding: 12px 16px;
-  display: flex;
-  gap: 12px;
+/* 全天事件行（表头正下方那一行） */
+.cal-allday {
+  position: relative;
+  background: var(--el-fill-color-blank);
 }
 
-.all-day-label {
-  flex-shrink: 0;
-  width: 60px;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  padding-top: 2px;
+.cal-allday .cal-time-col {
+  font-size: 12px;
+  padding-top: 6px;
 }
 
-.all-day-list {
-  flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+/* 和 .cal-events-overlay 一个套路：让开时间列，0% 才与周一列左边对齐 */
+.cal-allday-overlay {
+  position: absolute;
+  top: 0;
+  left: 60px;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
 }
 
 .all-day-item {
+  position: absolute;
+  height: 20px;
+  line-height: 20px;
   background: var(--evt-bg, var(--el-color-info-light-8));
   border-left: 3px solid var(--evt, var(--el-color-info));
-  padding: 4px 10px;
   border-radius: 3px;
-  font-size: 13px;
+  padding: 0 6px;
+  font-size: 12px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  pointer-events: auto;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: box-shadow 0.15s;
 }
 
-.all-day-date {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
+.all-day-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+}
+
+.all-day-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
 }
 
 /* 导入 */

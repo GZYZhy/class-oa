@@ -373,7 +373,7 @@ console.log('\n▶ 编辑学生信息：实地采集那一格能调摄像头拍�
   check(/photoUploading === p\.type/.test(list), '上传进度/loading 还挂在「选择图片」上')
 }
 
-console.log('\n▶ 我的日程：事件按类型涂色')
+console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格子铺开')
 {
   // 整段 onMounted 换成灌数据（onMounted 在 SSR 里不跑，见文件头）。
   // 同时钉住 currentMonday，周次才是可复现的：2026-10-05 那周，基准 09-14
@@ -395,8 +395,16 @@ console.log('\n▶ 我的日程：事件按类型涂色')
     start_time: `2026-10-08T${String(8 + i).padStart(2, '0')}:00:00`,
     end_time: `2026-10-08T${String(8 + i).padStart(2, '0')}:30:00`
   }))
-  rows.push({ id: 99, title: '全天课', event_type: '课程', location: '', all_day: true,
-    instance_date: '2026-10-08', start_time: '2026-10-08T00:00:00', end_time: '2026-10-08T00:00:00' })
+  // 全天事件：一条单天的；再一条跨周四、周五 —— 导入的表里跨天会摊成
+  // 一天一条（两条独立记录、同一个标题），页面得把它连回一条
+  rows.push(
+    { id: 99, title: '全天课', event_type: '课程', location: '', all_day: true,
+      instance_date: '2026-10-08', start_time: '2026-10-08T00:00:00', end_time: '2026-10-08T23:59:00' },
+    { id: 100, title: '国庆放假', event_type: '', location: '', all_day: true,
+      instance_date: '2026-10-08', start_time: '2026-10-08T00:00:00', end_time: '2026-10-08T23:59:00' },
+    { id: 101, title: '国庆放假', event_type: '', location: '', all_day: true,
+      instance_date: '2026-10-09', start_time: '2026-10-09T00:00:00', end_time: '2026-10-09T23:59:00' }
+  )
   const { html, warns } = await renderPatched(
     '/src/views/Schedule.vue',
     `onMounted(() => {
@@ -429,6 +437,22 @@ console.log('\n▶ 我的日程：事件按类型涂色')
   check(cls('cal-event') === CASES.length, `${CASES.length} 个定时事件都渲染了`)
 
   check(cls('all-day-item', 'theme-primary') === 1, '全天事件那块也跟着类型上色')
+
+  // 全天事件排在表头正下方那一行（在时间行之前），按格子跨列铺开
+  check(html.indexOf('cal-allday') < html.indexOf('cal-body'), '全天行在时间行前面 —— 就是表头下面第一行')
+  check(cls('all-day-item') === 2, '三条一天一条的合成两条：跨天的连回一条')
+
+  // 把 style 里的 left/width 百分比换算回「第几列 / 跨几列」。周三=2、周四=3
+  const bars = [...html.matchAll(/class="[^"]*all-day-item[^"]*"[^>]*style="([^"]*)"/g)].map((m) => ({
+    col: Math.round((parseFloat(/left:calc\(([\d.]+)%/.exec(m[1])[1]) / 100) * 7),
+    span: Math.round((parseFloat(/width:calc\(([\d.]+)%/.exec(m[1])[1]) / 100) * 7),
+    top: parseInt(/top:(\d+)px/.exec(m[1])[1], 10)
+  }))
+  const spanning = bars.find((b) => b.span === 2)
+  check(spanning && spanning.col === 3, '「国庆放假」从周四那格起，横跨周四+周五两格')
+  const onThu = bars.filter((b) => b.col === 3)
+  check(onThu.length === 2, '周四那格上正好两条')
+  check(onThu[0].top !== onThu[1].top, '撞在同一格的两条分行摆，不叠在一起')
 
   // 表头：mm.dd 而不是拼出来的怪串
   check(cls('day-date') === 7, '表头七天都在')
