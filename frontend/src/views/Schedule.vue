@@ -426,6 +426,7 @@ import {
   getIcalToken, resetIcalToken
 } from '@/api/schedule'
 import { getStudentList } from '@/api/student'
+import { errText } from '@/utils/request'
 
 const userStore = useUserStore()
 
@@ -540,7 +541,11 @@ async function loadSchedules() {
     const data = await listSchedules(start, end)
     schedules.value = data
   } catch (e) {
-    // 错误由拦截器处理
+    // 必须自己弹：request.js 的响应拦截器只打 console，不弹提示。
+    // 不弹的话加载失败和「这周真没日程」长得一模一样 —— 都是空表格，
+    // 用户只会以为导入没生效（踩过一次）。
+    schedules.value = []
+    ElMessage.error(errText(e, '日程加载失败'))
   } finally {
     loading.value = false
   }
@@ -843,11 +848,11 @@ async function importNextStep() {
 }
 
 function handleImportSelect(selection) {
-  // selection 是选中的行对象数组
+  // 直接用对象引用定位。不能按「标题+时间+星期」反查：忠实导入之后
+  // 同名的条目会大量重复（「国庆放假」一周里有 7 条），反查会全部命中最前面那条，
+  // 勾 3 行实际只提交同一个下标
   const all = importPreview.value.items
-  importSelectedIndices.value = selection.map(item => {
-    return all.findIndex(it => it.title === item.title && it.start_time === item.start_time && it.weekday === item.weekday)
-  }).filter(i => i >= 0)
+  importSelectedIndices.value = selection.map(item => all.indexOf(item)).filter(i => i >= 0)
 }
 
 async function handleImportConfirm() {
@@ -866,6 +871,10 @@ async function handleImportConfirm() {
       selected_indices: importSelectedIndices.value,
     })
     ElMessage.success('导入成功')
+    // 跳到导入内容的第一周。不跳的话页面还停在原来的周，而课表是从 9 月开学
+    // 那一周开始的，用户看不到刚导进来的课，会以为导入没生效（踩过一次）
+    const first = importPreview.value.items.find(it => it.start_date)
+    if (first) currentMonday.value = getMonday(new Date(first.start_date))
     importDialog.value.open = false
     importStep.value = 0
     importFile.value = null
