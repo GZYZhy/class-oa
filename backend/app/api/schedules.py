@@ -159,7 +159,10 @@ def get_schedule(
     tpl = ss.get_template(db, schedule_id, student.id)
     if not tpl:
         raise HTTPException(status_code=404, detail="日程不存在")
-    return ss._to_instance(tpl, instance_date)
+    # share_count 得自己算一遍：_to_instance 的默认值是 1，漏算的话这条日程
+    # 在详情里永远显示成「只有自己」，拿着它去编辑就没有「改谁的表」这一档
+    counts = ss.share_counts(db, [tpl], student.id)
+    return ss._to_instance(tpl, instance_date, counts.get(tpl.source_series_id, 1))
 
 
 # ---------- 新建日程 ----------
@@ -251,7 +254,8 @@ def create_schedule(
         .first()
     )
     if tpl:
-        return ss._to_instance(tpl, tpl.start_time.date())
+        # 刚给这几个人各建了一条，人数就是学生数（target_ids 已去重）
+        return ss._to_instance(tpl, tpl.start_time.date(), len(target_ids))
     # 极端情况：操作人那条没找到（不应该发生），返回第一条数据
     return {
         "id": 0,
@@ -300,8 +304,11 @@ def _share_targets(db: Session, student: Student, share_from: Optional[int]) -> 
     src = ss.get_template(db, share_from, student.id)
     if not src or not ss.can_share(src, student.id):
         return []
-    # 自己那份（src）+ 其他学生的副本
-    return [src.student_id] + [c.student_id for c in ss._share_copies(db, src)]
+    # 自己那份（src）+ 其他学生的副本。**按学生去重**：同一个学生在分组里可能
+    # 不止一行（他自己「本次及以后」拆过就成了两条），不去重的话 create_batch
+    # 会在他的表里建出两条一模一样的日程，页面上同一天叠两个
+    ids = [src.student_id] + [c.student_id for c in ss._share_copies(db, src)]
+    return list(dict.fromkeys(ids))
 
 
 # ---------- 编辑日程 ----------
@@ -373,6 +380,10 @@ def update_schedule(
         if update_data["start_time"] and update_data["end_time"]:
             _validate_times(update_data["start_time"], update_data["end_time"])
 
+    # 点中那一行现在的样子，先记下来：scope=single 会把本次拆成一条新记录，
+    # 原记录被截断、只剩一次发生时还会被删掉
+    clicked = ss._to_instance(tpl, instance_date)
+
     if share:
         count = ss.update_shared(db, tpl, update_data, scope, instance_date)
     else:
@@ -383,19 +394,23 @@ def update_schedule(
         raise HTTPException(status_code=404, detail="日程不存在")
 
     db.commit()
-    log_operation(db, user, f"编辑日程：{tpl.title}（{scope}{'，含他人' if share else ''}）")
+    log_operation(db, user, f"编辑日程：{clicked['title']}（{scope}{'，含他人' if share else ''}）")
 
-    # 重新查模板（可能是新创建的那条）
-    # 简化：重新查最近修改的那条
-    updated = (
-        db.query(Schedule)
-        .filter(Schedule.student_id == student.id, Schedule.title == tpl.title)
-        .order_by(Schedule.updated_at.desc())
-        .first()
-    )
-    if updated:
-        return ss._to_instance(updated, instance_date)
-    return ss._to_instance(tpl, instance_date)
+    # 响应按 id 报点中的那一行。原来这里是「按标题反查最近更新的那条」，
+    # 改名的场景下必然找错（新标题在新记录上，按旧标题找回来的是别的东西），
+    # 标题相同的日程多的是，找回来的行可能跟这次编辑毫无关系。前端不看这个响应
+    # （保存后自己重新拉列表），但别再回一句假话
+    row = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+    if row is None:
+        # 原行已经被拆没了（只剩一次发生的重复日程改成「仅本次」）：本次落在新建
+        # 的那条独立日程上，没有现成的行可回，就把提交上来的字段套在点中的实例上
+        # 报回去；拆出来的这条按 service 的约定是不重复的，跟着写上
+        echo = ss._apply_update_to_dict(clicked, update_data)
+        echo["repeat_type"] = REPEAT_NONE
+        echo["repeat_end_date"] = None
+        return echo
+    counts = ss.share_counts(db, [row], student.id)
+    return ss._to_instance(row, instance_date, counts.get(row.source_series_id, 1))
 
 
 # ---------- 删除日程 ----------

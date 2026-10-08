@@ -191,6 +191,16 @@ def _prev_occurrence(
     return last
 
 
+def first_occurrence(template: Schedule) -> date:
+    """这条日程在页面上的第一个发生日
+
+    重复日程的第一个发生日未必是 start_time 那天：单双周是按学期周次的奇偶算的，
+    用户填的开始日可能正好落在相反的一周，页面从下一次才出现。iCal 导出要把
+    DTSTART 定在这一天，否则整条订阅和网页上看到的日子会整体错开一周。
+    """
+    return _next_occurrence(template, template.start_time.date()) or template.start_time.date()
+
+
 def _generate_series_id() -> str:
     """生成重复序列 ID（uuid4 hex）"""
     return uuid.uuid4().hex
@@ -439,10 +449,14 @@ def update_schedule(
     original_end_time = tpl.end_time.time()
 
     if scope == SCOPE_SINGLE:
-        # 思路：
-        # 1. 原模板结束日期截断到 instance_date 前一天（前半段）
-        # 2. 本次拆出来变成独立日程（应用新字段）
-        # 3. 后面还有的话，原模板起始跳到下次（后半段）
+        # 思路：把这条重复日程切成三段
+        # 1. 本次拆出来变成独立日程（应用新字段）
+        # 2. 前半段：原模板留着自己那一段，结束日期截到上一次
+        # 3. 后半段：后面还有的话，另建一条模板（起始 = 下一次）
+        # 关键是**不能把原模板挪到下一次**：模板的展开是从 start_time 起步的，
+        # 挪过去之后 instance_date 之前的那几次会跟着起点一起消失 —— 改中间一天
+        # 等于把前面几天静默删掉，而后半段还在，看起来像「改成功了」。
+        # 删除那边的 SINGLE 分支写的就是「前半段留原模板 + 后半段新建」，这里照它写。
         prev_date = instance_date - timedelta(days=1)
         next_date = instance_date + timedelta(days=1)
 
@@ -459,18 +473,36 @@ def update_schedule(
             source_series_id=tpl.source_series_id,
         )
 
-        # 判断后面还有没有。此时原模板还没被改过（上面只新建了独立日程），
-        # 直接基于原模板算下一次即可，不必复制。
+        # 前后各还有没有。原模板还没被改过（上面只新建了独立日程），
+        # 直接基于原模板算即可，不必复制
+        prev_occ = _prev_occurrence(tpl, prev_date)
         next_occ = _next_occurrence(tpl, next_date)
+        has_tail = next_occ is not None and next_occ <= original_end
 
-        if next_occ is not None and next_occ <= original_end:
-            # 前后都还有：原模板改成从 next_occ 开始，到 original_end 结束
-            tpl.start_time = datetime.combine(next_occ, original_start_time)
-            tpl.end_time = datetime.combine(next_occ, original_end_time)
-            tpl.repeat_end_date = original_end
+        # 后半段的字段先取好：下面要改 repeat_end_date，_to_instance 会读到它
+        tail = _to_instance(tpl, next_occ) if has_tail else None
+
+        if prev_occ is None:
+            # 前面没有别的发生日：原模板整条让给后半段；后面也没有就干脆删掉
+            if has_tail:
+                tpl.start_time = datetime.combine(next_occ, original_start_time)
+                tpl.end_time = datetime.combine(next_occ, original_end_time)
+                tpl.repeat_end_date = original_end
+            else:
+                db.delete(tpl)
         else:
-            # 后面没有了：原模板缩短到前一天
-            tpl.repeat_end_date = prev_date
+            # 前半段：原模板结束到上一次
+            tpl.repeat_end_date = prev_occ
+            if has_tail:
+                # 中间那次：后半段另建一条模板
+                tail["repeat_type"] = tpl.repeat_type
+                tail["repeat_end_date"] = original_end
+                create_schedule(
+                    db, student_id=student_id, data=tail,
+                    source_type=tpl.source_type, source_batch_id=tpl.source_batch_id,
+                    created_by=tpl.created_by,
+                    source_series_id=tpl.source_series_id,  # 后半段同属一条原始日程
+                )
 
         db.flush()
         return 1
@@ -658,10 +690,16 @@ def can_share(tpl: Schedule, student_id: int) -> bool:
 
 
 def _share_copies(db: Session, tpl: Schedule) -> list[Schedule]:
-    """同一条原始日程在其他学生表里的副本（不含自己那份）
+    """同一条原始日程在**其他学生**表里的副本
 
-    返回的是「行」不是「学生」：同一个学生在同一分组里可能不止一行（他自己用
+    返回的是「行」不是「学生」：别的学生在同一分组里可能不止一行（他用
     「本次及以后」拆过就成了两条模板），这些都要照顾到，所以不能按学生去重。
+
+    自己名下的行一律不算 —— 点中的是哪一行就只下发哪一行。自己拆过之后那几段
+    是各自独立的存在（「仅本次」那次拆分本来就是为了让它们不一样），改头部不该
+    顺手把尾段也一起改掉。代价是：自己拆过的分组里，下发之后别人表里那几段
+    会跟自己的对不齐 —— 这是「下发＝把别人那份改成我这份」的应有之义，
+    比静默跳过某个人安全（见 update_shared 的注释）。
     """
     if not tpl.source_series_id:
         # 老数据没有分组 ID，认不出副本，当作只有自己一条
@@ -794,6 +832,20 @@ def reset_ical_token(db: Session, student_id: int) -> tuple[str, str]:
     返回 (新 token, 新 URL)
     """
     from ..models.schedule import ICalToken
+
+    # 先删掉已经失效的历史行，再把当前这条置为无效。
+    # 唯一约束是 (student_id, is_active)，留着上次那条 is_active=0 的行的话，
+    # 这一句 UPDATE 就会和它撞成 IntegrityError —— 第二次重置必 500，
+    # 被泄露的订阅链接就再也作废不掉了。失效的行没人读（查询一律带 is_active），
+    # 删掉与留着对客户端完全一样：拿旧 URL 来都是 404。
+    (
+        db.query(ICalToken)
+        .filter(
+            ICalToken.student_id == student_id,
+            ICalToken.is_active == False,  # noqa: E712
+        )
+        .delete(synchronize_session=False)
+    )
 
     # 旧 token 全部置为无效
     (

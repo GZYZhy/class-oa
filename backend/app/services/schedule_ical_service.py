@@ -18,7 +18,7 @@ from ..models.schedule import (
     REPEAT_ODD_WEEK,
     REPEAT_WEEKLY,
 )
-from .schedule_service import list_by_range
+from .schedule_service import first_occurrence
 
 
 def generate_ical(
@@ -62,7 +62,32 @@ def generate_ical(
         _write_event(buf, tpl)
 
     buf.write("END:VCALENDAR\r\n")
-    return buf.getvalue()
+    return _fold(buf.getvalue())
+
+
+def _fold(raw: str) -> str:
+    """把每行按 RFC5545 折到 75 字节以内（UTF-8 计），续行以一个空格开头
+
+    中文一个字 3 字节，一条长备注整行能到两三百字节。不折的话多数客户端能忍，
+    但严格按标准的（以及部分手机自带日历）会把整行丢掉。
+    """
+    out: list[str] = []
+    for line in raw.split("\r\n"):
+        if len(line.encode("utf-8")) <= 75:
+            out.append(line)
+            continue
+        # 按字符累加：不能按字节切，会把一个汉字劈成两半
+        chunk, size = "", 0
+        for ch in line:
+            n = len(ch.encode("utf-8"))
+            if size + n > 75:
+                out.append(chunk)
+                chunk, size = " " + ch, 1 + n   # 续行的行首空格也算在这 75 字节里
+            else:
+                chunk += ch
+                size += n
+        out.append(chunk)
+    return "\r\n".join(out)
 
 
 def _write_event(buf: StringIO, tpl) -> None:
@@ -73,21 +98,24 @@ def _write_event(buf: StringIO, tpl) -> None:
     uid = f"schedule-{tpl.id}@class-oa"
     buf.write(f"UID:{uid}\r\n")
 
-    # 时间戳（创建时间）
-    dtstamp = _format_dt(tpl.created_at or datetime.now())
-    buf.write(f"DTSTAMP:{dtstamp}\r\n")
+    # 时间戳：RFC5545 要求 DTSTAMP 是 UTC
+    buf.write(f"DTSTAMP:{_format_dt_utc(tpl.created_at or datetime.now())}\r\n")
 
-    # 开始/结束时间
+    # 开始/结束时间。日期用**页面上那个第一个发生日**（见 first_occurrence）：
+    # 单双周的模板开始日可能落在相反的一周，直接拿它当 DTSTART，整条订阅会和
+    # 网页上看到的日子错开一周。时刻和时长照旧。
+    day = first_occurrence(tpl)
+    start_dt = datetime.combine(day, tpl.start_time.time())
+    end_dt = start_dt + (tpl.end_time - tpl.start_time)
+
     if tpl.all_day:
         # 全天事件：DATE 格式
-        d = tpl.start_time.date()
-        buf.write(f"DTSTART;VALUE=DATE:{d.strftime('%Y%m%d')}\r\n")
+        buf.write(f"DTSTART;VALUE=DATE:{day.strftime('%Y%m%d')}\r\n")
         # 全天事件的 DTEND 是「第二天」（iCal 全天事件是半开区间）
-        end_d = tpl.end_time.date() + timedelta(days=1)
-        buf.write(f"DTEND;VALUE=DATE:{end_d.strftime('%Y%m%d')}\r\n")
+        buf.write(f"DTEND;VALUE=DATE:{(day + timedelta(days=1)).strftime('%Y%m%d')}\r\n")
     else:
-        buf.write(f"DTSTART:{_format_dt(tpl.start_time)}\r\n")
-        buf.write(f"DTEND:{_format_dt(tpl.end_time)}\r\n")
+        buf.write(f"DTSTART:{_format_dt(start_dt)}\r\n")
+        buf.write(f"DTEND:{_format_dt(end_dt)}\r\n")
 
     # 标题
     buf.write(f"SUMMARY:{_escape_text(tpl.title)}\r\n")
@@ -105,7 +133,11 @@ def _write_event(buf: StringIO, tpl) -> None:
     if tpl.source_type == "batch":
         desc_parts.append("（班委分配）")
     if desc_parts:
-        buf.write(f"DESCRIPTION:{_escape_text('\\n'.join(desc_parts))}\r\n")
+        # 这里必须用真正的换行符拼：_escape_text 会把它转成 iCal 的 \n。
+        # 写成 '\\n' 的话那是一个「反斜杠 + n」的两字符串，再被转义成 \\n，
+        # 客户端拿到的是字面的两个字符，而不是换行
+        desc = _escape_text("\n".join(desc_parts))
+        buf.write(f"DESCRIPTION:{desc}\r\n")
 
     # 重复规则
     if tpl.repeat_type != REPEAT_NONE and tpl.repeat_type is not None:
@@ -145,9 +177,10 @@ def _build_rrule(tpl) -> str:
     elif tpl.repeat_type == REPEAT_MONTHLY:
         parts.append("FREQ=MONTHLY")
         parts.append("INTERVAL=1")
-        # 每月第 N 天
+        # 每月第 N 天。31 号例外：页面那边没有 31 号的月份取月末（2 月落到 28），
+        # 而 BYMONTHDAY=31 会把 2、4、6 月整个跳过 —— 用 -1（当月最后一天）才对得上
         day = tpl.start_time.day
-        parts.append(f"BYMONTHDAY={day}")
+        parts.append(f"BYMONTHDAY={-1 if day == 31 else day}")
     elif tpl.repeat_type in (REPEAT_ODD_WEEK, REPEAT_EVEN_WEEK):
         # 单双周用 INTERVAL=2 模拟（近似）
         # 严格来说单双周需要知道学期第一周是单周还是双周，
@@ -160,10 +193,14 @@ def _build_rrule(tpl) -> str:
     else:
         return ""
 
-    # 结束日期：UNTIL 要求 UTC 时间，格式 YYYYMMDDTHHMMSSZ
-    # iCal 的 UNTIL 是含的，所以用结束日期当天的结束时间
-    until_dt = datetime.combine(tpl.repeat_end_date, tpl.end_time.time())
-    parts.append(f"UNTIL={_format_dt_utc(until_dt)}")
+    # 结束日期。UNTIL 的取值类型必须和 DTSTART 一致：上面写的 DTSTART 是浮动本地
+    # 时间（不带 Z、不带 TZID），全天事件则是 DATE，所以 UNTIL 也得是这两种之一，
+    # 给浮动时间配一个 UTC 的 UNTIL 是不合 RFC5545 的（会被当成「UTC 的某一刻」）
+    if tpl.all_day:
+        parts.append(f"UNTIL={tpl.repeat_end_date.strftime('%Y%m%d')}")
+    else:
+        until_dt = datetime.combine(tpl.repeat_end_date, tpl.end_time.time())
+        parts.append(f"UNTIL={_format_dt(until_dt)}")
 
     return ";".join(parts)
 
@@ -176,11 +213,9 @@ def _format_dt(dt: datetime) -> str:
 def _format_dt_utc(dt: datetime) -> str:
     """格式化 datetime 为 iCal 的 UTC 时间格式 YYYYMMDDTHHMMSSZ
 
-    注意：这里简单按本地时间当 UTC 处理（项目用 Asia/Shanghai 时区），
-    实际订阅时苹果日历等客户端会按本地时区解析。
-    对于 RRULE 的 UNTIL，iCal 标准要求是 UTC，这里做 +8 小时转换。
+    库里存的是本地墙上时间（容器里 TZ=Asia/Shanghai），减 8 小时就是 UTC。
+    只给 DTSTAMP 用 —— RRULE 的 UNTIL 必须和 DTSTART 同为浮动本地时间，不能带 Z。
     """
-    # 北京时间转 UTC：减 8 小时
     utc_dt = dt - timedelta(hours=8)
     return utc_dt.strftime("%Y%m%dT%H%M%SZ")
 

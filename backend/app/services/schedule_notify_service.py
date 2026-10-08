@@ -61,8 +61,16 @@ def tick(now: datetime | None = None) -> int:
                 continue
             _sent_keys.add(key)
 
-            # 调用通知系统
-            _send_notification(db, tpl, student, notify_time)
+            # 一条发失败不能带走这一轮剩下的：窗口是「下一分钟」，这轮跳过的人
+            # 下一轮的窗口已经不覆盖他了，等于这条提醒永远发不出去（还不报错）
+            try:
+                _send_notification(db, tpl, student, notify_time)
+            except Exception:
+                print(
+                    f"[日程提醒] 发送失败（日程 {tpl.id}）：\n{traceback.format_exc()}",
+                    flush=True,
+                )
+                continue
             count += 1
 
         # 清理已发送记录（只留最近 24 小时的）
@@ -127,13 +135,20 @@ def _cleanup_sent(now: datetime) -> None:
 
 
 def _loop() -> None:
-    """线程主体。循环绝不允许退出。"""
+    """线程主体。循环绝不允许退出。
+
+    睡到「这一轮开始 + 一个周期」，不是固定睡满一个周期：窗口是
+    [本轮开始, 本轮开始 + 周期]，tick 自己花掉的时间（发邮件、写站内信）
+    若被固定 sleep 再叠加一次，两个窗口之间就裂出一条缝，落在缝里的提醒
+    两头都不沾，再也不会被捡起来（生日那边没这个问题，它的语义是「过了点就补」）。
+    """
     while True:
+        started = time.monotonic()
         try:
             tick()
         except Exception:
             print("[日程提醒] 巡检异常：\n" + traceback.format_exc(), flush=True)
-        time.sleep(_tick_seconds())
+        time.sleep(max(0.0, _tick_seconds() - (time.monotonic() - started)))
 
 
 def state() -> str:
