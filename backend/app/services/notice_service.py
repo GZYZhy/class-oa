@@ -28,6 +28,21 @@ def list_notices(
     return query.order_by(Notice.publish_date.desc(), Notice.id.desc()).all()
 
 
+def notice_attachments(notice: Notice) -> list:
+    """把库里存的附件 JSON 串读成列表；读不出来就当没有
+
+    RSS 摘要里要附上的附件链接（api/notices.py 的下载/编辑/删除也要用），
+    所以解析放在这里共用，而不是各写一份 json.loads。
+    """
+    if not notice.attachments:
+        return []
+    try:
+        items = json.loads(notice.attachments or "")
+    except (ValueError, TypeError):
+        return []
+    return items if isinstance(items, list) else []
+
+
 def _editors_list(notice: Notice) -> list:
     """读取编辑人列表（JSON → list）"""
     if not notice.editors:
