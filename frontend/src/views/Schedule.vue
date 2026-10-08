@@ -27,7 +27,7 @@
     </div>
 
     <!-- 日历表格 -->
-    <div class="page-card calendar-wrapper" v-loading="loading">
+    <div ref="calendarWrapper" class="page-card calendar-wrapper" v-loading="loading">
       <div class="calendar-grid">
         <!-- 表头 -->
         <div class="cal-header cal-row">
@@ -481,7 +481,7 @@ import {
   getIcalToken, resetIcalToken, getSemesterInfo
 } from '@/api/schedule'
 import { getStudentList } from '@/api/student'
-import { daysInRange } from '@/utils/schedule'
+import { daysInRange, centerScrollLeft } from '@/utils/schedule'
 import { errText } from '@/utils/request'
 
 const userStore = useUserStore()
@@ -588,6 +588,21 @@ function nextWeek() {
 
 function goToday() {
   currentMonday.value = getMonday(new Date())
+  // 已经在今天这一周时上面那句不触发 watch，所以这里直接再居中一次
+  nextTick(centerToday)
+}
+
+// 窄屏上表格比屏幕宽（见 .calendar-grid 的 min-width），「今天」默认摆在正中间
+const calendarWrapper = ref(null)
+
+function centerToday() {
+  const box = calendarWrapper.value
+  // 翻到别的周就没有 .today 了，那时不滚（保持用户自己滑到的位置）
+  const col = box?.querySelector('.cal-header .cal-day-col.today')
+  if (!col) return
+  box.scrollLeft = centerScrollLeft(
+    col.offsetLeft, col.offsetWidth, box.clientWidth, box.scrollWidth - box.clientWidth
+  )
 }
 
 function formatDate(d) {
@@ -600,6 +615,9 @@ function formatDate(d) {
 // ---------- 数据加载 ----------
 const loading = ref(false)
 const schedules = ref([])
+
+// 只有第一次进页面才把「今天」居中；之后重载数据不抢用户自己滑出来的位置
+let centeredOnce = false
 
 async function loadSchedules() {
   if (!weekDays.value.length) return
@@ -617,6 +635,11 @@ async function loadSchedules() {
     ElMessage.error(errText(e, '日程加载失败'))
   } finally {
     loading.value = false
+    if (!centeredOnce) {
+      centeredOnce = true
+      // 等这一帧的 DOM 落定再量宽（表格刚渲染出来时量不到）
+      nextTick(centerToday)
+    }
   }
 }
 
@@ -1335,7 +1358,9 @@ async function handleResetToken() {
 
 /* 日历网格 */
 .calendar-wrapper {
-  overflow: hidden;
+  /* 手机等窄屏不把 7 天挤扁：表格保持电脑上的列宽，装不下就横向滚 */
+  overflow-x: auto;
+  overflow-y: hidden;
   padding: 0;
 }
 
@@ -1343,6 +1368,11 @@ async function handleResetToken() {
   position: relative;
   display: flex;
   flex-direction: column;
+  /* 列宽的底线：时间列 60px + 7 天各 132px（和电脑上看到的差不多宽）。
+     屏幕比它窄就交给上面那层横向滚，而不是把每一列压到看不清。
+     注意是加在整张网格上、不是给单列加 min-width —— 全天事件的条和日程块
+     都按 7 列百分比定位，只有整张网格一起变宽，它们才不会和列错位。 */
+  min-width: calc(60px + 7 * 132px);
 }
 
 .cal-row {
@@ -1358,6 +1388,12 @@ async function handleResetToken() {
   text-align: center;
   padding-top: 2px;
   border-right: 1px solid var(--el-border-color-lighter);
+  /* 横向滚到今天那一列时，时间刻度还留在眼前（不然滑到中间就不知道几点上课）。
+     底色得跟所在行一致，否则会透出后面的日程块 —— 表头、全天行各自另有一条 */
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--el-bg-color);
 }
 
 /* 表头角上的当前时间。60px 一格，字要小到 4 个字放得下 */
@@ -1406,6 +1442,8 @@ async function handleResetToken() {
 
 .cal-header .cal-time-col {
   padding-top: 8px;
+  /* 钉住的时间列在表头里要跟着表头的浅灰底，不能是页面底色 */
+  background: var(--el-fill-color-light);
 }
 
 .day-weekday {
@@ -1539,6 +1577,8 @@ async function handleResetToken() {
 .cal-allday .cal-time-col {
   font-size: 12px;
   padding-top: 6px;
+  /* 同表头：钉住的这一格得跟着全天行的底色（.cal-allday 是空白色） */
+  background: var(--el-fill-color-blank);
 }
 
 /* 和 .cal-events-overlay 一个套路：让开时间列，0% 才与周一列左边对齐 */

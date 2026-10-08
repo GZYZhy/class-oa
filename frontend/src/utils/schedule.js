@@ -27,6 +27,24 @@ export function daysInRange(startStr, endStr) {
   return days
 }
 
+/**
+ * 把日历里的某一列滚到可视区正中间，返回该赋给 scrollLeft 的值
+ *
+ * 窄屏（手机）上日程表比屏幕宽、得横向滚（见 Schedule.vue 里 .calendar-grid 的
+ * min-width），一进页面要把「今天」那一列摆到眼睛正前方 —— 否则手机上先看到
+ * 周一，容易以为今天没课。两端夹住，免得滚到内容外面去（桌面上放得下时永远
+ * 返回 0，等于不滚）。
+ *
+ * @param {number} colLeft   目标列左边缘（相对滚动容器的内容区）
+ * @param {number} colWidth  目标列宽
+ * @param {number} viewWidth 可视区宽（clientWidth）
+ * @param {number} maxScroll 最多能滚多远（scrollWidth - clientWidth）
+ */
+export function centerScrollLeft(colLeft, colWidth, viewWidth, maxScroll) {
+  const target = colLeft + colWidth / 2 - viewWidth / 2
+  return Math.max(0, Math.min(target, maxScroll))
+}
+
 /** Date → 'YYYY-MM-DD'（本地时区，和 daysInRange 的输入同一个口径） */
 function formatDay(d) {
   const y = d.getFullYear()
