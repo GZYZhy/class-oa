@@ -31,7 +31,10 @@
       <div class="calendar-grid">
         <!-- 表头 -->
         <div class="cal-header cal-row">
-          <div class="cal-time-col"></div>
+          <!-- 时间列顶上那一格本来是空的：放个当前时间（hh:mm），一眼看得出现在几点 -->
+          <div class="cal-time-col">
+            <span class="now-clock">{{ nowClock }}</span>
+          </div>
           <div
             v-for="(day, idx) in weekDays"
             :key="idx"
@@ -221,8 +224,12 @@
           </el-button>
         </el-form-item>
 
-        <!-- 编辑时的范围选择 -->
-        <el-form-item v-if="editDialog.isEdit && editDialog.isRepeat" label="修改范围">
+        <!--
+          编辑时的范围选择。跨天的全天事件（一天一条，日历上是一根条）不显示：
+          那一整条是当作一件事改的（保存和删除都是整条处理），摆出「仅本次」却
+          整条一起改，等于骗人
+        -->
+        <el-form-item v-if="editDialog.isEdit && editDialog.isRepeat && !isMultiDayBar" label="修改范围">
           <el-radio-group v-model="editForm.scope">
             <el-radio value="single">仅本次</el-radio>
             <el-radio value="forward">本次及以后</el-radio>
@@ -269,7 +276,15 @@
     </el-dialog>
 
     <!-- 导入弹窗 -->
-    <el-dialog v-model="importDialog.open" title="导入日程" width="720px">
+    <!-- destroy-on-close：关掉就把 el-upload 一起销毁，下次打开是干净的实例。
+         它内部那份文件列表不销毁，配上 :limit="1" 会把新选的文件直接吞掉 -->
+    <el-dialog
+      v-model="importDialog.open"
+      title="导入日程"
+      width="720px"
+      destroy-on-close
+      @closed="resetImport"
+    >
       <el-steps :active="importStep" finish-status="success" align-center style="margin-bottom: 24px">
         <el-step title="上传文件" />
         <el-step title="确认日程" />
@@ -452,7 +467,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -608,13 +623,25 @@ watch(currentMonday, () => {
   loadSchedules()
 })
 
+// 表头角上那个时钟。30 秒一跳就够：分钟数最多晚半分钟才翻，不用每秒重渲染整张表
+const now = ref(new Date())
+const nowClock = computed(() => {
+  const h = String(now.value.getHours()).padStart(2, '0')
+  const m = String(now.value.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+})
+let clockTimer = null
+
 onMounted(() => {
   loadSchedules()
   loadSemesterInfo()
   if (userStore.isCommittee) {
     loadStudents()
   }
+  clockTimer = setInterval(() => { now.value = new Date() }, 30000)
 })
+
+onUnmounted(() => clearInterval(clockTimer))
 
 // ---------- 定位日程块 ----------
 const positionedEvents = computed(() => {
@@ -860,16 +887,37 @@ function shareEnabled() {
   return editDialog.value.shareCount > 1 && editForm.value.share
 }
 
+// 日历上这根条压着不止一天（跨天的全天事件，库里是一天一条）
+const isMultiDayBar = computed(() => (editDialog.value.records || []).length > 1)
+
 // 全天事件在库里是「一天一条」：模型里没有跨天日程，导入的跨天事件也是这么摊的
 // （见后端 schedule_import_service），页面上再按相邻同标题合回一条（allDayBars）。
 // 所以「起止日期」建的时候要摊开，编辑的时候要跟原来那几条对一遍：
 // 日期还在的就地改，新添的日期建出来，去掉了的日期删掉
+//
+// 返回 false 表示用户在选择器里点了取消，这次保存整个作废（别关弹窗、别弹成功）
 async function saveAllDay(days) {
   const form = editForm.value
   const base = { ...formFields(), all_day: true }
   const share = shareEnabled()
+  const records = editDialog.value.records || []
+  // 范围改小了就是删日程。清空「结束日期」（点输入框上的 ×）也算 —— 那是误触，
+  // 不能悄悄把其余几天抹掉，还把别人表里的那几天一起删了
+  const dropping = records.filter(r => !days.includes(r.instance_date))
+  if (dropping.length) {
+    const others = share ? `其他 ${editDialog.value.shareCount - 1} 人的表里也会一起删掉。` : ''
+    try {
+      await ElMessageBox.confirm(
+        `日期范围缩小了，会删掉原来的 ${dropping.length} 天。${others}`,
+        '确认缩小范围',
+        { type: 'warning' }
+      )
+    } catch {
+      return false
+    }
+  }
   // 编辑前这根条上的那几条（按日期索引）；处理完还留在里面的就是要去掉的
-  const left = new Map((editDialog.value.records || []).map(r => [r.instance_date, r]))
+  const left = new Map(records.map(r => [r.instance_date, r]))
 
   for (const day of days) {
     // 全天事件不带时刻：一天的头和尾（跟导入、iCal 导出的约定一致）
@@ -877,7 +925,8 @@ async function saveAllDay(days) {
     const hit = left.get(day)
     if (hit) {
       left.delete(day)
-      await updateSchedule(hit.id, day, { ...base, ...times, scope: 'all' }, share)
+      // scope 跟着「修改范围」走（跨天的条不显示那一栏，form.scope 就是 all）
+      await updateSchedule(hit.id, day, { ...base, ...times, scope: form.scope }, share)
     } else {
       // 新添的天也要发给原来那批人：不带 share_from 的话，把 3 天的活动改成
       // 5 天，新加的两天只落在自己表里 —— 正是这次要消灭的那种「别人那儿没变」
@@ -892,6 +941,7 @@ async function saveAllDay(days) {
   for (const gone of left.values()) {
     await deleteSchedule(gone.id, gone.instance_date, 'all', share)
   }
+  return true
 }
 
 async function handleSave() {
@@ -923,7 +973,24 @@ async function handleSave() {
   saving.value = true
   try {
     if (form.all_day) {
-      await saveAllDay(days)
+      // 用户在缩小范围的确认框里点了取消：这次不保存，弹窗留着让他改回去
+      if (await saveAllDay(days) === false) return
+    } else if (editDialog.value.isEdit && isMultiDayBar.value) {
+      // 跨天的全天条关掉「全天」：跟保存/删除其它情况一样，整条一起转，
+      // 否则只转了点中的那一天，其余几天留在原地当全天，条子莫名其妙少一截
+      for (const r of editDialog.value.records) {
+        await updateSchedule(
+          r.id,
+          r.instance_date,
+          {
+            ...formFields(),
+            all_day: false,
+            start_time: `${r.instance_date}T${form.start_time}:00`,
+            end_time: `${r.instance_date}T${form.end_time}:00`,
+          },
+          shareEnabled()
+        )
+      }
     } else {
       const times = {
         start_time: `${form.date}T${form.start_time}:00`,
@@ -1008,7 +1075,10 @@ async function loadStudents() {
   try {
     const { items } = await getStudentList({ page: 1, page_size: 500 })
     allStudents.value = items
-  } catch {}
+  } catch (e) {
+    // 不接住的话选人弹窗是空的，用户只会以为「班里一个学生都没有」
+    ElMessage.error(errText(e, '学生名单加载失败'))
+  }
 }
 
 const filteredStudents = computed(() => {
@@ -1028,6 +1098,9 @@ const importSubmitting = ref(false)
 const importPreview = ref({ items: [], week_count: 0, schedule_count: 0, all_day_count: 0, warnings: [] })
 const importToken = ref('')
 const importSelectedIndices = ref([])
+// 用户有没有手动动过预览表的勾选。没动过 = 全选（空数组就是全选），
+// 动过又勾成空 = 他真的一条都不想导，不能再当成全选
+const importTouched = ref(false)
 const importSelectedItems = computed(() => {
   if (!importSelectedIndices.value.length) return importPreview.value.items
   return importSelectedIndices.value.map(i => importPreview.value.items[i]).filter(Boolean)
@@ -1053,6 +1126,19 @@ function handleImportFile(file) {
   importFile.value = file
 }
 
+// 关掉导入弹窗就把它整个复位。不复位的话 el-upload 内部那份文件列表还留着
+// 上一次的文件，而它带着 :limit="1"，再打开时拖第二个文件会被直接吞掉 ——
+// 不提示、不出现、importFile 还是空，「下一步」永远是灰的，只能刷新页面
+function resetImport() {
+  importStep.value = 0
+  importFile.value = null
+  importPreview.value = { items: [], week_count: 0, schedule_count: 0, all_day_count: 0, warnings: [] }
+  importToken.value = ''
+  importSelectedIndices.value = []
+  importSelectedStudents.value = []
+  importTouched.value = false
+}
+
 async function importNextStep() {
   if (importStep.value === 0) {
     // 上传 → 预览
@@ -1062,12 +1148,12 @@ async function importNextStep() {
       importPreview.value = data
       importToken.value = data.token
       importStep.value = 1
-      nextTick(() => {
-        // 默认全选
-        const table = document.querySelector('.el-table')
-        // 简单处理：不操作 DOM，selectedIndices 为空表示全选
-        importSelectedIndices.value = []
-      })
+      // 默认全选：selectedIndices 为空就是全选（后端也是这个口径）
+      importSelectedIndices.value = []
+      importTouched.value = false
+    } catch (e) {
+      // request.js 的拦截器只打 console，不接住的话这里就是「点了下一步没反应」
+      ElMessage.error(errText(e, '解析文件失败'))
     } finally {
       importLoading.value = false
     }
@@ -1083,11 +1169,18 @@ function handleImportSelect(selection) {
   // 勾 3 行实际只提交同一个下标
   const all = importPreview.value.items
   importSelectedIndices.value = selection.map(item => all.indexOf(item)).filter(i => i >= 0)
+  importTouched.value = true
 }
 
 async function handleImportConfirm() {
   if (importForm.value.target_mode === 'selected' && importSelectedStudents.value.length === 0) {
     ElMessage.warning('请选择目标学生')
+    return
+  }
+  // 手动勾成一条不剩就别往下走：空数组在后端表示「全部」，反选到空会被当成全选，
+  // 一不留神把整份课表导给全班
+  if (importTouched.value && !importSelectedIndices.value.length) {
+    ElMessage.warning('请至少勾选一条日程')
     return
   }
 
@@ -1106,9 +1199,11 @@ async function handleImportConfirm() {
     const first = importPreview.value.items.find(it => it.start_date)
     if (first) currentMonday.value = getMonday(new Date(first.start_date))
     importDialog.value.open = false
-    importStep.value = 0
-    importFile.value = null
     loadSchedules()
+  } catch (e) {
+    // 预览缓存 10 分钟就过期（后端 _PREVIEW_TTL_SECONDS），点了确认才报错。
+    // 不接住的话按钮转一圈就没了，用户只会以为「点了没反应」
+    ElMessage.error(errText(e, '导入失败'))
   } finally {
     importSubmitting.value = false
   }
@@ -1151,6 +1246,10 @@ watch(() => subscribeDialog.value.open, async (val) => {
     try {
       const data = await getIcalToken()
       subscribeUrl.value = data.url
+    } catch (e) {
+      // 不接住的话弹窗照常打开、链接是空的，点「复制」复制的也是空串
+      subscribeUrl.value = ''
+      ElMessage.error(errText(e, '订阅链接获取失败'))
     } finally {
       subscribeLoading.value = false
     }
@@ -1158,6 +1257,10 @@ watch(() => subscribeDialog.value.open, async (val) => {
 })
 
 function copySubscribeUrl() {
+  if (!subscribeUrl.value) {
+    ElMessage.warning('订阅链接还没取到')
+    return
+  }
   navigator.clipboard.writeText(subscribeUrl.value)
     .then(() => ElMessage.success('已复制到剪贴板'))
     .catch(() => ElMessage.error('复制失败，请手动复制'))
@@ -1176,7 +1279,9 @@ async function handleResetToken() {
     const data = await resetIcalToken()
     subscribeUrl.value = data.url
     ElMessage.success('已重置')
-  } catch {}
+  } catch (e) {
+    ElMessage.error(errText(e, '重置失败'))
+  }
 }
 </script>
 
@@ -1189,13 +1294,18 @@ async function handleResetToken() {
 
 .toolbar {
   display: flex;
+  /* 这个工具栏必换行：窄窗口（截图里那种半屏、手机）一行放不下「翻周 + 今天 +
+     导入 + 订阅 + 新建日程」，不换行时最右边的按钮会被挤出可见区域，点都点不到 */
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
 .week-nav {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
@@ -1209,7 +1319,17 @@ async function handleResetToken() {
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  /* 换行后按钮组仍然贴右边，不然它会跑到「翻周」下面去左对齐 */
+  margin-left: auto;
+}
+
+/* 窄屏：180px 的日期栏太占地方，让它跟着内容收缩 */
+@media (max-width: 560px) {
+  .week-label {
+    min-width: 0;
+  }
 }
 
 /* 日历网格 */
@@ -1237,6 +1357,14 @@ async function handleResetToken() {
   text-align: center;
   padding-top: 2px;
   border-right: 1px solid var(--el-border-color-lighter);
+}
+
+/* 表头角上的当前时间 */
+.now-clock {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .cal-time-col.hour-mark {

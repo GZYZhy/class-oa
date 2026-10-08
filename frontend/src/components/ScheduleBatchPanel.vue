@@ -1,12 +1,21 @@
 <template>
   <div class="batch-panel">
-    <div class="batch-note">
+    <div v-if="userStore.isExternal" class="batch-note">
+      域外账号没有学籍档案，也就没有自己的日程，这里没有可管理的批次。
+    </div>
+    <div v-else class="batch-note">
       这里是<strong>你自己</strong>分配出去的日程批次（批量创建、课表导入）。撤销一个批次，
       会把它当初发给每个学生的那几条日程一并删掉，不可恢复。
       <el-button size="small" style="margin-left: 8px" @click="load">刷新</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="batches" empty-text="没有分配过日程" stripe>
+    <el-table
+      v-if="!userStore.isExternal"
+      v-loading="loading"
+      :data="batches"
+      empty-text="没有分配过日程"
+      stripe
+    >
       <el-table-column prop="name" label="批次名称" min-width="200" show-overflow-tooltip />
       <el-table-column prop="target_count" label="目标人数" width="100" align="right" />
       <el-table-column prop="schedule_count" label="日程数" width="100" align="right" />
@@ -28,6 +37,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { listBatches, deleteBatch } from '@/api/schedule'
 import { errText } from '@/utils/request'
 import { formatDateTime } from '@/utils/format'
+import { useUserStore } from '@/store/user'
+
+const userStore = useUserStore()
 
 const batches = ref([])
 const loading = ref(false)
@@ -64,8 +76,14 @@ async function handleDelete(row) {
   }
 }
 
-// 挂在「系统管理」的 tab 里，切到就渲染，所以这里自己拉一次
-onMounted(load)
+// 挂在「系统管理」的 tab 里，这个 tab 不是懒加载的，一进系统管理就挂上了，
+// 所以这里自己拉一次
+//
+// 域外账号（含首次初始化的那个 admin）没有学籍档案，接口是 get_current_student，
+// 会回 403「域外账号不支持该功能」—— 不判一下的话，一打开系统管理就弹一条红字
+onMounted(() => {
+  if (!userStore.isExternal) load()
+})
 </script>
 
 <style scoped>
