@@ -6,7 +6,8 @@
 - B–H 列=周一至周日（表头含日期+星期）
 - 日程块通过纵向合并单元格表示
 - 单元格内容三行：标题\n类型\n地点（类型和地点可缺）
-- 底部 5 行（事件1–事件5）= 全天事件区
+- 底部 5 行（事件1–事件5）= 全天事件区。跨天的事件写成横向合并单元格
+  （或退化成在覆盖的每一列里重复写同一段文字），两种写法都认
 """
 
 import re
@@ -324,12 +325,17 @@ def _parse_all_day_section(
     """解析底部全天事件区（事件1–事件5）
 
     样例里第 92–96 行，A 列标「事件N」，B–H 列对应周一–周日。
-    事件写在它覆盖的那一天的列里，跨多天就在多列里重复写同一段文字
-    （比如「国庆放假」在 10/1–10/7 那 7 列里都有）。
 
-    所以这里**逐格**取：每个非空格子 = 当天一条全天日程，和上面的课程块一样
-    忠实 —— 不合并成跨天日程，也不从文字里猜日期（文字里的「1/4-1/15」可能
-    指向表外，按它落位反而会把事件挪到别的周去）。
+    跨天的事件有两种写法，都要认：
+    - **横向合并**（B5:D5 一格）—— 合并之后只有左上角存着文字，其余格子读出来
+      是空的，纯逐格取会让这件事件只落在周一那一天；
+    - 在它覆盖的每一天的列里**重复写**同一段文字（真实课表的「国庆放假」在
+      E/F/G/H 四列各写一遍）。
+
+    两种都展开成「一天一条」，和上面的课程块一样逐日忠实 —— 模型里没有
+    「跨天日程」这个概念，连成一条是页面上的事（见 Schedule.vue 的 allDayBars）。
+    也不从文字里猜日期：文字里的「1/4-1/15」可能指向表外，按它落位会把事件
+    挪到别的周去。
     """
     items: list[dict] = []
     # 从底部往上找「事件1」开头的行
@@ -342,17 +348,36 @@ def _parse_all_day_section(
     if event_start_row is None:
         return items
 
+    event_end_row = event_start_row + 4
+
+    # 先把横向合并摊平：合并区域的文字只在左上角，摊到覆盖的每一列上。
+    # 纵向合并不在这个区域里有语义（行号就是事件槽位），照旧只认左上角
+    merged: dict[tuple[int, int], str] = {}
+    for rng in ws.merged_cells.ranges:
+        if not (event_start_row <= rng.min_row <= event_end_row):
+            continue
+        if rng.max_col == rng.min_col:
+            continue
+        val = ws.cell(row=rng.min_row, column=rng.min_col).value
+        if val is None or not str(val).strip():
+            continue
+        for col in range(max(2, rng.min_col), min(8, rng.max_col) + 1):
+            merged[(rng.min_row, col)] = str(val).strip()
+
     for offset in range(5):
         row = event_start_row + offset
         if row > ws.max_row:
             break
         # B–H = 周一–周日，逐列取
         for col in range(2, 9):
-            content = ws.cell(row=row, column=col).value
-            if not content or not str(content).strip():
+            content = merged.get((row, col))
+            if content is None:
+                raw = ws.cell(row=row, column=col).value
+                content = str(raw).strip() if raw is not None else ""
+            if not content:
                 continue
             items.append({
-                "title": str(content).strip(),
+                "title": content,
                 "event_type": "",
                 "location": "",
                 "description": "",
