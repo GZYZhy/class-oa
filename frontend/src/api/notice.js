@@ -72,3 +72,13 @@ export function getNoticeReads(id) {
 export function remindUnread(id) {
   return request({ url: `/notices/${id}/remind`, method: 'post' })
 }
+
+/**
+ * 通知公告的 RSS 订阅链接（需登录）
+ *
+ * 返回 { token, url, last_accessed_at }。用的是「我的日程」那**同一个**订阅令牌，
+ * 所以在日程页重置令牌会让这条链接一起失效。
+ */
+export function getRssToken() {
+  return request({ url: '/notices/rss/token', method: 'get' })
+}
