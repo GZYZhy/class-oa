@@ -1,5 +1,8 @@
-# nginx 配置模板
+# nginx 配置模板 —— 镜像里用的是这一份
 # 容器启动时通过 envsubst 替换环境变量后生成 /etc/nginx/conf.d/default.conf
+#
+# 同目录的 nginx.conf 是它的「不带变量」版（本地/手工跑 nginx 用），两份内容基本重合。
+# 改 location、gzip_types、超时这类功能项时**两份都要改**，只改 nginx.conf 不会进镜像。
 #
 # 支持的环境变量（都有合理默认值，全留空也能跑）：
 #   NGINX_SERVER_NAME       监听的域名，默认 _（所有域名）
@@ -148,7 +151,9 @@ server {
     gzip on;
     gzip_min_length 1k;
     gzip_comp_level 6;
-    gzip_types text/plain text/css text/javascript application/json application/javascript application/xml;
+    # application/rss+xml 要单独列：只写 application/xml 匹配不上它，
+    # 通知公告的订阅源就不会被压缩
+    gzip_types text/plain text/css text/javascript application/json application/javascript application/xml application/rss+xml;
 }
 
 ${SSL_SERVER_BLOCK}
