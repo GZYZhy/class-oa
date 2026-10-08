@@ -17,7 +17,10 @@
         <el-button @click="subscribeDialog.open = true">
           <el-icon><Link /></el-icon>订阅
         </el-button>
-        <el-button type="primary" @click="openCreate">
+        <!-- 这里必须写成 openCreate()：裸写 openCreate 会让 Vue 把 MouseEvent 当成
+             第一个参数（date）塞进 editForm.date / end_date，保存时 daysInRange 里
+             就报 "(endStr || startStr).split is not a function" -->
+        <el-button type="primary" @click="openCreate()">
           <el-icon><Plus /></el-icon>新建日程
         </el-button>
       </div>

@@ -7,7 +7,7 @@
 //   - el-dialog 的正文不渲染（弹窗里的文案断不到，只能断源码）；
 //   - el-table 的数据行和表头都不渲染（行补了桩，表头没有 —— 见下面的 ElTableStub）；
 //   - 没有 window、也没有 vue-router（两边都给了最小的桩，见下面）。
-import { readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'vite'
 import { createSSRApp, h, inject } from 'vue'
 import { renderToString } from 'vue/server-renderer'
@@ -613,6 +613,38 @@ console.log('\n▶ 系统管理：日程批次面板')
   check(html.split(/撤销(?:<!--\]-->)?<\/span>/).length - 1 === 2, '两行各有一个「撤销」按钮')
   check(html.includes('撤销一个批次'), '说明写清了撤销的后果')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+}
+
+console.log('\n▶ 带默认参数的处理器不能裸挂在 @事件 上')
+{
+  // 裸挂（@click="openCreate"）时 Vue 会把 MouseEvent 当第一个实参传进去。openCreate(date = null)
+  // 就是这么把事件对象写进 editForm.date / end_date 的：点「新建日程」→ 选个开始日期（结束日期
+  // 没动，还是那个事件对象）→ 保存全天事件，daysInRange 里 (endStr || startStr).split 直接炸。
+  // 单看 `@click="xxx"` 分不出对错（@row-click / @change 本来就该收到各自的载荷），所以判据是
+  // 「这个名字在本文件里的声明，第一个参数带默认值」—— 带默认值就等于「可以不给」。
+  const files = []
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) walk(`${dir}/${e.name}`)
+      else if (e.name.endsWith('.vue')) files.push(`${dir}/${e.name}`)
+    }
+  }
+  walk(`${ROOT}src`)
+
+  const bad = []
+  for (const f of files) {
+    const src = readFileSync(f, 'utf-8')
+    for (const m of src.matchAll(/@[a-z:.-]+="([A-Za-z_$][\w$]*)"/g)) {
+      // 同名函数在本文件里声明过、且第一个参数有默认值 → 裸挂必然把事件对象喂进去
+      if (new RegExp(`function\\s+${m[1]}\\(\\s*\\w+\\s*=`).test(src)) {
+        bad.push(`${f.slice(ROOT.length)} @…="${m[1]}"`)
+      }
+    }
+  }
+  check(bad.length === 0, `没有裸挂的处理器${bad.length ? `（${bad.join('；')}）` : ''}`)
+
+  const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
+  check(src.includes('@click="openCreate()"'), '「新建日程」写的是 openCreate()，不是裸挂')
 }
 
 await server.close()
