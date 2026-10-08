@@ -9,7 +9,7 @@
 - 批量导入的日程写入每个目标学生自己的日程表，不是全局表
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import (
@@ -24,6 +24,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import PlainTextResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -45,6 +46,7 @@ from ..schemas import (
     ScheduleImportPreviewResponse,
     ScheduleResponse,
     ScheduleUpdate,
+    SemesterInfoResponse,
 )
 from ..services import log_operation, notify, recipients
 from ..services import schedule_service as ss
@@ -107,6 +109,32 @@ def list_schedules(
 
     instances = ss.list_by_range(db, student.id, start_date, end_date)
     return instances
+
+
+@router.get("/semester", response_model=SemesterInfoResponse)
+def get_semester_info(
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    """学期第 1 周的周一 —— 页面上的「第几周」按它算
+
+    优先取课表导入时写下的 week_start（由表名「第N周」折算，能对上真实学期）；
+    老数据没写过这一列，退回「最早那条日程所在周的周一」—— 课表是从第 1 周
+    导起的，退出来的正好是同一个基准。个人日程不会比它更早影响判断。
+
+    一条日程都没有时返回空，前端就不显示周次（而不是硬估一个错的）。
+    """
+    monday = db.query(func.min(Schedule.week_start)).filter(
+        Schedule.student_id == student.id,
+    ).scalar()
+    if not monday:
+        earliest = db.query(func.min(Schedule.start_time)).filter(
+            Schedule.student_id == student.id,
+        ).scalar()
+        if earliest:
+            d = earliest.date()
+            monday = d - timedelta(days=d.weekday())
+    return {"week_start": monday}
 
 
 @router.get("/item/{schedule_id}", response_model=ScheduleResponse)
@@ -410,6 +438,9 @@ def import_confirm(
             "repeat_end_date": item.get("repeat_end_date"),
             "notify_enabled": item.get("notify_enabled", False),
             "notify_minutes_before": item.get("notify_minutes_before", 10),
+            # 学期第 1 周的周一（由表名折算）。存下来有两个用处：单双周判断
+            # 有个真实基准，页面上的「第几周」也不用再自己估
+            "week_start": item.get("week_start"),
         })
 
     if not schedules_data:

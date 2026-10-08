@@ -156,6 +156,15 @@ class ScheduleBatchResponse(BaseModel):
     created_at: datetime
 
 
+# ---------- 学期信息 ----------
+
+class SemesterInfoResponse(BaseModel):
+    """学期信息（页面上的「第几周」按它算）"""
+    week_start: Optional[date] = Field(
+        None, description="学期第 1 周的周一；一条日程都没有时为空",
+    )
+
+
 # ---------- iCal 订阅 ----------
 
 class ICalTokenResponse(BaseModel):

@@ -95,6 +95,7 @@ from .schedule import (
     ScheduleImportConfirm,
     ScheduleImportResultResponse,
     ScheduleBatchResponse,
+    SemesterInfoResponse,
     ICalTokenResponse,
 )
 from .grade import (
