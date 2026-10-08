@@ -86,6 +86,17 @@ from .poll import (
     PollRosterResponse,
     PollVoteIn,
 )
+from .schedule import (
+    ScheduleCreate,
+    ScheduleUpdate,
+    ScheduleResponse,
+    ScheduleImportPreviewItem,
+    ScheduleImportPreviewResponse,
+    ScheduleImportConfirm,
+    ScheduleImportResultResponse,
+    ScheduleBatchResponse,
+    ICalTokenResponse,
+)
 from .grade import (
     GradeColumnPreview,
     GradeDetailResponse,
@@ -222,4 +233,13 @@ __all__ = [
     "GradeRangeBucket",
     "GradeSubjectStat",
     "GradeStatsResponse",
+    "ScheduleCreate",
+    "ScheduleUpdate",
+    "ScheduleResponse",
+    "ScheduleImportPreviewItem",
+    "ScheduleImportPreviewResponse",
+    "ScheduleImportConfirm",
+    "ScheduleImportResultResponse",
+    "ScheduleBatchResponse",
+    "ICalTokenResponse",
 ]

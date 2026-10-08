@@ -84,6 +84,12 @@ const routes = [
     meta: { title: '投票表决' }
   },
   {
+    path: '/schedule',
+    name: 'Schedule',
+    component: () => import('@/views/Schedule.vue'),
+    meta: { title: '我的日程', studentOnly: true }
+  },
+  {
     path: '/announcements',
     name: 'Announcements',
     component: () => import('@/views/Announcements.vue'),

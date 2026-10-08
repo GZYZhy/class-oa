@@ -182,6 +182,7 @@ const MENU_GROUPS = [
     title: '我的',
     items: [
       { path: '/my-info', title: '我的信息', icon: 'UserFilled', studentOnly: true },
+      { path: '/schedule', title: '我的日程', icon: 'Calendar', studentOnly: true },
       { path: '/inbox', title: '我的消息', icon: 'Message', badge: 'inbox_unread' },
       { path: '/downloads', title: '资料下载', icon: 'Download' },
       { path: '/about', title: '关于班级', icon: 'InfoFilled' }

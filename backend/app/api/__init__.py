@@ -22,6 +22,7 @@ from .inbox import router as inbox_router
 from .birthday import router as birthday_router
 from .polls import router as polls_router
 from .grades import router as grades_router
+from .schedules import router as schedules_router
 
 api_router = APIRouter()
 api_router.include_router(public_router)   # 首页摘要：公开
@@ -45,4 +46,5 @@ api_router.include_router(inbox_router)          # 站内信：所有推送的�
 api_router.include_router(birthday_router)       # 生日关怀：条幅公开，设置与测试仅管理员
 api_router.include_router(polls_router)          # 投票表决：发起需班委，表决看名单
 api_router.include_router(grades_router)         # 成绩管理：录入与编辑需班委，学生只看自己
+api_router.include_router(schedules_router)      # 我的日程：日历式日程管理，班委可批量导入
 api_router.include_router(admin_router)          # 系统管理：仅管理员
