@@ -50,6 +50,7 @@ from ..schemas import (
     SemesterInfoResponse,
 )
 from ..services import log_operation, notify, recipients
+from ..utils.links import full_url
 from ..services import schedule_service as ss
 from ..services import schedule_import_service as sis
 from ..services import schedule_ical_service as sics
@@ -639,7 +640,7 @@ def get_ical_token(
     """获取当前学生的 iCal 订阅链接"""
     token, path = ss.get_or_create_ical_token(db, student.id)
     db.commit()  # 确保 token 持久化（iCal 请求是另一个 session）
-    url = _build_full_url(request, path)
+    url = full_url(request, path)
     token_row = ss.get_student_by_ical_token(db, token)
     last_accessed = token_row[1].last_accessed_at if token_row else None
     return {"token": token, "url": url, "last_accessed_at": last_accessed}
@@ -655,7 +656,7 @@ def reset_ical_token(
     """重置 iCal 订阅令牌（旧链接立即失效）"""
     token, path = ss.reset_ical_token(db, student.id)
     db.commit()
-    url = _build_full_url(request, path)
+    url = full_url(request, path)
     log_operation(db, user, "重置 iCal 订阅令牌")
     return {"token": token, "url": url, "last_accessed_at": None}
 
@@ -692,9 +693,3 @@ def ical_feed(
             "Cache-Control": "max-age=3600",
         },
     )
-
-
-def _build_full_url(request: Request, path: str) -> str:
-    """根据请求构建完整 URL"""
-    base = f"{request.url.scheme}://{request.url.netloc}"
-    return base + path
