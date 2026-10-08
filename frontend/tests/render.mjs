@@ -428,6 +428,7 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
   if (userStore.isCommittee) {
     loadStudents()
   }
+  clockTimer = setInterval(() => { now.value = new Date() }, 30000)
 })`,
     `schedules.value = ${JSON.stringify(rows)}
     currentMonday.value = new Date(2026, 9, 5)
@@ -606,7 +607,10 @@ console.log('\n▶ 系统管理：日程批次面板')
     { id: 2, name: '运动会安排', target_count: 3, schedule_count: 2, created_at: '2026-10-08T09:30:00' }
   ]`
   const { html, warns } = await renderPatched(
-    '/src/components/ScheduleBatchPanel.vue', 'onMounted(load)', BATCHES)
+    '/src/components/ScheduleBatchPanel.vue',
+    `onMounted(() => {
+  if (!userStore.isExternal) load()
+})`, BATCHES)
 
   check(html.includes('秋季课表') && html.includes('运动会安排'), '两条批次名都渲出来了')
   check(html.includes('>36<') && html.includes('>42<'), '目标人数 / 日程数各自成列')
@@ -645,6 +649,73 @@ console.log('\n▶ 带默认参数的处理器不能裸挂在 @事件 上')
 
   const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
   check(src.includes('@click="openCreate()"'), '「新建日程」写的是 openCreate()，不是裸挂')
+}
+
+console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没反应」')
+{
+  const MARKER = 'const editForm = ref(defaultForm())'
+  const EVT = (o) => ({
+    repeat_type: 'none', repeat_end_date: null, notify_enabled: false, notify_minutes_before: 10,
+    location: '', description: '', event_type: '', share_count: 1, ...o
+  })
+  const labels = (h) => [...h.matchAll(/class="el-form-item__label"[^>]*>(?:<!--\[-->)?([^<]+)/g)].map(m => m[1])
+  const editWith = (evts, records) => `${MARKER}
+    userStore.info = { role: 'committee' }
+    schedules.value = ${JSON.stringify(evts)}
+    currentMonday.value = new Date(2026, 9, 5)
+    openEdit(schedules.value[0]${records ? ', schedules.value' : ''})`
+
+  // 单条的全天重复日程（比如「每周三值日」）：改范围必须能选，且只有它能选
+  const single = EVT({
+    id: 1, title: '值日', all_day: true, instance_date: '2026-10-07',
+    start_time: '2026-10-07T00:00:00', end_time: '2026-10-07T23:59:00',
+    repeat_type: 'weekly', repeat_end_date: '2026-12-31'
+  })
+  const { html, warns } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    editWith([single]), { ElDialog: ElDialogStub })
+  check(labels(html).includes('修改范围'), '全天 + 重复：能选「修改范围」（单条时）')
+
+  // 跨天的全天条（一天一条，日历上是一根）：整条一起改，那就别摆出「仅本次」骗人
+  const run = ['2026-10-05', '2026-10-06', '2026-10-07'].map((d, i) => EVT({
+    id: i + 10, title: '国庆放假', all_day: true, instance_date: d,
+    start_time: `${d}T00:00:00`, end_time: `${d}T23:59:00`,
+    repeat_type: 'weekly', repeat_end_date: '2026-12-31'
+  }))
+  const { html: bar } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    editWith(run, true), { ElDialog: ElDialogStub })
+  check(labels(bar).includes('开启通知'), '对照组：跨天的那根条确实渲染出了编辑弹窗')
+  check(labels(bar).includes('结束日期'), '跨天的条能改起止日期')
+  check(!labels(bar).includes('修改范围'), '跨天的整条不显示「修改范围」（保存/删除都是整条走，摆出来就是骗人）')
+  check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+
+  // 左上角那格显示当前时间（hh:mm）：表头本来空着，正好放
+  const clock = html.match(/class="now-clock"[^>]*>([^<]*)</)
+  check(clock && /^\d{2}:\d{2}$/.test(clock[1]), `表头角上是 hh:mm 的当前时间（实际：${clock && clock[1]}）`)
+
+  const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
+  // 时钟靠定时器走，离开页面必须停掉，否则每进一次日程页就多一个永不回收的定时器
+  check(/onUnmounted\(\(\) => clearInterval\(clockTimer\)\)/.test(src), '离开页面时停掉时钟定时器')
+  // 窄窗口（半屏、手机）下工具栏一行放不下，「新建日程」会被挤出可见区域点不到
+  const toolbar = src.slice(src.indexOf('.toolbar {'), src.indexOf('.week-nav {'))
+  check(/flex-wrap:\s*wrap/.test(toolbar), '顶部工具栏允许换行，窄屏按钮不会被挤出去')
+
+  // 全天条保存时把「修改范围」照用户选的传（写死 'all' 时，选「仅本次」会改掉整个序列）
+  check(/scope:\s*form\.scope/.test(src), 'saveAllDay 用的是用户选的 scope')
+  // 清空「结束日期」会缩小范围 → 先确认再删，不能悄悄把其余几天抹掉
+  check(src.includes("'确认缩小范围'"), '缩小日期范围会先确认，再删多余的天数')
+  // 关掉「全天」时整条一起转，别只转点中的那一天
+  check(/isMultiDayBar\.value\)\s*\{/.test(src), '跨天的条关掉「全天」时整条一起转')
+
+  // 请求失败不能是「点了没反应」：request.js 的拦截器只打 console
+  for (const fn of ['importNextStep', 'handleImportConfirm']) {
+    const body = src.slice(src.indexOf(`function ${fn}`) || src.indexOf(`async function ${fn}`))
+    check(/catch \(e\)/.test(body.slice(0, 1600)), `${fn} 接住了失败并给了提示`)
+  }
+  // 关掉导入弹窗要把 el-upload 一起销毁：它的文件列表留着，配上 :limit="1"
+  // 会把下次选的文件直接吞掉，「下一步」永远是灰的
+  check(/destroy-on-close/.test(src) && /@closed="resetImport"/.test(src),
+    '导入弹窗关掉即复位（否则再选的文件会被 :limit="1" 吞掉）')
+  check(/importTouched/.test(src), '反选到一条不剩时不当成「全选」')
 }
 
 await server.close()
