@@ -541,6 +541,80 @@ console.log('\n▶ 我的日程：全天事件给「起止日期」，不给时�
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
 }
 
+console.log('\n▶ 我的日程：分配出去的日程能选改谁的表')
+{
+  const MARKER = 'const editForm = ref(defaultForm())'
+  const EVT = (o) => ({
+    repeat_type: 'none', repeat_end_date: null, notify_enabled: false, notify_minutes_before: 10,
+    location: '', description: '', event_type: '', ...o
+  })
+  const labels = (h) => [...h.matchAll(/class="el-form-item__label"[^>]*>(?:<!--\[-->)?([^<]+)/g)].map(m => m[1])
+  // 甲给三个人建的一条：三个人各有一行，share_count 记着「这条在几个人的表里」
+  const shared = EVT({
+    id: 1, title: '班会', all_day: false, instance_date: '2026-10-08',
+    start_time: '2026-10-08T08:00:00', end_time: '2026-10-08T09:00:00',
+    source_batch_id: 7, share_count: 3
+  })
+  const editWith = (evt) => `${MARKER}
+    userStore.info = { role: 'committee' }
+    schedules.value = ${JSON.stringify([evt])}
+    currentMonday.value = new Date(2026, 9, 5)
+    openEdit(schedules.value[0])`
+
+  const { html, warns } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    editWith(shared), { ElDialog: ElDialogStub })
+
+  check(labels(html).includes('改谁的表'), '自己分配出去的日程，编辑时有「改谁的表」')
+  check(html.includes('所有人的（3 人）'), '人数按实际分享范围算（3 人）')
+  check(html.includes('仅我自己的'), '另一档是「仅我自己的」')
+  // 默认是「所有人的」。只认那一档自己的 input 上有没有 checked 属性：一开始写成
+  // 「出现过 is-checked 类」是假的 —— 默认换成「仅我自己的」时，第二档自己会带上
+  // 这个类，断言照样绿（试过）。value="true" 也就是「所有人的」这一档
+  const shareBlock = html.slice(html.indexOf('改谁的表'), html.indexOf('改谁的表') + 600)
+  check(/value="true"[^>]*\schecked[\s>]/.test(shareBlock), '默认选中「所有人的」')
+
+  // 对照组：个人日程（share_count 缺省为 1）没有这一栏 —— 没有它的话上面那几条
+  // 也可能只是「弹窗渲染出来了」而已
+  const alone = EVT({
+    id: 2, title: '自习', all_day: false, instance_date: '2026-10-08',
+    start_time: '2026-10-08T19:00:00', end_time: '2026-10-08T21:00:00'
+  })
+  const { html: own } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    editWith(alone), { ElDialog: ElDialogStub })
+  // 钉一个编辑态里必定存在的表单项：没有它，下面那条「没有改谁的表」也可能只是
+  // 弹窗压根没渲染出来（「修改范围」只对重复日程才出，当锚点会不稳）
+  check(labels(own).includes('开启通知'), '对照组确实渲染出了编辑弹窗')
+  check(!labels(own).includes('改谁的表'), '个人日程没有「改谁的表」')
+
+  // 编辑时不能留两个「谁」的控制项：影响范围是新建时的概念
+  check(!labels(html).includes('影响范围'), '编辑态不再显示「影响范围」')
+  const { html: creating } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    `${MARKER}
+    userStore.info = { role: 'committee' }
+    currentMonday.value = new Date(2026, 9, 5)
+    openCreate()`, { ElDialog: ElDialogStub })
+  check(labels(creating).includes('影响范围'), '新建时照旧有「影响范围」')
+  check(!labels(creating).includes('改谁的表'), '新建时没有「改谁的表」（还没分配出去）')
+  check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+}
+
+console.log('\n▶ 系统管理：日程批次面板')
+{
+  // 表桩对每行跑 default 插槽，所以这里能真断到行里的内容（见文件头）
+  const BATCHES = `batches.value = [
+    { id: 1, name: '秋季课表', target_count: 36, schedule_count: 42, created_at: '2026-10-07T10:00:00' },
+    { id: 2, name: '运动会安排', target_count: 3, schedule_count: 2, created_at: '2026-10-08T09:30:00' }
+  ]`
+  const { html, warns } = await renderPatched(
+    '/src/components/ScheduleBatchPanel.vue', 'onMounted(load)', BATCHES)
+
+  check(html.includes('秋季课表') && html.includes('运动会安排'), '两条批次名都渲出来了')
+  check(html.includes('>36<') && html.includes('>42<'), '目标人数 / 日程数各自成列')
+  check(html.split(/撤销(?:<!--\]-->)?<\/span>/).length - 1 === 2, '两行各有一个「撤销」按钮')
+  check(html.includes('撤销一个批次'), '说明写清了撤销的后果')
+  check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
