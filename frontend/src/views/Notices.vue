@@ -3,15 +3,25 @@
     <div class="page-card" v-loading="loading">
       <div class="page-toolbar">
         <h3 class="page-title" style="margin-bottom: 0;">通知公告</h3>
-        <!-- 发布/编辑/删除均限班委及以上；普通学生与未登录者只读 -->
-        <el-button v-if="userStore.isCommittee" type="primary" @click="openPublish">
-          <el-icon><Plus /></el-icon>
-          发布通知
-        </el-button>
-        <el-button v-else-if="!userStore.isLogin" type="primary" plain @click="router.push('/login')">
-          <el-icon><Lock /></el-icon>
-          登录后可发布
-        </el-button>
+        <div class="toolbar-actions">
+          <!-- 订阅要登录：令牌只有登录后拿得到，域外账号拿不到（后端直接 403） -->
+          <el-button
+            v-if="userStore.isLogin && !userStore.isExternal"
+            @click="subscribeDialog.open = true"
+          >
+            <el-icon><Bell /></el-icon>
+            RSS 订阅
+          </el-button>
+          <!-- 发布/编辑/删除均限班委及以上；普通学生与未登录者只读 -->
+          <el-button v-if="userStore.isCommittee" type="primary" @click="openPublish">
+            <el-icon><Plus /></el-icon>
+            发布通知
+          </el-button>
+          <el-button v-else-if="!userStore.isLogin" type="primary" plain @click="router.push('/login')">
+            <el-icon><Lock /></el-icon>
+            登录后可发布
+          </el-button>
+        </div>
       </div>
 
       <!-- 搜索区：标题 + 发布时间区间 -->
@@ -51,6 +61,7 @@
           v-for="item in list"
           :key="item.id"
           :name="item.id"
+          :id="'notice-item-' + item.id"
         >
           <!-- 标题行 -->
           <template #title>
@@ -291,12 +302,50 @@
         <el-button @click="readsVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- RSS 订阅弹窗 -->
+    <el-dialog v-model="subscribeDialog.open" title="RSS 订阅" width="520px">
+      <div v-loading="subscribeLoading">
+        <div class="subscribe-section">
+          <div class="subscribe-label">你的私有订阅链接</div>
+          <div class="subscribe-url-row">
+            <el-input :value="subscribeUrl" readonly />
+            <el-button @click="copySubscribeUrl">
+              <el-icon><CopyDocument /></el-icon>复制
+            </el-button>
+          </div>
+          <div class="subscribe-tip">
+            <el-icon><Warning /></el-icon>
+            链接包含你的私人令牌，请勿分享给他人
+          </div>
+        </div>
+
+        <el-divider />
+
+        <div class="subscribe-section">
+          <div class="subscribe-label">如何订阅</div>
+          <div class="subscribe-guide">
+            <p>把上面的链接粘进任意 RSS 阅读器（Feedly、Inoreader、Reeder、Follow 等）即可。</p>
+            <p>以后发布的每一条通知都会自动出现在阅读器里，点条目可回到本站查看全文与附件。</p>
+          </div>
+        </div>
+
+        <el-divider />
+
+        <div class="subscribe-section">
+          <div class="subscribe-tip">
+            <el-icon><InfoFilled /></el-icon>
+            这条链接与「我的日程」共用同一个订阅令牌；在日程页重置令牌会让它一起失效。
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getNotices,
@@ -305,10 +354,13 @@ import {
   deleteNotice,
   markNoticeRead,
   getNoticeReads,
-  remindUnread
+  remindUnread,
+  getRssToken
 } from '@/api/notice'
 import { downloadFile } from '@/utils/download'
 import { renderMarkdown, formatFileSize } from '@/utils/markdown'
+import { copyText } from '@/utils/clipboard'
+import { noticeIdFromQuery } from '@/utils/notice'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
 
@@ -319,6 +371,7 @@ const MAX_ATTACHMENTS = 3
 const MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 const badgeStore = useBadgeStore()
 
@@ -373,7 +426,15 @@ function formatDateTime(value) {
   return String(value).replace('T', ' ').replace(/\.\d+$/, '').slice(0, 16)
 }
 
-async function fetchList() {
+/**
+ * 拉通知列表
+ *
+ * focusId：要定位并展开的那一条（从 ?id= 来），没有就传 null。
+ *
+ * 定位**不能写进下面这条公共路径**：函数结尾会把 activeNames 打成第一条，
+ * 那样每次搜索、发布、重置都会把用户弹回第一条。
+ */
+async function fetchList(focusId = null) {
   loading.value = true
   try {
     const params = {
@@ -382,6 +443,16 @@ async function fetchList() {
       end_date: searchForm.dateRange?.[1] || undefined,
     }
     list.value = await getNotices(params)
+
+    const target = focusId ? list.value.find((item) => item.id === focusId) : null
+    if (target) {
+      // 从链接进来的：只展开、只标记这一条 —— 不能顺手把最新那条也标了已读，
+      // 用户根本没看它
+      activeNames.value = [target.id]
+      if (userStore.isLogin) markRead([target])
+      return
+    }
+
     // 最新一条（列表按时间降序，第一条即最新）默认展开
     activeNames.value = list.value.length ? [list.value[0].id] : []
 
@@ -397,6 +468,23 @@ async function fetchList() {
   } finally {
     loading.value = false
   }
+}
+
+/** 按 ?id= 定位：拉列表、展开那一条、滚进视野
+ *
+ * onMounted 和路由变化都走它；没有 ?id= 就是一次普通的首屏加载。
+ */
+async function focusFromQuery() {
+  const id = noticeIdFromQuery(route.query)
+  await fetchList(id)
+  if (!id) return
+  // 列表是异步来的，改完 activeNames 得等 DOM 更新完再滚
+  await nextTick()
+  // 目标不在列表里（已删除、或被搜索条件挡掉了）就安静退出
+  document.getElementById(`notice-item-${id}`)?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'center'
+  })
 }
 
 /** 把给定的通知标记为已读，成功后刷新菜单红点
@@ -604,7 +692,40 @@ async function handleRemind() {
   }
 }
 
-onMounted(fetchList)
+// ---------- RSS 订阅 ----------
+const subscribeDialog = ref({ open: false })
+const subscribeLoading = ref(false)
+const subscribeUrl = ref('')
+
+watch(() => subscribeDialog.value.open, async (val) => {
+  if (!val) return
+  subscribeLoading.value = true
+  try {
+    const data = await getRssToken()
+    subscribeUrl.value = data.url
+  } catch (e) {
+    // 不接住的话弹窗照常打开、链接是空的，点「复制」复制的也是空串
+    subscribeUrl.value = ''
+    ElMessage.error('订阅链接获取失败')
+  } finally {
+    subscribeLoading.value = false
+  }
+})
+
+function copySubscribeUrl() {
+  if (!subscribeUrl.value) {
+    ElMessage.warning('订阅链接还没取到')
+    return
+  }
+  // 走公共的 copyText：它带 execCommand 降级 —— 内网 http 下浏览器不给
+  // 剪贴板接口（日程页那次是裸调的，别照抄）
+  copyText(subscribeUrl.value)
+}
+
+onMounted(focusFromQuery)
+
+// 同一个标签页里点到另一条通知：hash 变了但组件不会重建，得自己跟一下
+watch(() => route.query.id, focusFromQuery)
 </script>
 
 <style scoped>
@@ -612,6 +733,48 @@ onMounted(fetchList)
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+/* 工具栏右侧的一组按钮：不分组的话 space-between 会把三个按钮摊开 */
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 订阅弹窗（与日程页那份同一套类名，样式各自 scoped） */
+.subscribe-section {
+  margin-bottom: 8px;
+}
+
+.subscribe-label {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.subscribe-url-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.subscribe-tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.subscribe-guide {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--el-text-color-regular);
+}
+
+.subscribe-guide p {
+  margin: 4px 0;
 }
 
 .notice-collapse {

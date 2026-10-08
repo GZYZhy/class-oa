@@ -16,6 +16,7 @@ from .announcement_service import (
 )
 from .notice_service import (
     list_notices,
+    notice_attachments,
     create_notice,
     update_notice,
     delete_notice,
@@ -97,6 +98,7 @@ __all__ = [
     "delete_announcement",
     "get_announcement",
     "list_notices",
+    "notice_attachments",
     "create_notice",
     "update_notice",
     "delete_notice",

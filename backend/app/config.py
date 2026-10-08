@@ -16,7 +16,12 @@ class Settings(BaseSettings):
     # 应用信息
     app_name: str = "班级信息管理系统"
     # 版本号。页面上的「关于班级 → 系统版本」、/api/health、接口文档都取这一份
-    app_version: str = "1.10.2"
+    app_version: str = "1.10.3"
+    # 站点名称。和前端 window.__SITE__.name 是同**一个**环境变量 SITE_NAME，
+    # 后端只在 RSS 频道名里用它（「通知公告 - 统26-1班信息管理系统」），
+    # 目的就是让阅读器里显示的源名和网页标题对得上。
+    # 留空则回落到 app_name。
+    site_name: str = Field(default="", validation_alias=AliasChoices("SITE_NAME"))
     # 所属学院。和前端 window.__SITE__.college 是同**一个**环境变量 SITE_COLLEGE，
     # 别各配一份：生成的正式文档上印的学院名和页面上显示的对不上，是很难发现的那种错。
     # （保留 COLLEGE 作为别名，方便只跑后端时单独覆盖）

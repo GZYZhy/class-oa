@@ -761,6 +761,90 @@ console.log('\n▶ 我的日程：窄屏不把 7 天挤扁，今天默认居中'
     '居中接在「首次加载完」和「点今天」两处')
 }
 
+console.log('\n▶ 通知公告：RSS 订阅（需要登录）')
+{
+  const NOTICES = '/src/views/Notices.vue'
+
+  // 判「订阅按钮在不在」不能直接找 'RSS 订阅' 这几个字：模板里的
+  // `<!-- RSS 订阅弹窗 -->` 也是 SSR 输出的一部分，裸 includes 会被它命中，
+  // 不管按钮渲没渲都是真。所以要求这几个字确实落在某个 <button> 里
+  const hasSubscribeButton = (html) =>
+    /<button\b[^>]*>(?:(?!<\/button>)[\s\S])*?RSS 订阅/.test(html)
+
+  // 订阅按钮的可见性。pinia 的 info 是 state，直接赋值就能让 isLogin / isExternal
+  // 这两个 getter 跟着变，不用真去登录
+  const AS_MEMBER = `const userStore = useUserStore()
+  userStore.info = { student_no: '2024000001', name: '甲', role: 'admin', is_external: false }`
+  const { html: asMember } = await renderPatched(
+    NOTICES, 'const userStore = useUserStore()', AS_MEMBER)
+  check(hasSubscribeButton(asMember), '登录后能看到订阅按钮')
+
+  const AS_EXTERNAL = `const userStore = useUserStore()
+  userStore.info = { student_no: 'x', name: '李老师', role: 'guest', is_external: true }`
+  const { html: asExternal } = await renderPatched(
+    NOTICES, 'const userStore = useUserStore()', AS_EXTERNAL)
+  check(!hasSubscribeButton(asExternal),
+    '域外账号看不到（后端给这个身份签订阅令牌是 403）')
+
+  // 弹窗正文：把三个状态量的声明整段换掉，让弹窗「已经打开、链接已取到」
+  const { html } = await renderPatched(
+    NOTICES,
+    `const subscribeDialog = ref({ open: false })
+const subscribeLoading = ref(false)
+const subscribeUrl = ref('')`,
+    `const subscribeDialog = ref({ open: true })
+const subscribeLoading = ref(false)
+const subscribeUrl = ref('http://oa.example.com/api/notices/rss/cafebabe.xml')`,
+    { ElDialog: ElDialogStub })
+
+  check(html.includes('你的私有订阅链接'), '弹窗里有订阅链接这一块')
+  check(html.includes('cafebabe.xml'), '链接原样显示在输入框里')
+  check(html.includes('请勿分享给他人'), '写明链接里是私人令牌')
+  check(html.includes('Feedly'), '说明是给 RSS 阅读器用的')
+  check(html.includes('共用同一个订阅令牌'), '写明了和「我的日程」共用令牌')
+  check(!html.includes('重置订阅令牌'),
+    '没有重置按钮 —— 重置的是日程那条共用令牌，只在日程页做')
+
+  // 负对照：弹窗没打开时上面那些文案一个都不该出现。
+  // 少了这一步，「弹窗压根没渲染」也能让上面的断言全部假通过
+  const { html: closed } = await render(NOTICES, { ElDialog: ElDialogStub })
+  check(!closed.includes('你的私有订阅链接') && !closed.includes('Feedly'),
+    '负对照：弹窗没打开时这些文案不出现')
+
+  // ---------- ?id=123 定位 ----------
+  const { noticeIdFromQuery } = await server.ssrLoadModule('/src/utils/notice.js')
+  check(noticeIdFromQuery({ id: '123' }) === 123,
+    'query 里是字符串，转成数字（不转的话 :name 是数字，面板不展开）')
+  check(noticeIdFromQuery({ id: ['7', '8'] }) === 7, '?id=1&id=2 成了数组时取第一个')
+  for (const bad of [undefined, {}, { id: '' }, { id: 'abc' }, { id: '0' },
+                     { id: '-1' }, { id: '1.5' }, { id: '  ' }]) {
+    check(noticeIdFromQuery(bad) === null, `取不到 id 时给 null：${JSON.stringify(bad)}`)
+  }
+  check(noticeIdFromQuery({ id: ' 12 ' }) === 12, '两头带空格也认')
+
+  const src = readFileSync(`${ROOT}src/views/Notices.vue`, 'utf-8')
+  check(src.includes('v-if="userStore.isLogin && !userStore.isExternal"'),
+    '模板上的可见性条件就是这一条')
+  check(src.includes('copyText(subscribeUrl.value)'),
+    '复制走公共的 copyText（带 execCommand 降级）')
+  check(!/navigator\.clipboard/.test(src),
+    '这一页不出现裸的 navigator.clipboard（内网 http 下它拿不到）')
+  check(/:id="'notice-item-' \+ item\.id"/.test(src),
+    '每个面板挂上定位用的 id')
+
+  // 定位必须绕开 fetchList 结尾那句「展开第一条」，否则每次搜索/发布都会跳回第一条
+  const fetchBody = src.slice(
+    src.indexOf('async function fetchList'),
+    src.indexOf('/** 按 ?id= 定位'))
+  check(fetchBody.indexOf('if (target)') < fetchBody.indexOf('activeNames.value = list.value.length'),
+    '有目标时提前 return，不被下面那句「展开第一条」覆盖')
+  check(fetchBody.indexOf('markRead([target])') < fetchBody.indexOf('markRead(list.value.slice(0, 1))'),
+    '从链接进来只标目标那条已读，不顺手把最新那条也标了')
+  check(src.includes('onMounted(focusFromQuery)'), '首屏走 focusFromQuery（没有 ?id= 就是普通加载）')
+  check(src.includes('watch(() => route.query.id, focusFromQuery)'),
+    '同标签内换到另一条时跟着切（组件不会重建）')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

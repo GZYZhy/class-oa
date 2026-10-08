@@ -1,5 +1,4 @@
 import json
-import re
 import uuid
 from datetime import date
 from pathlib import Path
@@ -13,15 +12,17 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
 )
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..config import BASE_DIR
+from ..config import BASE_DIR, settings
 from ..database import get_db
-from ..models import Notice, User
+from ..models import Notice, Student, User
 from ..schemas import (
+    ICalTokenResponse,
     NoticeResponse,
     NoticeReadStatus,
 )
@@ -37,12 +38,18 @@ from ..services import (
     read_status,
     log_operation,
     notify,
+    notice_attachments,
     recipients,
 )
+from ..services import notice_rss_service as nrs
+from ..services import schedule_service as ss
+from ..utils.links import full_url
 from ..utils.media_type import guess_media_type
+from ..utils.notify_text import markdown_to_text
 from .deps import (
     committee_required,
     get_client_ip,
+    get_current_student,
     get_current_user,
     get_optional_user,
 )
@@ -83,14 +90,9 @@ def _preview(markdown: str) -> str:
     """从 Markdown 正文里摘一句纯净文本做通知正文
 
     正文是 Markdown，原样推过去手机上会看到「##」「![]()」这些符号，
-    通知栏又没地方渲染。只取第一段有内容的文字，并去掉链接/图片的语法。
+    通知栏又没地方渲染，所以先摘成纯文本再截断。
     """
-    for line in markdown.splitlines():
-        text = line.strip().lstrip("#>*+- \t").strip()
-        text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text).strip()
-        if text:
-            return clip(text, 80)
-    return "点击查看详情"
+    return clip(markdown_to_text(markdown), 80) or "点击查看详情"
 
 
 # 通知列表公开（首页性质，无需登录）
@@ -213,17 +215,6 @@ def remind_unread(
     return {"reminded": len(unread)}
 
 
-def _attachments_from_db(notice: Notice) -> list:
-    """把库里存的 JSON 串读成附件列表；读不出来就当没有"""
-    if not notice.attachments:
-        return []
-    try:
-        items = json.loads(notice.attachments or "")
-    except (ValueError, TypeError):
-        return []
-    return items if isinstance(items, list) else []
-
-
 # ---------- 附件下载（无需登录即可下载，通知是公开的） ----------
 @router.get("/{notice_id}/attachments/{index}", summary="下载通知附件")
 def download_attachment(
@@ -236,7 +227,7 @@ def download_attachment(
     if not notice:
         raise HTTPException(status_code=404, detail="通知不存在")
 
-    items = _attachments_from_db(notice)
+    items = notice_attachments(notice)
     if index < 0 or index >= len(items):
         raise HTTPException(status_code=404, detail="附件不存在")
 
@@ -260,6 +251,59 @@ def download_attachment(
         filename=display_name,
         content_disposition_type="attachment",
     )
+
+
+# ---------- RSS 订阅 ----------
+# 「需要登录」就落在这里：token 只能通过上面那个带登录的接口拿到，拿不到 token
+# 就拼不出订阅地址；而 feed 端点没有有效 token 一律 404。
+# 注意列表接口本身是公开的（首页性质），所以走订阅与否只差这一道门。
+
+
+@router.get("/rss/token", response_model=ICalTokenResponse, summary="获取通知订阅链接")
+def get_rss_token(
+    request: Request,
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    """获取通知公告的 RSS 订阅链接（需登录）
+
+    用的是「我的日程」那**同一个**订阅令牌（ical_tokens 表）—— 不用新建表、
+    不用迁移。代价是在日程页重置令牌会让这条 RSS 链接一起失效，前端文案里写明了。
+    """
+    token, _ = ss.get_or_create_ical_token(db, student.id)
+    db.commit()  # 首次访问时新建的 token 必须落库，否则返回的链接当场 404
+    url = full_url(request, f"/api/notices/rss/{token}.xml")
+    token_row = ss.get_student_by_ical_token(db, token)
+    last_accessed = token_row[1].last_accessed_at if token_row else None
+    return {"token": token, "url": url, "last_accessed_at": last_accessed}
+
+
+# 和 ical_feed 一样：不走登录会话，纯 token 鉴权
+@router.get("/rss/{token}.xml", summary="通知公告 RSS 订阅")
+def rss_feed(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """RSS 订阅端点（通过 URL 里的 token 鉴权，无效一律 404）
+
+    这里**故意不设** Cache-Control：nginx 的 `location ^~ /api/` 里有一句
+    `add_header Cache-Control "no-store"`，而 add_header 是**追加**不是覆盖 ——
+    写了会变成两个 Cache-Control 头、no-store 生效，等于在代码里留一句假承诺。
+    刷新节奏交给 feed 里的 <ttl>。
+    """
+    if not ss.get_student_by_ical_token(db, token):
+        # 不区分「不存在」和「已失效」：不泄露这个 token 曾经存在
+        raise HTTPException(status_code=404, detail="Not found")
+    db.commit()  # 提交 last_accessed_at 的更新
+
+    content = nrs.generate_rss(
+        list_notices(db)[: nrs.MAX_ITEMS],
+        site_url=full_url(request, ""),
+        feed_url=full_url(request, f"/api/notices/rss/{token}.xml"),
+        site_name=settings.site_name or settings.app_name,
+    )
+    return Response(content=content, media_type="application/rss+xml; charset=utf-8")
 
 
 # ---------- 以下管理操作需要班委及以上 ----------
@@ -365,7 +409,7 @@ async def edit(
         raise HTTPException(status_code=404, detail="通知不存在")
 
     # 解析要保留的原附件下标
-    old_items = _attachments_from_db(notice)
+    old_items = notice_attachments(notice)
     keep_indices = set()
     if keep_attachments.strip():
         try:
@@ -455,7 +499,7 @@ def remove(
     title = notice.title
 
     # 先删附件文件（删不掉也不影响主流程）
-    items = _attachments_from_db(notice)
+    items = notice_attachments(notice)
     for item in items:
         store_name = item.get("file", "")
         if store_name:
