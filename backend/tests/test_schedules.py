@@ -699,3 +699,59 @@ def test_manual_odd_week_fallback_consistent(b):
     dates = [it["instance_date"] for it in items]
     assert "2026-10-12" not in dates
     assert "2026-10-19" in dates
+
+
+# ---------- 周次（跟表名，不靠前端估算） ----------
+
+def test_semester_week_follows_sheet_name(b):
+    """周次跟表名走：导入时记下「学期第 1 周的周一」，页面按它算第几周
+
+    夹具第 1 周周一是 10/12、第 2 周是 10/19，由表名折算出的基准两周边有同一个。
+    前端曾经按「9 月 1 日所在周」自己估第 1 周，比表名早两周 —— 表名「第4周」
+    的课在页面上会显示成第 6 周（用户报的就是这个）。
+    """
+    r = b.client.post(
+        "/api/schedules/import/preview",
+        files={"file": ("课表.xlsx", _make_schedule_xlsx(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200, r.text
+    r = b.client.post("/api/schedules/import", json={
+        "token": r.json()["token"],
+        "batch_name": "秋季课表",
+        "target_all": True,
+        "target_student_ids": [],
+        "selected_indices": [],
+    })
+    assert r.status_code == 200, r.text
+
+    # 两个 sheet 折算出的基准必须一致，并且都落到了日程上
+    assert b.rows("SELECT DISTINCT week_start FROM schedules") == [("2026-10-12",)]
+
+    # 接口把基准交回前端（页面上的「第几周」按它算）
+    info = b.client.get("/api/schedules/semester")
+    assert info.status_code == 200, info.text
+    assert info.json()["week_start"] == "2026-10-12"
+
+
+def test_semester_info_falls_back_to_earliest_schedule(b):
+    """没写过 week_start 的老数据：退回最早那条日程所在周的周一
+
+    升级前导入的课表没有这一列，不能让周次因此整个消失。
+    """
+    data = _make_schedule(title="老日程", start="2026-10-15T08:00:00", end="2026-10-15T09:40:00")
+    r = b.client.post("/api/schedules", json=data)
+    assert r.status_code == 200, r.text
+    # 手动创建的日程不带基准（只有课表导入才写）
+    assert b.rows("SELECT DISTINCT week_start FROM schedules") == [(None,)]
+
+    info = b.client.get("/api/schedules/semester")
+    assert info.status_code == 200, info.text
+    assert info.json()["week_start"] == "2026-10-12"   # 10/15 是周四，所在周周一
+
+
+def test_semester_info_empty_without_schedules(b):
+    """一条日程都没有时返回空 —— 前端就不显示周次，而不是硬估一个错的"""
+    info = b.client.get("/api/schedules/semester")
+    assert info.status_code == 200, info.text
+    assert info.json()["week_start"] is None
