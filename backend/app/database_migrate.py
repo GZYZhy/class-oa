@@ -90,6 +90,10 @@ NEW_COLUMNS = [
     # 若某场真是 150 分制，班委在科目设置里改一次满分即可
     ("grade_subjects", "mode", "VARCHAR(20) NOT NULL DEFAULT 'score'"),
     ("grade_subjects", "full_score", "FLOAT NOT NULL DEFAULT 100"),
+    # ---------- 我的日程：事件类型 ----------
+    # schedules 表在早期版本已创建，后来才加 event_type。默认空串 = 旧日程没有类型，
+    # 与补列前行为一致（create_all 不会给已存在的表补列，只能走这里 ALTER）
+    ("schedules", "event_type", "VARCHAR(20) NOT NULL DEFAULT ''"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）
