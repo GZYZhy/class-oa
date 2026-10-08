@@ -11,6 +11,7 @@
 
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from typing import Optional
 
 from fastapi import (
     APIRouter,
@@ -182,7 +183,9 @@ def create_schedule(
     if data.repeat_type != REPEAT_NONE and not data.repeat_end_date:
         raise HTTPException(status_code=400, detail="重复日程必须设置结束日期")
 
-    sched_data = data.model_dump(exclude={"target_all", "target_student_ids"})
+    sched_data = data.model_dump(
+        exclude={"target_all", "target_student_ids", "share_from"}
+    )
     if sched_data["all_day"]:
         # 全天事件不给时刻：表单里干脆没有时间框，这里兜的是直接调接口的路径。
         # 不认跨天 —— 跨天请按天建多条（前端就是这么展开的）
@@ -192,7 +195,12 @@ def create_schedule(
     else:
         _validate_times(data.start_time, data.end_time)
 
-    if not is_committee(user) or (not data.target_all and not data.target_student_ids):
+    # 沿用分组：编辑全天事件时补出来的那几天要发给原来那批人（见 _share_targets）
+    share_ids = _share_targets(db, student, data.share_from) if is_committee(user) else []
+
+    if not is_committee(user) or (
+        not data.target_all and not data.target_student_ids and not share_ids
+    ):
         # 普通学生，或班委选择「仅自己」
         tpl = ss.create_schedule(
             db, student_id=student.id, data=sched_data,
@@ -204,9 +212,14 @@ def create_schedule(
         return ss._to_instance(tpl, tpl.start_time.date())
 
     # 班委批量创建
-    target_ids = _resolve_target_students(db, user, data.target_all, data.target_student_ids)
-    if not target_ids:
-        raise HTTPException(status_code=400, detail="目标学生不能为空")
+    if share_ids:
+        target_ids = share_ids
+    else:
+        target_ids = _resolve_target_students(
+            db, user, data.target_all, data.target_student_ids
+        )
+        if not target_ids:
+            raise HTTPException(status_code=400, detail="目标学生不能为空")
 
     # 确保操作人自己也在目标里（班委创建的日程自己也应该能看到）
     if student.id not in target_ids:
@@ -273,13 +286,47 @@ def _resolve_target_students(
     return [s.id for s in students]
 
 
+def _share_targets(db: Session, student: Student, share_from: Optional[int]) -> list[int]:
+    """按已有的某条日程，取「当初发给的那批人」的学生 ID（沿用分组）
+
+    给「编辑全天事件时新增的天数」用：那条日程原本发给谁，新的一天就发给谁，
+    不用把学生名单再传一遍。
+
+    只有这条原始日程确实是本人分配出去的才认 —— 不然传一个别人的日程 ID
+    就能把日程塞进一堆无关学生的表里。不是自己的就返回空，调用方会退回「仅自己」。
+    """
+    if not share_from:
+        return []
+    src = ss.get_template(db, share_from, student.id)
+    if not src or not ss.can_share(src, student.id):
+        return []
+    # 自己那份（src）+ 其他学生的副本
+    return [src.student_id] + [c.student_id for c in ss._share_copies(db, src)]
+
+
 # ---------- 编辑日程 ----------
+
+def _check_share(tpl: Schedule, student_id: int) -> None:
+    """下发的资格校验：只有把这条日程分配出去的人，才能改到别人的表里
+
+    个人日程（没有批次）上带 share 是无副作用的 no-op，直接放行 —— 前端本来
+    也不会对它们显示这一档。
+
+    不静默降级成「只改自己那份」：用户勾了「所有人的」却只改了自己的，
+    界面上看不出任何异常，比直接报错危险得多。
+    """
+    if tpl.source_batch_id and not ss.can_share(tpl, student_id):
+        raise HTTPException(
+            status_code=403, detail="这条日程不是你分配的，改不了其他人的表"
+        )
+
 
 @router.put("/item/{schedule_id}", response_model=ScheduleResponse)
 def update_schedule(
     schedule_id: int,
     data: ScheduleUpdate,
     instance_date: date = Query(..., description="要编辑的实例日期"),
+    share: bool = Query(False, description="是否一并改掉其他学生的表（仅限分配者）"),
     student: Student = Depends(get_current_student),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -290,12 +337,18 @@ def update_schedule(
     - single：仅本次
     - forward：本次及以后
     - all：全部（默认）
+
+    share 为真时，同一条原始日程在其他学生表里的副本一起改（见 schedule_service）。
+    放 query 而不是 body：下面 update_data 会把 body 里所有非 scope 字段当业务
+    字段写进模型，混一个控制参数进去早晚要出事。
     """
     tpl = ss.get_template(db, schedule_id, student.id)
     if not tpl:
         raise HTTPException(status_code=404, detail="日程不存在")
 
     scope = _check_scope(data.scope)
+    if share:
+        _check_share(tpl, student.id)
 
     # 只能编辑自己创建的批量日程的全部 —— 或者说，批量来的日程不允许学生自己改？
     # 需求里没说不能改学生自己的批量日程。学生可以自己改被分配的日程。
@@ -320,12 +373,17 @@ def update_schedule(
         if update_data["start_time"] and update_data["end_time"]:
             _validate_times(update_data["start_time"], update_data["end_time"])
 
-    count = ss.update_schedule(db, schedule_id, student.id, update_data, scope, instance_date)
+    if share:
+        count = ss.update_shared(db, tpl, update_data, scope, instance_date)
+    else:
+        count = ss.update_schedule(
+            db, schedule_id, student.id, update_data, scope, instance_date
+        )
     if count == 0:
         raise HTTPException(status_code=404, detail="日程不存在")
 
     db.commit()
-    log_operation(db, user, f"编辑日程：{tpl.title}（{scope}）")
+    log_operation(db, user, f"编辑日程：{tpl.title}（{scope}{'，含他人' if share else ''}）")
 
     # 重新查模板（可能是新创建的那条）
     # 简化：重新查最近修改的那条
@@ -347,24 +405,34 @@ def delete_schedule(
     schedule_id: int,
     scope: str = Query(SCOPE_ALL, description="删除范围：single/forward/all"),
     instance_date: date = Query(..., description="实例日期"),
+    share: bool = Query(False, description="是否一并从其他学生的表里删掉（仅限分配者）"),
     student: Student = Depends(get_current_student),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """删除日程"""
+    """删除日程
+
+    share 为真时，同一条原始日程在其他学生表里的副本一起删。
+    """
     tpl = ss.get_template(db, schedule_id, student.id)
     if not tpl:
         raise HTTPException(status_code=404, detail="日程不存在")
 
     scope = _check_scope(scope)
+    if share:
+        _check_share(tpl, student.id)
+
     title = tpl.title
 
-    count = ss.delete_schedule(db, schedule_id, student.id, scope, instance_date)
+    if share:
+        count = ss.delete_shared(db, tpl, scope, instance_date)
+    else:
+        count = ss.delete_schedule(db, schedule_id, student.id, scope, instance_date)
     if count == 0:
         raise HTTPException(status_code=404, detail="日程不存在")
 
     db.commit()
-    log_operation(db, user, f"删除日程：{title}（{scope}）")
+    log_operation(db, user, f"删除日程：{title}（{scope}{'，含他人' if share else ''}）")
     return {"ok": True, "deleted": count}
 
 

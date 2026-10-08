@@ -674,8 +674,8 @@ def test_batch_list_and_delete(b):
     r = b.client.post("/api/schedules", json=data)
     assert r.status_code == 200
 
-    # 看批次列表 —— 上面是单条日程的批量创建，不会产生 schedule_batch 记录
-    # 只有导入才产生批次。所以这里用导入来测
+    # 看批次列表。上面那次批量创建其实也产生了批次（班委分支走的就是 create_batch），
+    # 这里另外导入一个是为了按名字认得出「撤销的是哪一个」
     xlsx_bytes = _make_schedule_xlsx()
     r = b.client.post(
         "/api/schedules/import/preview",
@@ -707,6 +707,306 @@ def test_batch_list_and_delete(b):
         "start_date": "2026-10-12", "end_date": "2026-10-18",
     })
     assert not any(it["title"] == "高等数学" for it in r.json())
+
+
+# ---------- 跨学生下发 ----------
+#
+# 班委建的多条日程，实现上是给每个学生各写一条（create_batch），同一条原始日程的
+# 副本共用 source_series_id。默认改/删只动自己那条；带上 share=true 才下发到其他人
+# 的表里 —— 这个能力只属于「当初把这条日程分配出去的人」。
+
+def _list(client, start="2026-10-12", end="2026-11-08"):
+    """某个客户端（某个学生）看到的一段日程"""
+    r = client.get("/api/schedules", params={"start_date": start, "end_date": end})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _items_of(items, title):
+    """按标题筛出实例，按日期排好——断言展开结果时用它比对着看"""
+    return sorted(
+        [(it["instance_date"], it["title"], it["share_count"]) for it in items
+         if it["title"].startswith(title)],
+    )
+
+
+def _student_ids(b):
+    r = b.client.get("/api/students", params={"page": 1, "page_size": 10})
+    return {s["student_no"]: s["id"] for s in r.json()["items"]}
+
+
+def test_share_count_in_list(b):
+    """列表里能看出这条日程发给了几个人；收件人看到的是 1"""
+    ids = _student_ids(b)
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="班会", target_student_ids=[ids[ROSTER[1][0]], ids[ROSTER[2][0]]]))
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="自己的", start="2026-10-14T08:00:00", end="2026-10-14T09:00:00"))
+
+    by = {it["title"]: it for it in _list(b.client)}
+    # 自己 + 乙 + 丙 = 3
+    assert by["班会"]["share_count"] == 3
+    assert by["自己的"]["share_count"] == 1
+
+    # 乙是收件人：没有资格再往下发，所以只算他自己那份
+    student2 = as_student(b, 1)
+    assert [it["share_count"] for it in _list(student2) if it["title"] == "班会"] == [1]
+
+
+def test_share_update_fans_out(b):
+    """建这条日程的人改标题，勾了「所有人的」就下发到乙丙的表里"""
+    ids = _student_ids(b)
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="班会", target_student_ids=[ids[ROSTER[1][0]], ids[ROSTER[2][0]]]))
+    sid = [it for it in _list(b.client) if it["title"] == "班会"][0]["id"]
+
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12", "share": True},
+        json={"title": "班会（改）", "scope": "all"},
+    )
+    assert r.status_code == 200, r.text
+
+    assert _items_of(_list(b.client), "班会") == [("2026-10-12", "班会（改）", 3)]
+    for idx in (1, 2):
+        assert _items_of(_list(as_student(b, idx)), "班会") == [
+            ("2026-10-12", "班会（改）", 1),
+        ]
+    # 三条都在库里（每人一条），不是只改了自己那条
+    assert b.rows("SELECT COUNT(*) FROM schedules WHERE title='班会（改）'")[0][0] == 3
+
+
+def test_update_without_share_keeps_others(b):
+    """不带 share 就只改自己那份——「也允许只改自己的」"""
+    ids = _student_ids(b)
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="班会", target_student_ids=[ids[ROSTER[1][0]], ids[ROSTER[2][0]]]))
+    sid = [it for it in _list(b.client) if it["title"] == "班会"][0]["id"]
+
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12"},
+        json={"title": "班会（只改我的）", "scope": "all"},
+    )
+    assert r.status_code == 200, r.text
+
+    assert _items_of(_list(b.client), "班会") == [("2026-10-12", "班会（只改我的）", 3)]
+    for idx in (1, 2):
+        assert _items_of(_list(as_student(b, idx)), "班会") == [("2026-10-12", "班会", 1)]
+
+
+def test_share_delete_fans_out(b):
+    """勾了「所有人的」删除，乙丙表里那条也一并没掉"""
+    ids = _student_ids(b)
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="班会", target_student_ids=[ids[ROSTER[1][0]], ids[ROSTER[2][0]]]))
+    sid = [it for it in _list(b.client) if it["title"] == "班会"][0]["id"]
+
+    r = b.client.delete(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12", "scope": "all", "share": True},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] == 3
+
+    for client in (b.client, as_student(b, 1), as_student(b, 2)):
+        assert not [it for it in _list(client) if it["title"] == "班会"]
+
+    # 对照组：不勾就只删自己那条
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="春游", target_student_ids=[ids[ROSTER[1][0]], ids[ROSTER[2][0]]]))
+    sid = [it for it in _list(b.client) if it["title"] == "春游"][0]["id"]
+    r = b.client.delete(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12", "scope": "all"},
+    )
+    assert r.json()["deleted"] == 1
+    assert not [it for it in _list(b.client) if it["title"] == "春游"]
+    assert [it for it in _list(as_student(b, 1)) if it["title"] == "春游"]
+
+
+def test_share_only_by_creator(b):
+    """收到的日程只能改自己那份：勾「所有人的」返回 403，不是静默降级"""
+    ids = _student_ids(b)
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="班会", target_student_ids=[ids[ROSTER[1][0]]]))
+    sid = [it for it in _list(b.client) if it["title"] == "班会"][0]["id"]
+
+    # 乙点开的是**自己那条**（库里每人一行，ID 各不同）
+    student2 = as_student(b, 1)
+    own = [it for it in _list(student2) if it["title"] == "班会"][0]["id"]
+
+    r = student2.put(
+        f"/api/schedules/item/{own}",
+        params={"instance_date": "2026-10-12", "share": True},
+        json={"title": "乙偷改全班", "scope": "all"},
+    )
+    assert r.status_code == 403, r.text
+    # 报错之前不能已经动过库（哪怕只动了他自己那条）
+    assert b.rows("SELECT COUNT(*) FROM schedules WHERE title='乙偷改全班'")[0][0] == 0
+    assert _items_of(_list(b.client), "班会") == [("2026-10-12", "班会", 2)]
+
+    # 不勾就随便改，只动自己那条
+    r = student2.put(
+        f"/api/schedules/item/{own}",
+        params={"instance_date": "2026-10-12"},
+        json={"title": "班会（乙改的）", "scope": "all"},
+    )
+    assert r.status_code == 200, r.text
+    assert _items_of(_list(b.client), "班会") == [("2026-10-12", "班会", 2)]
+    assert _items_of(_list(student2), "班会") == [("2026-10-12", "班会（乙改的）", 1)]
+
+
+def test_import_share_fans_out(b):
+    """导入的课表也能下发，且只命中同一条原始日程，不波及同批次别的课"""
+    xlsx_bytes = _make_schedule_xlsx()
+    r = b.client.post(
+        "/api/schedules/import/preview",
+        files={"file": ("课表.xlsx", xlsx_bytes,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    r = b.client.post("/api/schedules/import", json={
+        "token": r.json()["token"], "batch_name": "秋季课表",
+        "target_all": True, "target_student_ids": [], "selected_indices": [],
+    })
+    assert r.status_code == 200, r.text
+
+    # 高数两周两块，是**两条**互不相干的日程（同批次、同标题、不同日期）
+    mine = _items_of(_list(b.client), "高等数学")
+    assert mine == [("2026-10-12", "高等数学", 3), ("2026-10-19", "高等数学", 3)]
+    sid = [it for it in _list(b.client)
+           if it["title"] == "高等数学" and it["instance_date"] == "2026-10-12"][0]["id"]
+
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12", "share": True},
+        json={"title": "高等数学（改）", "scope": "all"},
+    )
+    assert r.status_code == 200, r.text
+
+    for idx in (1, 2):
+        # 10-12 那天跟着变了；10-19 那条纹丝不动
+        assert _items_of(_list(as_student(b, idx)), "高等数学") == [
+            ("2026-10-12", "高等数学（改）", 1),
+            ("2026-10-19", "高等数学", 1),
+        ]
+    # 三人各两条高数：10-12 那三条都改了名，剩下三条是 10-19 的
+    assert b.rows("SELECT COUNT(*) FROM schedules WHERE title='高等数学'")[0][0] == 3
+    assert b.rows("SELECT COUNT(*) FROM schedules WHERE title='高等数学（改）'")[0][0] == 3
+
+
+def test_share_skips_drifted_copy(b):
+    """别人自己把某一次删掉了，下发不能把他的日程静默改没
+
+    乙先自己删掉 10-26 那一次 —— 他那条模板当场被拆成两段。甲再用
+    「本次及以后」下发时，乙那两段其实都不包含 10-26，必须整个跳过：
+    硬套的话，后半段（11-02）会被截到 10-25 截止，展开成空区间，
+    在乙的页面上等于那次日程凭空消失。
+    """
+    ids = _student_ids(b)
+    data = _make_schedule(
+        title="班会", start="2026-10-12T08:00:00", end="2026-10-12T09:00:00",
+        repeat_type="weekly", repeat_end_date="2026-11-02",
+        target_student_ids=[ids[ROSTER[1][0]], ids[ROSTER[2][0]]],
+    )
+    assert b.client.post("/api/schedules", json=data).status_code == 200
+
+    # 乙自己删掉中间那次（10-26）
+    student2 = as_student(b, 1)
+    sid = [it for it in _list(student2) if it["title"] == "班会"][0]["id"]
+    r = student2.delete(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-26", "scope": "single"},
+    )
+    assert r.status_code == 200, r.text
+    assert [d for d, _, _ in _items_of(_list(student2), "班会")] == [
+        "2026-10-12", "2026-10-19", "2026-11-02",
+    ]
+    assert b.rows("SELECT COUNT(*) FROM schedules WHERE title='班会' AND student_id=?",
+                  ids[ROSTER[1][0]])[0][0] == 2  # 被拆成两段
+
+    # 甲用「本次及以后」下发 10-26 起的那一段
+    sid = [it for it in _list(b.client)
+           if it["title"] == "班会" and it["instance_date"] == "2026-10-26"][0]["id"]
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-26", "share": True},
+        json={"title": "班会（改）", "scope": "forward"},
+    )
+    assert r.status_code == 200, r.text
+
+    # 丙正常收到：10-26 和 11-02 变成新标题
+    assert _items_of(_list(as_student(b, 2)), "班会") == [
+        ("2026-10-12", "班会", 1),
+        ("2026-10-19", "班会", 1),
+        ("2026-10-26", "班会（改）", 1),
+        ("2026-11-02", "班会（改）", 1),
+    ]
+    # 乙那两段都没被动过：还是两行、11-02 那次还在、标题还是旧的
+    assert b.rows("SELECT COUNT(*) FROM schedules WHERE title LIKE '班会%' AND student_id=?",
+                  ids[ROSTER[1][0]])[0][0] == 2
+    assert _items_of(_list(student2), "班会") == [
+        ("2026-10-12", "班会", 1),
+        ("2026-10-19", "班会", 1),
+        ("2026-11-02", "班会", 1),
+    ]
+
+
+def test_share_multi_day_all_day(b):
+    """跨天的全天事件是「一天一条」，每天各自能下发；新增的天沿用原来那批人"""
+    ids = _student_ids(b)
+    targets = [ids[ROSTER[1][0]], ids[ROSTER[2][0]]]
+    # 前端的 saveAllDay 就是一天一次请求，这里照做
+    for day in ("2026-10-12", "2026-10-13", "2026-10-14"):
+        r = b.client.post("/api/schedules", json=_make_schedule(
+            title="运动会", start=f"{day}T00:00:00", end=f"{day}T23:59:00",
+            all_day=True, target_student_ids=targets,
+        ))
+        assert r.status_code == 200, r.text
+
+    student2 = as_student(b, 1)
+    assert [d for d, _, _ in _items_of(_list(student2), "运动会")] == [
+        "2026-10-12", "2026-10-13", "2026-10-14",
+    ]
+
+    # 改中间那天：只有那天跟着变，首尾两天不受影响
+    sid = [it for it in _list(b.client)
+           if it["title"] == "运动会" and it["instance_date"] == "2026-10-13"][0]["id"]
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-13", "share": True},
+        json={"title": "运动会（改）", "scope": "all"},
+    )
+    assert r.status_code == 200, r.text
+    assert [t for _, t, _ in _items_of(_list(student2), "运动会")] == [
+        "运动会", "运动会（改）", "运动会",
+    ]
+
+    # 往后拖一天：新加的那天得发给原来那批人（share_from 沿用分组），
+    # 不然「3 天改成 4 天」之后，第 4 天只有甲自己有
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="运动会", start="2026-10-15T00:00:00", end="2026-10-15T23:59:00",
+        all_day=True, share_from=sid,
+    ))
+    assert r.status_code == 200, r.text
+    assert [d for d, _, _ in _items_of(_list(student2), "运动会")] == [
+        "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15",
+    ]
+
+    # share_from 指向自己收来的（不是自己分配的）日程时不认账，只建给自己 ——
+    # 不然班委之间互相传个日程 ID 就能往别人表里塞东西。
+    # 得先把乙提成班委，否则被「不是班委」这一层挡住，测不到这个判断
+    r = b.client.put(f"/api/admin/users/{ROSTER[1][0]}/role", json={"role": "committee"})
+    assert r.status_code == 200, r.text
+    committee2 = as_student(b, 1)
+    received = [it for it in _list(committee2) if it["title"] == "运动会"][0]
+    r = committee2.post("/api/schedules", json=_make_schedule(
+        title="乙私自加的", start="2026-10-16T00:00:00", end="2026-10-16T23:59:00",
+        all_day=True, share_from=received["id"],
+    ))
+    assert r.status_code == 200, r.text
+    assert [it["title"] for it in _list(committee2) if it["title"] == "乙私自加的"]
+    assert not [it for it in _list(b.client) if it["title"] == "乙私自加的"]
 
 
 # ---------- 查询范围限制 ----------

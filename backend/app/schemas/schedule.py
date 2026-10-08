@@ -38,6 +38,11 @@ class ScheduleCreate(ScheduleBase):
     target_student_ids: list[int] = Field(
         default_factory=list, description="目标学生 ID 列表（班委用，target_all=false 时生效）",
     )
+    # 沿用某条日程的分组：目标学生取自它，不用再传一遍名单。
+    # 用于「编辑全天事件时新增的天数」——原来发给谁，新的一天就发给谁
+    share_from: Optional[int] = Field(
+        None, description="沿用这条日程当初的目标学生（班委用）",
+    )
 
 
 class ScheduleUpdate(BaseModel):
@@ -84,6 +89,9 @@ class ScheduleResponse(BaseModel):
     notify_minutes_before: int = 10
     source_type: str = "personal"
     source_batch_id: Optional[int] = None
+    # 这条日程现在在几个学生的表里。>1 才说明是自己分配出去、可以选「改谁的表」；
+    # 个人日程、以及别人发给自己的那份都是 1
+    share_count: int = 1
     # 本次实例是重复序列中的第几个实例日期（用于 scope=single/forward 判断）
     instance_date: date
 
