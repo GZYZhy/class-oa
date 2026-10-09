@@ -524,12 +524,6 @@ async def update_student_api(
                 if p.exists():
                     removed_files.append(p)
 
-        # 把附件写入 fields，让 update_student 一起更新
-        fields["remark_attachments"] = (
-            json.dumps(final_attachments, ensure_ascii=False) if final_attachments else ""
-        )
-        before["remark_attachments"] = current.remark_attachments
-
     updated = update_student(db, student_id, student, allowed_fields=allowed)
     if not updated:
         # 回滚新附件文件
@@ -550,13 +544,28 @@ async def update_student_api(
             attach_changed = True
 
     # 前端保存时整个表单都会提交上来，所以不能照单全收 —— 这里只留真正变了的字段，
-    # 详情长成「备注：无 → 走读」。一个字段都没变就不记，省得日志里全是空动作
+    # 详情长成「备注：无 → 走读」。一个字段都没变就不记，省得日志里全是空动作。
+    # 注意：remark_attachments 不能放进 fields 里 —— 它是 JSON 字符串，直接 dump 进
+    # describe_changes 会把整串 JSON 塞进日志（又长又含内部 UUID 存盘名），附件变化
+    # 由下面那段人话描述单独记。
     detail = describe_changes(before, fields)
-    # 附件数量变化也加到日志里
+    # 附件变化也加到日志里：只说数量和文件名，不说内部存盘名 / 文件大小
     if attach_changed:
-        old_count = len(_parse_remark_attachments(current))
-        new_count = len(final_attachments) if final_attachments else 0
-        attach_part = f"备注附件：{old_count} 个 → {new_count} 个"
+        old_items = _parse_remark_attachments(current)
+        new_items = final_attachments or []
+        old_names = {a.get("name", "") for a in old_items}
+        new_names = {a.get("name", "") for a in new_items}
+        added = sorted(new_names - old_names)
+        removed = sorted(old_names - new_names)
+        parts = []
+        if added:
+            parts.append("新增 " + "、".join(added))
+        if removed:
+            parts.append("删除 " + "、".join(removed))
+        attach_part = (
+            f"备注附件：{len(old_items)} 个 → {len(new_items)} 个"
+            + (f"（{'; '.join(parts)}）" if parts else "")
+        )
         detail = detail + ("；" if detail else "") + attach_part
 
     if detail:
