@@ -535,8 +535,13 @@ async def update_student_api(
         raise HTTPException(status_code=404, detail="学生不存在")
 
     # 附件变更单独写库：remark_attachments 不在 StudentUpdate schema 里，
-    # update_student 不会碰它，所以手动 setattr 再 commit 一次
+    # update_student 不会碰它，所以手动 setattr 再 commit 一次。
+    #
+    # 注意：先把旧附件快照存下来再改 updated，因为 current 和 updated 是同一个
+    # session 里的同一条记录（SQLAlchemy identity map），setattr 会把 current 也
+    # 改掉 —— 后读 current.remark_attachments 拿到的就是新值，日志就变成 1→1 了。
     attach_changed = False
+    old_attach_items = _parse_remark_attachments(current)
     if final_attachments is not None:
         new_value = json.dumps(final_attachments, ensure_ascii=False) if final_attachments else ""
         if (current.remark_attachments or "") != new_value:
@@ -551,7 +556,7 @@ async def update_student_api(
     detail = describe_changes(before, fields)
     # 附件变化也加到日志里：只说数量和文件名，不说内部存盘名 / 文件大小
     if attach_changed:
-        old_items = _parse_remark_attachments(current)
+        old_items = old_attach_items
         new_items = final_attachments or []
         old_names = {a.get("name", "") for a in old_items}
         new_names = {a.get("name", "") for a in new_items}
