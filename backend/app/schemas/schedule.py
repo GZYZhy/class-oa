@@ -147,6 +147,13 @@ class ScheduleImportPreviewResponse(BaseModel):
     """导入预览响应"""
     token: str = Field(..., description="预览令牌，确认导入时用")
     week_count: int = Field(0, description="识别到的周数（sheet 数）")
+    week_first: int = Field(0, description="文件里最小的周次，锚点指的就是这一周")
+    week_last: int = Field(0, description="文件里最大的周次")
+    anchor_monday: Optional[date] = Field(
+        None,
+        description="本次解析用的周次锚点（最小周次那一周的周一）。为空说明还没定"
+                    "（表头也读不出日期），页面得先让用户选，日期才算得出来",
+    )
     schedule_count: int = Field(0, description="识别出的日程块数")
     all_day_count: int = Field(0, description="全天事件数")
     items: list[ScheduleImportPreviewItem] = Field(default_factory=list)
@@ -188,10 +195,29 @@ class ScheduleBatchResponse(BaseModel):
 
 # ---------- 学期信息 ----------
 
+class SemesterPeriod(BaseModel):
+    """一个学期的周次范围（一次课表导入 = 一个区间）
+
+    week_start 是编号基准（第 1 周的周一，由导入时确认的周次锚点推算），
+    first_day / last_day 是这份课表**实际覆盖到**的第一天和最后一天。
+
+    两者不一定重合：只导入「第 8–10 周」的补课表时，基准在 7 周之前，但区间收在
+    第 8–10 周里 —— 锚点不该把没覆盖到的周也算成本次的周次。
+    """
+    week_start: date = Field(..., description="编号基准：第 1 周的周一")
+    first_day: date = Field(..., description="覆盖到的第一天")
+    last_day: date = Field(..., description="覆盖到的最后一天，即最后一课所在周的周日")
+
+
 class SemesterInfoResponse(BaseModel):
-    """学期信息（页面上的「第几周」按它算）"""
-    week_start: Optional[date] = Field(
-        None, description="学期第 1 周的周一；一条日程都没有时为空",
+    """学期信息（页面上的「第几周」按它算）
+
+    **是一个列表**：一次课表导入产生一个区间，下学期再导入一份新课表又是另一个
+    区间、另一个「第 1 周」。页面只在区间的覆盖范围内编号，范围外（寒暑假、还没
+    导入的学期）不显示周次。一条日程都没有时为空列表。
+    """
+    periods: list[SemesterPeriod] = Field(
+        default_factory=list, description="各学期的周次范围，按开始日期排序",
     )
 
 

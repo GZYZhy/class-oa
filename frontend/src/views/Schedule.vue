@@ -305,7 +305,8 @@
           <div class="el-upload__text">将 .xlsx 文件拖到此处，或<em>点击上传</em></div>
           <template #tip>
             <div class="el-upload__tip">
-              支持 10 分钟粒度的周课表格式（多 sheet，每周一张），20MB 以内
+              支持 10 分钟粒度的周课表格式（多 sheet，每周一张），20MB 以内。<br />
+              下一步会让你指认表里最小那一周的周一是哪天（周次锚点），日期按它推算
             </div>
           </template>
         </el-upload>
@@ -313,6 +314,23 @@
 
       <!-- 步骤 2：确认 -->
       <div v-else-if="importStep === 1" class="import-step" v-loading="importLoading">
+        <div class="import-anchor">
+          <span class="import-anchor-label">周次锚点</span>
+          <el-date-picker
+            v-model="importAnchor"
+            type="date"
+            size="small"
+            value-format="YYYY-MM-DD"
+            placeholder="选一个周一"
+            :disabled-date="notMonday"
+            :clearable="false"
+            @change="runImportPreview"
+          />
+          <span class="import-anchor-hint">
+            文件里最小是<b>第 {{ importPreview.week_first }} 周</b>，请指认它的周一是哪天
+            —— 所有日程的日期和「第几周」都由它推算，表头日期只作参考
+          </span>
+        </div>
         <div class="import-summary">
           识别到 <b>{{ importPreview.week_count }}</b> 周、
           <b>{{ importPreview.schedule_count }}</b> 条日程、
@@ -341,8 +359,11 @@
         >
           <el-table-column type="selection" width="40" />
           <el-table-column prop="title" label="标题" min-width="160" />
-          <el-table-column label="星期" width="60">
-            <template #default="{ row }">{{ weekdayLabel(row.weekday) }}</template>
+          <el-table-column label="日期" width="110">
+            <template #default="{ row }">
+              <span v-if="row.start_date">{{ row.start_date }} 周{{ weekdayLabel(row.weekday) }}</span>
+              <span v-else>—</span>
+            </template>
           </el-table-column>
           <el-table-column label="时间" width="130">
             <template #default="{ row }">
@@ -387,7 +408,7 @@
           v-if="importStep < 2"
           type="primary"
           @click="importNextStep"
-          :disabled="importStep === 0 && !importFile"
+          :disabled="(importStep === 0 && !importFile) || (importStep === 1 && !importAnchor)"
           :loading="importLoading"
         >
           下一步
@@ -545,33 +566,43 @@ const weekLabel = computed(() => {
   return `${start.month}月${start.day}日 - ${end.month}月${end.day}日`
 })
 
-// 学期第 1 周的周一，由后端给（课表导入时按表名「第N周」折算出来的）。
+// 各学期的周次范围，由后端给（导入时按用户确认的周次锚点推出来的）。
 // 千万别在前端按「9 月 1 日所在周」自己估：估出来比表名早两周，
 // 表名「第4周」的课在页面上会显示成第 6 周（踩过一次）。
-const semesterFirstMonday = ref(null)
+// 是好几个区间：下学期再导入一份新课表，又是一个新的「第 1 周」
+const semesterPeriods = ref([])
+
+// 手动拼日期：new Date('2026-09-14') 是按 UTC 解析的，换个时区就差一天
+function parseDay(s) {
+  const [y, m, d] = s.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
 
 async function loadSemesterInfo() {
   try {
     const data = await getSemesterInfo()
-    if (!data.week_start) {
-      semesterFirstMonday.value = null
-      return
-    }
-    // 手动拼日期：new Date('2026-09-14') 是按 UTC 解析的，换个时区就差一天
-    const [y, m, d] = data.week_start.split('-').map(Number)
-    semesterFirstMonday.value = new Date(y, m - 1, d)
+    // base = 编号基准（第 1 周的周一）；first/last = 这份课表实际覆盖到的范围。
+    // 两者不是一回事：补课表可能只覆盖第 8–10 周，基准却在 7 周之前
+    semesterPeriods.value = (data.periods || []).map((p) => ({
+      base: parseDay(p.week_start),
+      first: parseDay(p.first_day),
+      last: parseDay(p.last_day)
+    }))
   } catch (e) {
     // 拿不到只是不显示周次，别影响看日程
-    semesterFirstMonday.value = null
+    semesterPeriods.value = []
   }
 }
 
 const weekOfSemester = computed(() => {
-  if (!semesterFirstMonday.value) return null
-  const diffDays = Math.round((currentMonday.value - semesterFirstMonday.value) / 86400000)
-  const week = Math.floor(diffDays / 7) + 1
-  // 学期外的周（寒暑假）不显示，免得冒出「第 -3 周」
-  return week >= 1 ? week : null
+  const monday = currentMonday.value
+  for (const p of semesterPeriods.value) {
+    // 只在课表覆盖到的周里编号：课表只有 16 周，翻到次年 5 月不该冒出「第 35 周」
+    // （覆盖范围外、以及范围开始之前，都不显示，顺带也挡住了「第 -3 周」）
+    if (monday < p.first || monday > p.last) continue
+    return Math.floor(Math.round((monday - p.base) / 86400000) / 7) + 1
+  }
+  return null
 })
 
 function prevWeek() {
@@ -1114,12 +1145,25 @@ const filteredStudents = computed(() => {
 })
 
 // ---------- 导入 ----------
+
+// 预览的空壳。写成函数：两个地方（ref 初值、关弹窗复位）各要一份独立的，
+// 共用一个对象字面量的话改了这个那个也跟着变
+function EMPTY_IMPORT_PREVIEW() {
+  return {
+    items: [], week_count: 0, week_first: 0, week_last: 0, anchor_monday: null,
+    schedule_count: 0, all_day_count: 0, warnings: [],
+  }
+}
+
 const importDialog = ref({ open: false })
 const importStep = ref(0)
 const importFile = ref(null)
 const importLoading = ref(false)
 const importSubmitting = ref(false)
-const importPreview = ref({ items: [], week_count: 0, schedule_count: 0, all_day_count: 0, warnings: [] })
+const importPreview = ref(EMPTY_IMPORT_PREVIEW())
+// 周次锚点：文件里最小周次（第 week_first 周）那一周的周一，'YYYY-MM-DD'。
+// 所有日程的日期和编号基准都由它推算 —— 表头里的日期不带年份，只能当建议值
+const importAnchor = ref(null)
 const importToken = ref('')
 const importSelectedIndices = ref([])
 // 用户有没有手动动过预览表的勾选。没动过 = 全选（空数组就是全选），
@@ -1148,6 +1192,8 @@ const importFilteredStudents = computed(() => {
 
 function handleImportFile(file) {
   importFile.value = file
+  // 换文件就把锚点清掉：上一个文件的「第 8 周周一」跟这份没关系，留着会算错日期
+  importAnchor.value = null
 }
 
 // 关掉导入弹窗就把它整个复位。不复位的话 el-upload 内部那份文件列表还留着
@@ -1156,35 +1202,48 @@ function handleImportFile(file) {
 function resetImport() {
   importStep.value = 0
   importFile.value = null
-  importPreview.value = { items: [], week_count: 0, schedule_count: 0, all_day_count: 0, warnings: [] }
+  importPreview.value = EMPTY_IMPORT_PREVIEW()
+  importAnchor.value = null
   importToken.value = ''
   importSelectedIndices.value = []
   importSelectedStudents.value = []
   importTouched.value = false
 }
 
+// 拿同一份文件重新解析一遍。用户改了周次锚点后要重来：所有日期都是按它算的
+async function runImportPreview() {
+  importLoading.value = true
+  try {
+    const data = await apiImportPreview(importFile.value.raw, importAnchor.value)
+    importPreview.value = data
+    // 后端回什么就是什么：没指定锚点时会按表头猜一个建议值带回来，猜不出是 null
+    importAnchor.value = data.anchor_monday || null
+    importToken.value = data.token
+    // 默认全选：selectedIndices 为空就是全选（后端也是这个口径）
+    importSelectedIndices.value = []
+    importTouched.value = false
+  } catch (e) {
+    // request.js 的拦截器只打 console，不接住的话这里就是「点了下一步没反应」
+    ElMessage.error(errText(e, '解析文件失败'))
+  } finally {
+    importLoading.value = false
+  }
+}
+
 async function importNextStep() {
   if (importStep.value === 0) {
     // 上传 → 预览
-    importLoading.value = true
-    try {
-      const data = await apiImportPreview(importFile.value.raw)
-      importPreview.value = data
-      importToken.value = data.token
-      importStep.value = 1
-      // 默认全选：selectedIndices 为空就是全选（后端也是这个口径）
-      importSelectedIndices.value = []
-      importTouched.value = false
-    } catch (e) {
-      // request.js 的拦截器只打 console，不接住的话这里就是「点了下一步没反应」
-      ElMessage.error(errText(e, '解析文件失败'))
-    } finally {
-      importLoading.value = false
-    }
+    await runImportPreview()
+    importStep.value = 1
   } else if (importStep.value === 1) {
     // 预览 → 目标
     importStep.value = 2
   }
+}
+
+// 日期选择器只让选周一：锚点按定义就是某一周的周一，选了别的后端也只能归到那周的周一
+function notMonday(d) {
+  return d.getDay() !== 1
 }
 
 function handleImportSelect(selection) {
@@ -1622,6 +1681,30 @@ async function handleResetToken() {
 /* 导入 */
 .import-step {
   min-height: 200px;
+}
+
+.import-anchor {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+}
+
+.import-anchor-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.import-anchor-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+  flex: 1;
+  min-width: 200px;
 }
 
 .import-summary {

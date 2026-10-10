@@ -432,7 +432,9 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
 })`,
     `schedules.value = ${JSON.stringify(rows)}
     currentMonday.value = new Date(2026, 9, 5)
-    semesterFirstMonday.value = new Date(2026, 8, 14)`
+    semesterPeriods.value = [{
+      base: new Date(2026, 8, 14), first: new Date(2026, 8, 14), last: new Date(2027, 0, 3)
+    }]`
   )
   // 按类名分词数，别拿全串 count()：all-day-date 里含 day-date、
   // cal-events-overlay 里含 cal-event，都会多算（踩过）。
@@ -475,10 +477,32 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
   check(html.includes('>10.05<') && html.includes('>10.11<'), '表头日期是 mm.dd（10.05 / 10.11）')
   check(!html.includes('/2026-'), '没有「10/2026-10-08」那种拼接')
 
-  // 周次跟后端给的基准走
+  // 周次跟后端给的区间走
   check(html.includes('10月5日 - 11日'), '本周区间念得出来')
   check(html.includes('（第4周）'), '这一周是第 4 周 —— 跟表名走，不是前端按 9 月估的')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+
+  // 区间外不编号。课表只覆盖到 2027-01-03（16 周），翻到次年 5 月还按
+  // 「距基准几周」算就会冒出「第 35 周」—— 用户报的就是这一条。
+  // 负对照的另一半：区间**内**必须照常有（上面那条「（第4周）」）
+  const far = await renderPatched(
+    '/src/views/Schedule.vue',
+    `onMounted(() => {
+  loadSchedules()
+  loadSemesterInfo()
+  if (userStore.isCommittee) {
+    loadStudents()
+  }
+  clockTimer = setInterval(() => { now.value = new Date() }, 30000)
+})`,
+    `schedules.value = []
+    currentMonday.value = new Date(2027, 4, 3)
+    semesterPeriods.value = [{
+      base: new Date(2026, 8, 14), first: new Date(2026, 8, 14), last: new Date(2027, 0, 3)
+    }]`
+  )
+  check(far.html.includes('5月3日 - 9日'), '翻到次年 5 月，日期区间照常念')
+  check(!far.html.includes('（第'), '课表覆盖不到的周不编号（不再冒出「第 35 周」）')
 }
 
 
@@ -613,7 +637,13 @@ console.log('\n▶ 系统管理：日程批次面板')
 })`, BATCHES)
 
   check(html.includes('秋季课表') && html.includes('运动会安排'), '两条批次名都渲出来了')
-  check(html.includes('>36<') && html.includes('>42<'), '目标人数 / 日程数各自成列')
+  check(html.includes('>36<') && html.includes('>42<'), '目标人数 / 每人日程数各自成列')
+  // 合计 = 目标人数 × 每人日程数（36×42=1512、3×2=6）。少了这一列，36 人的
+  // 生日批次显示成「36 / 4」看着就像只有 4 条（用户报的就是这个）
+  check(html.includes('>1512<') && html.includes('>6<'), '「合计」列把总量算出来了')
+  const panelSrc = readFileSync(`${ROOT}src/components/ScheduleBatchPanel.vue`, 'utf-8')
+  check(panelSrc.includes('label="每人日程数"') && !panelSrc.includes('label="日程数"'),
+    '「日程数」改叫「每人日程数」—— 它是每人几条，不是这一批一共几条')
   check(html.split(/撤销(?:<!--\]-->)?<\/span>/).length - 1 === 2, '两行各有一个「撤销」按钮')
   check(html.includes('撤销一个批次'), '说明写清了撤销的后果')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
@@ -708,7 +738,7 @@ console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没�
   check(/isMultiDayBar\.value\)\s*\{/.test(src), '跨天的条关掉「全天」时整条一起转')
 
   // 请求失败不能是「点了没反应」：request.js 的拦截器只打 console
-  for (const fn of ['importNextStep', 'handleImportConfirm']) {
+  for (const fn of ['runImportPreview', 'handleImportConfirm']) {
     const body = src.slice(src.indexOf(`function ${fn}`) || src.indexOf(`async function ${fn}`))
     check(/catch \(e\)/.test(body.slice(0, 1600)), `${fn} 接住了失败并给了提示`)
   }
@@ -759,6 +789,57 @@ console.log('\n▶ 我的日程：窄屏不把 7 天挤扁，今天默认居中'
     '模板上的滚动容器 = 居中逻辑用的那个 ref')
   check((src.match(/nextTick\(centerToday\)/g) || []).length === 2,
     '居中接在「首次加载完」和「点今天」两处')
+}
+
+console.log('\n▶ 我的日程：导入的周次锚点')
+{
+  // 导入弹窗的正文在 el-dialog 里，得盖个会渲染正文的桩；预览表和「下一步」
+  // 也一样（footer 由桩一起渲染出来）。
+  // 灌的是「文件里最小是第 8 周、锚点已定在 11/02」这一档 —— 日期列要能核对锚点
+  const MARKER = 'const importForm = ref({'
+  const openWith = (extra = '') => `importDialog.value = { open: true }
+  importStep.value = 1
+  importPreview.value = {
+    items: [{
+      title: '高等数学', weekday: 1, start_date: '2026-11-02',
+      start_time: '08:00', end_time: '09:50',
+      all_day: false, repeat_type: 'none', location: '教学楼C101',
+    }],
+    week_count: 3, week_first: 8, week_last: 10, anchor_monday: '2026-11-02',
+    schedule_count: 1, all_day_count: 0, warnings: [],
+  }
+  ${extra}
+${MARKER}`
+
+  const { html, warns } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    openWith(), { ElDialog: ElDialogStub })
+
+  check(html.includes('周次锚点'), '确认这一步摆着「周次锚点」')
+  check(html.includes('最小是') && html.includes('第 8 周'),
+    '提示里带上文件里最小的周次（第 8 周），用户才知道该指认哪一周')
+  check(html.includes('由它推算'), '说明了所有日期都由锚点推算')
+  check(html.includes('2026-11-02 周一'),
+    '日程表按日期列核对：锚点选错时日期一眼就能看出来（原来只显示「周一」）')
+  check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)),
+    '没有未解析的组件/指令')
+  check(html.includes('el-date-editor'), '锚点是个日期选择器')
+
+  // 负对照：弹窗没打开时上面这些一个字都不该有，否则「压根没渲染」也能假通过
+  const { html: closed } = await render('/src/views/Schedule.vue', { ElDialog: ElDialogStub })
+  check(!closed.includes('周次锚点') && !closed.includes('2026-11-02 周一'),
+    '负对照：弹窗没打开时不出现')
+
+  // 锚点没定下来就不让往下走：日期全靠它算，空着进了「选择目标」等于导出一堆错日期
+  const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
+  check(src.includes('importStep === 1 && !importAnchor'),
+    '锚点为空时「下一步」是灰的')
+  check(/@change="runImportPreview"/.test(src),
+    '改锚点拿同一份文件重新解析（日期全部重算）')
+  check(/:disabled-date="notMonday"/.test(src),
+    '只让选周一 —— 锚点按定义就是某一周的周一')
+  check(/if \(anchorMonday\) formData\.append\('anchor_monday', anchorMonday\)/.test(
+    readFileSync(`${ROOT}src/api/schedule.js`, 'utf-8')),
+    '锚点以表单字段发给后端')
 }
 
 console.log('\n▶ 通知公告：RSS 订阅（需要登录）')

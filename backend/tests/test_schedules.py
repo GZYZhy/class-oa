@@ -7,6 +7,7 @@ cd backend && python -m pytest tests/test_schedules.py -q
 import re
 from io import BytesIO
 from datetime import date, datetime, time
+from typing import Optional
 
 import httpx
 import openpyxl
@@ -577,28 +578,39 @@ def test_regular_student_cannot_batch(b):
 
 # ---------- 导入解析 ----------
 
-def _make_schedule_xlsx() -> bytes:
-    """造一份简单的周课表 xlsx（两周）"""
+def _make_schedule_xlsx(
+    first_monday: date = date(2026, 10, 12),
+    weeks: int = 2,
+    first_week_no: int = 1,
+    date_in_header: bool = True,
+) -> bytes:
+    """造一份简单的周课表 xlsx（默认两周）
+
+    first_monday 是**第 first_week_no 周**那个 sheet 的周一，换掉它就能造出另一份
+    课表（另一学期）—— 用来验「新的一份 Excel 重新从第 1 周编号」。
+    weeks / first_week_no 用来造补课表那种「只含第 8–10 周」的文件；
+    date_in_header=False 造一份表头没写日期的（只剩「周一」），用来验「猜不出锚点，
+    得等用户选」。
+    """
     wb = openpyxl.Workbook()
 
-    for week_idx in range(2):
-        sheet_name = f"第{week_idx + 1}周"
+    for week_idx in range(weeks):
+        sheet_name = f"第{week_idx + first_week_no}周"
         if week_idx == 0:
             ws = wb.active
             ws.title = sheet_name
         else:
             ws = wb.create_sheet(sheet_name)
 
-        # 起始周一日期（10/12 是周一）
-        monday = date(2026, 10, 12) + __import__('datetime').timedelta(weeks=week_idx)
+        monday = first_monday + __import__('datetime').timedelta(weeks=week_idx)
         weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
         # 表头
         ws.cell(row=1, column=1, value="时间")
         for i in range(7):
             d = monday + __import__('datetime').timedelta(days=i)
-            ws.cell(row=1, column=i + 2,
-                    value=f"{d.month}/{d.day} {weekdays[i]}")
+            value = f"{d.month}/{d.day} {weekdays[i]}" if date_in_header else weekdays[i]
+            ws.cell(row=1, column=i + 2, value=value)
 
         # 时间列（07:00 - 21:50，10 分钟一行 = 90 行）
         for row in range(90):
@@ -904,24 +916,37 @@ def test_ical_long_line_folded(b):
 def test_ical_repeat_dtstart_matches_page(b):
     """单双周：订阅里的 DTSTART 是页面上第一次出现的日子，不是模板里那个开始日
 
-    奇偶按学期周次算（week_start 是导入时写进去的）。用户把开始日填在了相反的一周时，
+    奇偶按学期周次算（周次号来自导入时确认的锚点）。用户把开始日填在了相反的一周时，
     页面从下一次才出现；iCal 若直接拿模板开始日当 DTSTART，整条订阅会错开一周。
     """
+    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    # 先导入一份只含第 8–10 周的补课表（锚点 = 第 8 周周一 10/26）：
+    # 学期第 1 周周一被推为 2026-09-07，区间覆盖 10/26–11/15
+    r = b.client.post(
+        "/api/schedules/import/preview",
+        files={"file": ("补课表.xlsx", _make_schedule_xlsx(date(2026, 10, 26), weeks=3, first_week_no=8), mime)},
+    )
+    assert r.status_code == 200, r.text
+    r = b.client.post("/api/schedules/import", json={
+        "token": r.json()["token"], "batch_name": "补课表",
+        "target_all": True, "target_student_ids": [], "selected_indices": [],
+    })
+    assert r.status_code == 200, r.text
+
     r = b.client.post("/api/schedules", json=_make_schedule(
         title="单双周课", start="2026-10-27T08:00:00", end="2026-10-27T09:00:00"))
     sid = r.json()["id"]
-    # 学期第 1 周周一 = 2026-09-07；10/27 落在第 8 周（双周），而这条是单周课
+    # 10/27 落在第 8 周（双周），而这条是单周课
     b.run(
-        "UPDATE schedules SET repeat_type='odd_week', repeat_end_date='2026-12-31', "
-        "week_start='2026-09-07' WHERE id=?",
+        "UPDATE schedules SET repeat_type='odd_week', repeat_end_date='2026-12-31' WHERE id=?",
         sid,
     )
 
     r = b.client.get("/api/schedules", params={
         "start_date": "2026-10-26", "end_date": "2026-11-08",
     })
-    first_on_page = r.json()[0]["instance_date"]
-    assert first_on_page == "2026-11-03"   # 第 9 周（单周）的周二
+    dates = [it["instance_date"] for it in r.json() if it["title"] == "单双周课"]
+    assert dates == ["2026-11-03"]   # 第 9 周（单周）的周二
 
     text = _ical_text(b)
     assert "DTSTART:20261103T080000" in text, text
@@ -1404,34 +1429,75 @@ def test_repeat_without_end_rejected(b):
 
 
 def test_odd_week_expansion_honors_week_start(b):
-    """单双周展开以持久化的 week_start 为基准，而非开始日期所在周
+    """单双周展开以学期区间的编号基准为准，而非开始日期所在周
 
-    这里直接构造模板：week_start=2026-09-01（第1周·单），
-    日程 start=2026-09-08（第2周·双），repeat_type=even_week。
+    直接构造模板和区间：基准 2026-08-31（第 1 周·单），
+    日程 start=2026-09-08（第 2 周·双），repeat_type=even_week。
     基准生效的话 09-08 本身就该是「双周」并出现；
     若退化到「以 start 所在周为第1周」，09-08 会被当成第1周·单而被跳过。
     """
-    from app.services.schedule_service import _next_occurrence
+    from app.services.schedule_service import Period, _next_occurrence
     from app.models.schedule import REPEAT_EVEN_WEEK
     from app.models import Schedule
 
+    periods = [Period(
+        week_start=date(2026, 8, 31),       # 第 1 周
+        first_day=date(2026, 8, 31),
+        last_day=date(2026, 9, 27),         # 覆盖到第 4 周周日
+    )]
     tpl = Schedule(
         student_id=1, title="双周课", location="", description="",
         start_time=datetime(2026, 9, 8, 9, 0),
         end_time=datetime(2026, 9, 8, 10, 0),
         repeat_type=REPEAT_EVEN_WEEK,
         repeat_end_date=date(2026, 9, 30),
-        week_start=date(2026, 9, 1),  # 第1周周一，单周
         notify_enabled=False, notify_minutes_before=10,
         source_type="personal",
     )
-    assert _next_occurrence(tpl, date(2026, 9, 8)) == date(2026, 9, 8)
+    assert _next_occurrence(tpl, date(2026, 9, 8), periods) == date(2026, 9, 8)
     # 下一个偶数周（第4周）
-    assert _next_occurrence(tpl, date(2026, 9, 9)) == date(2026, 9, 22)
+    assert _next_occurrence(tpl, date(2026, 9, 9), periods) == date(2026, 9, 22)
+
+
+def test_odd_week_skips_weeks_without_a_number(b):
+    """没有周次号的周：单双周日程一律不出现（严格按周次号的奇偶）
+
+    课表只覆盖到第 2 周，而日程的重复结束日远在那之后 —— 第 3 周及以后没有周次号，
+    既不是单周也不是双周，整周跳过，不会一路按奇偶排下去。
+    """
+    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    r = b.client.post(
+        "/api/schedules/import/preview",
+        files={"file": ("课表.xlsx", _make_schedule_xlsx(date(2026, 10, 12)), mime)},
+    )
+    assert r.status_code == 200, r.text
+    r = b.client.post("/api/schedules/import", json={
+        "token": r.json()["token"], "batch_name": "课表",
+        "target_all": True, "target_student_ids": [], "selected_indices": [],
+    })
+    assert r.status_code == 200, r.text
+
+    # 周二的单周课：第 1 周（单）出现；第 3 周之后没有周次号，一条都不该有
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="单周选修", start="2026-10-13T08:00:00", end="2026-10-13T09:00:00"))
+    b.run(
+        "UPDATE schedules SET repeat_type='odd_week', repeat_end_date='2026-11-30' WHERE id=?",
+        r.json()["id"],
+    )
+
+    r = b.client.get("/api/schedules", params={
+        "start_date": "2026-10-12", "end_date": "2026-11-30",
+    })
+    dates = [it["instance_date"] for it in r.json() if it["title"] == "单周选修"]
+    assert dates == ["2026-10-13"]   # 只有第 1 周有周次号
 
 
 def test_manual_odd_week_fallback_consistent(b):
-    """手动创建单双周（没有 week_start）时，以开始日期所在周为第1周，自洽不崩"""
+    """没导入过课表时，手动建的单双周以开始日期所在周为第 1 周，覆盖到重复结束日
+
+    一条 week_start 都没有 → 学期区间退回「按现有日程的跨度兜一个」。这个跨度必须
+    算到 repeat_end_date，否则区间只有一周宽，第二次以后的重复全落在区间外。
+    """
     data = _make_schedule(
         title="双周值班",
         start="2026-10-12T08:00:00",  # 被当作第1周（单）
@@ -1479,14 +1545,48 @@ def test_semester_week_follows_sheet_name(b):
     # 两个 sheet 折算出的基准必须一致，并且都落到了日程上
     assert b.rows("SELECT DISTINCT week_start FROM schedules") == [("2026-10-12",)]
 
-    # 接口把基准交回前端（页面上的「第几周」按它算）
+    # 接口把周次范围交回前端（页面上的「第几周」按它算）。
+    # first_day/last_day = 这份课表实际覆盖到的那几周，上界 = 第 2 周周日 10/25 ——
+    # 再往后的周就不编号了，不会一路算到「第 35 周」
     info = b.client.get("/api/schedules/semester")
     assert info.status_code == 200, info.text
-    assert info.json()["week_start"] == "2026-10-12"
+    assert info.json()["periods"] == [
+        {"week_start": "2026-10-12", "first_day": "2026-10-12", "last_day": "2026-10-25"},
+    ]
+
+
+def test_semester_periods_allow_a_new_term_to_restart(b):
+    """一份课表一个区间：下学期再导入一份新课表，又是一个新的「第 1 周」
+
+    区间是「按 week_start 分组、取这组课表覆盖到的头尾」推出来的，所以两份课表
+    各是各的，页面按当前这周落在哪个区间挑周次，区间之外（寒暑假）不编号。
+    """
+    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    for name, first_monday in (("上学期", date(2026, 10, 12)), ("下学期", date(2027, 3, 1))):
+        r = b.client.post(
+            "/api/schedules/import/preview",
+            files={"file": (f"{name}.xlsx", _make_schedule_xlsx(first_monday), mime)},
+        )
+        assert r.status_code == 200, r.text
+        r = b.client.post("/api/schedules/import", json={
+            "token": r.json()["token"],
+            "batch_name": name,
+            "target_all": True,
+            "target_student_ids": [],
+            "selected_indices": [],
+        })
+        assert r.status_code == 200, r.text
+
+    info = b.client.get("/api/schedules/semester")
+    assert info.status_code == 200, info.text
+    assert info.json()["periods"] == [
+        {"week_start": "2026-10-12", "first_day": "2026-10-12", "last_day": "2026-10-25"},
+        {"week_start": "2027-03-01", "first_day": "2027-03-01", "last_day": "2027-03-14"},
+    ]
 
 
 def test_semester_info_falls_back_to_earliest_schedule(b):
-    """没写过 week_start 的老数据：退回最早那条日程所在周的周一
+    """没写过 week_start 的老数据：退回按现有日程的跨度给一个区间
 
     升级前导入的课表没有这一列，不能让周次因此整个消失。
     """
@@ -1498,11 +1598,117 @@ def test_semester_info_falls_back_to_earliest_schedule(b):
 
     info = b.client.get("/api/schedules/semester")
     assert info.status_code == 200, info.text
-    assert info.json()["week_start"] == "2026-10-12"   # 10/15 是周四，所在周周一
+    assert info.json()["periods"] == [
+        # 10/15 是周四 → 所属周周一是 10/12、周日是 10/18
+        {"week_start": "2026-10-12", "first_day": "2026-10-12", "last_day": "2026-10-18"},
+    ]
 
 
 def test_semester_info_empty_without_schedules(b):
     """一条日程都没有时返回空 —— 前端就不显示周次，而不是硬估一个错的"""
     info = b.client.get("/api/schedules/semester")
     assert info.status_code == 200, info.text
-    assert info.json()["week_start"] is None
+    assert info.json()["periods"] == []
+
+
+# ---------- 导入的周次锚点 ----------
+
+_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _preview(b, filename: str, xlsx: bytes, anchor: Optional[str] = None):
+    """调一次导入预览（anchor 传字符串日期就是用户指定锚点）"""
+    files = {"file": (filename, xlsx, _MIME)}
+    data = {"anchor_monday": anchor} if anchor else None
+    return b.client.post("/api/schedules/import/preview", files=files, data=data)
+
+
+def test_import_anchor_overrides_header(b):
+    """用户指定的锚点优先 —— 表头日期只是建议值
+
+    文件是要求「第 8–10 周怎么办」时那张补课表：表头写的是 10/26 起，
+    但用户指认第 8 周的周一其实是 11/02，整份表就该整体往后挪一周，
+    编号基准（week_start）也跟着变。
+    """
+    xlsx = _make_schedule_xlsx(date(2026, 10, 26), weeks=3, first_week_no=8)
+
+    # 不给锚点：按表头猜，第 8 周 = 10/26
+    r = _preview(b, "补课表.xlsx", xlsx)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["week_first"] == 8 and data["week_last"] == 10
+    assert data["anchor_monday"] == "2026-10-26"
+    assert [it["start_date"] for it in data["items"] if "高等数学" in it["title"]] == [
+        "2026-10-26", "2026-11-02", "2026-11-09",
+    ]
+
+    # 用户改成 11/02：所有日期整体挪一周，并提醒表头和锚点对不上
+    r = _preview(b, "补课表.xlsx", xlsx, anchor="2026-11-02")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["anchor_monday"] == "2026-11-02"
+    assert [it["start_date"] for it in data["items"] if "高等数学" in it["title"]] == [
+        "2026-11-02", "2026-11-09", "2026-11-16",
+    ]
+    assert any("表头写的是 2026-10-26" in w for w in data["warnings"]), data["warnings"]
+
+
+def test_import_anchor_shifts_week_start(b):
+    """锚点决定编号基准：补课表只覆盖第 8–10 周，第 1 周由锚点往回推
+
+    week_start（页面上的「第几周」靠它算）要用 11/02 倒推 7 周 = 09/14，
+    而不是表头那套 09/07 —— 锚点说了算。
+    """
+    xlsx = _make_schedule_xlsx(date(2026, 10, 26), weeks=3, first_week_no=8)
+    r = _preview(b, "补课表.xlsx", xlsx, anchor="2026-11-02")
+    assert r.status_code == 200, r.text
+    token = r.json()["token"]
+    r = b.client.post("/api/schedules/import", json={
+        "token": token, "batch_name": "补课表",
+        "target_all": True, "target_student_ids": [], "selected_indices": [],
+    })
+    assert r.status_code == 200, r.text
+
+    assert b.rows("SELECT DISTINCT week_start FROM schedules") == [("2026-09-14",)]
+    # 区间只收在这份表覆盖到的那几周里：11/02（第 8 周）~ 11/22（第 10 周周日）
+    info = b.client.get("/api/schedules/semester").json()["periods"]
+    assert info == [
+        {"week_start": "2026-09-14", "first_day": "2026-11-02", "last_day": "2026-11-22"},
+    ]
+
+
+def test_import_headerless_needs_an_anchor(b):
+    """表头没写日期时猜不出锚点：先一条都不解析，等用户指认后再解析
+
+    猜不出硬按「今年」算会把整份课表落到错的日子上，宁可不解析 ——
+    响应里带 week_first，页面照着问「第 8 周的周一是哪天」。
+    """
+    xlsx = _make_schedule_xlsx(date(2026, 10, 26), weeks=3, first_week_no=8,
+                               date_in_header=False)
+
+    r = _preview(b, "补课表.xlsx", xlsx)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["week_first"] == 8
+    assert data["anchor_monday"] is None
+    assert data["items"] == []
+    assert any("请先指定第 8 周的周一" in w for w in data["warnings"]), data["warnings"]
+
+    # 用户指认第 8 周的周一 = 10/26，日期就出来了
+    r = _preview(b, "补课表.xlsx", xlsx, anchor="2026-10-26")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["anchor_monday"] == "2026-10-26"
+    assert [it["start_date"] for it in data["items"] if "高等数学" in it["title"]] == [
+        "2026-10-26", "2026-11-02", "2026-11-09",
+    ]
+
+
+def test_import_anchor_not_monday_snaps_back(b):
+    """锚点不是周一：归到它所在周的周一，并说一声（页面上只让选周一，接口不管）"""
+    r = _preview(b, "课表.xlsx", _make_schedule_xlsx(), anchor="2026-10-14")  # 周三
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["anchor_monday"] == "2026-10-12"
+    assert any("不是周一" in w for w in data["warnings"]), data["warnings"]
+    assert any(it["start_date"] == "2026-10-12" for it in data["items"])
