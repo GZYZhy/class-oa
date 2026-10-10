@@ -880,6 +880,60 @@ def _ical_text(b) -> str:
     return r.text
 
 
+def _ical_events(text: str) -> list[dict]:
+    """把正文拆成 VEVENT 列表，每个只留测试要看的那几行
+
+    先把续行摊平 —— _fold 会给超 75 字节的行加续行，标题/备注长一点就会被拆开。
+    键取「行首到分号为止」：DTSTART;VALUE=DATE:20260131 要能读成 DTSTART
+    """
+    lines: list[str] = []
+    for line in text.split("\r\n"):
+        if line.startswith(" ") and lines:
+            lines[-1] += line[1:]
+        else:
+            lines.append(line)
+
+    events: list[dict] = []
+    cur: Optional[dict] = None
+    for line in lines:
+        if line == "BEGIN:VEVENT":
+            cur = {}
+        elif line == "END:VEVENT":
+            if cur is not None:
+                events.append(cur)
+            cur = None
+        elif cur is not None and ":" in line:
+            key, value = line.split(":", 1)
+            cur[key.split(";")[0]] = value
+    return events
+
+
+def _ical_dates(text: str) -> dict[str, list[str]]:
+    """正文里「标题 → 发生日（YYYY-MM-DD）」的映射
+
+    只认每个 VEVENT 的 DTSTART 那天（测试里的日程都不跨天）。带 RRULE 的事件在
+    这里只算 DTSTART 一条 —— 要验「和网页完全一样」就不能有 RRULE，见
+    test_ical_dates_match_page 里的断言。
+    """
+    out: dict[str, list[str]] = {}
+    for ev in _ical_events(text):
+        raw = ev.get("DTSTART", "")
+        out.setdefault(ev.get("SUMMARY", ""), []).append(
+            f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"
+        )
+    return out
+
+
+def _page_dates(b, start: str, end: str) -> dict[str, list[str]]:
+    """页面上「标题 → 发生日」的映射（走接口，页面拿的就是它）"""
+    r = b.client.get("/api/schedules", params={"start_date": start, "end_date": end})
+    assert r.status_code == 200, r.text
+    out: dict[str, list[str]] = {}
+    for it in r.json():
+        out.setdefault(it["title"], []).append(it["instance_date"])
+    return out
+
+
 def test_ical_event_shape(b):
     """iCal 正文的几处格式：备注换行不被二次转义、行不超 75 字节、DTSTAMP 是 UTC"""
     b.client.post("/api/schedules", json=_make_schedule(
@@ -914,14 +968,11 @@ def test_ical_long_line_folded(b):
 
 
 def test_ical_repeat_dtstart_matches_page(b):
-    """单双周：订阅里的 DTSTART 是页面上第一次出现的日子，不是模板里那个开始日
+    """单双周：订阅里的日子就是页面上那些日子（逐次展开出来的）
 
     奇偶按学期周次算（周次号来自导入时确认的锚点，写在这条日程的 week_start 上）。
-    用户把开始日填在了相反的一周时，页面从下一次才出现；iCal 若直接拿模板开始日
-    当 DTSTART，整条订阅会错开一周。
-
-    手动建的日程（没有 week_start）不走这条规则 —— 它以**自己的开始周**为第 1 周，
-    见 _periods_for。所以这里照 1.10.5 之前那样显式写上课表的基准。
+    用户把开始日填在了相反的一周时，页面从下一次才出现 —— 订阅也得一样：
+    不能拿模板开始日当种子往外发。
     """
     mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     # 先导入一份只含第 8–10 周的补课表（锚点 = 第 8 周周一 10/26）：
@@ -954,33 +1005,181 @@ def test_ical_repeat_dtstart_matches_page(b):
     assert dates == ["2026-11-03"]   # 第 9 周（单周）的周二
 
     text = _ical_text(b)
-    assert "DTSTART:20261103T080000" in text, text
+    # 第 10 周（11/09–11/15）是双周、第 11 周起没有周次号，都只有这一次
+    assert _ical_dates(text)["单双周课"] == ["2026-11-03"], text
+    assert "DTSTART:20261103T080000" in text
     assert "DTEND:20261103T090000" in text
-    # UNTIL 与 DTSTART 同为浮动本地时间（给浮动时间配 Z 的 UNTIL 不合 RFC5545）
-    assert "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU;UNTIL=20261231T090000" in text, text
+    assert "RRULE" not in text
+    # 只发生一次 → UID 沿用不带日期的那种（不给订阅端制造无谓的「删了再加」）
+    assert f"UID:schedule-{sid}@class-oa" in text
 
 
 def test_ical_monthly_last_day(b):
-    """每月 31 号：页面那边没有 31 号的月份取月末，iCal 得用 BYMONTHDAY=-1 才对得上"""
-    r = b.client.post("/api/schedules", json=_make_schedule(
-        title="月末总结", start="2026-01-31T08:00:00", end="2026-01-31T09:00:00"))
-    b.run(
-        "UPDATE schedules SET repeat_type='monthly', repeat_end_date='2026-04-30' WHERE id=?",
-        r.json()["id"],
-    )
+    """每月重复：页面那边没有那一天的月份取月末，订阅得逐次展开成同样的日子
+
+    BYMONTHDAY 只能写死一个数，表达不了「2 月落到 28」这种逐月变化。老代码只给
+    31 号用了 -1，填 30 号时 2 月在订阅里会整个消失（网页上明明是 2/28）。
+    """
+    def add(title, start, end):
+        r = b.client.post("/api/schedules", json=_make_schedule(
+            title=title, start=start, end=end,
+            repeat_type="monthly", repeat_end_date="2026-04-30"))
+        assert r.status_code == 200, r.text
+
+    add("月末总结", "2026-01-31T08:00:00", "2026-01-31T09:00:00")   # 31 号
+    add("月中年终", "2026-01-30T08:00:00", "2026-01-30T09:00:00")   # 30 号：2 月该落到 28
+
     text = _ical_text(b)
-    assert "BYMONTHDAY=-1" in text, text
-    # 全天事件的 UNTIL 是 DATE（DTSTART 也是 DATE）
+    ical = _ical_dates(text)
+    page = _page_dates(b, "2026-01-30", "2026-04-30")
+    assert sorted(ical["月末总结"]) == sorted(page["月末总结"]) == [
+        "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30"]
+    assert sorted(ical["月中年终"]) == sorted(page["月中年终"]) == [
+        "2026-01-30", "2026-02-28", "2026-03-30", "2026-04-30"]
+    # 展开出来的事件不该再带重复规则（否则客户端会自己长出一堆网页上没有的日子）
+    assert "RRULE" not in text
+    assert "BYMONTHDAY" not in text
+
+    # 全天事件也一样：DTSTART 是 DATE，每个发生日一条，DTEND 是第二天（半开区间）
     b.client.post("/api/schedules", json=_make_schedule(
-        title="月末假", start="2026-01-31T00:00:00", end="2026-01-31T23:59:00", all_day=True))
-    r2 = b.client.get("/api/schedules", params={"start_date": "2026-01-26", "end_date": "2026-02-01"})
-    b.run(
-        "UPDATE schedules SET repeat_type='monthly', repeat_end_date='2026-04-30' WHERE id=?",
-        [it for it in r2.json() if it["title"] == "月末假"][0]["id"],
-    )
+        title="月末假", start="2026-01-31T00:00:00", end="2026-01-31T23:59:00",
+        all_day=True, repeat_type="monthly", repeat_end_date="2026-04-30"))
     text = _ical_text(b)
+    assert sorted(_ical_dates(text)["月末假"]) == [
+        "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30"]
     assert "DTSTART;VALUE=DATE:20260131" in text
-    assert "UNTIL=20260430" in text, text
+    assert "DTEND;VALUE=DATE:20260201" in text
+
+
+def test_ical_dates_match_page(b):
+    """订阅里的每一天都和网页一致（单次 / 单周 / 双周 / 每月 31 / 每月 30）
+
+    日期集合直接比对接口返回的 instance_date。这五条都该是逐次展开出来的独立
+    事件，正文里一条 RRULE 都不该有 —— 有 RRULE 的话客户端会自己多长出一堆
+    网页上没有的日子，只比 DTSTART 集合是看不出来的。
+    """
+    def add(title, start, end, **kw):
+        r = b.client.post("/api/schedules", json=_make_schedule(
+            title=title, start=start, end=end, **kw))
+        assert r.status_code == 200, r.text
+
+    add("单次", "2026-01-05T08:00:00", "2026-01-05T09:00:00")
+    # 没导过课表：单双周以各自的开始周为第 1 周（见 _periods_for）
+    add("单周", "2026-01-05T09:00:00", "2026-01-05T10:00:00",
+        repeat_type="odd_week", repeat_end_date="2026-02-15")
+    add("双周", "2026-01-05T10:00:00", "2026-01-05T11:00:00",
+        repeat_type="even_week", repeat_end_date="2026-02-15")
+    add("月卅一", "2026-01-31T11:00:00", "2026-01-31T12:00:00",
+        repeat_type="monthly", repeat_end_date="2026-03-31")
+    add("月卅", "2026-01-30T12:00:00", "2026-01-30T13:00:00",
+        repeat_type="monthly", repeat_end_date="2026-03-31")
+
+    text = _ical_text(b)
+    assert "RRULE" not in text, "这五条都不该走 RRULE"
+    ical = _ical_dates(text)
+    page = _page_dates(b, "2026-01-01", "2026-04-01")
+
+    assert set(ical) == set(page) == {"单次", "单周", "双周", "月卅一", "月卅"}
+    for title, days in page.items():
+        assert sorted(ical[title]) == sorted(days), title
+
+    # 同一模板展开成多条时 UID 加了日期，正文里不该有重复的 UID
+    uids = [ev["UID"] for ev in _ical_events(text)]
+    assert len(set(uids)) == len(uids)
+
+
+def test_ical_weekly_still_uses_rrule(b):
+    """每周重复仍是一个 VEVENT + RRULE（它和网页「每 7 天一次」逐日等价，不必展开）"""
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="每周例会", start="2026-10-12T19:00:00", end="2026-10-12T20:00:00",
+        repeat_type="weekly", repeat_end_date="2026-11-30"))
+    assert r.status_code == 200, r.text
+
+    text = _ical_text(b)
+    assert text.count("BEGIN:VEVENT") == 1
+    assert "DTSTART:20261012T190000" in text
+    # UNTIL 与 DTSTART 同为浮动本地时间（给浮动时间配 Z 的 UNTIL 不合 RFC5545）
+    assert "RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO;UNTIL=20261130T190000" in text, text
+
+    # 全天事件：DTSTART 和 UNTIL 都是 DATE
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="每周值日", start="2026-10-12T00:00:00", end="2026-10-12T23:59:00",
+        all_day=True, repeat_type="weekly", repeat_end_date="2026-11-30"))
+    text = _ical_text(b)
+    assert "DTSTART;VALUE=DATE:20261012" in text
+    assert "UNTIL=20261130" in text, text
+
+
+def test_ical_weekly_cross_day_until_uses_start_time(b):
+    """跨天的每周日程：UNTIL 用开始时刻，否则最后一天那次会被客户端丢掉
+
+    22:00–次日 1:00 这种日程，拿结束时刻（01:00）当 UNTIL 的话，
+    repeat_end_date 那天 22:00 的那一次落在 UNTIL 之后 —— 网页上有、手机上没有。
+    """
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="夜间值守", start="2026-10-12T22:00:00", end="2026-10-13T01:00:00",
+        repeat_type="weekly", repeat_end_date="2026-11-30"))
+    assert r.status_code == 200, r.text
+    text = _ical_text(b)
+    assert "RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO;UNTIL=20261130T220000" in text, text
+
+
+def test_ical_degenerate_weekly_writes_nothing(b):
+    """「删除本次及以后」删掉第一条之后：网页上没了，订阅里也得一条都不写
+
+    删除会把 repeat_end_date 设成开始日的前一天，于是这条日程一次都不发生。
+    RRULE 那条路表达不了「一次都没有」—— DTSTART 的那天按 RFC5545 永远算一次
+    发生，客户端照样会显示一条已经删掉的日程。
+    """
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="待删课", start="2026-10-12T08:00:00", end="2026-10-12T09:00:00",
+        repeat_type="weekly", repeat_end_date="2026-11-30"))
+    sid = r.json()["id"]
+    r = b.client.delete(f"/api/schedules/item/{sid}", params={
+        "instance_date": "2026-10-12", "scope": "forward",
+    })
+    assert r.status_code == 200, r.text
+
+    assert _page_dates(b, "2026-10-01", "2026-12-31").get("待删课") is None
+    text = _ical_text(b)
+    assert "待删课" not in text
+    assert f"schedule-{sid}" not in text
+
+
+def test_ical_odd_week_outside_coverage_is_absent(b):
+    """探针复现：覆盖范围外的单周日程，网页上没有，订阅里也必须没有
+
+    导入两周课表后手动建一条 11/16 起的单周日程 —— 它以**自己的开始周**为第 1 周
+    （见 _periods_for），而覆盖范围收在课表区间（10/12–10/25）里，11/16 那周没有
+    周次号，网页上一条都不出现。老代码 iCal 那边用「兜底成开始日」硬发了一条
+    DTSTART，学生手机上于是有网页上没有的日程。
+    """
+    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    r = b.client.post(
+        "/api/schedules/import/preview",
+        files={"file": ("课表.xlsx", _make_schedule_xlsx(date(2026, 10, 12)), mime)},
+    )
+    assert r.status_code == 200, r.text
+    r = b.client.post("/api/schedules/import", json={
+        "token": r.json()["token"], "batch_name": "课表",
+        "target_all": True, "target_student_ids": [], "selected_indices": [],
+    })
+    assert r.status_code == 200, r.text
+
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="下学期单周课", start="2026-11-16T19:00:00", end="2026-11-16T20:00:00",
+        repeat_type="odd_week", repeat_end_date="2026-12-31"))
+    assert r.status_code == 200, r.text
+    sid = r.json()["id"]
+
+    assert _page_dates(b, "2026-11-01", "2026-12-31").get("下学期单周课") is None
+
+    text = _ical_text(b)
+    assert "下学期单周课" not in text
+    assert "DTSTART:20261116T190000" not in text
+    # 连 UID 都不该出现：只查某个时刻的话，半对不半对的订阅还能蒙混过去
+    assert f"schedule-{sid}@class-oa" not in text
+    assert f"schedule-{sid}-" not in text
 
 
 def test_ical_bad_token_404(b):
@@ -1497,6 +1696,28 @@ def test_odd_week_skips_weeks_without_a_number(b):
     })
     dates = [it["instance_date"] for it in r.json() if it["title"] == "单周选修"]
     assert dates == ["2026-10-13"]   # 只有第 1 周有周次号
+
+    # 订阅那一半也得一样：只有这一条，且不带 RRULE（RRULE 没法表达「中间整周空掉」）
+    text = _ical_text(b)
+    assert _ical_dates(text)["单周选修"] == ["2026-10-13"], text
+    assert "RRULE" not in text
+
+
+def test_ical_single_schedule_ignores_stale_repeat_end_date(b):
+    """单次日程带着一个早于开始日的 repeat_end_date：两边都还得有这一条
+
+    接口不拦这种脏数据（repeat_type=none 时 repeat_end_date 没人管）。页面一直
+    是「单次日程不看它」的口径，订阅要是照 _next_occurrence 的写法（把它当结束日）
+    去展开，这条就会在订阅里凭空消失。
+    """
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="单次脏数据", start="2026-10-12T08:00:00", end="2026-10-12T09:00:00"))
+    sid = r.json()["id"]
+    b.run("UPDATE schedules SET repeat_end_date='2026-09-01' WHERE id=?", sid)
+
+    assert _page_dates(b, "2026-10-01", "2026-10-31")["单次脏数据"] == ["2026-10-12"]
+    text = _ical_text(b)
+    assert _ical_dates(text)["单次脏数据"] == ["2026-10-12"], text
 
 
 def test_manual_odd_week_without_week_start_counts_from_its_own_first_week(b):
