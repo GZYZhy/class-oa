@@ -791,6 +791,56 @@ console.log('\n▶ 我的日程：窄屏不把 7 天挤扁，今天默认居中'
     '居中接在「首次加载完」和「点今天」两处')
 }
 
+console.log('\n▶ 我的日程：「前往」跳到某一天')
+{
+  // 弹窗正文在 el-dialog 里，SSR 默认不渲染 —— 盖个会渲染正文的桩。
+  // 标记取整个两行声明块：只换第一行的话，后面那句 const goDate 会留下来撞名字
+  const MARKER = `const goDialog = ref({ open: false })
+const goDate = ref('')`
+  const openWith = (date, call = '') => `const goDialog = ref({ open: true })
+const goDate = ref('${date}')${call}`
+
+  // 跳完停在目标那一周：换周是靠 currentMonday，周标签跟着 weekDays 一起重算。
+  // 两个不同的日子各跳一次 —— 只跳一次的话，万一那天正好落在本周，断言会假通过
+  const { html: nov, warns } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    openWith('2026-11-05', '\ngoToDate()'), { ElDialog: ElDialogStub })
+  check(nov.includes('11月2日 - 8日'), '选 11-05（周四）→ 停在它那一周（11/02–11/08）')
+  check(nov.includes('11.05'), '目标那一天就在表里（列跟着一起翻过去了）')
+  check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)),
+    '没有未解析的组件/指令')
+
+  const { html: dec } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    openWith('2026-12-25', '\ngoToDate()'), { ElDialog: ElDialogStub })
+  check(dec.includes('12月21日 - 27日'), '换成 12-25 就停到 12/21–12/27 那一周（真在按日期跳）')
+  check(!dec.includes('11月2日 - 8日'), '不留下上一次跳的那一周')
+
+  // 负对照：没点「前往」时那两周一个都不该出现（今天在 10 月）
+  const { html: plain } = await render('/src/views/Schedule.vue', { ElDialog: ElDialogStub })
+  check(!plain.includes('11月2日 - 8日') && !plain.includes('12月21日 - 27日'),
+    '负对照：不点就不换周')
+
+  // 弹窗正文：默认填眼前的周一，正文里说清跳的是「那一天所在的那一周」
+  const { html: dialog } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    openWith('2026-11-05'), { ElDialog: ElDialogStub })
+  // el-dialog 的标题走 props（桩只渲染正文和 footer），所以标题只能断源码
+  check(dialog.includes('跳到这一天所在的那一周'), '正文说清跳的是那一天所在的那一周')
+  check(dialog.includes('el-date-editor'), '是个日期选择器')
+  check(!plain.includes('跳到这一天所在的那一周'), '负对照：弹窗没打开时不出现')
+
+  // 工具栏那个按钮（弹窗关着也看得见）
+  check(/<button\b[^>]*>(?:(?!<\/button>)[\s\S])*?前往/.test(plain), '工具栏上有「前往」按钮')
+
+  const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
+  check(/title="前往某一天"/.test(src), '弹窗标题是「前往某一天」')
+  check(/currentMonday\.value = getMonday\(d\)/.test(src), '换成所选日期那一周的周一')
+  check(/nextTick\(\(\) => centerDay\(goDate\.value\)\)/.test(src),
+    '跳完把目标那一列滚到中间')
+  check(/weekDays\.value\.findIndex\(d => d\.date === date\)/.test(src),
+    '居中按日期找列（不是只认「今天」那一列）')
+  check(/function centerToday\(\) \{\s*centerDay\(formatDate\(new Date\(\)\)\)/.test(src),
+    '「今天」居中走的还是同一条路，两处不会各算一套')
+}
+
 console.log('\n▶ 我的日程：导入的周次锚点')
 {
   // 导入弹窗的正文在 el-dialog 里，得盖个会渲染正文的桩；预览表和「下一步」
@@ -837,6 +887,12 @@ ${MARKER}`
     '改锚点拿同一份文件重新解析（日期全部重算）')
   check(/:disabled-date="notMonday"/.test(src),
     '只让选周一 —— 锚点按定义就是某一周的周一')
+  // 解析失败（后端 400）时不能往下走：会跳进一个「第 0 周、0 条」的空预览，
+  // 勾不了任何东西也回不去，用户只会以为文件读进去了
+  check(/if \(await runImportPreview\(\)\) importStep\.value = 1/.test(src),
+    '「下一步」看解析结果决定要不要进第 2 步')
+  check(/errText\(e, '解析文件失败'\)\)\s*return false/.test(src),
+    '解析失败返回 false（catch 里吞掉就永远不知道失败了）')
   check(/if \(anchorMonday\) formData\.append\('anchor_monday', anchorMonday\)/.test(
     readFileSync(`${ROOT}src/api/schedule.js`, 'utf-8')),
     '锚点以表单字段发给后端')

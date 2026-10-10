@@ -9,6 +9,7 @@
         </span>
         <el-button :icon="ArrowRight" circle @click="nextWeek" />
         <el-button size="small" @click="goToday">今天</el-button>
+        <el-button size="small" @click="openGoDialog">前往</el-button>
       </div>
       <div class="actions">
         <el-button v-if="userStore.isCommittee" @click="importDialog.open = true">
@@ -442,6 +443,24 @@
       </template>
     </el-dialog>
 
+    <!-- 翻周一次只挪一周，跨月找某天要点十几下，给个直接跳的入口 -->
+    <el-dialog v-model="goDialog.open" title="前往某一天" width="360px">
+      <el-date-picker
+        v-model="goDate"
+        type="date"
+        size="small"
+        value-format="YYYY-MM-DD"
+        placeholder="选择日期"
+        style="width: 100%"
+        :clearable="false"
+      />
+      <div class="go-tip">跳到这一天所在的那一周</div>
+      <template #footer>
+        <el-button size="small" @click="goDialog.open = false">取消</el-button>
+        <el-button type="primary" size="small" @click="goToDate">前往</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 订阅弹窗 -->
     <el-dialog v-model="subscribeDialog.open" title="日历订阅" width="520px">
       <div v-loading="subscribeLoading">
@@ -623,17 +642,42 @@ function goToday() {
   nextTick(centerToday)
 }
 
+// ---------- 前往某一天 ----------
+const goDialog = ref({ open: false })
+const goDate = ref('')
+
+function openGoDialog() {
+  // 默认填眼前这一周的周一：用户多半是在翻别的周，默认今天反而要再翻一次
+  goDate.value = weekDays.value[0]?.date || formatDate(new Date())
+  goDialog.value.open = true
+}
+
+function goToDate() {
+  const d = parseDay(goDate.value)
+  if (!d) return
+  goDialog.value.open = false
+  currentMonday.value = getMonday(d)
+  // 已经在那一周时上面这句不触发 watch、DOM 也不会重建；换个周则重建。
+  // 两种情况都等下一帧再滚：前者不滚就停在原来那一列，后者量不到新列宽
+  nextTick(() => centerDay(goDate.value))
+}
+
 // 窄屏上表格比屏幕宽（见 .calendar-grid 的 min-width），「今天」默认摆在正中间
 const calendarWrapper = ref(null)
 
-function centerToday() {
+// 把某一天那一列滚到正中间。不在当前这一周（含日期串不对）就不动滚动位置
+function centerDay(date) {
   const box = calendarWrapper.value
-  // 翻到别的周就没有 .today 了，那时不滚（保持用户自己滑到的位置）
-  const col = box?.querySelector('.cal-header .cal-day-col.today')
+  const idx = weekDays.value.findIndex(d => d.date === date)
+  const col = idx >= 0 ? box?.querySelectorAll('.cal-header .cal-day-col')[idx] : null
   if (!col) return
   box.scrollLeft = centerScrollLeft(
     col.offsetLeft, col.offsetWidth, box.clientWidth, box.scrollWidth - box.clientWidth
   )
+}
+
+function centerToday() {
+  centerDay(formatDate(new Date()))
 }
 
 function formatDate(d) {
@@ -1211,6 +1255,7 @@ function resetImport() {
 }
 
 // 拿同一份文件重新解析一遍。用户改了周次锚点后要重来：所有日期都是按它算的
+// 返回是否解析成功 —— 调用方（下一步）得看它决定要不要往下走
 async function runImportPreview() {
   importLoading.value = true
   try {
@@ -1222,9 +1267,11 @@ async function runImportPreview() {
     // 默认全选：selectedIndices 为空就是全选（后端也是这个口径）
     importSelectedIndices.value = []
     importTouched.value = false
+    return true
   } catch (e) {
     // request.js 的拦截器只打 console，不接住的话这里就是「点了下一步没反应」
     ElMessage.error(errText(e, '解析文件失败'))
+    return false
   } finally {
     importLoading.value = false
   }
@@ -1232,9 +1279,9 @@ async function runImportPreview() {
 
 async function importNextStep() {
   if (importStep.value === 0) {
-    // 上传 → 预览
-    await runImportPreview()
-    importStep.value = 1
+    // 上传 → 预览。解析失败就留在这一步：放行的话会跳进一个「第 0 周、0 条」的空预览，
+    // 用户以为文件读进去了，勾不了任何东西也回不去
+    if (await runImportPreview()) importStep.value = 1
   } else if (importStep.value === 1) {
     // 预览 → 目标
     importStep.value = 2
@@ -1780,5 +1827,12 @@ async function handleResetToken() {
 
 .subscribe-guide p {
   margin: 4px 0;
+}
+
+/* 「前往」弹窗里日期选择器下面那句说明 */
+.go-tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 8px;
 }
 </style>

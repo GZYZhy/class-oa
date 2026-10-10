@@ -86,8 +86,10 @@ class Schedule(Base):
     )
     repeat_end_date = Column(Date, nullable=True, comment="重复结束日期（含）；不重复则为 null")
     # 周次编号的基准：第 1 周的周一（导入课表时由用户确认的周次锚点推算写入）。
-    # 页面上的「第几周」和单双周的奇偶都以它为准，见 schedule_service.list_semester_periods。
-    # 手动建的日程为空 —— 那时由「现有日程的跨度」兜一个区间出来，同样自洽。
+    # 页面上的「第几周」以它为准，见 schedule_service.list_semester_periods。
+    # 手动建的日程为空 —— 这时单双周的奇偶改以**这条日程自己的开始周**为第 1 周
+    # （见 schedule_service._periods_for）：不能拿学生现有日程的跨度当基准，那个
+    # 基准因人而异，同一条共享出去的单双周日程会在各人日历上落到相反的周。
     week_start = Column(Date, nullable=True, comment="周次编号的基准：第 1 周的周一（导入课表时写入）")
 
     # 通知开关 —— 默认关闭，严格不默认通知

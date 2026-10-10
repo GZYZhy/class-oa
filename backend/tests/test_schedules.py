@@ -916,8 +916,12 @@ def test_ical_long_line_folded(b):
 def test_ical_repeat_dtstart_matches_page(b):
     """单双周：订阅里的 DTSTART 是页面上第一次出现的日子，不是模板里那个开始日
 
-    奇偶按学期周次算（周次号来自导入时确认的锚点）。用户把开始日填在了相反的一周时，
-    页面从下一次才出现；iCal 若直接拿模板开始日当 DTSTART，整条订阅会错开一周。
+    奇偶按学期周次算（周次号来自导入时确认的锚点，写在这条日程的 week_start 上）。
+    用户把开始日填在了相反的一周时，页面从下一次才出现；iCal 若直接拿模板开始日
+    当 DTSTART，整条订阅会错开一周。
+
+    手动建的日程（没有 week_start）不走这条规则 —— 它以**自己的开始周**为第 1 周，
+    见 _periods_for。所以这里照 1.10.5 之前那样显式写上课表的基准。
     """
     mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     # 先导入一份只含第 8–10 周的补课表（锚点 = 第 8 周周一 10/26）：
@@ -938,7 +942,8 @@ def test_ical_repeat_dtstart_matches_page(b):
     sid = r.json()["id"]
     # 10/27 落在第 8 周（双周），而这条是单周课
     b.run(
-        "UPDATE schedules SET repeat_type='odd_week', repeat_end_date='2026-12-31' WHERE id=?",
+        "UPDATE schedules SET repeat_type='odd_week', repeat_end_date='2026-12-31', "
+        "week_start='2026-09-07' WHERE id=?",
         sid,
     )
 
@@ -1429,7 +1434,7 @@ def test_repeat_without_end_rejected(b):
 
 
 def test_odd_week_expansion_honors_week_start(b):
-    """单双周展开以学期区间的编号基准为准，而非开始日期所在周
+    """带周次基准的日程（课表导入、带锚点下发）：以基准的周次号为准
 
     直接构造模板和区间：基准 2026-08-31（第 1 周·单），
     日程 start=2026-09-08（第 2 周·双），repeat_type=even_week。
@@ -1453,6 +1458,8 @@ def test_odd_week_expansion_honors_week_start(b):
         repeat_end_date=date(2026, 9, 30),
         notify_enabled=False, notify_minutes_before=10,
         source_type="personal",
+        # 导入课表时写下的编号基准（有它才按课表编号）
+        week_start=date(2026, 8, 31),
     )
     assert _next_occurrence(tpl, date(2026, 9, 8), periods) == date(2026, 9, 8)
     # 下一个偶数周（第4周）
@@ -1492,11 +1499,53 @@ def test_odd_week_skips_weeks_without_a_number(b):
     assert dates == ["2026-10-13"]   # 只有第 1 周有周次号
 
 
+def test_manual_odd_week_without_week_start_counts_from_its_own_first_week(b):
+    """手动建的单双周（没走课表导入）：以它自己的开始周为第 1 周
+
+    课表基准是 2026-08-31（第 1 周），于是 09-07 在课表里是第 2 周（双）；
+    这条日程却是从 09-07 起按单周重复的。留空 week_start 就得数它自己的第 1 周，
+    写上周次基准（导入/带锚点下发）才按课表编号 —— 两套口径各管各的，
+    否则同一条共享出去的单双周日程会在各人的表里落到相反的周（见 _periods_for）。
+    """
+    from app.services.schedule_service import Period, _next_occurrence
+    from app.models.schedule import REPEAT_ODD_WEEK
+    from app.models import Schedule
+
+    periods = [Period(
+        week_start=date(2026, 8, 31),   # 课表的第 1 周
+        first_day=date(2026, 8, 31),
+        last_day=date(2026, 10, 11),    # 覆盖到 10-11 那周的周日
+    )]
+
+    def make(**kw):
+        return Schedule(
+            student_id=1, title="值班", location="", description="",
+            start_time=datetime(2026, 9, 7, 9, 0),
+            end_time=datetime(2026, 9, 7, 10, 0),
+            repeat_type=REPEAT_ODD_WEEK,
+            repeat_end_date=date(2026, 10, 11),
+            notify_enabled=False, notify_minutes_before=10,
+            source_type="personal",
+            **kw,
+        )
+
+    tpl = make()   # week_start 留空 = 学生自己建的
+    # 09-07 是它自己的第 1 周（单）→ 出现（按课表编号是第 2 周·双，会被跳过）
+    assert _next_occurrence(tpl, date(2026, 9, 7), periods) == date(2026, 9, 7)
+    # 09-14 是它自己的第 2 周，跳过；下一个单周是 09-21
+    assert _next_occurrence(tpl, date(2026, 9, 8), periods) == date(2026, 9, 21)
+
+    # 写上课表给的基准，就按课表编号：09-07 是第 2 周（双），跳过，第一次是 09-14
+    tpl.week_start = date(2026, 8, 31)
+    assert _next_occurrence(tpl, date(2026, 9, 7), periods) == date(2026, 9, 14)
+
+
 def test_manual_odd_week_fallback_consistent(b):
-    """没导入过课表时，手动建的单双周以开始日期所在周为第 1 周，覆盖到重复结束日
+    """没导入过课表时，手动建的单双周覆盖到重复结束日为止
 
     一条 week_start 都没有 → 学期区间退回「按现有日程的跨度兜一个」。这个跨度必须
     算到 repeat_end_date，否则区间只有一周宽，第二次以后的重复全落在区间外。
+    （编号基准不看这个跨度，见 _periods_for。）
     """
     data = _make_schedule(
         title="双周值班",
@@ -1516,6 +1565,83 @@ def test_manual_odd_week_fallback_consistent(b):
     dates = [it["instance_date"] for it in items]
     assert "2026-10-12" not in dates
     assert "2026-10-19" in dates
+
+
+def test_shared_odd_week_agrees_across_students(b):
+    """同一条共享出去的单双周日程，在每个人表里落到同样的日子
+
+    回归：兜底区间一度是「该学生全部日程的跨度」，谁的表里多一条更早的日程，
+    编号基准就整体往前挪，奇偶跟着翻 —— 乙的表里整条日程会平移一周，而甲丙正常。
+    现在手动日程一律数它自己的第 1 周，与其他日程无关。
+    """
+    ids = _student_ids(b)
+    # 乙比甲多一条更早的日程：曾经正是它把乙的兜底基准往前拉了一周
+    as_student(b, 1).post("/api/schedules", json=_make_schedule(
+        title="乙的更早日程", start="2026-10-07T08:00:00", end="2026-10-07T09:00:00"))
+
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="单周值班",
+        start="2026-10-12T08:00:00", end="2026-10-12T09:00:00",
+        repeat_type="odd_week", repeat_end_date="2026-11-30",
+        target_student_ids=[ids[ROSTER[1][0]], ids[ROSTER[2][0]]],
+    ))
+    assert r.status_code == 200, r.text
+
+    # 甲：第 1 周（10-12 那周）起，单周各一次
+    mine = [d for d, _, _ in _items_of(_list(b.client, "2026-10-12", "2026-11-30"), "单周值班")]
+    assert mine == ["2026-10-12", "2026-10-26", "2026-11-09", "2026-11-23"]
+
+    # 乙、丙看到的必须一模一样（乙那条 10-07 的日程不该影响任何人的周次）
+    for idx in (1, 2):
+        theirs = [
+            d for d, _, _ in _items_of(
+                _list(as_student(b, idx), "2026-10-12", "2026-11-30"), "单周值班")
+        ]
+        assert theirs == mine
+
+
+def test_split_keeps_week_start(b):
+    """「只改本次 / 本次及以后」拆出来的新条目，得跟着留上周次基准
+
+    _to_instance 是拿模板的字段去 create_schedule 的，漏一项就丢一项：早期版本
+    漏了 week_start，拆完的条目没有编号基准，单双周改用它自己的开始周去数。
+    """
+    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    r = b.client.post(
+        "/api/schedules/import/preview",
+        files={"file": ("课表.xlsx", _make_schedule_xlsx(weeks=6), mime)},
+    )
+    assert r.status_code == 200, r.text
+    r = b.client.post("/api/schedules/import", json={
+        "token": r.json()["token"], "batch_name": "课表",
+        "target_all": True, "target_student_ids": [], "selected_indices": [],
+    })
+    assert r.status_code == 200, r.text
+
+    # 高数（周一那块）改成双周、英语（周三那块）改成单周，都按课表写下的编号
+    b.run("UPDATE schedules SET repeat_type='even_week', repeat_end_date='2026-11-30'"
+          " WHERE title LIKE '高等数学%' AND start_time LIKE '2026-10-12%'")
+    b.run("UPDATE schedules SET repeat_type='odd_week', repeat_end_date='2026-11-30'"
+          " WHERE title LIKE '大学英语%'")
+    math_id = b.rows("SELECT id FROM schedules WHERE title LIKE '高等数学%'"
+                     " AND start_time LIKE '2026-10-12%'")[0][0]
+    eng_id = b.rows("SELECT id FROM schedules WHERE title LIKE '大学英语%'")[0][0]
+
+    # 双周是 10-19 / 11-02 / 11-16：改掉 10-19 这一次 → 单次条目 + 后半段模板
+    r = b.client.put(f"/api/schedules/item/{math_id}",
+                     params={"instance_date": "2026-10-19", "share": False},
+                     json={"title": "高数（调课）", "scope": "single"})
+    assert r.status_code == 200, r.text
+    # 单周是 10-14 / 10-28 / 11-11：从 10-28 起改 → 后半段模板
+    r = b.client.put(f"/api/schedules/item/{eng_id}",
+                     params={"instance_date": "2026-10-28", "share": False},
+                     json={"title": "英语（改）", "scope": "forward"})
+    assert r.status_code == 200, r.text
+
+    assert b.rows("SELECT week_start FROM schedules WHERE title='高数（调课）'") == [
+        ("2026-10-12",)]
+    assert b.rows("SELECT week_start FROM schedules WHERE title='英语（改）'") == [
+        ("2026-10-12",)]
 
 
 # ---------- 周次（跟表名，不靠前端估算） ----------

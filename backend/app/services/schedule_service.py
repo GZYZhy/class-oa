@@ -84,8 +84,11 @@ def list_semester_periods(db: Session, student_id: int) -> list[Period]:
     覆盖范围取这批日程里最早那周的周一 ~ 最晚那周的周日。下学期再导入一份，就是
     又一个区间、又一个「第 1 周」。
 
-    **页面上的「第几周」和单双周的奇偶都以它为准**，所以 /semester 接口和日程展开
-    共用这一个函数，免得两处各算一套。一条日程都没有时返回 []。
+    **页面上的「第几周」以它为准**，所以 /semester 接口和日程展开共用这一个函数，
+    免得两处各算一套。一条日程都没有时返回 []。
+
+    单双周的奇偶还多一层：这里只提供**覆盖范围**，编号基准得看 _periods_for ——
+    没有 week_start 的日程不按这里的编号算，而是一律以它自己的开始周为第 1 周。
     """
     rows = (
         db.query(
@@ -141,6 +144,31 @@ def week_no_at(periods: list[Period], d: date) -> Optional[int]:
     return None
 
 
+def _periods_for(template: Schedule, periods: list[Period]) -> list[Period]:
+    """这条日程该按哪套区间算单双周的奇偶
+
+    有 week_start 的（课表导入、带锚点下发时写下的）直接用传进来的学期区间 ——
+    那是全班统一的周次编号，单周就该是课表上的单周。
+
+    没有的（手动建的）一律退回「以它自己的开始周为第 1 周」：**不能借学生现有日程
+    的跨度当编号基准**，那个基准因人而异（谁多一条更早的日程，奇偶就整个翻过来），
+    同一条共享出去的单双周日程会在各人日历上落到相反的周（踩过）。
+
+    覆盖范围仍然用传进来的区间，只把编号基准换掉：没有周次号的周单双周不出现
+    （见 week_no_at）。于是手动日程实际落在「自己的重复区间 ∩ 课表覆盖到的周」里；
+    没导过课表的人传进来的就是他自己日程的跨度兜出来的区间，范围更宽，不会漏。
+    """
+    if template.week_start:
+        return periods
+    start = template.start_time.date()
+    own_monday = start - timedelta(days=start.weekday())
+    if periods:
+        # 只借它们的覆盖范围，编号基准换成这条日程自己的开始周
+        return [Period(own_monday, p.first_day, p.last_day) for p in periods]
+    end = template.repeat_end_date or start
+    return [Period(own_monday, own_monday, _week_sunday(end))]
+
+
 def _next_occurrence(
     template: Schedule,
     from_date: date,
@@ -152,6 +180,7 @@ def _next_occurrence(
 
     periods：该学生的学期周次区间（见 list_semester_periods），单双周靠它拿周次号。
     **必须传**：没有周次号的周单双周一律不出现，漏传等于把单双周日程全藏了。
+    至于这条日程自己该用哪套编号，交给 _periods_for 定。
     """
     start_date = template.start_time.date()
     end_date = template.repeat_end_date or start_date
@@ -186,6 +215,7 @@ def _next_occurrence(
         # （见 week_no_at）：不在任何学期区间里的周没有周次号（None），既不算单周
         # 也不算双周，整周跳过 —— 课表只到第 16 周，第 35 周就不该冒出单周的课
         target_odd = template.repeat_type == REPEAT_ODD_WEEK
+        periods = _periods_for(template, periods)
         while cursor <= end_date:
             week_no = week_no_at(periods, cursor)
             if week_no is not None and (week_no % 2 == 1) == target_odd:
@@ -374,6 +404,10 @@ def _to_instance(tpl: Schedule, instance_date: date, share_count: int = 1) -> di
         "all_day": tpl.all_day,
         "repeat_type": tpl.repeat_type,
         "repeat_end_date": tpl.repeat_end_date,
+        # 周次基准要跟着走：「只改本次/本次及以后」是拿这份 dict 去 create_schedule 的，
+        # 漏了这一项，拆出来的新条目就丢了课表的编号基准，单双周会按自己的开始周重算，
+        # 和同组其他条目落到不同的周（踩过）
+        "week_start": tpl.week_start,
         "notify_enabled": tpl.notify_enabled,
         "notify_minutes_before": tpl.notify_minutes_before or 10,
         "source_type": tpl.source_type,
