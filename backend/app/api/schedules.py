@@ -18,6 +18,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -25,7 +26,6 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import PlainTextResponse
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -128,25 +128,36 @@ def get_semester_info(
     student: Student = Depends(get_current_student),
     db: Session = Depends(get_db),
 ):
-    """学期第 1 周的周一 —— 页面上的「第几周」按它算
+    """各学期的周次范围 —— 页面上的「第几周」只在范围内编号
 
-    优先取课表导入时写下的 week_start（由表名「第N周」折算，能对上真实学期）；
-    老数据没写过这一列，退回「最早那条日程所在周的周一」—— 课表是从第 1 周
-    导起的，退出来的正好是同一个基准。个人日程不会比它更早影响判断。
+    课表导入时在每条日程上写下 week_start（第 1 周的周一，由导入时确认的周次锚点
+    推算），同一份课表的所有日程共用它；而这份课表**实际覆盖到**的第一天和最后一天
+    就圈出了区间。所以按 week_start 分组、取每组覆盖范围的上下界，就得到一个个区间。
 
-    一条日程都没有时返回空，前端就不显示周次（而不是硬估一个错的）。
+    **基准和覆盖范围是两回事**：导入一份只含「第 8–10 周」的补课表时，锚点推出的
+    第 1 周在 7 周之前，但这份表只管第 8–10 周 —— 区间收在覆盖范围内，别把没覆盖到
+    的周算成自己的周次，不然会和别的导入批次的编号打架。
+
+    **为什么要带上界**：以前只给一个基准不给范围，页面按「距基准几周」一直往下算，
+    课表只有 16 周，翻到次年 5 月却显示「第 35 周」。区间外现在一律不编号。
+
+    **为什么是列表**：下学期再导入一份新课表，表名又从「第1周」开始 —— 那本就是
+    另一个区间、另一个「第 1 周」。多个第一周是对的。
+
+    区间在老数据上按现有日程的跨度兜一个，一条日程都没有时为空列表（前端就不显示
+    周次）。这套口径日程展开那边（单双周判断）也在用，见
+    schedule_service.list_semester_periods。
     """
-    monday = db.query(func.min(Schedule.week_start)).filter(
-        Schedule.student_id == student.id,
-    ).scalar()
-    if not monday:
-        earliest = db.query(func.min(Schedule.start_time)).filter(
-            Schedule.student_id == student.id,
-        ).scalar()
-        if earliest:
-            d = earliest.date()
-            monday = d - timedelta(days=d.weekday())
-    return {"week_start": monday}
+    return {
+        "periods": [
+            {
+                "week_start": p.week_start,
+                "first_day": p.first_day,
+                "last_day": p.last_day,
+            }
+            for p in ss.list_semester_periods(db, student.id)
+        ]
+    }
 
 
 @router.get("/item/{schedule_id}", response_model=ScheduleResponse)
@@ -457,10 +468,17 @@ def delete_schedule(
 @router.post("/import/preview", response_model=ScheduleImportPreviewResponse)
 async def import_preview(
     file: UploadFile = File(...),
+    anchor_monday: Optional[date] = Form(
+        None, description="周次锚点：文件里最小周次那一周的周一",
+    ),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
-    """上传日程 Excel 并预览解析结果（班委及以上）"""
+    """上传日程 Excel 并预览解析结果（班委及以上）
+
+    anchor_monday 不给就先按表头日期猜一个建议值返回（响应里带回来）；页面让用户
+    确认或改过之后，带上来再解析一次，所有日期都以它为准。
+    """
     # 校验扩展名
     filename = file.filename or ""
     ext = Path(filename).suffix.lower()
@@ -475,12 +493,15 @@ async def import_preview(
     if len(content) > _MAX_IMPORT_SIZE:
         raise HTTPException(status_code=400, detail="文件不能超过 20MB")
 
-    items, warnings, week_count = sis.parse_schedule_excel(content)
-    token = sis.save_preview(items, warnings, week_count)
+    items, warnings, meta = sis.parse_schedule_excel(content, anchor_monday)
+    token = sis.save_preview(items, warnings, meta)
 
     return {
         "token": token,
-        "week_count": week_count,
+        "week_count": meta["week_count"],
+        "week_first": meta["week_first"],
+        "week_last": meta["week_last"],
+        "anchor_monday": meta["anchor_monday"],
         "schedule_count": sum(1 for it in items if not it.get("all_day")),
         "all_day_count": sum(1 for it in items if it.get("all_day")),
         "items": items,

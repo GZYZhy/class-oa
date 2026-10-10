@@ -32,13 +32,17 @@ _PREVIEW_CACHE: dict[str, dict] = {}
 _PREVIEW_TTL_SECONDS = 600
 
 
-def save_preview(items: list[dict], warnings: list[str], week_count: int) -> str:
-    """保存预览结果到内存缓存，返回 token"""
+def save_preview(items: list[dict], warnings: list[str], meta: dict) -> str:
+    """保存预览结果到内存缓存，返回 token
+
+    meta 是 parse_schedule_excel 给的解析概要（周次范围、锚点），确认导入时只用到
+    items / warnings，meta 留着方便排查。
+    """
     token = uuid.uuid4().hex
     _PREVIEW_CACHE[token] = {
         "items": items,
         "warnings": warnings,
-        "week_count": week_count,
+        "meta": meta,
         "created_at": datetime.now(),
     }
     _purge_expired()
@@ -76,17 +80,31 @@ def _purge_expired() -> None:
 
 # ---------- 主解析函数 ----------
 
-def parse_schedule_excel(file_bytes: bytes) -> tuple[list[dict], list[str], int]:
+def parse_schedule_excel(
+    file_bytes: bytes, anchor_monday: Optional[date] = None,
+) -> tuple[list[dict], list[str], dict]:
     """解析 xlsx 日程文件
 
-    返回 (items, warnings, week_count)
+    返回 (items, warnings, meta)，meta = {week_count, week_first, week_last, anchor_monday}
+
+    **日期一律由「周次锚点」推算**。锚点 = 文件里最小周次那一周的周一，上传后由用户
+    指认（页面上的「周次锚点」）。文件覆盖第 8–10 周时，用户只要说清「第 8 周的周一
+    是哪天」，第 9、10 周以及学期第 1 周的周一（week_start，页面上的「第几周」靠它算）
+    就全推得出来。
+
+    为什么不直接认表头里的日期：表头写的「9/14」不带年份，只能靠「比今天早半年就是
+    明年」反推，跨年、补课表经常整整错一年；表头被删掉时旧逻辑还会把整张表静默跳过。
+    表头日期现在只当**建议锚点**（anchor_monday 传 None 时），用户不认就改。
+
     **忠实导入，不做任何重复推断**：Excel 每个 sheet 里的每个课程块都展开成
     一条独立（repeat_type=none）日程，日期 = 该 sheet 周一 + 星期偏移。
     items 字段：title, event_type, location, description, start_date, weekday,
                 start_time, end_time, all_day, repeat_type, repeat_end_date,
                 sheet, cell_ref, week_start
-    week_start = 学期第 1 周的周一（由表名「第N周」折算），用来对齐页面上的周次
+    week_start = 学期第 1 周的周一，用来对齐页面上的周次
     """
+    meta = {"week_count": 0, "week_first": 0, "week_last": 0, "anchor_monday": None}
+
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         f.write(file_bytes)
         tmp_path = f.name
@@ -94,36 +112,62 @@ def parse_schedule_excel(file_bytes: bytes) -> tuple[list[dict], list[str], int]
     try:
         wb = openpyxl.load_workbook(tmp_path, data_only=True)
     except Exception as exc:
-        return [], [f"文件解析失败：{exc}"], 0
+        return [], [f"文件解析失败：{exc}"], meta
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
     all_items: list[dict] = []
     warnings: list[str] = []
-    week_count = 0
 
+    # 先摸清文件覆盖了哪几周：锚点、每张表的日期都以 sheet 名为准
+    week_sheets: list[tuple[str, int]] = []
     for sheet_name in wb.sheetnames:
-        ws = wb[sheet_name]
-        # 判断是不是「第N周」格式的 sheet
         week_match = re.search(r"第(\d+)周", sheet_name)
         if not week_match:
             warnings.append(f"跳过无法识别周次的工作表：{sheet_name}")
             continue
+        week_sheets.append((sheet_name, int(week_match.group(1))))
 
-        week_count += 1
+    if not week_sheets:
+        warnings.append("没有找到「第N周」格式的工作表，请检查文件")
+        return [], warnings, meta
 
-        # 从第一行表头读周一的日期
-        monday_date = _parse_monday_from_header(ws, warnings, sheet_name)
-        if monday_date is None:
-            warnings.append(f"工作表 {sheet_name} 无法识别日期表头，已跳过")
+    week_sheets.sort(key=lambda x: x[1])
+    first_week_no = week_sheets[0][1]
+    meta["week_count"] = len(week_sheets)
+    meta["week_first"] = first_week_no
+    meta["week_last"] = week_sheets[-1][1]
+
+    if anchor_monday is None:
+        # 没指定：拿表头日期猜一个当建议值，猜不出就一直等用户选
+        anchor_monday = _suggest_anchor(wb, week_sheets, warnings)
+    elif anchor_monday.weekday() != 0:
+        # 页面上只让选周一，但接口是谁都能调的，手动传进来也得归到周一
+        monday = anchor_monday - timedelta(days=anchor_monday.weekday())
+        warnings.append(f"锚点 {anchor_monday} 不是周一，已按它所在周的周一（{monday}）计算")
+        anchor_monday = monday
+    meta["anchor_monday"] = anchor_monday
+
+    if anchor_monday is None:
+        warnings.append(
+            f"请先指定第 {first_week_no} 周的周一 —— 所有日程的日期都由它推算"
+        )
+
+    for sheet_name, week_no in week_sheets:
+        ws = wb[sheet_name]
+        if anchor_monday is None:
             continue
 
-        # 学期第 1 周的周一 = 本表周一往前推 N-1 周，**以表名为准**。
-        # 页面上的「第几周」之后一律用它算，不再各自估算 —— 曾经前端按
-        # 「9 月 1 日所在周为第 1 周」硬估，和表名差了两周，表名「第4周」
-        # 的课在页面上显示成第 6 周。
-        week_no = int(week_match.group(1))
-        semester_first_monday = monday_date - timedelta(weeks=week_no - 1)
+        # 本表周一 = 锚点往后数（本表是第几周 - 最小周次）周
+        monday_date = anchor_monday + timedelta(weeks=week_no - first_week_no)
+
+        # 表头自己写了日期、和锚点推算的对不上就说一声：锚点选错全靠这条发现。
+        # 警告用一个临时列表接 —— 表头日期现在只是参考，不值得为它再报一遍
+        header_date = _parse_monday_from_header(ws, [], sheet_name)
+        if header_date and header_date != monday_date:
+            warnings.append(
+                f"{sheet_name}：表头写的是 {header_date}，按锚点推算为 {monday_date}，已按锚点算"
+            )
 
         # 解析时间行映射：行号 -> HH:MM 时间字符串
         time_map = _parse_time_column(ws, warnings, sheet_name)
@@ -145,13 +189,13 @@ def parse_schedule_excel(file_bytes: bytes) -> tuple[list[dict], list[str], int]
             block_date = monday_date + timedelta(days=item["weekday"] - 1)
             flat = dict(item)
             flat["start_date"] = block_date
-            flat["week_start"] = semester_first_monday
+            flat["week_start"] = anchor_monday - timedelta(weeks=first_week_no - 1)
             all_items.append(flat)
 
     # 按日期、开始时间排序，方便预览核对
     all_items.sort(key=lambda x: (x["start_date"], x["start_time"]))
 
-    return all_items, warnings, week_count
+    return all_items, warnings, meta
 
 
 # ---------- 表头解析 ----------
@@ -194,6 +238,21 @@ def _parse_monday_from_header(ws, warnings: list[str], sheet_name: str) -> Optio
         warnings.append(f"{sheet_name}：表头日期 {d} 不是周一，已按它所在周的周一（{monday}）计算")
         d = monday
     return d
+
+
+def _suggest_anchor(wb, week_sheets: list[tuple[str, int]], warnings: list[str]) -> Optional[date]:
+    """从表头猜一个锚点（最小周次那一周的周一）当建议值，猜不出返回 None
+
+    只是建议：表头里的日期不带年份，_parse_monday_from_header 只能靠
+    「比今天早半年就是明年」反推，跨年、补课表经常错一整年，所以页面会让用户
+    确认或改掉它（真正的日期一律由用户确认后的锚点推算）。
+    """
+    first_week_no = week_sheets[0][1]
+    for sheet_name, week_no in week_sheets:
+        monday = _parse_monday_from_header(wb[sheet_name], warnings, sheet_name)
+        if monday:
+            return monday - timedelta(weeks=week_no - first_week_no)
+    return None
 
 
 # ---------- 时间列解析 ----------

@@ -89,9 +89,11 @@ export function deleteSchedule(id, instanceDate, scope = 'all', share = false) {
  * 上传日程 Excel 并预览
  * @param {File} file - xlsx 文件
  */
-export function importPreview(file) {
+export function importPreview(file, anchorMonday) {
   const formData = new FormData()
   formData.append('file', file)
+  // 周次锚点：文件里最小周次那一周的周一（'YYYY-MM-DD'）。不给就由后端按表头猜一个
+  if (anchorMonday) formData.append('anchor_monday', anchorMonday)
   return request({
     url: '/schedules/import/preview',
     method: 'post',
