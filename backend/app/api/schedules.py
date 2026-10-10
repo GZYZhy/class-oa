@@ -89,6 +89,20 @@ def _check_scope(scope: str) -> str:
 
 
 def _validate_times(start_time: datetime, end_time: datetime) -> None:
+    """起止时刻必须是同一天的先后两刻。
+
+    **模型里没有「跨天日程」这个概念**：跨天的全天事件是摊成一天一条再由前端
+    合回一条（见 _all_day_times），前端表单也拦着（`start >= end` 直接不让保存）。
+    所以这里也只认当天结束。
+
+    以前只比 `end_time <= start_time`，而这两个是完整 datetime，于是
+    「10-12 22:00 → 10-13 01:00」是「晚于」被放行；可 _to_instance 展开实例时
+    只取 `.time()`，页面上就成了结束(01:00)早于开始(22:00)，而 iCal 那边按
+    时长算是次日 01:00 —— 两边对不上。**这个状态压根不该存在**，关掉比两边各改
+    一套可靠。
+    """
+    if end_time.date() != start_time.date():
+        raise HTTPException(status_code=400, detail="日程必须当天结束（跨天请按天建多条）")
     if end_time <= start_time:
         raise HTTPException(status_code=400, detail="结束时间必须晚于开始时间")
 
@@ -387,10 +401,14 @@ def update_schedule(
         # 从「普通日程」改成「全天」时前端会连着日期一起传
         day = (update_data.get("start_time") or tpl.start_time).date()
         update_data["start_time"], update_data["end_time"] = _all_day_times(day)
-    elif "start_time" in update_data and "end_time" in update_data:
-        # 如果改了起止时间，校验
-        if update_data["start_time"] and update_data["end_time"]:
-            _validate_times(update_data["start_time"], update_data["end_time"])
+    elif "start_time" in update_data or "end_time" in update_data:
+        # 校验的是「改完之后」的那一对时刻：只传了其中一个时，另一个取库里现在的
+        # （None 表示不改，和 _apply_update_to_dict 的口径一致）。
+        # 以前要求两个都传才校验，于是光把 end_time 挪到次日就能绕过去
+        _validate_times(
+            update_data.get("start_time") or tpl.start_time,
+            update_data.get("end_time") or tpl.end_time,
+        )
 
     # 点中那一行现在的样子，先记下来：scope=single 会把本次拆成一条新记录，
     # 原记录被截断、只剩一次发生时还会被删掉
