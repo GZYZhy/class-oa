@@ -179,12 +179,20 @@ def _write_event(buf: StringIO, tpl, day: date, uid: str) -> None:
             buf.write(f"RRULE:{rrule}\r\n")
 
     # 提醒（仅开启通知的日程）
-    if tpl.notify_enabled and not tpl.all_day:
+    if tpl.notify_enabled:
         minutes = tpl.notify_minutes_before or 10
         buf.write("BEGIN:VALARM\r\n")
         buf.write("ACTION:DISPLAY\r\n")
         buf.write(f"DESCRIPTION:{_escape_text(tpl.title)}\r\n")
-        buf.write(f"TRIGGER:-PT{minutes}M\r\n")
+        if tpl.all_day:
+            # 全天事件的 DTSTART 是 DATE（当天 00:00），写相对的 `-PT10M` 就是
+            # 「当天零点前十来分钟」，但各客户端对全天事件里的相对闹钟解释不一
+            # （不少干脆忽略全天事件的闹钟）。写成**绝对时刻**，和 App 推送是
+            # 同一个瞬间（schedule_notify_service 那边算的也是「当天 00:00 − 提前量」）
+            trigger_at = start_dt - timedelta(minutes=minutes)
+            buf.write(f"TRIGGER;VALUE=DATE-TIME:{_format_dt_utc(trigger_at)}\r\n")
+        else:
+            buf.write(f"TRIGGER:-PT{minutes}M\r\n")
         buf.write("END:VALARM\r\n")
 
     buf.write("END:VEVENT\r\n")

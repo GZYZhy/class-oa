@@ -1115,12 +1115,19 @@ def test_ical_weekly_cross_day_until_uses_start_time(b):
 
     22:00–次日 1:00 这种日程，拿结束时刻（01:00）当 UNTIL 的话，
     repeat_end_date 那天 22:00 的那一次落在 UNTIL 之后 —— 网页上有、手机上没有。
+
+    接口已经不收这种日程了（见 test_cross_day_schedule_rejected），所以这里
+    直接把库里的 end_time 改成次日 —— 造一条**历史数据**：老库里有、别的部署
+    可能还有（也挡不住有人直接改库），iCal 这边不能因此把最后一天算丢。
     """
     r = b.client.post("/api/schedules", json=_make_schedule(
-        title="夜间值守", start="2026-10-12T22:00:00", end="2026-10-13T01:00:00",
+        title="夜间值守", start="2026-10-12T22:00:00", end="2026-10-12T23:00:00",
         repeat_type="weekly", repeat_end_date="2026-11-30"))
     assert r.status_code == 200, r.text
+    b.run("UPDATE schedules SET end_time='2026-10-13 01:00:00' WHERE id=?", r.json()["id"])
+
     text = _ical_text(b)
+    assert "DTSTART:20261012T220000" in text
     assert "RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO;UNTIL=20261130T220000" in text, text
 
 
@@ -1216,6 +1223,91 @@ def test_ical_reset_token(b):
     assert httpx.get(f"{base}/api/schedules/ical/{third}.ics").status_code == 200
     # 上上轮那条也不该复活
     assert httpx.get(f"{base}/api/schedules/ical/{new_token}.ics").status_code == 404
+
+
+def test_ical_alarm_absolute_for_all_day(b):
+    """全天日程的闹钟写**绝对时刻**，和 App 推送是同一瞬间
+
+    全天事件存的是当天 00:00–23:59（见 _all_day_times），提前 10 分钟就是
+    前一天 23:50（北京时间）→ UTC 15:50Z。写相对的 `-PT10M` 的话，各客户端
+    对全天事件里相对闹钟的解释不一致（不少干脆忽略），改成绝对时刻两边才真的
+    对得上。普通日程仍写相对的。
+    """
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="校运会", start="2026-11-16T00:00:00", end="2026-11-16T23:59:00",
+        all_day=True, notify_enabled=True, notify_minutes_before=10,
+    ))
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="班委会", start="2026-10-12T08:00:00", end="2026-10-12T09:00:00",
+        notify_enabled=True, notify_minutes_before=30,
+    ))
+    text = _ical_text(b)
+
+    events = {ev["SUMMARY"]: ev for ev in _ical_events(text)}
+    assert events["校运会"]["DTSTART"] == "20261116"
+    assert events["校运会"]["TRIGGER"] == "20261115T155000Z"
+    # 普通日程不受影响，还是相对的
+    assert events["班委会"]["TRIGGER"] == "-PT30M"
+
+
+# ---------- 日程提醒的推送正文 ----------
+
+def test_all_day_notification_body_says_all_day(b, monkeypatch):
+    """全天日程的推送正文写「全天」，不是哨兵时刻 00:00 - 23:59
+
+    起止在库里就是 00:00 / 23:59，照 strftime 拼出来学生收到会以为日程在半夜。
+    这里只验正文怎么拼，所以把收件人查询和发送都短路掉；tpl 从真库里那条读出来，
+    免得假对象把「库里存的是什么」这个前提也一起假掉。
+
+    顺带钉住这个函数**能跑到底**：它原来在 `from .email_service import
+    email_enabled` 那行 ImportError（没这个名字），而 tick 的 except 会把异常
+    吞掉只打一行日志 —— 日程提醒从上线起一条都没发出去过。用例只要调用它就
+    会碰到那个 import，改坏了立刻红。
+    """
+    from datetime import datetime as dt
+    from types import SimpleNamespace
+
+    from app.services import schedule_notify_service as sns
+
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="校运会", start="2026-11-16T00:00:00", end="2026-11-16T23:59:00",
+        all_day=True, notify_enabled=True, notify_minutes_before=10,
+        location="操场",
+    ))
+    title_, all_day, start, end, location, description, source_type = b.rows(
+        "SELECT title, all_day, start_time, end_time, location, description, source_type"
+        " FROM schedules WHERE title = ?", "校运会",
+    )[0]
+    tpl = SimpleNamespace(
+        title=title_, all_day=bool(all_day),
+        start_time=dt.strptime(str(start), "%Y-%m-%d %H:%M:%S.%f"),
+        end_time=dt.strptime(str(end), "%Y-%m-%d %H:%M:%S.%f"),
+        location=location, description=description, source_type=source_type,
+    )
+
+    # 收件人查询全部短路，发送也换成只记正文
+    for mod, fn in [
+        ("app.services.inbox_service", "recipient_nos"),
+        ("app.services.bark_service", "bark_keys"),
+        ("app.services.webpush_service", "web_subscriptions"),
+        ("app.services.webhook_service", "webhook_targets"),
+        ("app.services.email_service", "email_recipients"),
+    ]:
+        monkeypatch.setattr(f"{mod}.{fn}", lambda db, **kw: [])
+
+    sent = {}
+    monkeypatch.setattr(
+        sns.ns, "deliver_now",
+        lambda db, targets, title, body, **kw: sent.update(title=title, body=body),
+    )
+
+    sns._send_notification(None, tpl, SimpleNamespace(student_no="admin"),
+                           dt(2026, 11, 15, 23, 50))
+
+    assert sent["title"] == "日程提醒：校运会"
+    assert sent["body"].splitlines()[0] == "时间：全天"
+    assert "00:00" not in sent["body"] and "23:59" not in sent["body"]
+    assert "地点：操场" in sent["body"]
 
 
 # ---------- 批次管理 ----------
@@ -1630,6 +1722,48 @@ def test_repeat_without_end_rejected(b):
     r = b.client.post("/api/schedules", json=data)
     assert r.status_code == 400
     assert "结束日期" in r.json()["detail"]
+
+
+def test_cross_day_schedule_rejected(b):
+    """跨天日程（22:00 → 次日 01:00）一律拒收
+
+    模型里没有「跨天日程」这个概念：跨天的全天事件是摊成一天一条再由前端合回
+    一条，前端表单也拦着。只有后端这个校验器以前比的是完整 datetime，于是
+    「次日 01:00」算「晚于」被放行 —— 而 _to_instance 展开实例时只取 .time()，
+    页面上就成了结束(01:00)早于开始(22:00)，iCal 那边按时长算却是次日 01:00，
+    两边对不上。关掉之后这个状态压根不存在。
+    """
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="跨天日程", start="2026-10-12T22:00:00", end="2026-10-13T01:00:00",
+    ))
+    assert r.status_code == 400, r.text
+    assert "当天结束" in r.json()["detail"]
+    assert b.rows("SELECT id FROM schedules WHERE title = ?", "跨天日程") == []
+
+
+def test_cross_day_update_rejected(b):
+    """编辑时只把结束时刻挪到次日也要拦住
+
+    以前要 start_time / end_time 两个都传才校验，光改 end_time 就能绕过去。
+    现在校验的是「改完之后」的那一对时刻（没传的那个取库里的现值）。
+    """
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="只改结束时刻", start="2026-10-12T22:00:00", end="2026-10-12T23:00:00",
+    ))
+    assert r.status_code == 200, r.text
+    sid = r.json()["id"]
+
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12"},
+        json={"scope": "all", "end_time": "2026-10-13T01:00:00"},
+    )
+    assert r.status_code == 400, r.text
+    assert "当天结束" in r.json()["detail"]
+
+    # 库里那条没被动过（end_time 还是当天 23:00）
+    end = b.rows("SELECT end_time FROM schedules WHERE id = ?", sid)[0][0]
+    assert str(end).startswith("2026-10-12 23:00")
 
 
 def test_odd_week_expansion_honors_week_start(b):

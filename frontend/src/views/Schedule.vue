@@ -124,7 +124,7 @@
           <el-input v-model="editForm.title" maxlength="200" placeholder="请输入日程标题" />
         </el-form-item>
         <el-form-item label="类型">
-          <el-input v-model="editForm.event_type" maxlength="20" placeholder="如 课程 / 体育 / 网络课 / 会议 / 活动（可不填）" />
+          <el-input v-model="editForm.event_type" maxlength="20" placeholder="如 课程 / 体育 / 网络课 / 会议 / 活动 / 工作（可不填）" />
         </el-form-item>
         <el-form-item :label="editForm.all_day ? '开始日期' : '日期'" required>
           <el-date-picker
@@ -1349,16 +1349,17 @@ function repeatLabel(t) {
 }
 
 // 事件类型 → 配色主题（CSS 里的 .theme-*）。
-// 前三种是课表解析出来的（见后端 schedule_import_service 的单元格解析），
-// 会议、活动是学生自己新建日程时常用的两种。
-// Element 的调色板一共就五个色位，这里正好用完，所以「活动」和认不出来的
-// 类型同为灰 —— 想再区分就得自己造色值，那样深色模式也得跟着手写一份
+// 课程/体育/网络课是课表解析出来的（见后端 schedule_import_service 的单元格解析），
+// 会议、活动、工作是学生自己新建日程时常用的几种。
+// Element 的调色板只有五个色位，紫和黄在 CSS 里自己写（.theme-purple / .theme-yellow，
+// 深色模式也各写了一份）；灰专门留给「认不出来的类型」和「没填类型」的
 const TYPE_THEME = {
   '课程': 'primary',
   '体育': 'success',
   '网络课': 'warning',
   '会议': 'danger',
-  '活动': 'info'
+  '活动': 'yellow',
+  '工作': 'purple'
 }
 
 function evtTheme(type) {
@@ -1600,8 +1601,10 @@ async function handleResetToken() {
   pointer-events: none;
 }
 
-/* 按事件类型涂色。--evt 是主色、--evt-bg 是同色系的浅底，
-   一律取 Element 的调色板变量，深色模式跟着自动切。
+/* 按事件类型涂色。--evt 是主色、--evt-bg 是同色系的浅底。
+   primary/success/warning/danger/info 直接取 Element 的调色板变量，深色模式跟着
+   自动切；紫和黄 Element 没有，色值手写，深色模式也各写一份（.dark 挂在 <html> 上，
+   见 main.js）。
    只认常见的几种类型，其余的（包括用户自己填的、以及没填类型的）
    走默认灰 —— 不写死 switch，也就不会出现「这个类型没颜色」 */
 .theme-primary {
@@ -1624,9 +1627,32 @@ async function handleResetToken() {
   --evt-bg: var(--el-color-danger-light-8);
 }
 
+.theme-purple {
+  --evt: #7c4dff;
+  --evt-bg: #ece2ff;
+}
+
+.theme-yellow {
+  /* 比 warning 的橙更黄一档，两者并排能分开 */
+  --evt: #d9a400;
+  --evt-bg: #fdf3cd;
+}
+
 .theme-info {
   --evt: var(--el-color-info);
   --evt-bg: var(--el-color-info-light-8);
+}
+
+/* 深色模式：--evt 提亮（它只画 3px 的左边条）、--evt-bg 换成同色系的深底，
+   事件里那行深色标题字才看得清 */
+.dark .theme-purple {
+  --evt: #a78bfa;
+  --evt-bg: #2b2140;
+}
+
+.dark .theme-yellow {
+  --evt: #e0b53a;
+  --evt-bg: #3a3216;
 }
 
 .cal-event {
