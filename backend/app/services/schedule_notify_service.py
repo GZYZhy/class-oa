@@ -91,8 +91,13 @@ def _send_notification(db, tpl, student, notify_time: datetime) -> None:
     from .bark_service import bark_keys
     from .webpush_service import web_subscriptions
     from .webhook_service import webhook_targets
-    from .email_service import email_recipients, email_enabled
+    from .email_service import email_recipients
     from ..config import smtp_enabled
+    # 这里**只能 import 真正存在的名字**：以前还多写了个用不上的 email_enabled
+    # （email_service 里没有这个名字），于是每次调用都在这一行 ImportError，
+    # 被 tick 的 except 吞掉只在日志里留一行 traceback —— 日程提醒从上线起
+    # 一条都没发出去过。tick 的兜底不能拿掉，所以这类错只能靠测试钉住
+    # （见 tests/test_schedules.py 里的推送正文用例）
 
     # 组装收件人 —— 只给这一个学生
     targets = ns.Recipients(
@@ -108,12 +113,17 @@ def _send_notification(db, tpl, student, notify_time: datetime) -> None:
     )
 
     title = f"日程提醒：{tpl.title}"
-    # 组装内容
-    start_str = tpl.start_time.strftime("%H:%M")
-    end_str = tpl.end_time.strftime("%H:%M")
-    lines = [
-        f"时间：{start_str} - {end_str}",
-    ]
+    # 组装内容。全天事件的起止是哨兵值（当天 00:00 / 23:59，见 _all_day_times），
+    # 照原样拼出来就是「时间：00:00 - 23:59」—— 学生收到会以为日程在半夜。
+    # 网页列表里全天显示的是「全天」，推送得一样
+    if tpl.all_day:
+        lines = ["时间：全天"]
+    else:
+        start_str = tpl.start_time.strftime("%H:%M")
+        end_str = tpl.end_time.strftime("%H:%M")
+        lines = [
+            f"时间：{start_str} - {end_str}",
+        ]
     if tpl.location:
         lines.append(f"地点：{tpl.location}")
     if tpl.description:

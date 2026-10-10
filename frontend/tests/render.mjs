@@ -400,7 +400,8 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
     ['篮球', '体育', 'theme-success'],
     ['网课', '网络课', 'theme-warning'],
     ['班会', '会议', 'theme-danger'],
-    ['迎新', '活动', 'theme-info'],
+    ['迎新', '活动', 'theme-yellow'],
+    ['值班', '工作', 'theme-purple'],
     ['社团', '社团', 'theme-info'],
     ['没类型', '', 'theme-info']
   ]
@@ -455,6 +456,14 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
   check(cls('cal-event') === CASES.length, `${CASES.length} 个定时事件都渲染了`)
 
   check(cls('all-day-item', 'theme-primary') === 1, '全天事件那块也跟着类型上色')
+
+  // 紫和黄是手写的色值（Element 的调色板里没有），深色模式得各写一份 ——
+  // 只写浅色那份的话，深色下这两类会跟别的事件一样是浅底，字直接糊掉
+  const schedSrc = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
+  check(/\.theme-purple\s*\{/.test(schedSrc) && /\.dark \.theme-purple\s*\{/.test(schedSrc),
+    '紫色有浅色和深色两份色值')
+  check(/\.theme-yellow\s*\{/.test(schedSrc) && /\.dark \.theme-yellow\s*\{/.test(schedSrc),
+    '黄色有浅色和深色两份色值')
 
   // 全天事件排在表头正下方那一行（在时间行之前），按格子跨列铺开
   check(html.indexOf('cal-allday') < html.indexOf('cal-body'), '全天行在时间行前面 —— 就是表头下面第一行')
