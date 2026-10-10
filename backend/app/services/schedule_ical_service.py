@@ -2,43 +2,34 @@
 
 生成标准 iCalendar 格式文件，支持：
 - VEVENT 事件
-- 重复日程按 RRULE 输出（FREQ=WEEKLY / MONTHLY 等）
+- 重复日程：只有「每周重复」用 RRULE（它和网页逐日等价），其余按网页的口径
+  逐次展开成独立事件 —— 见 _write_schedule
 - VALARM 提醒（仅开启通知的日程）
+
+**订阅里的事件必须和网页上看到的一模一样**：学生手机上多出网页上没有的日程，
+比少一条更糟（他不会知道那是假的）。
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from io import StringIO
 
 from sqlalchemy.orm import Session
 
-from ..models.schedule import (
-    REPEAT_EVEN_WEEK,
-    REPEAT_MONTHLY,
-    REPEAT_NONE,
-    REPEAT_ODD_WEEK,
-    REPEAT_WEEKLY,
-)
-from .schedule_service import first_occurrence, list_semester_periods
+from ..models.schedule import REPEAT_WEEKLY
+from .schedule_service import list_semester_periods, occurrences_between
 
 
 def generate_ical(
     db: Session,
     student_id: int,
     student_name: str,
-    range_days: int = 365,
 ) -> str:
     """生成指定学生的 iCal 文件内容
 
-    range_days：向前/向后各看多少天（默认 365 天，即一年范围）
+    时间范围就是每条日程自己的生命周期（从 start_time 那天到 repeat_end_date
+    为止），不做额外的窗口裁剪 —— 重复日程逐次展开，撑不起几千天的量
+    （导入的课表每条都是单次日程，本来就一条一条的）。
     """
-    from datetime import date
-
-    today = date.today()
-    start_date = today - timedelta(days=range_days)
-    end_date = today + timedelta(days=range_days)
-
-    # 拿到所有模板（不展开，重复日程直接输出 RRULE）
-    # 但 list_by_range 返回的是展开后的 —— 我们需要直接拿模板
     from ..models import Schedule
 
     templates = (
@@ -58,11 +49,11 @@ def generate_ical(
     buf.write("CALSCALE:GREGORIAN\r\n")
     buf.write("METHOD:PUBLISH\r\n")
 
-    # 单双周的 DTSTART 要落在「页面上的第一个发生日」，得按同一个周次口径算
+    # 单双周的奇偶要按学期周次算，得用和网页同一份区间
     periods = list_semester_periods(db, student_id)
 
     for tpl in templates:
-        _write_event(buf, tpl, periods)
+        _write_schedule(buf, tpl, periods)
 
     buf.write("END:VCALENDAR\r\n")
     return _fold(buf.getvalue())
@@ -93,21 +84,58 @@ def _fold(raw: str) -> str:
     return "\r\n".join(out)
 
 
-def _write_event(buf: StringIO, tpl, periods: list) -> None:
-    """写一个 VEVENT"""
-    buf.write("BEGIN:VEVENT\r\n")
+def _write_schedule(buf: StringIO, tpl, periods: list) -> None:
+    """按这条日程的重复类型，把它该有的 VEVENT 都写出来
 
-    # UID：用 schedule id + 域名后缀
-    uid = f"schedule-{tpl.id}@class-oa"
+    只有「每周重复」能用 RRULE 精确表达：页面口径就是「从开始日每 7 天一次，
+    到 repeat_end_date 为止」，与 FREQ=WEEKLY;INTERVAL=1;BYDAY=.. 逐日等价。
+    其余类型都表达不了 —— 单双周的奇偶由学期周次号定（没有周次号的周一条都不
+    出现，也可能一条都没有），每月是「当月没有那一天就取月末」，RRULE 写不出来。
+    这些一律按网页那套口径逐次展开成独立事件：宁可多几条 VEVENT，也不能让学生
+    手机上出现网页上没有的日程。
+
+    展开用的是 occurrences_between —— 和网页查询同一个函数。
+    """
+    start = tpl.start_time.date()
+    # 上界取到 repeat_end_date 为止（_next_occurrence 自己也会收口，这里只是别把
+    # 循环放出去）。要 max 一下：单次日程的 repeat_end_date 是脏数据时可能早于开始日，
+    # 直接拿它当上界会把这条本来该有的日程整条滤掉
+    until = max(start, tpl.repeat_end_date or start)
+    days = occurrences_between(tpl, periods, start, until)
+
+    # 一条都不发生就整条不写。老代码这里用 first_occurrence 的「兜底成开始日」
+    # 硬造一个网页上没有的日子：单周日程的覆盖范围里没有它的周次号时，
+    # 页面是空的，订阅里却照发一条
+    if not days:
+        return
+
+    if tpl.repeat_type == REPEAT_WEEKLY:
+        _write_event(buf, tpl, days[0], _uid(tpl.id))
+        return
+
+    for day in days:
+        # 只写一个 VEVENT 时沿用老的 UID（一次性日程、课表的每一格都是这样），
+        # 展开成多条才逐条加日期 —— 内容变了本就该换 UID，没变的不给订阅端
+        # 制造无谓的「删了再加」
+        _write_event(buf, tpl, day, _uid(tpl.id) if len(days) == 1 else _uid(tpl.id, day))
+
+
+def _uid(schedule_id: int, day: date | None = None) -> str:
+    """事件的 UID。day 为空 = 这个模板只写一个 VEVENT（见 _write_schedule）"""
+    if day is None:
+        return f"schedule-{schedule_id}@class-oa"
+    return f"schedule-{schedule_id}-{day.strftime('%Y%m%d')}@class-oa"
+
+
+def _write_event(buf: StringIO, tpl, day: date, uid: str) -> None:
+    """写一个 VEVENT。day 是它的发生日，uid 由调用方定（见 _write_schedule）"""
+    buf.write("BEGIN:VEVENT\r\n")
     buf.write(f"UID:{uid}\r\n")
 
     # 时间戳：RFC5545 要求 DTSTAMP 是 UTC
     buf.write(f"DTSTAMP:{_format_dt_utc(tpl.created_at or datetime.now())}\r\n")
 
-    # 开始/结束时间。日期用**页面上那个第一个发生日**（见 first_occurrence）：
-    # 单双周的模板开始日可能落在相反的一周，直接拿它当 DTSTART，整条订阅会和
-    # 网页上看到的日子错开一周。时刻和时长照旧。
-    day = first_occurrence(tpl, periods)
+    # 开始/结束时间。时刻用模板的，日期用传进来的发生日（单双周可能不在开始日那天）
     start_dt = datetime.combine(day, tpl.start_time.time())
     end_dt = start_dt + (tpl.end_time - tpl.start_time)
 
@@ -142,8 +170,10 @@ def _write_event(buf: StringIO, tpl, periods: list) -> None:
         desc = _escape_text("\n".join(desc_parts))
         buf.write(f"DESCRIPTION:{desc}\r\n")
 
-    # 重复规则
-    if tpl.repeat_type != REPEAT_NONE and tpl.repeat_type is not None:
+    # 重复规则。只有每周重复才写 RRULE，别的类型都是逐次展开出来的独立事件
+    # （见 _write_schedule）—— 对展开出来的事件再写一条 RRULE 等于让客户端
+    # 自己又长出一堆网页上没有的日子
+    if tpl.repeat_type == REPEAT_WEEKLY:
         rrule = _build_rrule(tpl)
         if rrule:
             buf.write(f"RRULE:{rrule}\r\n")
@@ -161,51 +191,31 @@ def _write_event(buf: StringIO, tpl, periods: list) -> None:
 
 
 def _build_rrule(tpl) -> str:
-    """构建 RRULE 字符串
+    """每周重复的 RRULE，形如 FREQ=WEEKLY;INTERVAL=1;BYDAY=MO;UNTIL=...
 
-    iCal 标准：FREQ=WEEKLY;INTERVAL=1;BYDAY=MO;UNTIL=...
+    只对每周重复调用（见 _write_schedule）：页面口径就是「从开始日每 7 天一次」，
+    和它逐日等价。别的重复类型走展开，不经过这里。
     """
     if not tpl.repeat_end_date:
         return ""
-
-    parts = []
-
-    if tpl.repeat_type == REPEAT_WEEKLY:
-        parts.append("FREQ=WEEKLY")
-        parts.append("INTERVAL=1")
-        # 星期几
-        weekday = tpl.start_time.weekday()  # 0=周一
-        day_codes = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
-        parts.append(f"BYDAY={day_codes[weekday]}")
-    elif tpl.repeat_type == REPEAT_MONTHLY:
-        parts.append("FREQ=MONTHLY")
-        parts.append("INTERVAL=1")
-        # 每月第 N 天。31 号例外：页面那边没有 31 号的月份取月末（2 月落到 28），
-        # 而 BYMONTHDAY=31 会把 2、4、6 月整个跳过 —— 用 -1（当月最后一天）才对得上
-        day = tpl.start_time.day
-        parts.append(f"BYMONTHDAY={-1 if day == 31 else day}")
-    elif tpl.repeat_type in (REPEAT_ODD_WEEK, REPEAT_EVEN_WEEK):
-        # 单双周用 INTERVAL=2 模拟（近似）
-        # 严格来说单双周需要知道学期第一周是单周还是双周，
-        # 这里退化为每两周重复一次（INTERVAL=2），能覆盖大部分场景
-        # 另外：RRULE 管不了「没有周次号的周」—— 页面上那种周不出现（见
-        # schedule_service.week_no_at），订阅里会照常出现，要精确只能
-        # 逐次改成独立事件或补 EXDATE，代价大于收益
-        parts.append("FREQ=WEEKLY")
-        parts.append("INTERVAL=2")
-        weekday = tpl.start_time.weekday()
-        day_codes = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
-        parts.append(f"BYDAY={day_codes[weekday]}")
-    else:
+    if tpl.repeat_type != REPEAT_WEEKLY:
         return ""
 
-    # 结束日期。UNTIL 的取值类型必须和 DTSTART 一致：上面写的 DTSTART 是浮动本地
-    # 时间（不带 Z、不带 TZID），全天事件则是 DATE，所以 UNTIL 也得是这两种之一，
-    # 给浮动时间配一个 UTC 的 UNTIL 是不合 RFC5545 的（会被当成「UTC 的某一刻」）
+    weekday = tpl.start_time.weekday()  # 0=周一
+    day_codes = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+    parts = ["FREQ=WEEKLY", "INTERVAL=1", f"BYDAY={day_codes[weekday]}"]
+
+    # 结束日期。UNTIL 的取值类型必须和 DTSTART 一致：DTSTART 是浮动本地时间
+    # （不带 Z、不带 TZID），全天事件则是 DATE，所以 UNTIL 也得是这两种之一，
+    # 给浮动时间配一个 UTC 的 UNTIL 是不合 RFC5545 的（会被当成「UTC 的某一刻」）。
+    #
+    # 用**开始**时刻而不是结束时刻：RRULE 里每一次发生的时间就是 DTSTART 的时刻。
+    # 跨天日程（22:00–次日 1:00）拿结束时刻当 UNTIL 的话，最后一天 22:00 那次
+    # 会落在 UNTIL 之后被客户端丢掉，而网页上还有。
     if tpl.all_day:
         parts.append(f"UNTIL={tpl.repeat_end_date.strftime('%Y%m%d')}")
     else:
-        until_dt = datetime.combine(tpl.repeat_end_date, tpl.end_time.time())
+        until_dt = datetime.combine(tpl.repeat_end_date, tpl.start_time.time())
         parts.append(f"UNTIL={_format_dt(until_dt)}")
 
     return ";".join(parts)

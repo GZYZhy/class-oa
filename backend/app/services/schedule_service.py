@@ -280,20 +280,30 @@ def _prev_occurrence(
     return last
 
 
-def first_occurrence(
+def occurrences_between(
     template: Schedule,
     periods: list[Period],
-) -> date:
-    """这条日程在页面上的第一个发生日
+    from_date: date,
+    until_date: date,
+) -> list[date]:
+    """[from_date, until_date] 里这条日程的全部发生日（两个端点都含）
 
-    重复日程的第一个发生日未必是 start_time 那天：单双周是按学期周次的奇偶算的，
-    用户填的开始日可能正好落在相反的一周，页面从下一次才出现。iCal 导出要把
-    DTSTART 定在这一天，否则整条订阅和网页上看到的日子会整体错开一周。
+    **重复日程的展开只有这一处**：网页（list_by_range）和 iCal 订阅共用它。
+    各写一套的下场就是两边算得不一样 —— 网页上没有的日子，学生手机上却收到了。
     """
-    return (
-        _next_occurrence(template, template.start_time.date(), periods)
-        or template.start_time.date()
-    )
+    # 单次日程**不看** repeat_end_date：页面一直是这个口径，而 _next_occurrence
+    # 会拿它当结束日。历史数据里存在 repeat_end_date 早于开始日的单次日程，
+    # 跟着那边走的话订阅里会凭空少一条。
+    if template.repeat_type == REPEAT_NONE:
+        d = template.start_time.date()
+        return [d] if from_date <= d <= until_date else []
+
+    out: list[date] = []
+    occ = _next_occurrence(template, from_date, periods)
+    while occ is not None and occ <= until_date:
+        out.append(occ)
+        occ = _next_occurrence(template, occ + timedelta(days=1), periods)
+    return out
 
 
 def _generate_series_id() -> str:
@@ -356,24 +366,9 @@ def list_by_range(
     instances = []
     for tpl in templates:
         share_count = counts.get(tpl.source_series_id, 1)
-        if tpl.repeat_type == REPEAT_NONE:
-            d = tpl.start_time.date()
-            if start_date <= d <= end_date:
-                instances.append(_to_instance(tpl, d, share_count))
-        else:
-            # 展开重复日程
-            cursor = start_date
-            effective_end = tpl.repeat_end_date or tpl.start_time.date()
-            # 范围取交集
-            range_end = min(end_date, effective_end)
-            if range_end < cursor:
-                continue
-            # 从 cursor 开始找下一个发生日期
-            occ = _next_occurrence(tpl, cursor, periods)
-            while occ is not None and occ <= range_end:
-                instances.append(_to_instance(tpl, occ, share_count))
-                # 找下一个
-                occ = _next_occurrence(tpl, occ + timedelta(days=1), periods)
+        # 展开只走 occurrences_between 一处（iCal 订阅用的是同一个函数）
+        for occ in occurrences_between(tpl, periods, start_date, end_date):
+            instances.append(_to_instance(tpl, occ, share_count))
 
     # 按开始时间排序
     instances.sort(key=lambda x: x["start_time"])
