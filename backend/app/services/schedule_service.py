@@ -24,7 +24,7 @@
 
 import uuid
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -55,51 +55,103 @@ from ..models.schedule import (
 )
 
 
-# ---------- 工具函数 ----------
+# ---------- 学期周次区间 ----------
 
-def _week_of_school(d: date, semester_start: Optional[date] = None) -> int:
-    """计算某一天是第几周（1-based）。
+def _week_sunday(d: date) -> date:
+    """d 所在周的周日（周一为一周的开始）"""
+    return d + timedelta(days=6 - d.weekday())
 
-    以 semester_start（期望是某周的周一）为第 1 周的起点。
-    没有就按 1 月 1 日所在周的周一估算，兜底用。
-    注：周一为一周的开始。
+
+class Period(NamedTuple):
+    """一个学期区间
+
+    week_start：编号基准，第 1 周的周一（由导入时确认的周次锚点推算）
+    first_day / last_day：这份课表**实际覆盖到**的第一天和最后一天
+
+    编号基准和覆盖范围是两回事：导入一份「第 8–10 周」的补课表时，锚点推出第 1 周
+    是 7 周之前，但那份表只管第 8–10 周。区间严格收在 first_day–last_day 之内，
+    别把没覆盖到的周（那是别人的地盘）也算成自己的周次。
     """
-    if semester_start is None:
-        # 1 月 1 日所在周的周一
-        jan1 = date(d.year, 1, 1)
-        jan1_weekday = jan1.weekday()  # 0=周一
-        week1_monday = jan1 - timedelta(days=jan1_weekday)
-    else:
-        week1_monday = semester_start - timedelta(days=semester_start.weekday())
-    days = (d - week1_monday).days
-    return days // 7 + 1
+    week_start: date
+    first_day: date
+    last_day: date
 
 
-def _is_odd_week(d: date, semester_start: Optional[date] = None) -> bool:
-    """判断某天是不是单周"""
-    return _week_of_school(d, semester_start) % 2 == 1
+def list_semester_periods(db: Session, student_id: int) -> list[Period]:
+    """某学生的学期周次区间，按开始日期排序
 
+    一次课表导入 = 一个区间：导入时写在每条日程上的 week_start 是编号基准，区间
+    覆盖范围取这批日程里最早那周的周一 ~ 最晚那周的周日。下学期再导入一份，就是
+    又一个区间、又一个「第 1 周」。
 
-def _week_base(template) -> date:
-    """单双周判断的基准日（第 1 周的周一）
-
-    优先用模板上持久化的 week_start（课表导入时写入，能对上真实学期）；
-    为空就退回「以该日程开始日期所在周为第 1 周」，保证手动创建的单双周自洽。
+    **页面上的「第几周」和单双周的奇偶都以它为准**，所以 /semester 接口和日程展开
+    共用这一个函数，免得两处各算一套。一条日程都没有时返回 []。
     """
-    if template.week_start:
-        return template.week_start
-    s = template.start_time.date()
-    return s - timedelta(days=s.weekday())
+    rows = (
+        db.query(
+            Schedule.week_start,
+            func.min(Schedule.start_time),
+            func.max(Schedule.start_time),
+        )
+        .filter(Schedule.student_id == student_id, Schedule.week_start.isnot(None))
+        .group_by(Schedule.week_start)
+        .order_by(Schedule.week_start)
+        .all()
+    )
+    if rows:
+        return [_period(week_start, first.date(), last.date()) for week_start, first, last in rows]
+
+    # 一条 week_start 都没有（没导入过课表，全是手动建的日程）：拿现有日程的跨度
+    # 兜一个区间出来，不然整个学期的日程都成了「没有周次号」的周 —— 手动建的单双周
+    # 也会一条都不出现。
+    bounds = (
+        db.query(
+            func.min(Schedule.start_time),
+            func.max(Schedule.start_time),
+            func.max(Schedule.repeat_end_date),
+        )
+        .filter(Schedule.student_id == student_id)
+        .first()
+    )
+    if not (bounds and bounds[0]):
+        return []
+    first, last = bounds[0].date(), bounds[1].date()
+    # 重复日程要算到它的结束日：只建了一条双周日程时，光看开始日区间只有一周宽，
+    # 第二次以后的重复全落在区间外
+    if bounds[2]:
+        last = max(last, bounds[2])
+    return [_period(first - timedelta(days=first.weekday()), first, last)]
+
+
+def _period(week_start: date, first: date, last: date) -> Period:
+    """把「覆盖到的某一天」收敛成整周：第一天退到它那周的周一，最后一天顺到周日"""
+    return Period(
+        week_start=week_start,
+        first_day=first - timedelta(days=first.weekday()),
+        last_day=_week_sunday(last),
+    )
+
+
+def week_no_at(periods: list[Period], d: date) -> Optional[int]:
+    """d 所在周的周次号（1-based）；没落在任何一个学期区间的覆盖范围里就返回 None"""
+    monday = d - timedelta(days=d.weekday())
+    for p in periods:
+        if p.first_day <= monday <= p.last_day:
+            return (monday - p.week_start).days // 7 + 1
+    return None
 
 
 def _next_occurrence(
     template: Schedule,
     from_date: date,
-    semester_start: Optional[date] = None,
+    periods: list[Period],
 ) -> Optional[date]:
     """给定模板和起始日期，找出 >= from_date 的下一个发生日期。
 
     返回 None 表示在 repeat_end_date 之后没有了。
+
+    periods：该学生的学期周次区间（见 list_semester_periods），单双周靠它拿周次号。
+    **必须传**：没有周次号的周单双周一律不出现，漏传等于把单双周日程全藏了。
     """
     start_date = template.start_time.date()
     end_date = template.repeat_end_date or start_date
@@ -130,12 +182,13 @@ def _next_occurrence(
         remainder = diff_days % 7
         if remainder != 0:
             cursor += timedelta(days=7 - remainder)
-        # 然后逐周跳，直到满足单/双周条件。
-        # 奇偶以「第1周基准」为准（见 _week_base），保证和课表导入的周次对上
-        base = _week_base(template)
+        # 然后逐周跳，直到这一周的周次号奇偶对上。**严格以周次号的奇偶为准**
+        # （见 week_no_at）：不在任何学期区间里的周没有周次号（None），既不算单周
+        # 也不算双周，整周跳过 —— 课表只到第 16 周，第 35 周就不该冒出单周的课
         target_odd = template.repeat_type == REPEAT_ODD_WEEK
         while cursor <= end_date:
-            if _is_odd_week(cursor, base) == target_odd:
+            week_no = week_no_at(periods, cursor)
+            if week_no is not None and (week_no % 2 == 1) == target_odd:
                 return cursor
             cursor += timedelta(days=7)
         return None
@@ -168,7 +221,7 @@ def _next_occurrence(
 def _prev_occurrence(
     template: Schedule,
     to_date: date,
-    semester_start: Optional[date] = None,
+    periods: list[Period],
 ) -> Optional[date]:
     """给定模板和结束日期，找出 <= to_date 的最后一个发生日期
 
@@ -189,7 +242,7 @@ def _prev_occurrence(
     last = None
     cursor = start_date
     while cursor <= effective_end:
-        occ = _next_occurrence(template, cursor, semester_start)
+        occ = _next_occurrence(template, cursor, periods)
         if occ is None or occ > effective_end:
             break
         last = occ
@@ -197,14 +250,20 @@ def _prev_occurrence(
     return last
 
 
-def first_occurrence(template: Schedule) -> date:
+def first_occurrence(
+    template: Schedule,
+    periods: list[Period],
+) -> date:
     """这条日程在页面上的第一个发生日
 
     重复日程的第一个发生日未必是 start_time 那天：单双周是按学期周次的奇偶算的，
     用户填的开始日可能正好落在相反的一周，页面从下一次才出现。iCal 导出要把
     DTSTART 定在这一天，否则整条订阅和网页上看到的日子会整体错开一周。
     """
-    return _next_occurrence(template, template.start_time.date()) or template.start_time.date()
+    return (
+        _next_occurrence(template, template.start_time.date(), periods)
+        or template.start_time.date()
+    )
 
 
 def _generate_series_id() -> str:
@@ -261,6 +320,9 @@ def list_by_range(
     # 只查自己分配出去的那些：别人发给你的那份你没资格下发，前端也不该出现这一档
     counts = share_counts(db, templates, student_id)
 
+    # 单双周要按周次号的奇偶展开，周次号来自学期区间（与页面上的「第几周」同一口径）
+    periods = list_semester_periods(db, student_id)
+
     instances = []
     for tpl in templates:
         share_count = counts.get(tpl.source_series_id, 1)
@@ -277,11 +339,11 @@ def list_by_range(
             if range_end < cursor:
                 continue
             # 从 cursor 开始找下一个发生日期
-            occ = _next_occurrence(tpl, cursor)
+            occ = _next_occurrence(tpl, cursor, periods)
             while occ is not None and occ <= range_end:
                 instances.append(_to_instance(tpl, occ, share_count))
                 # 找下一个
-                occ = _next_occurrence(tpl, occ + timedelta(days=1))
+                occ = _next_occurrence(tpl, occ + timedelta(days=1), periods)
 
     # 按开始时间排序
     instances.sort(key=lambda x: x["start_time"])
@@ -453,6 +515,8 @@ def update_schedule(
     original_end = tpl.repeat_end_date or tpl.start_time.date()
     original_start_time = tpl.start_time.time()
     original_end_time = tpl.end_time.time()
+    # 拆分段时要用到「上一次 / 下一次发生日」，单双周得按同一个周次口径算
+    periods = list_semester_periods(db, student_id)
 
     if scope == SCOPE_SINGLE:
         # 思路：把这条重复日程切成三段
@@ -481,8 +545,8 @@ def update_schedule(
 
         # 前后各还有没有。原模板还没被改过（上面只新建了独立日程），
         # 直接基于原模板算即可，不必复制
-        prev_occ = _prev_occurrence(tpl, prev_date)
-        next_occ = _next_occurrence(tpl, next_date)
+        prev_occ = _prev_occurrence(tpl, prev_date, periods)
+        next_occ = _next_occurrence(tpl, next_date, periods)
         has_tail = next_occ is not None and next_occ <= original_end
 
         # 后半段的字段先取好：下面要改 repeat_end_date，_to_instance 会读到它
@@ -591,13 +655,15 @@ def delete_schedule(
         original_start_date = tpl.start_time.date()
         start_time = tpl.start_time.time()
         end_time = tpl.end_time.time()
+        # 单双周的发生日按学期周次算，拆分时前后段也要用同一个口径
+        periods = list_semester_periods(db, student_id)
 
         prev_date = instance_date - timedelta(days=1)
         next_date = instance_date + timedelta(days=1)
 
         is_first = instance_date == original_start_date
         # 判断是不是最后一次：下一次之后有没有了
-        next_occ = _next_occurrence(tpl, next_date)
+        next_occ = _next_occurrence(tpl, next_date, periods)
         is_last = next_occ is None or next_occ > original_end
 
         if is_first and is_last:
@@ -610,7 +676,7 @@ def delete_schedule(
         elif is_last:
             # 是最后一次：结束日期提前到上一次（prev_date 之前的那个发生日）
             # 找 prev_date 及之前的最后一个发生日
-            prev_occ = _prev_occurrence(tpl, prev_date)
+            prev_occ = _prev_occurrence(tpl, prev_date, periods)
             if prev_occ:
                 tpl.repeat_end_date = prev_occ
             else:
@@ -618,7 +684,7 @@ def delete_schedule(
         else:
             # 中间的：拆成两段
             # 前半段：原模板，结束日期 = 上一次
-            prev_occ = _prev_occurrence(tpl, prev_date)
+            prev_occ = _prev_occurrence(tpl, prev_date, periods)
             if prev_occ:
                 tpl.repeat_end_date = prev_occ
             else:
@@ -720,11 +786,11 @@ def _share_copies(db: Session, tpl: Schedule) -> list[Schedule]:
     )
 
 
-def _occurs_on(tpl: Schedule, d: date) -> bool:
+def _occurs_on(tpl: Schedule, d: date, periods: list[Period]) -> bool:
     """d 是不是这条日程的一个发生日"""
     if tpl.repeat_type == REPEAT_NONE:
         return tpl.start_time.date() == d
-    return _next_occurrence(tpl, d) == d
+    return _next_occurrence(tpl, d, periods) == d
 
 
 def update_shared(
@@ -742,7 +808,10 @@ def update_shared(
     """
     copies = _share_copies(db, tpl)
     if scope != SCOPE_ALL and instance_date is not None:
-        copies = [c for c in copies if _occurs_on(c, instance_date)]
+        # 副本上有没有这一天，同样按周次号的奇偶判断。副本是同一次导入发给各人的，
+        # week_start 一致，用本人这份的学期区间就够
+        periods = list_semester_periods(db, tpl.student_id)
+        copies = [c for c in copies if _occurs_on(c, instance_date, periods)]
 
     # 先取好副本再动手：single/forward 会在同一分组里新建记录，不能被卷进这一轮
     total = update_schedule(db, tpl.id, tpl.student_id, update_data, scope, instance_date)
@@ -762,7 +831,8 @@ def delete_shared(
     """删这条日程，并下发到同一条原始日程的其他副本。返回删除的条数（守卫同上）"""
     copies = _share_copies(db, tpl)
     if scope != SCOPE_ALL and instance_date is not None:
-        copies = [c for c in copies if _occurs_on(c, instance_date)]
+        periods = list_semester_periods(db, tpl.student_id)
+        copies = [c for c in copies if _occurs_on(c, instance_date, periods)]
 
     total = delete_schedule(db, tpl.id, tpl.student_id, scope, instance_date)
     for copy in copies:
@@ -916,6 +986,8 @@ def list_upcoming_notifications(
     results = []
     # 记录已经加进去的 (schedule_id, date)，避免重复
     seen = set()
+    # 学期区间按学生算（单双周要用），同一个人的多条模板共用一份
+    periods_cache: dict[int, list[Period]] = {}
 
     for tpl in templates:
         minutes_before = tpl.notify_minutes_before or 10
@@ -945,7 +1017,10 @@ def list_upcoming_notifications(
             range_end_date = min(end_date, effective_end)
             if range_end_date < start_date:
                 continue
-            occ = _next_occurrence(tpl, start_date)
+            if tpl.student_id not in periods_cache:
+                periods_cache[tpl.student_id] = list_semester_periods(db, tpl.student_id)
+            periods = periods_cache[tpl.student_id]
+            occ = _next_occurrence(tpl, start_date, periods)
             while occ is not None and occ <= range_end_date:
                 notify_time = datetime.combine(occ, tpl.start_time.time()) - timedelta(minutes=minutes_before)
                 if from_time <= notify_time <= to_time:
@@ -955,6 +1030,6 @@ def list_upcoming_notifications(
                         student = db.query(Student).filter(Student.id == tpl.student_id).first()
                         if student:
                             results.append((tpl, student, notify_time))
-                occ = _next_occurrence(tpl, occ + timedelta(days=1))
+                occ = _next_occurrence(tpl, occ + timedelta(days=1), periods)
 
     return results

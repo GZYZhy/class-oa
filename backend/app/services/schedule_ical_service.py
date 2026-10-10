@@ -18,7 +18,7 @@ from ..models.schedule import (
     REPEAT_ODD_WEEK,
     REPEAT_WEEKLY,
 )
-from .schedule_service import first_occurrence
+from .schedule_service import first_occurrence, list_semester_periods
 
 
 def generate_ical(
@@ -58,8 +58,11 @@ def generate_ical(
     buf.write("CALSCALE:GREGORIAN\r\n")
     buf.write("METHOD:PUBLISH\r\n")
 
+    # 单双周的 DTSTART 要落在「页面上的第一个发生日」，得按同一个周次口径算
+    periods = list_semester_periods(db, student_id)
+
     for tpl in templates:
-        _write_event(buf, tpl)
+        _write_event(buf, tpl, periods)
 
     buf.write("END:VCALENDAR\r\n")
     return _fold(buf.getvalue())
@@ -90,7 +93,7 @@ def _fold(raw: str) -> str:
     return "\r\n".join(out)
 
 
-def _write_event(buf: StringIO, tpl) -> None:
+def _write_event(buf: StringIO, tpl, periods=None) -> None:
     """写一个 VEVENT"""
     buf.write("BEGIN:VEVENT\r\n")
 
@@ -104,7 +107,7 @@ def _write_event(buf: StringIO, tpl) -> None:
     # 开始/结束时间。日期用**页面上那个第一个发生日**（见 first_occurrence）：
     # 单双周的模板开始日可能落在相反的一周，直接拿它当 DTSTART，整条订阅会和
     # 网页上看到的日子错开一周。时刻和时长照旧。
-    day = first_occurrence(tpl)
+    day = first_occurrence(tpl, periods)
     start_dt = datetime.combine(day, tpl.start_time.time())
     end_dt = start_dt + (tpl.end_time - tpl.start_time)
 
@@ -185,6 +188,9 @@ def _build_rrule(tpl) -> str:
         # 单双周用 INTERVAL=2 模拟（近似）
         # 严格来说单双周需要知道学期第一周是单周还是双周，
         # 这里退化为每两周重复一次（INTERVAL=2），能覆盖大部分场景
+        # 另外：RRULE 管不了「没有周次号的周」—— 页面上那种周不出现（见
+        # schedule_service._odd_even_week_no），订阅里会照常出现，要精确只能
+        # 逐次改成独立事件或补 EXDATE，代价大于收益
         parts.append("FREQ=WEEKLY")
         parts.append("INTERVAL=2")
         weekday = tpl.start_time.weekday()

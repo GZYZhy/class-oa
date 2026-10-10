@@ -85,9 +85,10 @@ class Schedule(Base):
         comment=f"重复类型：{' / '.join(REPEAT_TYPES)}",
     )
     repeat_end_date = Column(Date, nullable=True, comment="重复结束日期（含）；不重复则为 null")
-    # 单/双周判断的基准：第 1 周的周一（导入课表时从表头推断写入）。
-    # 为空时展开退化为「以开始日期所在周为第 1 周」，保证手动创建的单双周在自己的坐标系里自洽。
-    week_start = Column(Date, nullable=True, comment="单双周基准（第1周的周一），空则按开始日期所在周推算")
+    # 周次编号的基准：第 1 周的周一（导入课表时由用户确认的周次锚点推算写入）。
+    # 页面上的「第几周」和单双周的奇偶都以它为准，见 schedule_service.list_semester_periods。
+    # 手动建的日程为空 —— 那时由「现有日程的跨度」兜一个区间出来，同样自洽。
+    week_start = Column(Date, nullable=True, comment="周次编号的基准：第 1 周的周一（导入课表时写入）")
 
     # 通知开关 —— 默认关闭，严格不默认通知
     notify_enabled = Column(Boolean, default=False, comment="是否开启通知")

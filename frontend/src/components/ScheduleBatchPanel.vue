@@ -18,7 +18,12 @@
     >
       <el-table-column prop="name" label="批次名称" min-width="200" show-overflow-tooltip />
       <el-table-column prop="target_count" label="目标人数" width="100" align="right" />
-      <el-table-column prop="schedule_count" label="日程数" width="100" align="right" />
+      <!-- 「日程数」是**每人**几条（原来只叫「日程数」，看着像这一批一共几条，
+           36 人的生日批次显示成 4 很容易看岔），另给一列合计 -->
+      <el-table-column prop="schedule_count" label="每人日程数" width="110" align="right" />
+      <el-table-column label="合计" width="100" align="right">
+        <template #default="{ row }">{{ (row.target_count || 0) * (row.schedule_count || 0) }}</template>
+      </el-table-column>
       <el-table-column label="创建时间" width="180">
         <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
       </el-table-column>
