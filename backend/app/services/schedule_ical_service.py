@@ -93,7 +93,7 @@ def _fold(raw: str) -> str:
     return "\r\n".join(out)
 
 
-def _write_event(buf: StringIO, tpl, periods=None) -> None:
+def _write_event(buf: StringIO, tpl, periods: list) -> None:
     """写一个 VEVENT"""
     buf.write("BEGIN:VEVENT\r\n")
 
@@ -189,7 +189,7 @@ def _build_rrule(tpl) -> str:
         # 严格来说单双周需要知道学期第一周是单周还是双周，
         # 这里退化为每两周重复一次（INTERVAL=2），能覆盖大部分场景
         # 另外：RRULE 管不了「没有周次号的周」—— 页面上那种周不出现（见
-        # schedule_service._odd_even_week_no），订阅里会照常出现，要精确只能
+        # schedule_service.week_no_at），订阅里会照常出现，要精确只能
         # 逐次改成独立事件或补 EXDATE，代价大于收益
         parts.append("FREQ=WEEKLY")
         parts.append("INTERVAL=2")

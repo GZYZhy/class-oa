@@ -16,8 +16,11 @@ export function listSchedules(startDate, endDate) {
 }
 
 /**
- * 学期第 1 周的周一。页面上的「第几周」按它算：
- * 由课表导入时按表名「第N周」折算，别在前端另估一套
+ * 各学期的周次区间。页面上的「第几周」按它算，别在前端另估一套
+ * （按「9 月 1 日所在周」估出来比表名早两周，显示会整体偏早）。
+ * 每项：week_start 是编号基准（第 1 周的周一，导入时按用户选的周次锚点推算写入），
+ * first_day / last_day 是那份课表**实际覆盖到**的范围 —— 补课表可能只覆盖第 8–10 周，
+ * 只有覆盖到的周才显示周次号。下学期再导入一份，就是又一个区间
  */
 export function getSemesterInfo() {
   return request({
