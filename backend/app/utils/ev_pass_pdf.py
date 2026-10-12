@@ -99,36 +99,34 @@ PASS_BATCH_TEXT = "本批次共1人"
 
 PASS_GRID_W = 0.5                  # 细框线。模板走的是 Normal Table，一格线都没有
 
-# 车牌号标签里的示例占位（EV_PASS_PLATE_PREFIX，比如「京」）
-PLATE_TAIL = "XXXXXX"
-
 # 签字图的框。经办班委的签字落在落款与日期之间，纵向才是真约束（见 _sign_line）
 SIGN_BOX_W = 4.5 * cm
 SIGN_BOX_H = 1.1 * cm
 
-# 八列的标签与取值来源，按列序一一对应
+# 八列的标签与取值来源，按列序一一对应。
+# 标签**不带编号、不带冒号、不带示例值**（原模板是「1.姓名：」「2.车牌号：京XXXXXX」）：
+# 这张表是打印出来手填的，冒号会和手写的字粘在一起，示例值容易被当成「已经填好了」，
+# 编号则是从旧版纸质表继承下来的，一排格子并排摆着本来就数得清。
 PASS_COLUMNS = (
-    ("1.姓名：", lambda s, r: _txt(s.name)),
-    ("2.车牌号：{prefix}" + PLATE_TAIL, lambda s, r: _txt(r.plate_number)),
-    ("3.联系电话：", lambda s, r: _txt(s.phone)),
-    ("5.单位（学院）", lambda s, r: _txt(settings.college)),
-    ("6.专业年级", lambda s, r: _txt(settings.ev_pass_grade)),
-    # 模板这一格是**两个段落**（不是段内换行）：标签一行、「XX年XX月」一行
-    ("7.毕业时间<br/>XX年XX月", lambda s, r: _txt(settings.ev_pass_graduation)),
-    ("8.电动自行车品牌", lambda s, r: _txt(r.brand)),
-    ("9.住址", lambda s, r: _txt(settings.ev_pass_address)),
+    ("姓名", lambda s, r: _txt(s.name)),
+    ("车牌号", lambda s, r: _txt(r.plate_number)),
+    ("联系电话", lambda s, r: _txt(s.phone)),
+    ("单位（学院）", lambda s, r: _txt(settings.college)),
+    ("专业年级", lambda s, r: _txt(settings.ev_pass_grade)),
+    ("毕业时间", lambda s, r: _txt(settings.ev_pass_graduation)),
+    ("电动自行车品牌", lambda s, r: _txt(r.brand)),
+    ("住址", lambda s, r: _txt(settings.ev_pass_address)),
 )
 
 
 def _build_table(student, req) -> Table:
     """2 行 8 列的表：第一行标签、第二行值"""
-    labels = [_ep(label.format(prefix=settings.ev_pass_plate_prefix), PASS_LABEL_SIZE)
-              for label, _ in PASS_COLUMNS]
+    labels = [_ep(label, PASS_LABEL_SIZE) for label, _ in PASS_COLUMNS]
     values = [_ep(get(student, req), PASS_VALUE_SIZE) for _, get in PASS_COLUMNS]
     grid = [labels, values]
 
     # 行高取「模板声明值」与「实测内容高」里大的那个：trHeight 是「至少这么高」，
-    # 照 46.1pt 硬套的话，「2.车牌号：京AXXXXXX」在 67.24pt 的内宽里折三行就顶出格子了
+    # 照 46.1pt 硬套的话，「电动自行车品牌」在 83.66pt 的内宽里折两行就顶出格子了
     heights = list(PASS_ROW_H)
     for row, cells in enumerate(grid):
         tallest = max(

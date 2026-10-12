@@ -105,7 +105,7 @@ def _hline_lengths(page) -> list:
 
 
 def _sentinel_branding():
-    """把七项品牌配置换成哨兵值
+    """把六项品牌配置换成哨兵值
 
     不换的话断言的就是本机 .env 里的真校名真年级 —— 那种测试只有本机过，
     换台机器就红，而且分不清是代码错了还是 .env 没配。
@@ -118,12 +118,11 @@ def _sentinel_branding():
     settings.ev_pass_grade = "测试年级26级"
     settings.ev_pass_graduation = "2030年6月"
     settings.ev_pass_address = "测试公寓1号楼"
-    settings.ev_pass_plate_prefix = "京"
 
 
 BRANDING_FIELDS = (
     "school", "college", "major", "ev_pass_grade",
-    "ev_pass_graduation", "ev_pass_address", "ev_pass_plate_prefix",
+    "ev_pass_graduation", "ev_pass_address",
 )
 
 
@@ -176,13 +175,11 @@ def test_pass_table_has_thin_grid_lines():
 
 
 def test_pass_has_all_labels_and_values():
+    """八个值一个都不能少（标签归 test_pass_labels_carry_no_number_colon_or_sample 管）"""
     student, req = _sample()
     _sentinel_branding()
     text = _flat(_pass_page(student, req)[0])
 
-    for label in ("1.姓名：", "2.车牌号：", "3.联系电话：", "5.单位（学院）",
-                  "6.专业年级", "7.毕业时间", "8.电动自行车品牌", "9.住址"):
-        assert label in text, f"标签「{label}」不见了"
     for value in ("张三", "京A1234567", "13800138000", "测试学院",
                   "测试年级26级", "2030年6月", "雅迪", "测试公寓1号楼"):
         assert value in text, f"值「{value}」没印上去"
@@ -200,6 +197,36 @@ def test_pass_only_uses_its_own_font_sizes(tmp_path):
     sizes = _font_sizes(page)
     assert 12.0 not in sizes, f"出现 12pt 了，八成是哪里漏传了 size：{sorted(sizes)}"
     assert sizes <= {22.0, 15.0, 11.0, 10.5}, f"有意料之外的字号：{sorted(sizes)}"
+
+
+# ---------- 表头那行：不带编号、冒号、示例值 ----------
+
+def _table_row_text(page, row: int) -> str:
+    """表格第 row 行的文字 —— 按横线切行
+
+    不能拿整页文字量：那会把落款旁边「经办班委：」的冒号也算进来（那是印上去的成品
+    内容，跟给人手填的标签不是一码事）。
+    """
+    ys = sorted({round(it[1].y, 1) for d in page.get_drawings() for it in d["items"]
+                 if it[0] == "l" and abs(it[1].y - it[2].y) < 0.1})
+    top, bottom = ys[row], ys[row + 1]
+    spans = [s for s in _spans(page) if top <= s["bbox"][1] and s["bbox"][3] <= bottom + 1]
+    return "".join(s["text"] for s in spans)
+
+
+def test_pass_labels_carry_no_number_colon_or_sample():
+    """标签一律不带编号、冒号、示例值
+
+    旧模板上写的是「1.姓名：」「2.车牌号：京XXXXXX」「7.毕业时间／XX年XX月」：
+    这张表是打印出来手写的，冒号会和写上去的字粘在一起，示例值容易被当成「已经填好了」，
+    编号则是一排格子并排摆着本来就数得清。
+    """
+    student, req = _sample()
+    head = _table_row_text(_pass_page(student, req)[0], 0)
+
+    for junk in ("1", "2", "：", ":", "X"):
+        assert junk not in head, f"表头里还有「{junk}」：{head}"
+    assert head == "姓名车牌号联系电话单位（学院）专业年级毕业时间电动自行车品牌住址", head
 
 
 # ---------- 经办班委签字那一行 ----------
@@ -323,18 +350,6 @@ def test_both_documents_survive_a_bad_signature(tmp_path, kind):
 
 
 # ---------- 品牌来自配置 ----------
-
-def test_plate_prefix_comes_from_settings():
-    """车牌号那格的示例前缀取 EV_PASS_PLATE_PREFIX，换一个值表上就跟着换"""
-    student, req = _sample()
-    _sentinel_branding()
-    assert "2.车牌号：京XXXXXX" in _flat(_pass_page(student, req)[0])
-
-    settings.ev_pass_plate_prefix = "沪"
-    text = _flat(_pass_page(student, req)[0])
-    assert "2.车牌号：沪XXXXXX" in text
-    assert "京XXXXXX" not in text
-
 
 def test_no_placeholder_survives():
     """生成物里不许留下 {{...}} —— 那是 Word 模板时代的占位符写法"""
