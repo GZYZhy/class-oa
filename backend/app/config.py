@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     school: str = Field(default="", validation_alias=AliasChoices("SITE_SCHOOL"))
 
     # ---------- 电动车办件 PDF 上的本班固有信息 ----------
-    # 这四项每一届都不一样，但同一届全班相同，所以放在配置里而不是学生表里。
+    # 这三项每一届都不一样，但同一届全班相同，所以放在配置里而不是学生表里。
     # 生成 PDF 时由 utils/ev_pass_pdf.py 填进去。
     # 换届时改这里的配置即可，不用改代码。
     #
@@ -51,10 +51,6 @@ class Settings(BaseSettings):
     )
     # 住址。全班统一住同一栋公寓，所以是常量而不是每人一份
     ev_pass_address: str = Field(default="", validation_alias=AliasChoices("EV_PASS_ADDRESS"))
-    # 车牌号示例里的省份 / 直辖市简称（模板上那句「车牌号：__XXXXXX」）
-    ev_pass_plate_prefix: str = Field(
-        default="", validation_alias=AliasChoices("EV_PASS_PLATE_PREFIX")
-    )
 
     # CORS 允许的来源，开发环境放开
     cors_origins: list = ["*"]

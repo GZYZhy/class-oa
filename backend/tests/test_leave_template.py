@@ -318,7 +318,7 @@ def test_outside_content_comes_from_config(monkeypatch):
 
 
 # 不该出现在源码里的**本部署的真实值** —— 每一项都有对应的配置键，都该从 .env 取。
-# 值取自仓库根的 .env（SITE_* 品牌族 + EV_PASS_* 四项），换学校 / 换届时会变。
+# 值取自仓库根的 .env（SITE_* 品牌族 + EV_PASS_* 三项），换学校 / 换届时会变。
 # 「统计学」既是 SITE_MAJOR 又含在 EV_PASS_GRADE「统计学26级」里，一个词守两处。
 HARDCODED_BRANDING = {
     "北方工业大学": "SITE_SCHOOL",
@@ -326,7 +326,6 @@ HARDCODED_BRANDING = {
     "统计学": "SITE_MAJOR",
     "金鼎公寓": "EV_PASS_ADDRESS",
     "2030年": "EV_PASS_GRADUATION",
-    "北京": "EV_PASS_PLATE_PREFIX",
     "261020301": "学号（学生自己填的那个，不该有示例值）",
 }
 
