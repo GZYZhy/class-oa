@@ -458,6 +458,18 @@
       </template>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
+        <!-- 签字图按钮：只有这学生**有**签字图时才出现（后端用 download_name 是否为空
+             告诉我们）。学生角色拉不到状态，自然什么都不渲染 —— 连「签字」两个字
+             都不出现在他眼前，这是用户明确要求的 -->
+        <el-button
+          v-if="signButton"
+          :type="signButton.primary ? 'primary' : 'default'"
+          :loading="signSubmitting"
+          :disabled="signButton.disabled"
+          @click="handleSignClick"
+        >
+          {{ signButton.text }}
+        </el-button>
         <el-button type="primary" @click="handleEdit(currentStudent)">编辑信息</el-button>
       </template>
     </el-dialog>
@@ -588,6 +600,46 @@
                         </el-button>
                       </div>
                     </div>
+
+                    <!-- 签字图：**只有管理员**有这一格（班委要看必须走申请，见详情页那个按钮）。
+                         不复用上面 PHOTO_TYPES 那一套 —— 它走的是另一套接口，权限也完全不同，
+                         混进同一个循环里，以后谁读这段都会以为签字就是第四张照片 -->
+                    <div v-if="userStore.isAdmin" class="edit-photo">
+                      <div
+                        class="edit-photo-box"
+                        @click="signEdit.has && openSignEditViewer()"
+                      >
+                        <img
+                          v-if="signEdit.has"
+                          :src="editSignUrl"
+                          class="edit-photo-img"
+                          @error="handleImgError($event)"
+                        />
+                        <div v-else class="edit-photo-empty">
+                          <el-icon style="font-size: 24px;"><EditPen /></el-icon>
+                        </div>
+                      </div>
+                      <div class="edit-photo-label">签字</div>
+                      <div>
+                        <el-button
+                          size="small"
+                          :loading="signEdit.uploading"
+                          @click="pickSignImage"
+                        >
+                          {{ signEdit.uploading && photoUploadProgress
+                            ? `上传中 ${photoUploadProgress}%` : '选择图片' }}
+                        </el-button>
+                        <el-button
+                          v-if="signEdit.has"
+                          size="small"
+                          link
+                          type="danger"
+                          @click="handleDeleteSign"
+                        >
+                          删除
+                        </el-button>
+                      </div>
+                    </div>
                   </div>
                   <!-- 隐藏的原生文件选择框：选完即传，不需要额外的「上传」按钮。
                        两个框共用 handlePhotoPicked —— 换哪一张由 pickPhoto 写进 photoPicking。
@@ -606,6 +658,15 @@
                     capture="environment"
                     style="display: none"
                     @change="handlePhotoPicked"
+                  />
+                  <!-- 签字图的第三个文件框：它走的是另一套接口（sign-photos），
+                       所以不和上面两个共用 handlePhotoPicked -->
+                  <input
+                    ref="signInput"
+                    type="file"
+                    accept="image/*"
+                    style="display: none"
+                    @change="handleSignPicked"
                   />
                 </el-form-item>
               </el-col>
@@ -913,6 +974,17 @@
       @close="viewerVisible = false"
     />
 
+    <!-- 签字图预览：用 FileViewer 而不是上面那个 el-image-viewer —— 后者只有缩放旋转、
+         没有下载，而需求明确要能下载。file-name 由后端拼好（「姓名_签字.png」），
+         前端不碰库里那个 uuid 文件名，也靠后缀判出这是图片 -->
+    <FileViewer
+      v-model="signViewer.visible"
+      :file-url="signViewer.url"
+      :file-name="signViewer.fileName"
+      :title="`${signViewer.studentName} 的签字`"
+      :download-name="signViewer.fileName"
+    />
+
     <!-- 导入 Excel 弹框（与初始化浮层共用同一个组件） -->
     <StudentImportDialog ref="importDialogRef" @done="fetchList" />
 
@@ -1107,8 +1179,16 @@ import {
   getExportFieldGroups,
   downloadExportFile
 } from '@/api/export'
+import {
+  getSignStatus,
+  requestSignView,
+  signImageUrl,
+  uploadSignImage,
+  deleteSignImage
+} from '@/api/signPhoto'
 import { useUserStore } from '@/store/user'
 import Watermark from '@/components/Watermark.vue'
+import FileViewer from '@/components/FileViewer.vue'
 import RollCallDialog from '@/components/RollCallDialog.vue'
 import DrawDialog from '@/components/DrawDialog.vue'
 import PhotoImportDialog from '@/components/PhotoImportDialog.vue'
@@ -1193,6 +1273,46 @@ const photoUploading = ref('') // 正在上传的那张照片的 type，用来�
 // 照片上传进度百分比（算不出总大小时为 0，就不显示数字）
 const photoUploadProgress = ref(0)
 let photoPicking = '' // 这次点「选择图片」是想换哪一张
+
+// ---------- 签字图 ----------
+// 它和上面三张照片不是一条链路：照片是「能看这个学生就能看」，签字得管理员批过、
+// 而且只有申请人本人、只有一小时。所以状态单独问后端（/sign-photos/status/{id}）。
+const signStatus = ref({ status: 'none', expires_at: null, download_name: '' })
+const signSubmitting = ref(false)
+// 编辑弹窗里那一格（只有管理员会有）
+const signInput = ref(null)
+const signEdit = ref({ has: false, uploading: false, fileName: '' })
+// 预览弹窗的参数。存成一份快照：详情弹窗关掉之后 currentStudent 会变，
+// 预览框还开着的话标题和图会串到下一个学生身上
+const signViewer = ref({
+  visible: false, url: '', fileName: '', studentName: ''
+})
+
+/**
+ * 详情页那个按钮的三态。没图就返回 null（整个按钮不渲染）
+ *
+ * 判据是「后端给没给 download_name」，不是状态字符串 —— 没有签字图时状态也是
+ * none，只看状态会把「有图但没申请」和「根本没图」混成一个样子。
+ */
+const signButton = computed(() => {
+  if (!userStore.isCommittee || !signStatus.value.download_name) return null
+  switch (signStatus.value.status) {
+    case 'pending':
+      return { text: '申请待审核', disabled: true, primary: false }
+    case 'approved':
+      return { text: '查看签字', disabled: false, primary: true }
+    case 'expired':
+      return { text: '重新申请', disabled: false, primary: false }
+    default:
+      return { text: '申请签署', disabled: false, primary: false }
+  }
+})
+
+/** 编辑弹窗里那张签字图的地址。v 用下载名：换图后名字也是新的，绕开任何中间缓存 */
+const editSignUrl = computed(() => {
+  if (!editForm.id || !signEdit.value.has) return ''
+  return signImageUrl(editForm.id, signEdit.value.fileName)
+})
 
 // 备注单独一个弹窗：班委只能改备注，没必要给他们开全字段的表单
 const remarkVisible = ref(false)
@@ -1347,6 +1467,7 @@ async function handleView(row) {
   // 再后台请求详情接口静默刷新（差网络下也不阻塞弹窗操作）
   currentStudent.value = row
   detailVisible.value = true
+  loadSignStatus(row.id) // 不 await：签字那个按钮晚一步出现，不该拖住弹窗
   try {
     currentStudent.value = await getStudent(row.id)
   } catch (e) {
@@ -1366,6 +1487,7 @@ function resetEditForm() {
   Object.keys(editForm).forEach((key) => delete editForm[key])
   editAttachments.value = []
   editNewAttachments.value = []
+  signEdit.value = { has: false, uploading: false, fileName: '' }
 }
 
 /** 「更多」下拉：管理员那三个低频操作 */
@@ -1393,6 +1515,7 @@ function handleEdit(row) {
     // 备注附件初始化
     editAttachments.value = (row.remark_attachments || []).map(a => ({ ...a }))
     editNewAttachments.value = []
+    loadSignEdit(row.id) // 同上：不 await，别拖住弹窗
     editVisible.value = true
     activeTab.value = 'basic'
   } else {
@@ -1609,6 +1732,114 @@ async function handleDeletePhoto(type) {
     editForm[PHOTO_TYPE_MAP[type].field] = null
     ElMessage.success('照片已删除')
     fetchData()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
+  }
+}
+
+// ---------- 签字图 ----------
+
+/** 拉某学生的签字状态（详情页按钮用）。**只对班委及以上发这个请求** ——
+ *  学生角色打过去是 403，弹到他脸上反而是告诉他「有这么个东西」 */
+async function loadSignStatus(studentId) {
+  signStatus.value = { status: 'none', expires_at: null, download_name: '' }
+  if (!userStore.isCommittee || !studentId) return
+  try {
+    signStatus.value = await getSignStatus(studentId)
+  } catch (e) {
+    // 拉不到就当没有：按钮不渲染，总好过给一个点开必然失败的按钮
+  }
+}
+
+/** 详情页那个按钮：能看就打开预览，否则提交申请 */
+async function handleSignClick() {
+  if (signStatus.value.status === 'approved') {
+    openSignViewer(currentStudent.value)
+    return
+  }
+  signSubmitting.value = true
+  try {
+    await requestSignView(currentStudent.value.id)
+    // 不重拉状态：后端已经把它变成 pending 了，这里跟着改就不用多跑一趟
+    signStatus.value = { ...signStatus.value, status: 'pending' }
+    ElMessage.success('申请已提交，管理员同意后就能查看')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '申请失败')
+  } finally {
+    signSubmitting.value = false
+  }
+}
+
+/** 打开签字预览。fileName 用后端拼的名字（含后缀），预览组件靠后缀判类型 */
+function openSignViewer(student) {
+  if (!student) return
+  signViewer.value = {
+    visible: true,
+    url: signImageUrl(student.id, signStatus.value.download_name || signEdit.value.fileName),
+    fileName: signStatus.value.download_name || signEdit.value.fileName,
+    studentName: student.name
+  }
+}
+
+/** 编辑弹窗里点那张签字图 */
+function openSignEditViewer() {
+  openSignViewer({ id: editForm.id, name: editForm.name })
+}
+
+/** 编辑弹窗打开时问一次签字状态（管理员才问） */
+async function loadSignEdit(studentId) {
+  signEdit.value = { has: false, uploading: false, fileName: '' }
+  if (!userStore.isAdmin || !studentId) return
+  try {
+    const s = await getSignStatus(studentId)
+    signEdit.value = { has: !!s.download_name, uploading: false, fileName: s.download_name }
+  } catch (e) {
+    /* 静默：拉不到就当没传过，管理员重新传一次即可 */
+  }
+}
+
+function pickSignImage() {
+  signInput.value?.click()
+}
+
+async function handleSignPicked(e) {
+  const file = e.target.files?.[0]
+  // 一定要清空：不清的话连着选同一个文件不会再触发 change
+  e.target.value = ''
+  if (!file) return
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.warning('签字图片不能超过 10MB')
+    return
+  }
+
+  signEdit.value = { ...signEdit.value, uploading: true }
+  photoUploadProgress.value = 0
+  try {
+    await uploadSignImage(editForm.id, file, (loaded, total) => {
+      photoUploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+    })
+    // 上传接口只回一句 message，图的新名字得重新问一次（也要靠它刷新预览地址）
+    await loadSignEdit(editForm.id)
+    ElMessage.success('签字图片已更新')
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || '上传失败')
+  } finally {
+    signEdit.value = { ...signEdit.value, uploading: false }
+  }
+}
+
+async function handleDeleteSign() {
+  try {
+    await ElMessageBox.confirm('确定删除这个学生的签字图片吗？', '删除签字图', {
+      type: 'warning'
+    })
+  } catch (e) {
+    return // 取消
+  }
+  try {
+    await deleteSignImage(editForm.id)
+    signEdit.value = { has: false, uploading: false, fileName: '' }
+    ElMessage.success('签字图片已删除')
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '删除失败')
   }

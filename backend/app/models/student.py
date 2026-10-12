@@ -46,3 +46,7 @@ class Student(Base):
     gaokao_photo = Column(String(200), comment="高考照片路径")
     on_site_photo = Column(String(200), comment="实地采集照片路径")
     id_photo = Column(String(200), comment="自备证件照路径")
+    # 手写签字图。和上面三张照片同构（只存裸文件名），但**不进 PHOTO_FIELDS** ——
+    # 照片那条链路是「班委看得见这个学生就能看他的照片」，签字要凭审批，
+    # 混进去等于给签字开一条绕过审批的直通车。取图走 api/sign_photos.py
+    sign_photo = Column(String(200), comment="签字图片路径")

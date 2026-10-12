@@ -94,12 +94,39 @@ def test_unknown_type_is_rejected_and_lists_all_three(sp):
     assert "avatar" not in detail
 
 
-def test_every_photo_field_has_a_log_label():
+def test_every_import_photo_field_has_a_log_label():
     """每列都配得上一个标签
 
     少一个键，日志那一行就 KeyError 500 —— 加照片类型时最容易漏的就是这里，
     因为漏了以后上传图片照样成功，只有翻日志才看得出来。
-    """
-    from app.services.student_photo_service import PHOTO_FIELDS, PHOTO_TYPE_LABELS
 
-    assert set(PHOTO_FIELDS) == set(PHOTO_TYPE_LABELS)
+    比的是**打包导入**那个清单（四种，含签字）：日志的 target 写的是
+    PHOTO_TYPE_LABELS[photo_type]，而能走到那一步的 photo_type 只有它能取。
+    """
+    from app.services.student_photo_service import IMPORT_PHOTO_FIELDS, PHOTO_TYPE_LABELS
+
+    assert set(IMPORT_PHOTO_FIELDS) == set(PHOTO_TYPE_LABELS)
+
+
+def test_sign_is_not_a_regular_photo_type():
+    """签字**不在**通用照片接口的清单里 —— 这是权限设计的一部分，不是遗漏
+
+    通用照片接口（GET /students/{id}/photo?type=）的权限是「能看这个学生就能看他的
+    照片」；签字要凭管理员审批（见 api/sign_photos.py）。签字一旦混进 PHOTO_FIELDS，
+    班委在名单页点开学生就能直接取到签字图，那条审批链形同虚设。
+
+    所以这个断言是在守一条安全边界，不是在对齐数据结构。真要有意放开，
+    得先想清楚「申请-审批」这条链还要不要。
+    """
+    from app.services.student_photo_service import (
+        IMPORT_PHOTO_FIELDS,
+        PHOTO_FIELDS,
+        PHOTO_TYPE_LABELS,
+    )
+
+    assert "sign" not in PHOTO_FIELDS
+    # 但打包导入认它（管理员动作，跟传照片没区别）
+    assert IMPORT_PHOTO_FIELDS["sign"] == "sign_photo"
+    assert set(PHOTO_FIELDS) < set(IMPORT_PHOTO_FIELDS)
+    # 标签表是给打包导入用的，两种都要在
+    assert PHOTO_TYPE_LABELS["sign"] == "签字图"
