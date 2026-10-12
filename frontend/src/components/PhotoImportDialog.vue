@@ -15,6 +15,7 @@
             <el-radio-button value="gaokao">高考照片</el-radio-button>
             <el-radio-button value="on_site">实地采集</el-radio-button>
             <el-radio-button value="id">自备证件照</el-radio-button>
+            <el-radio-button value="sign">签字图</el-radio-button>
           </el-radio-group>
         </el-form-item>
       </el-form>

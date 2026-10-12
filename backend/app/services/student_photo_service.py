@@ -37,15 +37,23 @@ from .student_import_service import PHOTO_DIR, _remove_photo_safe
 # 很容易只改了其中一边
 ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 MAX_PHOTO_SIZE = 10 * 1024 * 1024  # 10MB，手机拍的实地采集照片也不会更大
+# 随学生一起下发的三种照片。api/students.py 的通用照片接口（GET /{id}/photo）
+# 只认这三种，权限是「能看这个学生就能看他的照片」
 PHOTO_FIELDS = {
     "gaokao": "gaokao_photo",
     "on_site": "on_site_photo",
     "id": "id_photo",
 }
+# 打包导入（zip）认的四种。签字图也在其中 —— 导入是管理员的动作，跟照片没有区别，
+# 都是往 students 的某个列里写一个文件名。但**取图**不能走通用照片接口：
+# 签字要凭管理员审批（见 api/sign_photos.py），所以它不在上面的 PHOTO_FIELDS 里，
+# 于是 GET /{id}/photo?type=sign 天然报「未知的照片类型」
+IMPORT_PHOTO_FIELDS = {**PHOTO_FIELDS, "sign": "sign_photo"}
 PHOTO_TYPE_LABELS = {
     "gaokao": "高考照片",
     "on_site": "实地采集照片",
     "id": "自备证件照",
+    "sign": "签字图",
 }
 
 
@@ -108,6 +116,16 @@ def photo_response(file_name: str, cache: str = "private, max-age=31536000") -> 
     )
 
 
+def sign_photo_path(student: Student) -> Path | None:
+    """某学生的签字图磁盘路径；没传过签字返回 None
+
+    **办件将来要往 Word 里插签字时调这个**（python-docx 的 add_picture 收路径），
+    别自己去拼 PHOTO_DIR —— 这个函数顺带复用了 photo_path 的防路径穿越。
+    文件在不在由调用方判（exists），这里只管「库里那条记录指向哪个文件」。
+    """
+    return photo_path(student.sign_photo) if student.sign_photo else None
+
+
 # 待确认的 zip 放临时目录，10 分钟过期。文件名带 photos_ 前缀，于是客户端
 # 回传的 token 就算写成「../../x」也只会落在这一层里（"photos_.." 是个普通
 # 目录名，不是上一级）；下面的正则再兜一道，免得以后有人改了命名规则
@@ -157,7 +175,7 @@ def _match_student(stem: str, by_no: list[str], by_name: dict[str, str]) -> str 
 def _verdicts(infos: list[zipfile.ZipInfo], students: list[Student], photo_type: str) -> list[dict]:
     """给 zip 里的每个成员一个结论（不读字节）"""
     by_no, by_name, names = _index(students)
-    field = PHOTO_FIELDS[photo_type]
+    field = IMPORT_PHOTO_FIELDS[photo_type]
     existing = {s.student_no: bool(getattr(s, field)) for s in students}
 
     items = []
@@ -258,7 +276,7 @@ def apply(
     infos = _open_zip(content)
     items = _verdicts(infos, students, photo_type)
     by_no = {s.student_no: s for s in students}
-    field = PHOTO_FIELDS[photo_type]
+    field = IMPORT_PHOTO_FIELDS[photo_type]
 
     # 人工指认覆盖自动结论。不支持的格式和超大的那条改不了 —— 那不是「认错了人」，
     # 是这张图根本用不了
@@ -363,7 +381,7 @@ def _zip_path(token: str, photo_type: str) -> Path:
     类型也进文件名，于是拿高考照片的 token 去导实地采集时会找不到文件 ——
     比默默按另一个类型导进去要好。
     """
-    if not _TOKEN_RE.fullmatch(token or "") or photo_type not in PHOTO_FIELDS:
+    if not _TOKEN_RE.fullmatch(token or "") or photo_type not in IMPORT_PHOTO_FIELDS:
         return _ZIP_DIR / "invalid"
     return _ZIP_DIR / f"photos_{photo_type}_{token}.zip"
 

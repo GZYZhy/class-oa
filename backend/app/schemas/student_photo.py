@@ -22,7 +22,7 @@ class PhotoZipItem(BaseModel):
 class PhotoZipPreviewResponse(BaseModel):
     """zip 解析预览（不写库、不写文件）"""
     token: str = Field(..., description="预览令牌，确认导入时传回")
-    photo_type: str = Field(..., description="gaokao / on_site")
+    photo_type: str = Field(..., description="gaokao / on_site / id / sign")
     total: int = Field(0, description="zip 里的成员总数")
     counts: dict[str, int] = Field(default_factory=dict, description="各状态的张数")
     will_overwrite: int = Field(0, description="其中会覆盖已有照片的张数")
@@ -32,7 +32,7 @@ class PhotoZipPreviewResponse(BaseModel):
 class PhotoZipConfirmRequest(BaseModel):
     """确认导入的请求体"""
     token: str = Field(..., description="预览接口返回的令牌")
-    photo_type: str = Field(..., description="gaokao / on_site，与预览时一致")
+    photo_type: str = Field(..., description="gaokao / on_site / id / sign，与预览时一致")
     overwrite: bool = Field(False, description="已有照片也覆盖")
     manual: dict[str, str] = Field(
         default_factory=dict,

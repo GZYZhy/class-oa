@@ -19,19 +19,33 @@
     <div class="viewer-container" @contextmenu.prevent>
       <!-- 图片 -->
       <div v-if="fileType === 'image'" class="image-wrap">
-        <img
-          v-if="imageUrl"
-          :src="imageUrl"
-          :style="{ transform: `scale(${scale}) rotate(${rotate}deg)` }"
-          class="preview-image"
-          draggable="false"
-          alt="预览图片"
-        />
+        <!-- 缩放与 PDF 共用那一排按钮（zoomIn / zoomOut / fitWidth 本来就分了图片分支，
+             原先只是没把控件渲染出来）。签字图要靠它放大看笔画，所以补上 -->
+        <div class="viewer-toolbar">
+          <el-button size="small" :disabled="scale <= 0.2" @click="zoomOut">
+            <el-icon><ZoomOut /></el-icon>
+          </el-button>
+          <span class="scale-text">{{ Math.round(scale * 100) }}%</span>
+          <el-button size="small" :disabled="scale >= 3" @click="zoomIn">
+            <el-icon><ZoomIn /></el-icon>
+          </el-button>
+          <el-button size="small" @click="fitWidth">适应窗口</el-button>
+        </div>
+        <div class="image-canvas-wrap">
+          <img
+            v-if="imageUrl"
+            :src="imageUrl"
+            :style="{ transform: `scale(${scale}) rotate(${rotate}deg)` }"
+            class="preview-image"
+            draggable="false"
+            alt="预览图片"
+          />
+        </div>
       </div>
 
       <!-- PDF -->
       <div v-else-if="fileType === 'pdf'" class="pdf-wrap">
-        <div class="pdf-toolbar">
+        <div class="viewer-toolbar">
           <el-button size="small" :disabled="currentPage <= 1" @click="prevPage">
             <el-icon><ArrowLeft /></el-icon>上一页
           </el-button>
@@ -305,16 +319,23 @@ onBeforeUnmount(() => {
 /* 图片预览 */
 .image-wrap {
   display: flex;
-  justify-content: center;
-  align-items: center;
+  flex-direction: column;
   width: 100%;
   height: calc(90vh - 200px);
+}
+
+.image-canvas-wrap {
+  flex: 1;
   overflow: auto;
   padding: 20px;
   box-sizing: border-box;
+  display: flex;
 }
 
 .preview-image {
+  /* margin: auto 而不是 justify-content: center —— 放大到溢出时，
+     居中会把左上角推到滚动区外面，滚不回去 */
+  margin: auto;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
@@ -331,7 +352,8 @@ onBeforeUnmount(() => {
   height: calc(90vh - 200px);
 }
 
-.pdf-toolbar {
+/* 图片与 PDF 共用的一排工具按钮 */
+.viewer-toolbar {
   display: flex;
   align-items: center;
   gap: 6px;
