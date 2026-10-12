@@ -1328,6 +1328,131 @@ console.log('\n▶ 审核页：批准时填班导师意见、选谁的签字')
   check(/advisor_opinion: leaveDialogForm\.value\.advisor_opinion/.test(src), '意见同样原样带上')
 }
 
+console.log('\n▶ 电动车：两份都改成 PDF，批准时选经办班委签字')
+{
+  const REVIEW = '/src/views/Review.vue'
+  const src = readFileSync(`${ROOT}${REVIEW}`, 'utf8')
+  const api = readFileSync(`${ROOT}/src/api/evPass.js`, 'utf8')
+
+  // 旧的两个下载地址是 admin_required 的 docx —— 学生点那个必然 403，是死按钮。
+  // 地址连同 docx 这三个字母一起清掉，残留一处就又是一条死路
+  check(api.includes('url: `/ev-passes/${id}/pass-pdf`') &&
+    api.includes('url: `/ev-passes/${id}/promise-pdf`'), '申请表与承诺书各有一个 PDF 地址')
+  check(!/docx/i.test(api), '接口层不再留 docx 的痕迹')
+  check(/export function approveEvPass\(id, payload\)/.test(api) && /data: payload/.test(api),
+    '通过时把签字人一起提交（payload 可省，老调用点照样能用）')
+  check(api.includes('url: `/ev-passes/${id}/sign`'), '补签字走单独那个接口（不是「再批一次」）')
+  check(api.includes("url: '/ev-passes/signers'"), '签字人列表单独一个接口')
+
+  // 学生端：文件名从写死的 .docx 改成 .pdf，两个按钮都走 api 函数拿 blob
+  const stu = readFileSync(`${ROOT}/src/views/EvPass.vue`, 'utf8')
+  check(!/docx/i.test(stu), '学生端不再碰 docx')
+  check(/a\.download = `\$\{row\.student_name\}_\$\{label\}_[\s\S]{0,80}\.pdf`/.test(stu),
+    '下载下来的文件名是 .pdf')
+  check(stu.includes('downloadEvPassPdf') && stu.includes('downloadEvPromisePdf'),
+    '两个按钮都走 api 函数（不再裸拼 URL 下载）')
+
+  // --- 审核页那一列与那几个按钮，真渲染 ---
+  const row = (o) => ({
+    id: 1, student_name: '戊', student_no: '2024000005', brand: '雅迪',
+    plate_number: '京A1234567', status: 'pending', sign_name: '', has_sign: false,
+    created_at: '2026-10-12 09:00', ...o
+  })
+  const who = (role) => `const userStore = useUserStore()
+  userStore.info = { student_no: '2024000001', name: '甲', role: '${role}', is_external: false }`
+  // 表桩对每行跑 default 插槽，所以行里的按钮和签字状态都能真断到
+  const buttonTexts = (html) =>
+    [...stripComments(html).matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)]
+      .map((m) => m[1].replace(/<[^>]+>/g, '').trim())
+  // 默认停在「信息修改申请」那个 tab，钉到电动车那个 tab 上去（?tab=evpass 的效果）
+  const evTab = (r) => [
+    ["const activeTab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'change')",
+      "const activeTab = ref('evpass')"],
+    ['const evPassList = ref([])', `const evPassList = ref(${JSON.stringify([r])})`]
+  ]
+
+  const { html: pending } = await renderPatchedMany(REVIEW,
+    [['const userStore = useUserStore()', who('admin')], ...evTab(row({}))])
+  const pb = buttonTexts(pending)
+  check(pb.includes('通过') && pb.includes('驳回'), '待审核：管理员有「通过」「驳回」')
+  check(!pb.includes('补签字'), '还没批准的单子没有「补签字」')
+  check(!pb.includes('申请表') && !pb.includes('承诺书'), '没批准就没得下载（后端也会 400）')
+  check(stripComments(pending).includes('—'), '待审核的签字列是一横（还没到签字这一步）')
+
+  const { html: signed } = await renderPatchedMany(REVIEW,
+    [['const userStore = useUserStore()', who('admin')],
+     ...evTab(row({ status: 'approved', has_sign: true, sign_name: '甲' }))])
+  const sb = buttonTexts(signed)
+  check(sb.includes('申请表') && sb.includes('承诺书'), '已批准：两份文档都能下')
+  check(!sb.includes('补签字'), '签过的没有「补签字」（后端也会 400）')
+  check(stripComments(signed).includes('甲 已签'), '签字状态那列写着是谁签的')
+
+  const { html: deferred } = await renderPatchedMany(REVIEW,
+    [['const userStore = useUserStore()', who('admin')], ...evTab(row({ status: 'approved' }))])
+  check(buttonTexts(deferred).includes('补签字'), '「暂不签署」的才给「补签字」')
+  check(stripComments(deferred).includes('暂不签署'), '那一列写着「暂不签署」')
+
+  // 班委：两份文档他也能下（留档、报学院盖章用），但签字轮不到他
+  const { html: asCm } = await renderPatchedMany(REVIEW,
+    [['const userStore = useUserStore()', who('committee')], ...evTab(row({ status: 'approved' }))])
+  const cb = buttonTexts(asCm)
+  check(cb.includes('申请表') && cb.includes('承诺书'), '班委的列表里两份文档照样能下')
+  check(!cb.includes('补签字') && !cb.includes('通过'), '班委没有「补签字」，也没有「通过」')
+  check(stripComments(asCm).includes('暂不签署'), '但那列状态他看得到（不是整列藏起来）')
+
+  // 批准 / 补签字共用同一个弹窗，两个入口分别调各自的接口
+  check(/label="经办班委签字"/.test(src), '电动车列表加了一列「经办班委签字」')
+  check(src.includes("openEvPassDialog('approve', row)") &&
+    src.includes("openEvPassDialog('sign', row)"), '「通过」和「补签字」都走同一个弹窗')
+  check(/await approveEvPass\(row\.id, payload\)/.test(src), '通过时把签字人一起提交')
+  check(/await signEvPass\(row\.id, payload\)/.test(src), '补签字走单独那个接口')
+  check(/\? '补经办班委签字' : '通过电动车通行证申请'/.test(src), '弹窗标题按两种用途分')
+  check(/<el-option label="暂不签署" value="" \/>/.test(src),
+    '签字人那栏第一项固定是「暂不签署」（默认值就是它）')
+
+  // 弹窗正文在 SSR 下不渲染，得盖掉 el-dialog；顺便把候选人也灌进去
+  const R = row({})
+  const { html: dialog } = await renderPatchedMany(REVIEW, [
+    ['const userStore = useUserStore()', who('admin')],
+    ...evTab(R),
+    ['const evPassDialogVisible = ref(false)', 'const evPassDialogVisible = ref(true)'],
+    ['const evPassDialogRow = ref(null)', `const evPassDialogRow = ref(${JSON.stringify(R)})`],
+    ['const evPassSigners = ref([])', `const evPassSigners = ref([
+  { student_no: '2024000001', name: '甲', is_external: false },
+  { student_no: 'teacher_li', name: '李俊刚', is_external: true }
+])`]
+  ], { ElDialog: ElDialogStub })
+  const dlg = stripComments(dialog)
+  check(dlg.includes('经办班委签字'), '弹窗里有「经办班委签字」那一栏')
+  check(dlg.includes('签的是批准当时这张图'), '写明了签的是快照')
+  check(dlg.includes('申请表落款处不会出现「经办班委」这一行'),
+    '说明「暂不签署」的后果（那一行整行不出现）')
+  // 这一条得切源码来看：整页里别的弹窗（请假那个）本来就有「班导师意见」
+  const dialogAt = src.indexOf('v-model="evPassDialogVisible"')
+  check(!src.slice(dialogAt, dialogAt + 1500).includes('意见'),
+    '弹窗里没有意见输入框 —— 这份表上没有意见栏')
+}
+
+console.log('\n▶ 系统管理：水印溯源认得电动车申请表与承诺书')
+{
+  // 同上一节：这块在 tab 正文里，SSR 下不渲染，走源码断言
+  const src = readFileSync(`${ROOT}/src/views/Admin.vue`, 'utf8')
+
+  const at = src.indexOf("watermarkResult.source_type === 'evpass'")
+  check(at > 0, '水印结果有电动车这一支')
+  const branch = src.slice(at, at + 900)
+  // 两份共用一个 source_type，到底是哪一份靠后端写好的 file_title 分
+  check(branch.includes('watermarkResult.file_title'),
+    '这一支直接显示后端写好的标题（「某某的电动车通行证申请表（日期）」）')
+  check(branch.includes('电动车申请表与承诺书不写文件访问日志'),
+    '顺带说明「不写日志是按设计的」，免得当成日志丢了')
+  check(branch.includes('下载'), '说的是「谁于何时下载的」')
+
+  // 顺序要紧：这一支必须排在那个通用 v-else 之前，排后面就永远轮不到它
+  const fallback = src.indexOf('watermarkResult.log_matched', at)
+  check(fallback > at, '通用那一支（带 log_matched 的）排在它后面')
+}
+
 console.log('\n▶ 系统管理：水印溯源认得请假审批表')
 {
   // 这块在「文件访问日志」那个 tab 的正文里，SSR 下 tab 正文不渲染 —— 照本节

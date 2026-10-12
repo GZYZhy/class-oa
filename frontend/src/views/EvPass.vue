@@ -68,6 +68,15 @@
                 <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="经办班委签字" width="130" align="center">
+              <template #default="{ row }">
+                <!-- 签不签是管理员批准那一步定的，没签字时申请表上就没有那一行 -->
+                <span v-if="row.status === 'approved' && row.sign_name" style="color: #67c23a;">
+                  {{ row.sign_name }} 已签
+                </span>
+                <span v-else style="color: var(--el-text-color-secondary);">—</span>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" min-width="280" align="center">
               <template #default="{ row }">
                 <el-button type="primary" link size="small" @click="viewLicense(row)">行驶证</el-button>
@@ -98,9 +107,9 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getMyEvPasses, submitEvPass } from '@/api/evPass'
+import { getMyEvPasses, submitEvPass, downloadEvPassPdf, downloadEvPromisePdf } from '@/api/evPass'
 import { formatDate, formatDateTime } from '@/utils/format'
-import { blobErrorDetail, downloadFile } from '@/utils/download'
+import { blobErrorDetail } from '@/utils/download'
 import FileViewer from '@/components/FileViewer.vue'
 
 const activeTab = ref('apply')
@@ -195,17 +204,22 @@ function viewLicense(row) {
   licenseViewerVisible.value = true
 }
 
-// 下载申请表 / 承诺书。
-// 存盘名要自己拼（downloadFile 走 blob，拿不到响应头里的名字），
-// 命名沿用请假证明的模式：姓名_材料名_日期 —— 同一个人可能申请过不止一次
-function docxName(row, label) {
-  const dateStr = formatDate(row.created_at).replace(/-/g, '')
-  return `${row.student_name}_${label}_${dateStr}.docx`
+// 下载申请表 / 承诺书（都是 PDF）。
+// 存盘名要自己拼（走 blob，拿不到响应头里的名字），命名沿用请假证明的模式：
+// 姓名_材料名_日期 —— 同一个人可能申请过不止一次
+async function savePdf(fetchBlob, row, label) {
+  const blob = await fetchBlob(row.id)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${row.student_name}_${label}_${formatDate(row.created_at).replace(/-/g, '')}.pdf`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 async function downloadPass(row) {
   try {
-    await downloadFile(`/api/ev-passes/${row.id}/pass-docx`, docxName(row, '电动车通行证申请表'))
+    await savePdf(downloadEvPassPdf, row, '电动车通行证申请表')
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
   }
@@ -213,7 +227,7 @@ async function downloadPass(row) {
 
 async function downloadPromise(row) {
   try {
-    await downloadFile(`/api/ev-passes/${row.id}/promise-docx`, docxName(row, '电动车承诺书'))
+    await savePdf(downloadEvPromisePdf, row, '电动车承诺书')
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
   }

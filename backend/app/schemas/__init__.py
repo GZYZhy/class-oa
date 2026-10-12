@@ -52,7 +52,7 @@ from .leave import (
     LeaveRequestResponse,
 )
 from .feedback import FeedbackAttachment, FeedbackReply, FeedbackResponse
-from .ev_pass import EvPassRequestResponse, EvPassRejectRequest
+from .ev_pass import EvPassRequestResponse, EvPassRejectRequest, EvPassSignature
 from .student_import import (
     ImportPreviewResponse,
     ImportPreviewSample,
@@ -194,6 +194,7 @@ __all__ = [
     "FeedbackResponse",
     "EvPassRequestResponse",
     "EvPassRejectRequest",
+    "EvPassSignature",
     "ImportPreviewResponse",
     "ImportPreviewSample",
     "ImportConfirmRequest",

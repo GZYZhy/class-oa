@@ -3,7 +3,6 @@
 """
 
 import os
-import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -42,7 +41,8 @@ from ..services import (
     notify,
     recipients,
 )
-from ..services.student_photo_service import sign_photo_path, user_sign_photo_path
+from ..services.signer_service import copy_signature, signer_options
+from ..services.student_photo_service import sign_photo_path
 from ..utils.leave_pdf import generate_leave_pdf
 from ..utils.media_type import guess_media_type
 from .deps import (
@@ -90,45 +90,6 @@ def _to_response(leave: LeaveRequest) -> LeaveRequestResponse:
     return resp
 
 
-def _signer_photo(db: Session, student_no: str) -> tuple[Path, User] | None:
-    """某登录名能不能当签字人：返回 (签字图路径, 账号)，不能就返回 None
-
-    域外账号的签字图存 users.sign_photo、在册学生存 students.sign_photo，
-    按 is_external 分流 —— 两边「同等权限」的账号在签字这件事上也同等
-    （用户口径：可以用包含域外同等权限在内的某个管理员的签字）。
-
-    **图必须在盘上**：库里留着文件名、文件却被删掉的情况是有的，
-    候选人列表里就不该出现一个选了却插不进表的空签字。
-    """
-    user = db.query(User).filter(User.student_no == student_no).first()
-    if not user:
-        return None
-    if user.is_external:
-        path = user_sign_photo_path(user)
-    else:
-        student = db.query(Student).filter(Student.student_no == student_no).first()
-        path = sign_photo_path(student) if student else None
-    if not path or not path.exists():
-        return None
-    return path, user
-
-
-def _save_signature_copy(db: Session, sign_no: str, leave_id: int) -> tuple[Path, str]:
-    """把选中的签字图复制一份进 LEAVE_DIR，返回 (副本路径, 签字人姓名)
-
-    存副本而不是只记原图名，是为了让「用批准当时那张」这句承诺站得住：
-    原图被换掉或删掉时（换图/删图接口都有），历史单据不能静默掉签字。
-    副本名带 leave_id，而补签不允许覆盖已签过的记录，所以不会撞名。
-    """
-    found = _signer_photo(db, sign_no)
-    if not found:
-        raise HTTPException(status_code=400, detail="该账号没有可用的签字图，请重新选择")
-    src, user = found
-    dest = LEAVE_DIR / f"sign_{leave_id}{src.suffix.lower()}"
-    shutil.copyfile(src, dest)
-    return dest, display_name(db, user)
-
-
 def _save_advisor_signature(
     db: Session, leave: LeaveRequest, payload: LeaveAdvisorSignature | None,
 ) -> Path | None:
@@ -150,7 +111,8 @@ def _save_advisor_signature(
         # 「暂不签字」：一个字都不动（补签字走这个函数时已经先卡过 400 了）
         return None
 
-    dest, signer_name = _save_signature_copy(db, sign_no, leave.id)
+    # 副本落进 LEAVE_DIR，按单据 id 起名（见 services/signer_service.py）
+    dest, signer_name = copy_signature(db, sign_no, LEAVE_DIR, f"sign_{leave.id}")
     leave.advisor_sign_no = sign_no
     leave.advisor_sign_name = signer_name
     leave.advisor_sign_file = dest.name
@@ -383,22 +345,9 @@ def advisor_signers(
 ):
     """列管理员、且签字图在盘上的账号，供批准时选「用谁的签字」
 
-    域外账号与在册学生同权（用户口径），两类都在列表里，用 is_external 标出来
-    给前端做区分。**不复用** GET /api/admin/users 的 has_sign_photo：那一列的语义是
-    「域外账号有没有签字图，学生账号恒 False」，拿它筛会把学生管理员整批漏掉。
-
-    候选人一共没几个，逐个查图的 N+1 无所谓，好读优先。
+    口径与电动车那份（GET /api/ev-passes/signers）共用，见 services/signer_service.py
     """
-    rows = db.query(User).filter(User.role == "admin").order_by(User.student_no).all()
-    return [
-        {
-            "student_no": row.student_no,
-            "name": display_name(db, row),
-            "is_external": bool(row.is_external),
-        }
-        for row in rows
-        if _signer_photo(db, row.student_no)
-    ]
+    return signer_options(db)
 
 
 @router.post("/{leave_id}/approve", response_model=LeaveRequestResponse, summary="通过请假申请")
