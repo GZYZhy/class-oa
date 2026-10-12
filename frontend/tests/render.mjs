@@ -1541,6 +1541,96 @@ console.log('\n▶ 首页统计卡：iPad 竖屏下两位数不折行')
     `四张统计卡都还在（${cards.join(' / ')}）`)
 }
 
+console.log('\n▶ 分类统计：概览卡点开是哪些人')
+{
+  // 这一页渲染不了，原因和上一节的 Dashboard.vue 一样：顶层 import echarts，而 zrender
+  // 在模块加载时就摸 document（render.mjs 只补了 window，没补 document）。
+  // 所以：分组规则抽在 utils/statGroups.js 里**真跑**，页面那点接线只能断源码。
+  const { buildRoster, countMinority } = await server.ssrLoadModule('/src/utils/statGroups.js')
+
+  // 边界值都塞进来：职务有 真职务/「无」/空串/null 四种写法，民族有汉族、少数民族和空串。
+  // 学号等长，字符串升序排出来就是人眼看的顺序
+  const s = (no, name, extra) => ({ id: Number(no), student_no: no, name, ...extra })
+  const students = [
+    s('001', '甲', { gender: '男', ethnicity: '汉族', political_status: '共青团员', class_position: '班长', league_position: '学研部', is_poor: '否' }),
+    s('002', '乙', { gender: '女', ethnicity: '满族', political_status: '群众', class_position: '无', league_position: '无', is_poor: '是' }),
+    s('003', '丙', { gender: '男', ethnicity: '回族', political_status: '共青团员', class_position: '', league_position: '', is_poor: '否' }),
+    s('004', '丁', { gender: '女', ethnicity: '汉族', political_status: '群众', class_position: null, league_position: null, is_poor: '是' }),
+    s('005', '戊', { gender: '男', ethnicity: '回族', political_status: '中共预备党员', class_position: '学习委员', league_position: '学研部', is_poor: '否' }),
+    s('006', '己', { gender: '女', ethnicity: '汉族', political_status: '共青团员', class_position: '生活委员', league_position: '文体部', is_poor: '否' }),
+    s('007', '庚', { gender: '男', ethnicity: '汉族', political_status: '群众', class_position: null, league_position: '文体部', is_poor: '是' }),
+    s('008', '辛', { gender: '女', ethnicity: '满族', political_status: '群众', class_position: '', league_position: '学研部', is_poor: '否' }),
+  ]
+  /** 名单里的学号按顺序连起来：一次断言「恰好是这些人、就这个顺序」 */
+  const nos = (key) => buildRoster(key, students).rows.map((x) => x.student_no).join(',')
+
+  check(nos('male') === '001,003,005,007', '男生名单：只有男生')
+  check(nos('female') === '002,004,006,008', '女生名单：只有女生')
+  check(nos('league') === '001,003,006', '共青团员名单：只认「共青团员」，预备党员不算团员')
+
+  // 班委/团学会是「有职务」的三张写法里排掉「无」和空串 —— 组名按码点排：
+  // 学(5b66) < 班(73ed) < 生(751f)、学(5b66) < 文(6587)
+  check(nos('committee') === '005,001,006', '班委任职表：按职务分组，排掉「无」/空串/null')
+  check(nos('leagueMember') === '001,005,008,006,007', '团学会名单：按部门分组，同一部门的人挨在一起')
+  check(buildRoster('committee', students).rows[0].group === '学习委员', '班委那张的 group 是职务本身')
+
+  check(nos('poor') === '002,004,007', '贫困生名单：只认「是」，「否」不进')
+  check(nos('minority') === '003,005,002,008', '少数民族名单：按民族分组，汉族不进，空民族也不进')
+
+  check(buildRoster('committee', students).column === '职务'
+    && buildRoster('leagueMember', students).column === '部门'
+    && buildRoster('minority', students).column === '民族', '分组卡各自的分组列名')
+  check(buildRoster('male', students).column === ''
+    && buildRoster('male', students).rows.every((r) => !('group' in r)), '平铺的卡没有分组列')
+  check(buildRoster('male', students).rows.every((r) => r.id === Number(r.student_no)),
+    '每行都带 id（名单里的「详情」靠它跳学生详情）')
+  check(buildRoster('committee', students).title === '班委任职表'
+    && buildRoster('minority', students).title === '少数民族名单', '弹窗标题按名单取')
+
+  check(buildRoster(null, students) === null && buildRoster('total', students) === null
+    && buildRoster(undefined, students) === null, '没有 key 的卡（总人数）不返回名单 —— 点了不弹窗')
+  check(buildRoster('male', [])?.rows.length === 0 && buildRoster('male')?.rows.length === 0,
+    '空名单/没给名单也不炸')
+
+  // 卡片上的数字点开必须和弹窗里的条数相等：这里刻意造一份「有两个少数民族、但民族种类
+  // 比少数民族人数少」的字典（汉族 4 + 满族 2 + 回族 2），种类数是 3、人数是 4
+  const ethDict = {}
+  for (const st of students) ethDict[st.ethnicity] = (ethDict[st.ethnicity] || 0) + 1
+  const minorityRows = buildRoster('minority', students).rows.length
+  check(countMinority(ethDict) === minorityRows && minorityRows === 4,
+    `「少数民族人数」卡与弹窗行数相等（${countMinority(ethDict)} = ${minorityRows}，而民族种类数是 ${Object.keys(ethDict).length}）`)
+  check(countMinority({ 汉族: 30 }) === 0 && countMinority({}) === 0 && countMinority(undefined) === 0,
+    '只有汉族 / 空字典 / 没数据时是 0')
+
+  // 页面接线：这一页渲染不了，只能断源码
+  const src = readFileSync(`${ROOT}/src/views/Statistics.vue`, 'utf8')
+  const cards = ['总人数', '男生', '女生', '共青团员', '班委', '团学会成员', '贫困生', '少数民族人数']
+  check(cards.every((label) => src.includes(`label: '${label}'`)), `八张概览卡都在（${cards.join(' / ')}）`)
+  check(!src.includes("label: '民族数'"), '原来那张「民族数」已改名为「少数民族人数」')
+
+  // 「总人数」那张不许有 key：有 key 就会弹出一个没有名单的空弹窗
+  const totalLine = src.split('\n').find((l) => l.includes("label: '总人数'")) || ''
+  check(!!totalLine && !/key:/.test(totalLine), '「总人数」卡没有 key（保持不可点）')
+  const keyed = [['男生', 'male'], ['女生', 'female'], ['共青团员', 'league'], ['班委', 'committee'],
+    ['团学会成员', 'leagueMember'], ['贫困生', 'poor'], ['少数民族人数', 'minority']]
+  check(keyed.every(([label, key]) => new RegExp(`label: '${label}'[^}]*key: '${key}'`).test(src)),
+    '另外七张卡各自指向对的名单（' + keyed.map(([, k]) => k).join(' / ') + '）')
+
+  check(/@click="openRoster\(item\.key\)"/.test(src), '点卡片走 openRoster（key 为空时它自己 return）')
+  check(/class="mini-card"[\s\S]{0,200}clickable/.test(src)
+    && /\.mini-card\.clickable\s*\{[\s\S]{0,120}cursor:\s*pointer/.test(src),
+    '可点的卡有手型光标，看得出能点')
+  check(/<el-dialog v-model="rosterVisible"[\s\S]{0,400}<Watermark :text="watermarkText" \/>/.test(src),
+    '名单弹窗里盖了水印（同「学生详情」那个弹窗）')
+  check(/<el-table-column v-if="roster\?\.column" prop="group"/.test(src), '分组卡多一列，平铺的卡没有')
+  check(/prop="name" label="姓名"/.test(src) && /prop="student_no" label="学号"/.test(src),
+    '名单里是姓名 + 学号')
+  check(/max-height="420px"/.test(src), '长名单（团员近三十人）用 max-height 管住弹窗高度')
+  check(/goStudentDetail[\s\S]{0,200}path: '\/students', query: \{ open: row\.id \}/.test(src),
+    '「详情」跳学生信息页并弹开这个人（那边认 ?open=<id>）')
+  check(/studentStore\.fetchAllStudents\(\)/.test(src), '名单走 store 的 fetchAllStudents（一次拉全班，本地分组）')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
