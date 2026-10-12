@@ -3,10 +3,17 @@
     <!-- 全班数据都在这里，盖一层「谁在看」的水印 -->
     <Watermark :text="watermarkText" />
 
-    <!-- 概览卡片：手机上一行 2 个，平板上 4 个，宽屏 8 个 -->
+    <!-- 概览卡片：手机上一行 2 个，平板上 4 个，宽屏 8 个。
+         除「总人数」外每张都能点开看名单（key 为空的那张不弹窗，也不显示成可点） -->
     <el-row :gutter="16">
       <el-col :xs="12" :sm="6" :md="3" v-for="item in overviewCards" :key="item.label">
-        <div class="mini-card" :style="{ borderLeftColor: item.color }">
+        <div
+          class="mini-card"
+          :class="{ clickable: item.key }"
+          :title="item.key ? '点击查看名单' : ''"
+          :style="{ borderLeftColor: item.color }"
+          @click="openRoster(item.key)"
+        >
           <div class="mini-value" :style="{ color: item.color }">{{ item.value }}</div>
           <div class="mini-label">{{ item.label }}</div>
         </div>
@@ -164,17 +171,41 @@
         </div>
       </el-col>
     </el-row>
+
+    <!-- 名单弹窗：点概览卡打开，看这份名单具体是谁。
+         水印和「学生详情」那个弹窗一个道理（StudentList.vue 里那句注释）——
+         弹窗里是一整份班级名单，同样盖一层「谁在看」。
+         max-height 管住长名单：团员 27 人，不限制的话弹窗会撑到一千多像素，
+         连标题和关闭按钮一起被滚出屏幕 -->
+    <el-dialog v-model="rosterVisible" :title="rosterTitle" width="520px">
+      <Watermark :text="watermarkText" />
+      <el-table :data="roster?.rows || []" size="small" max-height="420px" v-loading="rosterLoading">
+        <el-table-column v-if="roster?.column" prop="group" :label="roster.column" width="120" />
+        <el-table-column prop="name" label="姓名" />
+        <el-table-column prop="student_no" label="学号" width="130" />
+        <el-table-column label="操作" width="76" align="center">
+          <template #default="{ row }">
+            <el-button type="primary" link @click="goStudentDetail(row)">详情</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
+import { ElMessage } from 'element-plus'
 import { useStudentStore } from '@/store/student'
+import { errText } from '@/utils/request'
+import { buildRoster, countMinority } from '@/utils/statGroups'
 import Watermark from '@/components/Watermark.vue'
 import { useWatermark } from '@/composables/useWatermark'
 
 const watermarkText = useWatermark()
+const router = useRouter()
 const studentStore = useStudentStore()
 const stats = ref(null)
 const total = ref(0)
@@ -297,14 +328,61 @@ function buildCharts(s) {
 
 const overviewCards = computed(() => [
   { label: '总人数', value: total.value, color: '#409EFF' },
-  { label: '男生', value: stats.value?.gender?.['男'] || 0, color: '#67C23A' },
-  { label: '女生', value: stats.value?.gender?.['女'] || 0, color: '#F56C6C' },
-  { label: '共青团员', value: stats.value?.political_status?.['共青团员'] || 0, color: '#E6A23C' },
-  { label: '班委', value: stats.value?.class_committee_count || 0, color: '#9b59b6' },
-  { label: '团学会成员', value: stats.value?.league_count || 0, color: '#1abc9c' },
-  { label: '贫困生', value: stats.value?.poor_student?.['是'] || 0, color: '#e74c3c' },
-  { label: '民族数', value: Object.keys(stats.value?.ethnicity || {}).length, color: '#34495e' },
+  { label: '男生', value: stats.value?.gender?.['男'] || 0, color: '#67C23A', key: 'male' },
+  { label: '女生', value: stats.value?.gender?.['女'] || 0, color: '#F56C6C', key: 'female' },
+  { label: '共青团员', value: stats.value?.political_status?.['共青团员'] || 0, color: '#E6A23C', key: 'league' },
+  { label: '班委', value: stats.value?.class_committee_count || 0, color: '#9b59b6', key: 'committee' },
+  { label: '团学会成员', value: stats.value?.league_count || 0, color: '#1abc9c', key: 'leagueMember' },
+  { label: '贫困生', value: stats.value?.poor_student?.['是'] || 0, color: '#e74c3c', key: 'poor' },
+  // 不数「有几种民族」而是数人：种类数只在每个少数民族恰好一个人时才等于名单行数，
+  // 那样卡上的数字点开就会和弹窗里的条数对不上（见 utils/statGroups.js 的 countMinority）
+  { label: '少数民族人数', value: countMinority(stats.value?.ethnicity), color: '#34495e', key: 'minority' },
 ])
+
+// 名单弹窗：点概览卡打开，看这份名单具体是谁
+const roster = ref(null)
+const rosterVisible = ref(false)
+const rosterLoading = ref(false)
+
+const rosterTitle = computed(() =>
+  roster.value ? `${roster.value.title}（${roster.value.rows.length}人）` : ''
+)
+
+// 全班名单：第一次点开才拉，之后再点都复用这一次的结果（全班几十人，本地分组足够）。
+// 缓存的是 **promise** 而不是结果 —— 连点两张不同的卡时，第二次会在第一次还没回来
+// 的时候发起，只认结果的话就会白发一次请求。
+let rosterSource = null
+
+function loadStudents() {
+  if (!rosterSource) {
+    rosterSource = studentStore.fetchAllStudents().catch((e) => {
+      rosterSource = null // 失败不记一辈子，下次点还能重试
+      throw e
+    })
+  }
+  return rosterSource
+}
+
+async function openRoster(key) {
+  if (!key) return // 「总人数」这类卡没有名单
+  roster.value = null
+  rosterVisible.value = true
+  rosterLoading.value = true
+  try {
+    roster.value = buildRoster(key, await loadStudents())
+  } catch (e) {
+    // 拦截器不弹错，这里不报就成了「点了没反应」
+    rosterVisible.value = false
+    ElMessage.error(errText(e, '名单加载失败'))
+  } finally {
+    rosterLoading.value = false
+  }
+}
+
+/** 名单里的「详情」：跳学生信息页并直接弹开这个人的详情（那边认 ?open=<id>） */
+function goStudentDetail(row) {
+  router.push({ path: '/students', query: { open: row.id } })
+}
 
 onMounted(async () => {
   stats.value = await studentStore.fetchStatistics()
@@ -339,6 +417,17 @@ onMounted(async () => {
   padding: 16px 20px;
   border-left: 4px solid #409EFF;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* 能点开的卡：给个手型和抬起效果。否则「这儿能点」全靠猜 —— 页面上没有任何线索 */
+.mini-card.clickable {
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.mini-card.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.1);
 }
 
 .mini-value {
