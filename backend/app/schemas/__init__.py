@@ -45,7 +45,12 @@ from .admin import (
     DataHealthResponse,
 )
 from .about import CommitteeMember, AboutResponse
-from .leave import LeaveRequestCreate, LeaveRequestResponse, LeaveRejectRequest
+from .leave import (
+    LeaveAdvisorSignature,
+    LeaveRejectRequest,
+    LeaveRequestCreate,
+    LeaveRequestResponse,
+)
 from .feedback import FeedbackAttachment, FeedbackReply, FeedbackResponse
 from .ev_pass import EvPassRequestResponse, EvPassRejectRequest
 from .student_import import (
@@ -183,6 +188,7 @@ __all__ = [
     "LeaveRequestCreate",
     "LeaveRequestResponse",
     "LeaveRejectRequest",
+    "LeaveAdvisorSignature",
     "FeedbackAttachment",
     "FeedbackReply",
     "FeedbackResponse",

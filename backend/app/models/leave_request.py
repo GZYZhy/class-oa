@@ -10,7 +10,8 @@ from ..database import Base
 class LeaveRequest(Base):
     """学生请假申请
 
-    学生提交 → 管理员审核 → 通过后可生成 Word 请假表下载。
+    学生提交 → 管理员审核（批准时可填班导师意见并选谁的签字）→ 申请人本人和
+    管理员都能下载生成好的 PDF 请假审批表（带不可见溯源水印）。
     状态：pending / approved / rejected
     """
     __tablename__ = "leave_requests"
@@ -43,6 +44,15 @@ class LeaveRequest(Base):
     reviewer_no = Column(String(20), comment="审核人学号")
     reject_reason = Column(String(500), default="", comment="驳回理由")
     reviewed_at = Column(DateTime, comment="审核时间")
+
+    # 班导师意见与签字（批准时填；意见选填、签字可以「暂不签字」）
+    advisor_opinion = Column(String(200), default="", comment="班导师意见（批准时填，可空）")
+    # 签字人存快照：登录名 + 姓名 + 签字图**副本**的文件名（副本存在 data/leaves/ 下）。
+    # 存副本而不是存原图名，是为了「用批准当时那张」这句承诺站得住 —— 原图被换掉或删掉时，
+    # 历史单据不能静默掉签字（换图/删图接口是有的）
+    advisor_sign_no = Column(String(20), default="", comment="班导师签字人登录名（快照）")
+    advisor_sign_name = Column(String(50), default="", comment="班导师签字人姓名（快照）")
+    advisor_sign_file = Column(String(100), default="", comment="班导师签字图副本名（非空即已签）")
 
     # 申请时间
     created_at = Column(DateTime, default=datetime.now, index=True, comment="申请时间")

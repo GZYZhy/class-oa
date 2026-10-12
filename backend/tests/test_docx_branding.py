@@ -2,13 +2,13 @@
 
     cd backend && python -m pytest tests/test_docx_branding.py -q
 
-三份生成模板（请假审批表、电动车通行证、电动车承诺书）里，电动车那两份已经换成
-{{TOKEN}} 占位符：校名、学院、专业年级、住址、车牌号前缀这些都从配置读
-（SITE_* 品牌族 + EV_PASS_* 四项）。换学校、换届只改 .env，不用动模板也不用改代码。
+两份生成模板（电动车通行证、电动车承诺书）用 {{TOKEN}} 占位符：校名、学院、专业年级、
+住址、车牌号前缀这些都从配置读（SITE_* 品牌族 + EV_PASS_* 四项）。换学校、换届只改 .env，
+不用动模板也不用改代码。
 
-**请假审批表是例外**：它的标题「北方工业大学学生请假审批表」和「学院：理学院」还是
-写死的（本轮没动它）。它同时还要当「资料下载」里给学生手填的空白表，两处共用一份
-模板，改动面比电动车那两份大，留给以后单独做。
+**请假审批表已经不在这套里了**：它不再套 Word 模板，改成 app/utils/leave_pdf.py 用
+reportlab 重画，校名取 settings.school、学院取 settings.college，压根没有模板文件
+（见 test_leave_template.py）。
 
 这些用例不起后端：模板是仓库里的文件，生成函数只读 student / req 的属性、不碰库，
 所以鸭子类型的假对象就够（见 [[pydantic-model-construct-ignores-extra]]）。

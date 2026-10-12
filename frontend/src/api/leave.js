@@ -37,13 +37,18 @@ export function getLeaveList(status) {
   })
 }
 
-/** 管理员：下载填好的 Word 请假表 */
-export function downloadLeaveDocx(id) {
+/** 下载请假审批表 PDF（申请人本人和管理员都能下，下到的是一样的） */
+export function downloadLeavePdf(id) {
   return request({
-    url: `/leaves/${id}/docx`,
+    url: `/leaves/${id}/pdf`,
     method: 'get',
     responseType: 'blob'
   })
+}
+
+/** 管理员：能当班导师签字人的账号（管理员、且签字图在盘上） */
+export function getAdvisorSigners() {
+  return request({ url: '/leaves/advisor-signers', method: 'get' })
 }
 
 /** 管理员：下载请假证明文件 */
@@ -55,9 +60,14 @@ export function downloadLeaveProof(id) {
   })
 }
 
-/** 管理员：通过 */
-export function approveLeave(id) {
-  return request({ url: `/leaves/${id}/approve`, method: 'post' })
+/** 管理员：通过（可顺带填班导师意见、选谁的签字；两者都选填） */
+export function approveLeave(id, payload) {
+  return request({ url: `/leaves/${id}/approve`, method: 'post', data: payload })
+}
+
+/** 管理员：补签字（批准时选了「暂不签字」之后） */
+export function advisorSign(id, payload) {
+  return request({ url: `/leaves/${id}/advisor-sign`, method: 'post', data: payload })
 }
 
 /** 管理员：驳回 */
