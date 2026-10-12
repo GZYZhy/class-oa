@@ -283,6 +283,9 @@ onMounted(() => {
   font-weight: 700;
   color: var(--el-text-color-primary);
   line-height: 1.2;
+  /* 数字永远不换行：卡片被挤窄时「36」会被折成上下两个数字，看着像写错了。
+     见下面那条 iPad 竖屏的媒体查询 —— 空间不够是根源，这里是兜底 */
+  white-space: nowrap;
 }
 
 .stat-label {
@@ -294,6 +297,33 @@ onMounted(() => {
 .chart-container {
   width: 100%;
   height: 280px;
+}
+
+/* iPad 竖屏那一段（810 / 820 / 834px）：它在 768 之上，拿不到下面那套手机尺寸，
+   于是四张卡按**桌面尺寸**（图标 60px、数字 28px、内边距 20px）挤在 1/4 宽里 ——
+   「36」这种两位数当场被压成上下两个数字，标签「总人数」也竖成三行。
+   这里单独收一号，把 769~991 这段补齐（992 起是 md，1/4 宽够放桌面尺寸） */
+@media (min-width: 769px) and (max-width: 992px) {
+  .stat-card {
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .stat-icon {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .stat-value {
+    font-size: 22px;
+  }
+
+  .stat-label {
+    font-size: 12px;
+  }
 }
 
 /* 手机上卡片只有半屏宽，图标和数字都收一号才放得下 */
