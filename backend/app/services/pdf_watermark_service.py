@@ -8,8 +8,8 @@
 令牌格式：OA-WM:<source>:<file_id>:<user_no>:<timestamp_unix>
 - 纯 ASCII，避开中文字体嵌入/ToUnicode 乱码问题
 - 用固定前缀 OA-WM: 方便提取时正则匹配
-- source 说明 file_id 是哪张表的主键：ann=公告文件、exp=导出文件。
-  两边的 id 各自从 1 开始编号、必然撞号，只凭 id 去查会溯源到别的文件上；
+- source 说明 file_id 是哪张表的主键：ann=公告文件、exp=导出文件、lea=请假审批表。
+  几边的 id 各自从 1 开始编号、必然撞号，只凭 id 去查会溯源到别的文件上；
   上线前写的令牌没有这一段，那时只有公告会打水印，按公告处理。
 
 额外冗余层：同令牌也写入 PDF 元数据 /Info 的 Keywords 字段。
@@ -30,6 +30,7 @@ TOKEN_PREFIX = "OA-WM:"
 # （和 file_access_logs.source 用长名是两个概念：那边给人看，这边尽量短）
 TOKEN_SOURCE_ANNOUNCEMENT = "ann"
 TOKEN_SOURCE_EXPORT = "exp"
+TOKEN_SOURCE_LEAVE = "lea"
 
 # 令牌正则：OA-WM:[来源:]文件ID:账号:时间戳
 # 来源那段的两个值都是字母开头，不可能和后面的数字抢位，
@@ -39,7 +40,8 @@ TOKEN_SOURCE_EXPORT = "exp"
 # 都合法，而 \w 匹配不到 - 和 . —— 那样会把已经写进 PDF 的水印认成「没水印」，
 # 管理员在溯源页看到的还是「未检测到水印」。账号经百分号编码后不含 :，不会有歧义
 TOKEN_PATTERN = re.compile(
-    rf"{TOKEN_PREFIX}(?:({TOKEN_SOURCE_ANNOUNCEMENT}|{TOKEN_SOURCE_EXPORT}):)?(\d+):([^:]+):(\d+)"
+    rf"{TOKEN_PREFIX}(?:({TOKEN_SOURCE_ANNOUNCEMENT}|{TOKEN_SOURCE_EXPORT}|{TOKEN_SOURCE_LEAVE}):)?"
+    rf"(\d+):([^:]+):(\d+)"
 )
 
 

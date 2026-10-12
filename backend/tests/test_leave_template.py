@@ -1,103 +1,92 @@
-"""请假审批表模板的排版：别一填字就溢到第二页
+"""请假审批表 PDF 的排版契约：一页装得下、格子没串、字体跟着仓库走
 
     cd backend && python -m pytest tests/test_leave_template.py -q
 
-模板是一张 12 行 × 6 列的表，A4、上下边距各 2.54cm，可用高度 24.62cm。
-表格声明的行高（hRule 没写 = auto，意思是「至少这么高」）合计 17.04cm，
-表外的标题 / 学院 / 三段备注再占约 3.6cm，剩下约 4cm 才是「请假事由」能长的余量。
+以前测的是 templates/请假审批表.docx 套模板的排版 —— 那套行高声明得太高，手写两行事由
+就顶到第二页，所以当年专门盯着「学生填写区那几行够不够矮」。现在改成 app/utils/leave_pdf.py
+用 reportlab 直接画（行高按内容自己算），「声明行高」这套东西没有了，但同一批契约还在，
+而且量得更直接：把生成出来的 PDF 用 PyMuPDF 读回来数页面、量行距、查格子。
 
-改之前前 8 行是按 1.2~1.34cm 声明的，其中 6 行白占掉 2.3cm，余量不到 1.5cm ——
-手写两行事由就顶出去了，这就是「写一点东西就变两页」。那 6 行放的都是单行短文本
-（姓名、学号、电话、邮箱…），0.75cm 足够，所以压到 425 twips。手签区 4 行和事由
-那一行要留出写字的地方，不能动。
+签字的图片位置、下载接口、水印在 tests/test_leave_pdf.py 与 tests/test_leave_sign_api.py，
+这个文件只管版式。
 
-模板还得放在仓库的 templates/ 下：data/downloads 是挂载进来的数据卷，跑一次
-scripts/setup_resources.py 就会被素材目录里的同名文件盖回去。而「资料下载」里那份
-请假审批表是给学生下载手填的空白表，跟这份生成模板是两份东西，各管各的。
-
-这些用例不需要起后端：模板是仓库里的文件，生成函数只读 student / leave 的属性、
-不碰库（所以用鸭子类型的假对象就够，见 [[pydantic-model-construct-ignores-extra]]）。
+用例不起后端：生成函数只读 student / leave 的属性、不碰库，鸭子类型的假对象就够
+（见 [[pydantic-model-construct-ignores-extra]]）。配置值一律用 monkeypatch 换成哨兵 ——
+本机开发会读到仓库根的 .env，直接断言 settings 里的真值就成了「只有本机过」的测试。
 """
 
 from datetime import datetime
-from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
-from docx import Document
-from docx.oxml.ns import qn
+import pymupdf
+import pytest
+
+from app.config import settings
 
 BACKEND = Path(__file__).resolve().parent.parent
 TEMPLATES = (BACKEND / "templates").resolve()
 
-TWIPS_PER_CM = 567
-# 学生填写区的那几行：单行短文本，0.75cm 就够
-SLIM_TWIPS = 425
-SLIM_ROWS = (0, 1, 2, 3, 6, 7)
-# 表格外面那几行固定内容（标题 15pt + 学院 12pt + 三段备注），实测约 3.6cm
-OUTSIDE_CM = 3.6
-# 给事由留的余量下限。事由那行声明了 1.54cm，超出部分才吃这个余量，
-# 所以 2.5cm 够它再长六七行 —— 一页 A4 写满都未必超
-MIN_ROOM_CM = 2.5
-
-
-def _row_height(row) -> int:
-    """这一行声明的行高（twips），没声明返回 0
-
-    hRule 没写就是 auto，即「至少这么高」：内容多了自己会长，所以声明值看着像
-    建议，其实照样吃页面预算 —— 这也是它容易被人忽略的原因。
-    """
-    trPr = row._tr.trPr
-    h = trPr.find(qn("w:trHeight")) if trPr is not None else None
-    return int(h.get(qn("w:val"))) if h is not None else 0
-
-
-def _usable_height_cm(doc) -> float:
-    """页面可用高度（去掉上下边距）"""
-    section = doc.sections[0]
-    return section.page_height.cm - section.top_margin.cm - section.bottom_margin.cm
-
-
-def _template() -> Document:
-    from app.utils import leave_docx
-
-    return Document(str(leave_docx.TEMPLATE_PATH))
+# 学生填写区那几行的行距：模板声明是 425tw = 21.25pt，加单元格上下内边距实测 21.6pt。
+# 这几行是全表最该盯的地方 —— 它们一胖，事由就没地方长了（当年「写一点就两页」的根）
+SHORT_ROW_PITCH = 22.0
 
 
 def _sample():
     """一对鸭子类型的假学生 / 假请假条 —— 生成函数只读属性，够用了"""
     student = SimpleNamespace(
-        name="张三", gender="男", class_name="示例", student_no="2024000001",
+        name="张三", gender="男", class_name="示例", student_no="20260000001",
         phone="13800138000", email="zhangsan@example.com", id_card="110101200601011234",
-        qq="123456789", family_address="示例市示例区示例路1号示例大学",
-        family_phone="13900139000",
+        qq="123456789", family_address="示例市示例区示例路1号", family_phone="13900139000",
     )
     leave = SimpleNamespace(
-        start_at=datetime(2026, 10, 15, 8), end_at=datetime(2026, 10, 17, 18),
+        student_name="张三", start_at=datetime(2026, 10, 15, 8), end_at=datetime(2026, 10, 17, 18),
         leave_type="事假", reason="家里有事需要回去一趟", travel_mode="高铁",
         travel_detail="G123 次", destination="山东省济南市历下区解放路1号",
-        destination_phone="13700137000",
+        destination_phone="13700137000", advisor_opinion="",
     )
     return student, leave
 
 
-# ---------- 模板放哪儿 ----------
+def _doc(student, leave, **kw):
+    """生成 PDF 并读回来"""
+    from app.utils.leave_pdf import generate_leave_pdf
 
-def test_template_lives_in_the_repo():
-    """生成模板必须在仓库的 templates/ 下，不能放数据卷里
+    return pymupdf.open(stream=generate_leave_pdf(student, leave, **kw), filetype="pdf")
 
-    data/downloads 是挂载进来的数据卷：.gitignore 不跟踪它，setup_resources.py
-    还会拿素材目录里的同名文件把它盖回去 —— 改在里面的排版会无声丢失。
+
+def _y(page, text: str) -> float:
+    """某段文字在页面上的上沿（找不到就报出来是哪一段）"""
+    hits = page.search_for(text)
+    assert hits, f"PDF 里找不到「{text}」"
+    return hits[0].y0
+
+
+def _x(page, text: str) -> float:
+    hits = page.search_for(text)
+    assert hits, f"PDF 里找不到「{text}」"
+    return hits[0].x0
+
+
+# ---------- 生成模板放哪儿 ----------
+
+def test_leave_font_lives_in_the_repo():
+    """字体必须在仓库里跟着 git 走，不能指望运行环境自己装
+
+    reportlab 靠它排中文（生成出的 PDF 里是子集嵌入的 AAAAAA+SimSun，换机器不变方块）。
+    放到数据卷或让运维往系统里装字体，等于把「印得出来」押在部署细节上。
     """
-    from app.utils import leave_docx
+    from app.utils.leave_pdf import FONT_PATH
 
-    path = leave_docx.TEMPLATE_PATH.resolve()
-    assert path.exists(), f"模板不见了：{path}"
-    assert path.parent == TEMPLATES, f"模板该在 {TEMPLATES}，实际在 {path.parent}"
+    assert FONT_PATH.exists(), f"字体不见了：{FONT_PATH}"
+    assert FONT_PATH.resolve().parent == (BACKEND / "assets" / "fonts").resolve()
+    # 必须是纯 TTF —— reportlab 的 TTFont 不认 .ttc（微软那个 simsun.ttc 是字体集）
+    assert FONT_PATH.read_bytes()[:4] in (b"\x00\x01\x00\x00", b"true", b"OTTO"), \
+        f"{FONT_PATH.name} 不是 TTF 字体文件"
 
 
 def test_ev_pass_templates_live_in_the_repo():
-    """电动车那两份是纯生成模板（不在「资料下载」清单里），同样得在 templates/ 下"""
+    """电动车那两份还是要套 Word 模板（请假审批表改 PDF 后已经不套了）"""
     from app.utils import ev_pass_docx
 
     for path in (ev_pass_docx.PASS_TEMPLATE, ev_pass_docx.PROMISE_TEMPLATE):
@@ -105,56 +94,136 @@ def test_ev_pass_templates_live_in_the_repo():
         assert path.resolve().parent == TEMPLATES, f"该在 {TEMPLATES}，实际在 {path.parent}"
 
 
-# ---------- 排版：留了多少余地 ----------
+# ---------- 一页装得下 ----------
 
-def test_student_rows_are_slim():
-    """学生填写区那几行不能声明得太高 —— 这是「写一点就两页」的根"""
-    rows = _template().tables[0].rows
-    fat = {i: _row_height(rows[i]) for i in SLIM_ROWS if _row_height(rows[i]) > SLIM_TWIPS}
-    assert not fat, (
-        f"这几行又变高了（twips）：{fat}，上限 {SLIM_TWIPS}。"
-        f"每高出 142 twips（0.25cm）就少一行事由的位置"
-    )
-
-
-def test_table_leaves_room_on_the_page():
-    """表格 + 表外固定内容之后，得给请假事由留出够用的余量"""
-    doc = _template()
-    table_cm = sum(_row_height(r) for r in doc.tables[0].rows) / TWIPS_PER_CM
-    usable_cm = _usable_height_cm(doc)
-    room_cm = usable_cm - OUTSIDE_CM - table_cm
-    assert room_cm > MIN_ROOM_CM, (
-        f"表格声明 {table_cm:.2f}cm + 表外 {OUTSIDE_CM}cm，可用高才 {usable_cm:.2f}cm，"
-        f"余量只剩 {room_cm:.2f}cm（要留 {MIN_ROOM_CM}cm 以上）"
-    )
+LONG_CASES = {
+    "长事由": lambda st, lv: setattr(lv, "reason", "回家办理身份证并陪伴家人前往医院复查，" * 4),
+    "长地址": lambda st, lv: setattr(
+        st, "family_address", "示例市示例区示例路1号示例大学示例公寓12号楼3单元502室"),
+    "满额意见": lambda st, lv: setattr(lv, "advisor_opinion", "同意。" * 66),  # 198 字，schema 上限 200
+    "全拉满": lambda st, lv: (
+        setattr(lv, "reason", "回家办理身份证并陪伴家人前往医院复查，" * 4),
+        setattr(lv, "advisor_opinion", "同意。" * 66),
+        setattr(lv, "travel_detail", "G1234 次列车 北京南站 → 天津西站（二等座 07 车 12A）"),
+        setattr(lv, "destination", "天津市和平区南京路某某花园小区12号楼"),
+    ),
+}
 
 
-# ---------- 生成出来的文档 ----------
-
-def test_generated_doc_keeps_the_layout_and_fills_the_right_cells():
-    """填好之后排版沿用模板（行高不被生成过程改动），字段也落在正确的格子里"""
-    from app.utils.leave_docx import generate_leave_docx
-
+def test_one_page():
+    """正常内容就一页"""
     student, leave = _sample()
-    doc = Document(BytesIO(generate_leave_docx(student, leave)))
-    table = doc.tables[0]
+    assert _doc(student, leave).page_count == 1
 
-    rows = table.rows
-    assert len(rows) == 12 and len(rows[0].cells) == 6, "模板结构变了（12 行 × 6 列）"
-    assert all(_row_height(rows[i]) <= SLIM_TWIPS for i in SLIM_ROWS), \
-        "生成时把学生填写区的行高又改回去了"
 
-    # 抽查几个格子：表头对、值填在右边的格子里（错一列就会串行）
-    assert rows[0].cells[0].text.strip().startswith("学生姓名")
-    assert rows[0].cells[1].text.strip() == "张三"
-    assert rows[1].cells[1].text.strip() == "2024000001"
-    assert rows[2].cells[1].text.strip() == "110101200601011234"
-    assert "2026年10月15日 8时" in rows[4].cells[1].text
-    assert "共 3 天" in rows[4].cells[1].text
-    assert rows[5].cells[1].text.strip() == "[事假] 家里有事需要回去一趟"
-    assert rows[6].cells[1].text.strip() == "高铁"
+@pytest.mark.parametrize("name", list(LONG_CASES))
+def test_one_page_even_with_long_content(name):
+    """内容再长也不能翻页 —— 请假表翻页等于半张表加三行备注孤零零留在第二页
 
-    # 手签区那三块系统不填，得原样留着
-    assert "本人承诺" in rows[8].cells[0].text
-    assert "班导师" in rows[9].cells[0].text
-    assert "销假记录" in rows[11].cells[0].text
+    缩字号的那几档（_shrink_to_fit）就是为了这个：框住的是「最多一页」这条硬底线。
+    """
+    student, leave = _sample()
+    LONG_CASES[name](student, leave)
+    assert _doc(student, leave).page_count == 1, f"{name} 排到第二页去了"
+
+
+def test_long_content_shrinks_the_font_before_turning_the_page():
+    """长意见是「缩字号」换来的单页，不是把字排到格子外面
+
+    PyMuPDF 读到的字号：正常 12pt；意见写满 200 字时会逐档缩到 9pt（SHRINK 的底线）。
+    """
+    student, leave = _sample()
+    page = _doc(student, leave)[0]
+    normal = {s["size"] for b in page.get_text("dict")["blocks"] for l in b.get("lines", [])
+              for s in l["spans"]}
+    assert 12.0 in {round(s, 1) for s in normal} - {9.0}, "正文该是 12pt"
+
+    leave.advisor_opinion = "同意。" * 66
+    page = _doc(student, leave)[0]
+    sizes = {round(s["size"], 1) for b in page.get_text("dict")["blocks"] for l in b.get("lines", [])
+             for s in l["spans"]}
+    assert min(sizes) < 12.0, "200 字的意见该缩字号才对"
+
+
+# ---------- 学生填写区还是矮的 ----------
+
+def test_student_rows_stay_short():
+    """前几行还是 21.25pt 一档，余量留给事由
+
+    行高按内容自己算之后，这几行有可能被「撑胖」而没人发现 —— 单行短文本撑到 30pt 一行，
+    事由就没地方长了，这正是当年一填字就两页的根。
+    """
+    student, leave = _sample()
+    page = _doc(student, leave)[0]
+    ys = [_y(page, t) for t in ("学生姓名", "学号", "身份证号")]
+    pitches = [b - a for a, b in zip(ys, ys[1:])]
+    assert max(pitches) <= SHORT_ROW_PITCH, (
+        f"学生填写区的行距变高了：{ ['%.1f' % p for p in pitches] }（上限 {SHORT_ROW_PITCH}pt）"
+    )
+
+
+# ---------- 字段落在正确的格子里 ----------
+
+def test_fields_land_in_the_right_cells():
+    """抽查第一行的六个格子：左右顺序对、都在同一行上（错一列就整表串行）"""
+    student, leave = _sample()
+    page = _doc(student, leave)[0]
+
+    xs = [_x(page, t) for t in ("学生姓名", "张三", "性别", "男", "班级", "示例")]
+    assert xs == sorted(xs), f"第一行的格子串位了：{['%.1f' % x for x in xs]}"
+
+    row_ys = {t: _y(page, t) for t in ("学生姓名", "张三", "示例")}
+    assert max(row_ys.values()) - min(row_ys.values()) < 2, f"不在同一行上：{row_ys}"
+
+
+def test_filled_values_are_on_the_page():
+    """该填的字段一个都不能少（漏填是静默的：表格照样生成，格子空着）"""
+    student, leave = _sample()
+    text = _doc(student, leave)[0].get_text()
+
+    for token in ("张三", "男", "示例", "20260000001", "13800138000",
+                  "zhangsan@example.com", "110101200601011234", "123456789",
+                  "示例市示例区示例路1号", "13900139000"):
+        assert token in text, f"「{token}」没印上去"
+
+    assert "2026年10月15日 8时" in text and "2026年10月17日 18时" in text
+    assert "共 3 天" in text, "请假天数要算出来（含起止当天）"
+    assert "[事假] 家里有事需要回去一趟" in text
+    assert "高铁" in text and "G123 次" in text
+
+
+def test_template_rows_are_all_there():
+    """12 行的行头一个不少，三块手签区（班导师 / 学院 / 销假）也都在"""
+    student, leave = _sample()
+    text = _doc(student, leave)[0].get_text()
+
+    for label in ("学生姓名", "学号", "身份证号", "家庭地址", "请假时间", "请假事由",
+                  "出行方式", "去向地址", "本人承诺", "班导师", "学院意见", "销假记录"):
+        assert label in text, f"「{label}」那一行没了"
+
+    assert "请假人(签字):" in text, "承诺段末与销假记录的签字行"
+    assert "辅导员签字:" in text and "学院领导签字（盖章）：" in text, "学院意见那两处手签"
+
+
+# ---------- 表外内容 ----------
+
+def test_outside_content_comes_from_config(monkeypatch):
+    """标题、学院那行都从配置取（换学校只改 .env），表外三行备注照模板原样印"""
+    monkeypatch.setattr(settings, "school", "测试大学")
+    monkeypatch.setattr(settings, "college", "测试学院")
+    student, leave = _sample()
+    text = _doc(student, leave)[0].get_text()
+
+    assert "测试大学学生请假审批表" in text
+    assert "学院：测试学院" in text
+    for note in ("备注：1.病假在一周内", "2.事假三天以内", "3.公假由学院审批"):
+        assert note in text, f"备注少了「{note}」"
+
+
+def test_no_hardcoded_branding():
+    """不配置也不该冒出别的学校名 —— 当年的模板里写死着「示例大学」「示例学院」"""
+    from app.utils import leave_pdf
+
+    source = Path(leave_pdf.__file__).read_text(encoding="utf-8")
+    for word in ("示例大学", "示例学院"):
+        assert word not in source, f"leave_pdf.py 里又写死了「{word}」，该从配置取"

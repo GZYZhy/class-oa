@@ -25,7 +25,7 @@ from ..models import Student, EvPassRequest
 from .docx_template import fill
 
 
-# 这两份是纯生成模板（不像请假审批表那样还要当「资料下载」给学生），
+# 这两份是纯生成模板（「资料下载」里给学生手填的是另外的文件），
 # 所以放在仓库的 templates/ 里：进 git、也随镜像走，不受数据卷与
 # scripts/setup_resources.py 的影响
 TEMPLATE_DIR = BASE_DIR / "templates"

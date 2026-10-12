@@ -1196,6 +1196,159 @@ console.log('\n▶ 系统管理：域外账号的签字图（管理员传、只�
     '头像那个还在（两块同构、互不影响）')
 }
 
+console.log('\n▶ 请假审批表：学生端下到的是 PDF，班导师意见跟着显示')
+{
+  const APPLY = '/src/views/LeaveApply.vue'
+  const src = readFileSync(`${ROOT}${APPLY}`, 'utf8')
+
+  // 旧入口是 admin_required 的 docx —— 学生点那个按钮必定 403，是个死按钮。
+  // 这次把它连同地址一起换掉，残留一处就又是一条死路
+  check(!/downloadLeaveDocx|downloadDocx/i.test(src), '学生端不再碰 docx（连名字都不留）')
+  check(src.includes('downloadLeavePdf'), '下载走 downloadLeavePdf')
+  check(/a\.download = `\$\{row\.student_name\}_请假审批表_[\s\S]{0,80}\.pdf`/.test(src),
+    '下载下来的文件名是 .pdf')
+
+  const api = readFileSync(`${ROOT}/src/api/leave.js`, 'utf8')
+  check(api.includes('url: `/leaves/${id}/pdf`'), '接口地址是 /leaves/{id}/pdf')
+  check(api.includes("url: '/leaves/advisor-signers'") &&
+    api.includes('url: `/leaves/${id}/advisor-sign`'),
+    '签字人列表与补签字各有自己的接口（补签字不是「再批一次」）')
+
+  // 真渲染：班导师意见是批准时填的，学生要在「我的记录」里看得到。
+  // onMounted 在 SSR 下不跑，直接把行灌进 leaves
+  const row = (o) => ({
+    id: 1, leave_type: '事假', start_at: '2026-10-15 08:00', end_at: '2026-10-17 18:00',
+    reason: '家里有事', status: 'approved', reviewer_name: '甲', reject_reason: '',
+    advisor_opinion: '', created_at: '2026-10-12 09:00', ...o
+  })
+  const history = (r) => [
+    ["const activeTab = ref('apply')", "const activeTab = ref('history')"],
+    ['const leaves = ref([])', `const leaves = ref(${JSON.stringify([r])})`]
+  ]
+
+  const { html } = await renderPatchedMany(APPLY, history(row({ advisor_opinion: '同意，注意安全' })))
+  check(stripComments(html).includes('班导师意见：同意，注意安全'),
+    '已通过的单子上能看到班导师意见')
+
+  const { html: blank } = await renderPatchedMany(APPLY, history(row({})))
+  check(!stripComments(blank).includes('班导师意见'),
+    '没填意见就不占地方（意见是选填的）')
+}
+
+console.log('\n▶ 审核页：批准时填班导师意见、选谁的签字')
+{
+  const REVIEW = '/src/views/Review.vue'
+  const src = readFileSync(`${ROOT}${REVIEW}`, 'utf8')
+
+  const row = (o) => ({
+    id: 1, student_name: '丙', student_no: '2024000003', leave_type: '事假',
+    start_at: '2026-10-15 08:00', end_at: '2026-10-17 18:00', reason: '家里有事',
+    status: 'pending', has_advisor_sign: false, advisor_sign_name: '', advisor_opinion: '',
+    created_at: '2026-10-12 09:00', ...o
+  })
+  const who = (role) => `const userStore = useUserStore()
+  userStore.info = { student_no: '2024000001', name: '甲', role: '${role}', is_external: false }`
+  // 表桩对每行跑 default 插槽，所以行里的按钮和签字状态都能真断到
+  const buttonTexts = (html) =>
+    [...stripComments(html).matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)]
+      .map((m) => m[1].replace(/<[^>]+>/g, '').trim())
+  // 默认停在「信息修改申请」那个 tab，钉到请假那个 tab 上去（?tab=leave 的效果）
+  const leaveTab = (r) => [
+    ["const activeTab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'change')",
+      "const activeTab = ref('leave')"],
+    ['const leaveList = ref([])', `const leaveList = ref(${JSON.stringify([r])})`]
+  ]
+
+  const { html: pending } = await renderPatchedMany(REVIEW,
+    [['const userStore = useUserStore()', who('admin')], ...leaveTab(row({}))])
+  const pb = buttonTexts(pending)
+  check(pb.includes('通过') && pb.includes('驳回'), '待审核：管理员有「通过」「驳回」')
+  check(!pb.includes('补签字'), '还没批准的单子没有「补签字」')
+  check(stripComments(pending).includes('—'), '待审核的签字列是一横（还没到签字这一步）')
+
+  const { html: signed } = await renderPatchedMany(REVIEW,
+    [['const userStore = useUserStore()', who('admin')],
+     ...leaveTab(row({ status: 'approved', has_advisor_sign: true, advisor_sign_name: '甲' }))])
+  const sb = buttonTexts(signed)
+  check(sb.includes('下载请假表'), '已批准：有「下载请假表」')
+  check(!sb.includes('补签字'), '签过的没有「补签字」（后端也会 400）')
+  check(stripComments(signed).includes('甲 已签'), '签字状态那列写着是谁签的')
+
+  const { html: deferred } = await renderPatchedMany(REVIEW,
+    [['const userStore = useUserStore()', who('admin')], ...leaveTab(row({ status: 'approved' }))])
+  check(buttonTexts(deferred).includes('补签字'), '「暂不签字」的才给「补签字」')
+  check(stripComments(deferred).includes('暂不签字'), '那一列写着「暂不签字」')
+
+  // 班委：列表能看，但下载（别人的表）和签字都轮不到他
+  const { html: asCm } = await renderPatchedMany(REVIEW,
+    [['const userStore = useUserStore()', who('committee')], ...leaveTab(row({ status: 'approved' }))])
+  const cb = buttonTexts(asCm)
+  check(!cb.includes('下载请假表'), '班委的列表里没有「下载请假表」')
+  check(!cb.includes('补签字'), '班委也没有「补签字」')
+  check(stripComments(asCm).includes('暂不签字'), '但那列状态他看得到（不是整列藏起来）')
+
+  // 批准 / 补签字共用同一个弹窗，两个入口分别调各自的接口
+  check(/label="班导师签字"/.test(src), '请假列表加了一列「班导师签字」')
+  check(src.includes("openLeaveDialog('approve', row)") && src.includes("openLeaveDialog('sign', row)"),
+    '「通过」和「补签字」都走同一个弹窗')
+  check(/await approveLeave\(row\.id, payload\)/.test(src), '通过时把意见和签字人一起提交')
+  check(/await advisorSign\(row\.id, payload\)/.test(src), '补签字走单独那个接口')
+
+  // 弹窗正文在 SSR 下不渲染，得盖掉 el-dialog；顺便把候选人也灌进去
+  const R = row({})
+  const { html: dialog } = await renderPatchedMany(REVIEW, [
+    ['const userStore = useUserStore()', who('admin')],
+    ...leaveTab(R),
+    ['const leaveDialogVisible = ref(false)', 'const leaveDialogVisible = ref(true)'],
+    ['const leaveDialogRow = ref(null)', `const leaveDialogRow = ref(${JSON.stringify(R)})`],
+    // 候选人由后端按「是管理员 + 签字图文件还在盘上」筛出来，这里照实灌一份：
+    // 一个学生管理员（甲）加一个域外管理员（李俊刚）
+    ['const advisorSigners = ref([])', `const advisorSigners = ref([
+  { student_no: '2024000001', name: '甲', is_external: false },
+  { student_no: 'teacher_li', name: '李俊刚', is_external: true }
+])`]
+  ], { ElDialog: ElDialogStub })
+  const dlg = stripComments(dialog)
+  check(dlg.includes('班导师意见') && dlg.includes('班导师签字'), '意见和签字两个表单项都在')
+  check(/maxlength="200"/.test(dialog), '意见卡 200 字（上限是排版算出来的，改这里要重跑版式测试）')
+  check(dlg.includes('签的是批准当时这张图'), '写明了签的是快照')
+
+  // 下面三条只能看源码：标题是 :title 传进去的 prop（桩不渲染 prop），
+  // 两个 option 在一段没展开的下拉里（SSR 下连真 Element 都不渲染它的正文）。
+  check(/\? '补班导师签字' : '通过请假申请'/.test(src), '弹窗标题按两种用途分')
+  check(/<el-option label="暂不签字" value="" \/>/.test(src),
+    '签字人那栏第一项固定是「暂不签字」（默认值就是它）')
+  check(/s\.is_external \? `\$\{s\.name\}（域外账号）` : s\.name/.test(src),
+    '域外账号在后缀里标出来（域外同等权限，靠后缀让他自己知道）')
+
+  // 弹窗里选的是空串（= 暂不签字）时，两个字段都要原样提交：漏掉 advisor_sign_no 的话
+  // 后端拿不到「暂不签字」，会当成没选签字人
+  check(/advisor_sign_no: leaveDialogForm\.value\.advisor_sign_no/.test(src),
+    '提交时 advisor_sign_no 原样带上（空串就是「暂不签字」）')
+  check(/advisor_opinion: leaveDialogForm\.value\.advisor_opinion/.test(src), '意见同样原样带上')
+}
+
+console.log('\n▶ 系统管理：水印溯源认得请假审批表')
+{
+  // 这块在「文件访问日志」那个 tab 的正文里，SSR 下 tab 正文不渲染 —— 照本节
+  // 其它几条的老路子走源码断言
+  const src = readFileSync(`${ROOT}/src/views/Admin.vue`, 'utf8')
+
+  const leaveBranch = src.slice(src.indexOf("watermarkResult.source_type === 'leave'"))
+  check(leaveBranch.length > 0, '水印结果有请假审批表这一支')
+  check(leaveBranch.slice(0, 1200).includes('检测到水印：请假审批表'),
+    '这一支的措辞是「请假审批表」，不是笼统的「文件」')
+  // 请假表的水印时间戳是**下载那一刻**现打的（不像导出是生成时间），措辞必须跟着分
+  check(leaveBranch.slice(0, 1200).includes('下载'), '说的是「谁于何时下载的」')
+  check(leaveBranch.slice(0, 1200).includes('不写文件访问日志'),
+    '顺带说明「不写日志是按设计的」，免得当成日志丢了')
+
+  // 顺序要紧：这一支必须排在那个通用 v-else 之前，排后面就永远轮不到它
+  const at = src.indexOf("watermarkResult.source_type === 'leave'")
+  const fallback = src.indexOf('watermarkResult.log_matched', at)
+  check(at > 0 && fallback > at, '通用那一支（带 log_matched 的）排在它后面')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
