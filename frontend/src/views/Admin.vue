@@ -259,6 +259,22 @@
                 </div>
               </template>
 
+              <!-- 电动车的申请表与承诺书和请假表一个待遇：不写访问日志，
+                   时间戳也是**真的下载时间**。source_type 是 "evpass"，
+                   到底是哪一份看 file_title（后端已经写成「某某的电动车通行证申请表（日期）」） -->
+              <template v-else-if="watermarkResult.source_type === 'evpass'">
+                <el-icon><CircleCheck /></el-icon>
+                检测到水印：{{ watermarkResult.file_title }}
+                <div class="extract-hint">
+                  <strong>{{ watermarkResult.user_name || watermarkResult.user_no }}</strong>
+                  于 <strong>{{ formatDateTime(watermarkResult.accessed_at) }}</strong> 下载
+                </div>
+                <div class="extract-hint">
+                  电动车申请表与承诺书不写文件访问日志（申请人本人和班委下到的是同一份文件），
+                  凭水印即可确定是谁下载的
+                </div>
+              </template>
+
               <template v-else>
                 <el-icon><CircleCheck /></el-icon>
                 检测到水印：

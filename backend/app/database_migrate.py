@@ -108,6 +108,12 @@ NEW_COLUMNS = [
     ("leave_requests", "advisor_sign_no", "VARCHAR(20) NOT NULL DEFAULT ''"),
     ("leave_requests", "advisor_sign_name", "VARCHAR(50) NOT NULL DEFAULT ''"),
     ("leave_requests", "advisor_sign_file", "VARCHAR(100) NOT NULL DEFAULT ''"),
+    # ---------- 电动车申请表的「经办班委」签字 ----------
+    # 与上面请假那三列同款（sign_file 存的是 data/ev_passes/ 下的**副本名**），
+    # 只是语义不同：请假那边是班导师、这边是经办班委。三列全空 = 批准时选了「暂不签署」
+    ("ev_pass_requests", "sign_no", "VARCHAR(20) NOT NULL DEFAULT ''"),
+    ("ev_pass_requests", "sign_name", "VARCHAR(50) NOT NULL DEFAULT ''"),
+    ("ev_pass_requests", "sign_file", "VARCHAR(100) NOT NULL DEFAULT ''"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）

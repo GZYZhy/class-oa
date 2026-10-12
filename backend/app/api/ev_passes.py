@@ -1,4 +1,5 @@
 """电动车通行证补办 API"""
+import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -20,8 +21,20 @@ from sqlalchemy.orm import Session
 from ..config import BASE_DIR, settings
 from ..database import get_db
 from ..models import EvPassRequest, Student, User
-from ..schemas import EvPassRequestResponse, EvPassRejectRequest
-from ..services import account_name, clip, log_operation, notify, recipients
+from ..schemas import EvPassRejectRequest, EvPassRequestResponse, EvPassSignature
+from ..services import (
+    TOKEN_SOURCE_EV_APPLY,
+    TOKEN_SOURCE_EV_PROMISE,
+    account_name,
+    add_invisible_watermark,
+    clip,
+    log_operation,
+    make_watermark_token,
+    notify,
+    recipients,
+)
+from ..services.signer_service import copy_signature, signer_options
+from ..services.student_photo_service import sign_photo_path
 from .deps import (
     admin_required,
     committee_required,
@@ -29,7 +42,7 @@ from .deps import (
     get_current_user,
     is_committee,
 )
-from ..utils.ev_pass_docx import generate_pass_docx, generate_promise_docx
+from ..utils.ev_pass_pdf import generate_pass_pdf, generate_promise_pdf
 from ..utils.media_type import guess_media_type
 
 router = APIRouter(prefix="/api/ev-passes", tags=["电动车通行证"])
@@ -38,9 +51,11 @@ router = APIRouter(prefix="/api/ev-passes", tags=["电动车通行证"])
 # 所以「待审核」的推送也只发给管理员
 APPROVER_ROLES = ["admin"]
 
-# 行驶证文件存放目录
-LICENSE_DIR = BASE_DIR / "data" / "ev_passes"
-LICENSE_DIR.mkdir(parents=True, exist_ok=True)
+# 行驶证与经办班委**签字图副本**存放目录。吃环境变量是为了测试能指到临时目录去 ——
+# 不吃的话接口测试一调「批准（带签字）」就会往本机演示库的真目录里写文件
+# （照 PHOTO_DIR / LEAVE_DIR 的先例）
+EV_PASS_DIR = Path(os.environ.get("EV_PASS_DIR") or BASE_DIR / "data" / "ev_passes")
+EV_PASS_DIR.mkdir(parents=True, exist_ok=True)
 
 # 允许的行驶证文件类型（和请假证明一样：图片 + PDF）
 ALLOWED_LICENSE_EXTENSIONS = {
@@ -61,21 +76,26 @@ def _safe_license_name(original: str) -> str:
 
 
 def student_files(db: Session, student_id: int) -> list[Path]:
-    """该生全部通行证申请占用的行驶证文件
+    """该生全部通行证申请占用的行驶证与签字副本
 
     删学生会连带删掉这些申请记录（见 student_service.delete_student），记录一没，
     文件就成了没人引用的孤儿。所以在删之前先把路径收出来，**等事务提交成功之后**
     再清磁盘（和删学生照片同一个套路）。只收集、不动磁盘。
+
+    **签字副本也要收**：它是批准时从管理员那张图复制过来的（见 _save_committee_signature），
+    只挂在申请记录上 —— 漏掉它，删学生就会在 data/ev_passes/ 里留下一堆孤儿 copy
     """
-    return [
-        LICENSE_DIR / Path(req.license_file).name
-        for req in db.query(EvPassRequest).filter(EvPassRequest.student_id == student_id).all()
-        if req.license_file
-    ]
+    out = []
+    for req in db.query(EvPassRequest).filter(EvPassRequest.student_id == student_id).all():
+        # Path(...).name 防路径穿越：库里那两列都是裸文件名，取 name 后就出不了这一层
+        for name in (req.license_file, req.sign_file):
+            if name:
+                out.append(EV_PASS_DIR / Path(name).name)
+    return out
 
 
 def _to_response(db: Session, req: EvPassRequest) -> dict:
-    """把 ORM 对象转成响应体（补上学生姓名/学号）"""
+    """把 ORM 对象转成响应体（补上学生姓名/学号与签字状态）"""
     student = db.query(Student).filter(Student.id == req.student_id).first()
     return {
         "id": req.id,
@@ -90,7 +110,33 @@ def _to_response(db: Session, req: EvPassRequest) -> dict:
         "reviewer_name": req.reviewer_name,
         "reviewed_at": req.reviewed_at,
         "reject_reason": req.reject_reason,
+        # 经办班委签字：只要「签没签、谁签的」。签字图**副本的文件名**不进响应 ——
+        # 前端拿不到它，也就拼不出别的下载地址
+        "sign_name": req.sign_name or "",
+        "has_sign": bool(req.sign_file),
     }
+
+
+def _save_committee_signature(
+    db: Session, req: EvPassRequest, payload: EvPassSignature | None,
+) -> Path | None:
+    """把选中的经办班委签字写进这条申请（批准与补签字共用）
+
+    返回新落下的签字图副本路径（没签字就是 None），调用方在 commit 失败时拿它删副本 ——
+    「先落签字再改状态」的代价就是这一步，不然会留下一个没人引用的孤儿文件。
+    """
+    payload = payload or EvPassSignature()
+    sign_no = payload.sign_no.strip()
+    if not sign_no:
+        # 「暂不签署」：三列一个字都不动，申请表上那一行整行不出现
+        return None
+
+    # 副本落进 EV_PASS_DIR，按单据 id 起名（见 services/signer_service.py）
+    dest, signer_name = copy_signature(db, sign_no, EV_PASS_DIR, f"sign_{req.id}")
+    req.sign_no = sign_no
+    req.sign_name = signer_name
+    req.sign_file = dest.name
+    return dest
 
 
 # ---------- 学生端 ----------
@@ -138,7 +184,7 @@ async def submit_application(
             status_code=400,
             detail=f"行驶证文件超过 {MAX_LICENSE_SIZE // 1024 // 1024}MB",
         )
-    save_path = LICENSE_DIR / safe_name
+    save_path = EV_PASS_DIR /safe_name
     with open(save_path, "wb") as f:
         f.write(content)
 
@@ -187,7 +233,7 @@ def my_license(
         raise HTTPException(status_code=403, detail="无权查看")
     if not req.license_file:
         raise HTTPException(status_code=404, detail="没有行驶证文件")
-    file_path = LICENSE_DIR / Path(req.license_file).name
+    file_path = EV_PASS_DIR /Path(req.license_file).name
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="行驶证文件不存在")
     # 交给 FileResponse 处理文件名：它会按 RFC 5987 编码，中文名才不会炸
@@ -201,12 +247,12 @@ def my_license(
     )
 
 
-def _docx_target(db: Session, req_id: int, user: User) -> tuple[EvPassRequest, Student]:
-    """取回申请和申请人，并校验「能不能下载生成的文档」
+def _pdf_target(db: Session, req_id: int, user: User) -> tuple[EvPassRequest, Student]:
+    """取回申请和申请人，并校验「能不能下载生成的 PDF」
 
     能下载的是两类人：申请人本人（拿去打印签字），以及班委及以上
     （要留档、要报学院盖章）。其余人一律不行 —— 表里是学生本人的个人信息。
-    两份文档的权限完全一样，所以收在一处，免得以后改一个漏一个。
+    两份 PDF 的权限完全一样，所以收在一处，免得以后改一个漏一个。
     """
     req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
     if not req:
@@ -221,15 +267,15 @@ def _docx_target(db: Session, req_id: int, user: User) -> tuple[EvPassRequest, S
     return req, student
 
 
-def _docx_response(content: bytes, filename: str) -> Response:
-    """下载 Word 的响应
+def _pdf_response(content: bytes, filename: str) -> Response:
+    """下载 PDF 的响应
 
     文件名必须按 RFC 5987 百分号编码：HTTP 头只装得下 latin-1，
     直接塞中文名会让 Starlette 在编码响应头时抛 UnicodeEncodeError
     """
     return Response(
         content=content,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        media_type="application/pdf",
         headers={
             "Content-Disposition": "attachment; filename*=utf-8''" + quote(filename),
             "Cache-Control": "no-store",
@@ -237,33 +283,65 @@ def _docx_response(content: bytes, filename: str) -> Response:
     )
 
 
-@router.get("/{req_id}/pass-docx", summary="下载电动车通行证申请表（Word）")
-def download_pass_docx(
+def _file_name(req: EvPassRequest, student: Student, what: str) -> str:
+    """下载文件名里的日期取**申请当天**
+
+    以前用的是生成当天，而前端（EvPass.vue / Review.vue）拼的是 created_at ——
+    两边本来就不一致，跨天就对不上。用 created_at，同一条记录每次下到的名字才稳定。
+    """
+    day = (req.created_at or datetime.now()).strftime("%Y%m%d")
+    return f"{student.name}_电动车{what}_{day}.pdf"
+
+
+def _stamp(content: bytes, req: EvPassRequest, user: User, source: str) -> bytes:
+    """盖不可见溯源水印（谁下载的、下的是哪一份）
+
+    **不写访问日志**：学生和班委下的是同一份文件，记下来只是一堆噪音，凭水印就够了。
+    打水印失败不阻断下载 —— 学生等着要表，不能因为这一步炸了就空手出去。
+    """
+    try:
+        token = make_watermark_token(req.id, user.student_no, source=source)
+        return add_invisible_watermark(content, token)
+    except Exception as exc:  # noqa: BLE001 —— 故意兜住所有异常，就是要不阻断
+        print(f"[电动车通行证] 下水印失败（不影响下载）：{exc}", flush=True)
+        return content
+
+
+@router.get("/{req_id}/pass-pdf", summary="下载电动车通行证申请表 PDF")
+def download_pass_pdf(
     req_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """下载申请表：本人或班委及以上，且仅已通过的可下载"""
-    req, student = _docx_target(db, req_id, user)
-    today = datetime.now().strftime("%Y%m%d")
-    return _docx_response(
-        generate_pass_docx(student, req),
-        f"{student.name}_电动车通行证申请表_{today}.docx",
+    """下载申请表：本人或班委及以上，且仅已通过的可下载
+
+    经办班委那一行的签字取**批准当时**存下的那张副本（见 _save_committee_signature）——
+    原图后来换了或删了，都不该让这张表掉签字。没签字就不加那一行。
+    """
+    req, student = _pdf_target(db, req_id, user)
+    committee_sign = EV_PASS_DIR / Path(req.sign_file).name if req.sign_file else None
+    pdf = generate_pass_pdf(student, req, committee_sign=committee_sign)
+    return _pdf_response(
+        _stamp(pdf, req, user, TOKEN_SOURCE_EV_APPLY),
+        _file_name(req, student, "通行证申请表"),
     )
 
 
-@router.get("/{req_id}/promise-docx", summary="下载电动车使用承诺书（Word）")
-def download_promise_docx(
+@router.get("/{req_id}/promise-pdf", summary="下载电动车使用承诺书 PDF")
+def download_promise_pdf(
     req_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """下载承诺书：本人或班委及以上，且仅已通过的可下载"""
-    req, student = _docx_target(db, req_id, user)
-    today = datetime.now().strftime("%Y%m%d")
-    return _docx_response(
-        generate_promise_docx(student, req),
-        f"{student.name}_电动车承诺书_{today}.docx",
+    """下载承诺书：本人或班委及以上，且仅已通过的可下载
+
+    「本人签字：」那行印**学生本人**的签字图（申请里传过才有，没传就留一条空下划线手签）
+    """
+    req, student = _pdf_target(db, req_id, user)
+    pdf = generate_promise_pdf(student, req, applicant_sign=sign_photo_path(student))
+    return _pdf_response(
+        _stamp(pdf, req, user, TOKEN_SOURCE_EV_PROMISE),
+        _file_name(req, student, "承诺书"),
     )
 
 
@@ -286,19 +364,32 @@ def list_applications(
     return [_to_response(db, r) for r in rows]
 
 
-@router.post("/{req_id}/approve", summary="通过申请（管理员）")
+@router.post("/{req_id}/approve", response_model=EvPassRequestResponse, summary="通过申请（管理员）")
 def approve_application(
     req_id: int,
     background: BackgroundTasks,
+    payload: EvPassSignature | None = None,
     user: User = Depends(admin_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
+    """批准时可顺带选一位管理员的签字（或「暂不签署」）
+
+    body 整个是可选的：老前端那句 `approveEvPass(id)` 不带 body 也得照样能用。
+    """
     req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="申请不存在")
-    if req.status == "approved":
-        return {"message": "已通过"}
+    # 只允许批「待审核」的：能在已批准的单子上再点一次「通过」，会重新快照签字、
+    # **覆盖掉当初那张副本**，「用批准当时那张」这句承诺当场作废，外加把已发出的通知
+    # 再来一遍。这条同时兜住了重复提交（请假也是这条）
+    if req.status != "pending":
+        raise HTTPException(status_code=400, detail="该申请已处理过")
+
+    # 先把签字副本落盘再改状态：复制失败时这条还是 pending，管理员能重试；
+    # 反过来的话就会出现「状态已通过、签字丢了」的单子，而签字是批的时候才定的，
+    # 事后补就只能靠补签字了
+    snapshot = _save_committee_signature(db, req, payload)
     req.status = "approved"
     req.reviewer_no = user.student_no
     req.reviewer_name = account_name(db, user)
@@ -309,13 +400,21 @@ def approve_application(
     log_operation(
         db, user, "通过电动车通行证",
         target=student.name if student else f"id={req.student_id}",
-        detail=f"品牌：{req.brand}，车牌：{req.plate_number}",
+        detail=(f"品牌：{req.brand}，车牌：{req.plate_number}"
+                f"；经办班委签字：{req.sign_name or '暂不签署'}"),
         ip=ip,
     )
     # 收件人在 commit 之前定下来（和请假一致）。申请人不在学生表里就没什么可发的，
     # 别退化成「only_no 为 None」——那在 recipients 里等于不筛人，会推给全班
     targets = recipients(db, only_no=student.student_no) if student else None
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        # 提交失败 → 刚复制的副本没人引用了，删掉再抛，别留孤儿文件
+        if snapshot:
+            snapshot.unlink(missing_ok=True)
+        raise
+    db.refresh(req)
 
     if targets:
         notify(
@@ -323,7 +422,67 @@ def approve_application(
             f"你的电动车通行证申请（{req.plate_number}）已通过，现在可以下载申请表和承诺书",
             level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
         )
-    return {"message": "已通过"}
+    return _to_response(db, req)
+
+
+@router.post(
+    "/{req_id}/sign",
+    response_model=EvPassRequestResponse,
+    summary="补签字（批准时选了「暂不签署」之后）",
+)
+def sign_application(
+    req_id: int,
+    payload: EvPassSignature,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """给一条已批准、当初没签字的申请补上经办班委签字
+
+    单独开一个接口、而不是「再批一次」，是为了不碰 status / reviewer / 审核时间 ——
+    补的是签字，不是重新审一遍。
+
+    **已经签过的一律 400**：快照语义下静默改写等于篡改已经发出去的那张表。
+    """
+    req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="申请不存在")
+    if req.status != "approved":
+        raise HTTPException(status_code=400, detail="仅审核通过的申请可以补签字")
+    if req.sign_file:
+        raise HTTPException(status_code=400, detail="该申请已有经办班委签字")
+    if not payload.sign_no.strip():
+        raise HTTPException(status_code=400, detail="请选择签字人")
+
+    snapshot = _save_committee_signature(db, req, payload)
+    student = db.query(Student).filter(Student.id == req.student_id).first()
+    log_operation(
+        db, user, "补签经办班委签字",
+        target=student.name if student else f"id={req.student_id}",
+        detail=f"经办班委签字：{req.sign_name}",
+        ip=ip,
+    )
+    try:
+        db.commit()
+    except Exception:
+        if snapshot:
+            snapshot.unlink(missing_ok=True)
+        raise
+    db.refresh(req)
+    return _to_response(db, req)
+
+
+@router.get("/signers", summary="能当经办班委签字人的账号（管理员）")
+def committee_signers(
+    _: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    """列管理员、且签字图在盘上的账号，供批准时选「用谁的签字」
+
+    口径与请假的 GET /api/leaves/advisor-signers 共用（见 services/signer_service.py）。
+    接口名不叫 advisor-signers：这边签字的是经办班委，落在落款处，不是班导师
+    """
+    return signer_options(db)
 
 
 @router.post("/{req_id}/reject", summary="驳回申请（管理员）")
@@ -338,6 +497,10 @@ def reject_application(
     req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="申请不存在")
+    # 只允许驳「待审核」的：已批准 / 已驳回的单子再点一次会把 reject_reason 覆盖掉，
+    # 状态也跟着来回翻（请假的 reject_leave 有这条，两边口径对齐）
+    if req.status != "pending":
+        raise HTTPException(status_code=400, detail="该申请已处理过")
     req.status = "rejected"
     req.reviewer_no = user.student_no
     req.reviewer_name = account_name(db, user)
@@ -374,7 +537,7 @@ def admin_license(
         raise HTTPException(status_code=404, detail="申请不存在")
     if not req.license_file:
         raise HTTPException(status_code=404, detail="没有行驶证文件")
-    file_path = LICENSE_DIR / Path(req.license_file).name
+    file_path = EV_PASS_DIR /Path(req.license_file).name
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="行驶证文件不存在")
     return FileResponse(

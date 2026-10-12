@@ -77,6 +77,8 @@ from .webhook_service import webhook_targets
 from .notify_service import Recipients, notify, recipients
 from .pdf_watermark_service import (
     TOKEN_SOURCE_ANNOUNCEMENT,
+    TOKEN_SOURCE_EV_APPLY,
+    TOKEN_SOURCE_EV_PROMISE,
     TOKEN_SOURCE_EXPORT,
     TOKEN_SOURCE_LEAVE,
     add_invisible_watermark,
@@ -84,6 +86,7 @@ from .pdf_watermark_service import (
     make_watermark_token,
     parse_watermark_token,
 )
+from .signer_service import copy_signature, signer_candidates, signer_options, signer_photo
 
 __all__ = [
     "get_student",
@@ -157,10 +160,16 @@ __all__ = [
     "notify",
     "recipients",
     "TOKEN_SOURCE_ANNOUNCEMENT",
+    "TOKEN_SOURCE_EV_APPLY",
+    "TOKEN_SOURCE_EV_PROMISE",
     "TOKEN_SOURCE_EXPORT",
     "TOKEN_SOURCE_LEAVE",
     "add_invisible_watermark",
     "extract_watermark",
     "make_watermark_token",
     "parse_watermark_token",
+    "signer_photo",
+    "signer_candidates",
+    "signer_options",
+    "copy_signature",
 ]

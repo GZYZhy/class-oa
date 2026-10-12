@@ -233,18 +233,36 @@
               <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="340" align="center">
+          <el-table-column label="经办班委签字" width="130" align="center">
+            <template #default="{ row }">
+              <!-- 签字是批准那一步定的，待审核 / 已驳回的单子无所谓签没签 -->
+              <span v-if="row.status !== 'approved'" style="color: var(--el-text-color-disabled);">—</span>
+              <span v-else-if="row.has_sign" style="color: #67c23a;">{{ row.sign_name }} 已签</span>
+              <span v-else style="color: var(--el-text-color-secondary);">暂不签署</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="400" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewEvLicense(row)">行驶证</el-button>
               <!-- 生成的文档：班委和管理员都能下（留档、报学院盖章用）。
-                   后端 _docx_target 只在「本人或班委及以上」放行，且要已通过 -->
+                   后端 _pdf_target 只在「本人或班委及以上」放行，且要已通过 -->
               <template v-if="row.status === 'approved'">
                 <el-button size="small" link type="success" @click="downloadEvPassDoc(row, 'pass')">申请表</el-button>
                 <el-button size="small" link type="success" @click="downloadEvPassDoc(row, 'promise')">承诺书</el-button>
               </template>
+              <!-- 只有「已批准但当初选了暂不签署」才有得补。已签过的后端也会 400 -->
+              <el-button
+                v-if="row.status === 'approved' && !row.has_sign && userStore.isAdmin"
+                size="small"
+                link
+                type="warning"
+                @click="openEvPassDialog('sign', row)"
+              >
+                补签字
+              </el-button>
               <!-- 审批仅管理员；班委只读 -->
               <template v-if="userStore.isAdmin && row.status === 'pending'">
-                <el-button size="small" link type="success" @click="handleApproveEvPass(row)">通过</el-button>
+                <el-button size="small" link type="success" @click="openEvPassDialog('approve', row)">通过</el-button>
                 <el-button size="small" link type="danger" @click="handleRejectEvPass(row)">驳回</el-button>
               </template>
             </template>
@@ -648,6 +666,40 @@
       </template>
     </el-dialog>
 
+    <!-- 电动车：批准 / 补签字弹框。和请假那套同一个套路，只是少一个意见输入框
+         —— 这份表上没有意见栏，落款处只有一行「经办班委：签字」 -->
+    <el-dialog v-model="evPassDialogVisible" :title="evPassDialogTitle" width="480px">
+      <div v-if="evPassDialogRow" style="margin-bottom: 12px;">
+        <strong>{{ evPassDialogRow.student_name }}</strong>
+        <span style="color: var(--el-text-color-regular);">
+          （{{ evPassDialogRow.brand }}，{{ evPassDialogRow.plate_number }}）
+        </span>
+      </div>
+      <el-form label-width="110px">
+        <el-form-item label="经办班委签字">
+          <el-select v-model="evPassDialogForm.sign_no" style="width: 100%;">
+            <el-option label="暂不签署" value="" />
+            <el-option
+              v-for="s in evPassSigners"
+              :key="s.student_no"
+              :label="s.is_external ? `${s.name}（域外账号）` : s.name"
+              :value="s.student_no"
+            />
+          </el-select>
+          <div style="font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.5;">
+            签的是批准当时这张图，之后换图也不会改动已生成的表。
+            选「暂不签署」的话，申请表落款处不会出现「经办班委」这一行。
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="evPassDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="evPassDialogSubmitting" @click="doEvPassDialog">
+          {{ evPassDialogMode === 'sign' ? '补签字' : '通过' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 上传成品 PDF 弹框 -->
     <el-dialog v-model="certResultUploadVisible" title="上传成品证明 PDF" width="480px">
       <div v-if="certResultUploadRow">
@@ -717,9 +769,11 @@ import {
 import {
   getEvPassList,
   approveEvPass,
+  signEvPass,
+  getEvPassSigners,
   rejectEvPass,
-  downloadEvPassDocx,
-  downloadEvPassPromiseDocx
+  downloadEvPassPdf,
+  downloadEvPromisePdf
 } from '@/api/evPass'
 import { FIELD_LABELS, PHOTO_FIELD, STATUS_LABELS, STATUS_TYPES } from '@/utils/changeFields'
 import { formatDate, formatDateTime, formatFileSize } from '@/utils/format'
@@ -969,7 +1023,7 @@ function handleDownloadLeavePdf(row) {
 // —— 电动车通行证 ——
 // 班委能看列表、看行驶证、下载已通过的申请表和承诺书（留档用），
 // 但通过/驳回只有管理员能点 —— 和后端 ev_passes.py 里
-// committee_required / admin_required / _docx_target 的划分一致
+// committee_required / admin_required / _pdf_target 的划分一致
 const evPassList = ref([])
 const evPassStatus = ref('pending')
 
@@ -1004,13 +1058,13 @@ function viewEvLicense(row) {
 // 申请表 / 承诺书：班委和管理员都要留档，两种文档的处理完全一样，只是地址和名字不同
 function downloadEvPassDoc(row, kind) {
   const [fetchBlob, label] = kind === 'promise'
-    ? [downloadEvPassPromiseDocx, '电动车承诺书']
-    : [downloadEvPassDocx, '电动车通行证申请表']
+    ? [downloadEvPromisePdf, '电动车承诺书']
+    : [downloadEvPassPdf, '电动车通行证申请表']
   fetchBlob(row.id).then(blob => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${row.student_name}_${label}_${formatDate(row.created_at).replace(/-/g, '')}.docx`
+    a.download = `${row.student_name}_${label}_${formatDate(row.created_at).replace(/-/g, '')}.pdf`
     a.click()
     URL.revokeObjectURL(url)
   }).catch(e => {
@@ -1018,21 +1072,59 @@ function downloadEvPassDoc(row, kind) {
   })
 }
 
-function handleApproveEvPass(row) {
-  ElMessageBox.confirm(
-    `确定通过「${row.student_name}」的电动车通行证补办申请吗？\n` +
-    `品牌：${row.brand}　牌照号：${row.plate_number}`,
-    '审批确认',
-    { type: 'warning', confirmButtonText: '通过', cancelButtonText: '取消' }
-  ).then(async () => {
+// 批准 / 补签字共用一套弹窗：'approve' 走通过接口，'sign' 走补签字接口
+const evPassDialogVisible = ref(false)
+const evPassDialogMode = ref('approve')
+const evPassDialogRow = ref(null)
+const evPassDialogSubmitting = ref(false)
+const evPassDialogForm = ref({ sign_no: '' })
+// 能当经办班委签字人的管理员列表，第一次打开弹窗时拉一次就够了
+const evPassSigners = ref([])
+
+const evPassDialogTitle = computed(
+  () => (evPassDialogMode.value === 'sign' ? '补经办班委签字' : '通过电动车通行证申请')
+)
+
+async function openEvPassDialog(mode, row) {
+  evPassDialogMode.value = mode
+  evPassDialogRow.value = row
+  evPassDialogForm.value = { sign_no: '' }
+  evPassDialogVisible.value = true
+  if (!evPassSigners.value.length) {
     try {
-      await approveEvPass(row.id)
-      ElMessage.success('已通过，申请人现在可以下载申请表和承诺书')
-      fetchEvPassList()
+      evPassSigners.value = await getEvPassSigners()
     } catch (e) {
-      ElMessage.error(e?.response?.data?.detail || '操作失败')
+      ElMessage.error('签字人列表加载失败')
     }
-  }).catch(() => {})
+  }
+}
+
+async function doEvPassDialog() {
+  const row = evPassDialogRow.value
+  if (!row) return
+  const payload = { sign_no: evPassDialogForm.value.sign_no }
+  // 补签字就是要补一个签字，选「暂不签署」等于什么都没做 —— 后端也会 400，
+  // 在前端拦一下，省一次「点了没反应」的往返
+  if (evPassDialogMode.value === 'sign' && !payload.sign_no) {
+    ElMessage.warning('请选择签字人')
+    return
+  }
+  evPassDialogSubmitting.value = true
+  try {
+    if (evPassDialogMode.value === 'sign') {
+      await signEvPass(row.id, payload)
+      ElMessage.success('已补签字')
+    } else {
+      await approveEvPass(row.id, payload)
+      ElMessage.success('已通过，申请人现在可以下载申请表和承诺书')
+    }
+    evPassDialogVisible.value = false
+    fetchEvPassList()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '操作失败')
+  } finally {
+    evPassDialogSubmitting.value = false
+  }
 }
 
 function handleRejectEvPass(row) {

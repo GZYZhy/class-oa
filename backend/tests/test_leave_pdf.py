@@ -222,11 +222,15 @@ def test_missing_font_falls_back_instead_of_raising(monkeypatch, tmp_path):
 
     正常走不到这一步（assets/fonts 随镜像走），但字体是**外部二进制**，一旦
     打包时漏拷，报错位置在「学生下载请假表」这么个说不清的地方。
-    """
-    from app.utils import leave_pdf
 
-    monkeypatch.setattr(leave_pdf, "FONT_PATH", tmp_path / "不存在.ttf")
-    monkeypatch.setattr(leave_pdf, "_font_cache", None)
+    patch 的是 **pdf_kit** 而不是 leave_pdf：字体那套机件搬去 pdf_kit 了，
+    `_font()` 读的是它自己所在模块的全局量，patch 旧位置一点作用都没有
+    （那样这条会「通过」得莫名其妙 —— 实际印的还是正常字体）。
+    """
+    from app.utils import pdf_kit
+
+    monkeypatch.setattr(pdf_kit, "FONT_PATH", tmp_path / "不存在.ttf")
+    monkeypatch.setattr(pdf_kit, "_font_cache", None)
     student, leave = _sample()
 
     doc = _page(student, leave)

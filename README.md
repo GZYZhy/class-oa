@@ -128,10 +128,11 @@ docker compose pull && docker compose up -d
 （数据库、照片、资料文件、密钥），换镜像不影响它，备份迁移打包这一个目录即可。
 （**例外**：`DATABASE_URL` 指向 MySQL 时数据库不在这个目录里，备份得连那个库一起做。）
 
-> Word 生成模板（请假审批表、电动车通行证 / 承诺书）**不在** `data/` 里，而在仓库的
-> `backend/templates/` 下：它们要跟着 git 走，也要随镜像一起发。放 `data/` 里的话
-> 会被 `scripts/setup_resources.py` 用素材目录中的同名文件盖回去，改的排版会无声丢失。
-> 「资料下载」里那份请假审批表是给学生手填的空白表，与生成模板是两份东西。
+> 生成的文档没有模板文件：请假审批表、电动车通行证申请表与承诺书都由后端用 reportlab
+> 直接画成 PDF（见 `backend/app/utils/` 下的 `leave_pdf.py`、`ev_pass_pdf.py`），
+> 排版写在代码里 —— 既不落在 `data/` 里，也不会被 `scripts/setup_resources.py`
+> 用素材目录中的同名文件盖回去。
+> 「资料下载」里那份请假审批表是给学生手填的空白表，与生成的这份是两份东西。
 
 ### 环境变量
 

@@ -105,9 +105,9 @@ class WatermarkExtractResponse(BaseModel):
     拿到的副本也带水印，一份流传出来的 PDF 未必是下载出去的。动作到底是查看
     还是下载，靠下面的 action 字段去日志里核对，不靠这里猜。
 
-    水印的 file_id 可能对应公告文件（announcement）、导出申请（export_request）
-    或请假审批表（leave），用 source_type 区分。几边的 id 各自编号会撞号，
-    靠令牌里的来源段区分（见 pdf_watermark_service）。
+    水印的 file_id 可能对应公告文件（announcement）、导出申请（export_request）、
+    请假审批表（leave）或电动车那两份（evpass），用 source_type 区分。几边的 id
+    各自编号会撞号，靠令牌里的来源段区分（见 pdf_watermark_service）。
 
     导出文件（source_type = "export"）不在文件访问日志里，accessed_at 是它的
     **生成时间**而不是访问时间，也没有 action / ip 可核 —— 前端要照着这个区别
@@ -116,6 +116,10 @@ class WatermarkExtractResponse(BaseModel):
     请假审批表（source_type = "leave"）同样不在文件访问日志里，但它的
     accessed_at 是**真的下载时间**（令牌是下载那一刻现打的），只是没有 action / ip
     可核。前端措辞可以写「某人于某时下载了这张表」。
+
+    电动车的申请表与承诺书（source_type = "evpass"，两份共用这一个值，
+    靠 file_title 区分是哪一份）和请假表一模一样：不写访问日志、accessed_at
+    是真的下载时间、没有 action / ip。措辞照请假那支写即可。
     """
     found: bool
     token: Optional[str] = None
@@ -125,6 +129,7 @@ class WatermarkExtractResponse(BaseModel):
     file_title: Optional[str] = None
     accessed_at: Optional[datetime] = None
     # 水印来源：announcement（公告文件） / export（导出申请） / leave（请假审批表）
+    # / evpass（电动车申请表与承诺书，两份共用一个值，靠 file_title 区分）
     source_type: Optional[str] = None
     # 导出申请相关（source_type = "export" 时有值）
     export_type: Optional[str] = None

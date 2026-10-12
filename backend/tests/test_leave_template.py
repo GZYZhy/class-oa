@@ -25,7 +25,6 @@ import pytest
 from app.config import settings
 
 BACKEND = Path(__file__).resolve().parent.parent
-TEMPLATES = (BACKEND / "templates").resolve()
 
 # 学生填写区那几行的行距：模板声明是 425tw = 21.25pt，加单元格上下内边距实测 21.6pt。
 # 这几行是全表最该盯的地方 —— 它们一胖，事由就没地方长了（当年「写一点就两页」的根）
@@ -87,13 +86,15 @@ def test_leave_font_lives_in_the_repo():
         f"{FONT_PATH.name} 不是 TTF 字体文件"
 
 
-def test_ev_pass_templates_live_in_the_repo():
-    """电动车那两份还是要套 Word 模板（请假审批表改 PDF 后已经不套了）"""
-    from app.utils import ev_pass_docx
+def test_no_docx_templates_left():
+    """仓库里已经没有 Word 生成模板了，templates/ 目录本身也该没了
 
-    for path in (ev_pass_docx.PASS_TEMPLATE, ev_pass_docx.PROMISE_TEMPLATE):
-        assert path.exists(), f"模板不见了：{path}"
-        assert path.resolve().parent == TEMPLATES, f"该在 {TEMPLATES}，实际在 {path.parent}"
+    请假表和电动车那两份都改成 reportlab 手绘 PDF（`utils/leave_pdf.py`、
+    `utils/ev_pass_pdf.py`），排版在代码里。留这条是防「谁哪天又往 templates/
+    里塞一份模板」—— 真塞了也不会生效（生成时根本不读它），只会在下次改版式时
+    让人对着模板改半天、发现改了个寂寞。
+    """
+    assert not (BACKEND / "templates").exists()
 
 
 # ---------- 一页装得下 ----------
@@ -316,10 +317,36 @@ def test_outside_content_comes_from_config(monkeypatch):
         assert note in text, f"备注少了「{note}」"
 
 
-def test_no_hardcoded_branding():
-    """不配置也不该冒出别的学校名 —— 当年的模板里写死着「示例大学」「示例学院」"""
-    from app.utils import leave_pdf
+# 不该出现在源码里的**本部署的真实值** —— 每一项都有对应的配置键，都该从 .env 取。
+# 值取自仓库根的 .env（SITE_* 品牌族 + EV_PASS_* 四项），换学校 / 换届时会变。
+# 「示例专业」既是 SITE_MAJOR 又含在 EV_PASS_GRADE「示例专业26级」里，一个词守两处。
+HARDCODED_BRANDING = {
+    "示例大学": "SITE_SCHOOL",
+    "示例学院": "SITE_COLLEGE",
+    "示例专业": "SITE_MAJOR",
+    "示例公寓": "EV_PASS_ADDRESS",
+    "2030年": "EV_PASS_GRADUATION",
+    "北京": "EV_PASS_PLATE_PREFIX",
+    "202600001": "学号（学生自己填的那个，不该有示例值）",
+}
 
-    source = Path(leave_pdf.__file__).read_text(encoding="utf-8")
-    for word in ("示例大学", "示例学院"):
-        assert word not in source, f"leave_pdf.py 里又写死了「{word}」，该从配置取"
+
+def test_no_hardcoded_branding():
+    """源码里不许写死本部署的品牌字样 —— 当年的 Word 模板里就写着「示例大学」「示例学院」
+
+    写死的值不报错、也不会让哪条用例红，只是让下次换学校 / 换届的人对着 .env 改半天
+    发现没生效。所以只能回来扫源码文本。
+
+    三份都要扫：机件搬去 pdf_kit.py 之后，只盯 leave_pdf.py 会漏掉共享那部分
+    （真正画版式的是各自那份，pdf_kit 里反过来可能有通用的示例字样）。
+
+    「值确实是从配置取的」另有一批哨兵断言（tests/test_ev_pass_pdf.py），
+    那条证明配置能进文档，这条证明源码里没有第二份值 —— 两条都要。
+    """
+    from app.utils import ev_pass_pdf, leave_pdf, pdf_kit
+
+    for module in (leave_pdf, ev_pass_pdf, pdf_kit):
+        name = Path(module.__file__).name
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        for word, config in HARDCODED_BRANDING.items():
+            assert word not in source, f"{name} 里又写死了「{word}」，该从配置取（{config}）"

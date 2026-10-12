@@ -23,6 +23,11 @@ class EvPassRequestResponse(BaseModel):
     reviewer_name: Optional[str] = None
     reviewed_at: Optional[datetime] = None
     reject_reason: Optional[str] = None
+    # 经办班委签字：批准时选一位管理员签名，或选「暂不签署」（那时三列全空）
+    sign_name: str = ""
+    # 派生：签没签字。签字图**副本的文件名**不进响应 —— 前端只需要知道
+    # 「已由张三签字」/「暂未签署」，拿不到副本名也就拼不出别的下载地址
+    has_sign: bool = False
 
     class Config:
         from_attributes = True
@@ -31,3 +36,12 @@ class EvPassRequestResponse(BaseModel):
 class EvPassRejectRequest(BaseModel):
     """驳回申请"""
     reason: str = Field(..., min_length=1, max_length=500, description="驳回理由")
+
+
+class EvPassSignature(BaseModel):
+    """经办班委用谁的签字（批准时收一次，之后补签字时再收一次）
+
+    只有这一项 —— 「暂不签署」就是空串。**没有意见字段**：这份表上没有意见栏，
+    落款处只有一行签字（请假那份才有班导师意见，两边的 body 不一样）。
+    """
+    sign_no: str = Field("", max_length=20, description="签字人登录名，空串=暂不签署")
