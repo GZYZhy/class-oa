@@ -12,10 +12,12 @@
 （标题、学院、三行备注）照模板复刻。字体用 assets/fonts/SimSun.ttf，reportlab 会把它**子集嵌入**
 PDF，于是拿到 PDF 的机器不装宋体也不会变方块。
 
-三条 reportlab 的脾气（都实测过，改这个文件前先看一眼）：
+四条 reportlab 的脾气（都实测过，改这个文件前先看一眼）：
 
 * **连续空格会被折叠**。`"a" + " "*10 + "b"` 与 `"a b"` 排出来一模一样 —— 模板里那套
   「43 个空格把签字推到右边」靠的就是空格，在 PDF 里必须换成不折叠的 U+00A0（见 _sp）。
+* **没有「避头尾」，标点会自己占一行**。它按宽度硬切汉字，句号被切到行首就独立成行（Word 不会：
+  句号会连着前一个字一起下移）。见 _Paragraph。
 * **段内 `<img>` 不计入行高**。图比行高也照样画出去、还不会自己换行，而且是骑在基线上**往正上方
   冒**的；行距变大只推开下面的行、管不到上面。所以留白要在签字行**上面**留（见 _sign_line 里
   那个段首空行），行高要按内容自己算（见 _build_table）。
@@ -32,6 +34,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.textsplit import ALL_CANNOT_START
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
@@ -146,8 +149,63 @@ def _leading_for(size: float) -> float:
     return LINE_H if size >= BODY else size * 1.3
 
 
+# reportlab 自己那份「不能出现在行首」的标点表：。、，）】》」』 这些
+_CANNOT_START = frozenset(ALL_CANNOT_START)
+
+
+class _Paragraph(Paragraph):
+    """段落：不让标点独占一行
+
+    Word 排中文有「避头尾」：句号、逗号、右括号这类**不能出现在行首**的标点，会连着前一个字
+    一起被推到下一行。reportlab 没有这条规矩，它是按宽度硬切汉字的 —— 实测承诺段那句「1、请假
+    期间保持与班导师和辅导员的联系,请假期满按时返校并办理销假手续。」，前 40 字正好占满格内
+    版心，句号就自己落到第二行去了。
+
+    这里在折完行之后查一遍：真有标点落在行首（**首行不算**，那是段落自己开的头），就把版心
+    **窄掉那个标点本身的宽度**再折一次。窄一个标点宽必定能把前一个字一起挤下去 —— 标点放不下
+    本身就说明上一行已经占满到「版心 − 标点宽」之后 —— 于是它就跟前一个字待在同一行了。
+    只动真有问题的段落，别的段落一个字都不会挪。**推标点要是让这一段落多占一行，就不推** ——
+    标点自己占个行首只是不好看，整张表多出一页是真不能用（见下面 wrap 里那段注释）。
+    """
+
+    def wrap(self, availWidth, availHeight):
+        width, height = Paragraph.wrap(self, availWidth, availHeight)
+        punct = self._orphan_punct()
+        if not punct:
+            return width, height
+
+        kept = self.style, self.blPara
+        self.style = self.style.clone(self.style.name,
+                                      rightIndent=_w(punct, self.style.fontSize))
+        width2, height2 = Paragraph.wrap(self, availWidth, availHeight)
+        if height2 <= height:
+            return width2, height2
+
+        # 把标点推下去要多占一行 —— 这一行会一级级传下去，最坏能把整张表挤到第二页
+        # （实测：200 字意见 + 长事由 + 长地址那种组合，修了就从一页变两页）。
+        # 标点独自占个行首只是不好看，多一页是真不能用，所以这种情况宁可不推。
+        self.style, self.blPara, self.height = kept[0], kept[1], height
+        return width, height
+
+    def _orphan_punct(self) -> str | None:
+        """折行后落在行首的那个标点，没有就是 None
+
+        只看 kind == 0 的折行结果（整段一种字体、纯文字），它的每行是 `(剩余宽, [整行文字])`，
+        读起来最省事。带 `<img>` 的签字行是 kind == 1，那种段的宽度本来就是按格内余量算死的、
+        折不了行，没有这个问题。rightIndent 非 0 = 这一遍已经在按窄版心折了，不再重复判断。
+        """
+        blPara = self.blPara
+        if blPara.kind != 0 or self.style.rightIndent:
+            return None
+        for _extra, words in blPara.lines[1:]:
+            head = words[0] if words else ""
+            if head[:1] in _CANNOT_START:
+                return head[0]
+        return None
+
+
 def _p(text: str, size: float = BODY, leading: float | None = None, **kw) -> Paragraph:
-    return Paragraph(text, _style(size, leading if leading is not None else _leading_for(size), **kw))
+    return _Paragraph(text, _style(size, leading if leading is not None else _leading_for(size), **kw))
 
 
 def _c(text: str | None) -> Paragraph | str:

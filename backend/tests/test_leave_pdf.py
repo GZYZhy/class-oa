@@ -2,9 +2,9 @@
 
     cd backend && python -m pytest tests/test_leave_pdf.py -q
 
-版式契约（单页、行距、12 行都在）在 tests/test_leave_template.py，这个文件只管
-**图片** —— 那是 reportlab 最危险的失效模式：图宽溢出格子时它既不报错也不换行，
-会把后面的字直接画到格子外面，肉眼扫一眼很容易漏掉。
+版式契约（单页、行距、12 行都在）在 tests/test_leave_template.py，这个文件管**图片**，以及
+图片与折行的交接处：reportlab 最危险的失效模式是**静默溢出** —— 图宽超出格子、或者把标点推回
+上一行时把整表顶到第二页，它既不报错也不换行，肉眼扫一眼很容易漏掉。
 
 用例不起后端：生成函数只读 student / leave 的属性、不碰库，鸭子类型的假对象就够
 （见 [[pydantic-model-construct-ignores-extra]]）。
@@ -183,6 +183,34 @@ def test_broken_image_file_is_treated_as_no_image(tmp_path):
     doc = _page(student, leave, applicant=broken)
     assert doc.page_count == 1
     assert not doc[0].get_image_info()
+
+
+# ---------- 折行 × 签字：推标点不许把表顶到第二页 ----------
+
+def test_pushing_a_punctuation_never_costs_a_page(tmp_path):
+    """句号推下去要多占一行时，宁可不推 —— 一页优先
+
+    内容全拉满（长事由 + 长地址 + 长邮箱 + 150 字意见）又画上三处签字时，页余量刚好用尽：
+    推标点换来的一行会把三行备注顶到第二页（实测）。leave_pdf._Paragraph 里那条「多占一行
+    就退回原样」就是为它写的 —— 标点独自占个行首只是不好看，多一页是真不能用。
+
+    承诺段不受影响：它推下去不多占行（两行还是两行），该修的照修。
+    """
+    student, leave = _sample()
+    student.email = "gongziyu2024@ncut.edu.cn"
+    student.family_address = "北京市石景山区晋元庄路5号北方工业大学理学院统计学系"
+    leave.reason = ("家中长辈生病需要回去照顾一段时间，已经和家长、辅导员都沟通过，往返车票也订好了，"
+                    "预计下周三回来。另外还需要去医院复查一次，可能会耽误两天课程，特此说明。")
+    leave.destination = "山东省济南市历下区经十路 100 号"
+    leave.advisor_opinion = "同意。" * 50
+
+    doc = _page(
+        student, leave,
+        applicant=_sign(tmp_path / "applicant.png", 300, 120),
+        advisor=_sign(tmp_path / "advisor.png", 400, 130),
+    )
+    assert doc.page_count == 1, "满格内容配签字翻到第二页去了"
+    assert "续。" in doc[0].get_text(), "承诺段该还是修好的（它推下去不多占行）"
 
 
 # ---------- 字体回退 ----------
