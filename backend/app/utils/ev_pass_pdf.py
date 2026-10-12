@@ -25,7 +25,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Spacer, Table, TableStyle
 
 from ..config import settings
 from .pdf_kit import FRAME_PAD, _date_cn, _height, _Paragraph, _sign_line, _sp, _style
@@ -61,6 +61,19 @@ def _txt(value) -> str:
     return value or ""
 
 
+def _blank(size: float) -> Spacer:
+    """一个空行 —— 原模板里那种「只有一个 sz 的空段落」
+
+    **不要写成 `_ep("", size)`**：reportlab 给空字符串算出的高度是 **0**，写出来等于什么都没加
+    （连报错都没有）。电动车这两份的原模板里各有几处这样的空段（承诺书三处、申请表一处），
+    照原样写成空段落之后一处都没生效，量出来才是「承诺书相邻行距一律 16.8pt、申请表里表格
+    下沿到落款只隔 1.5pt」—— 版面挤成一坨，从代码上一点端倪都看不出来。
+
+    空行的高度就是「该字号的一行」，和原模板里那个空段落占掉的一样。
+    """
+    return Spacer(1, _line_height(size))
+
+
 # ---------- 申请表（A4 横版）----------
 #
 # 「电动自行车通行证补办登记表」—— 前端与学生都叫它「申请表」。2 行 8 列的表格 + 表外四段。
@@ -91,7 +104,7 @@ PASS_CELL_PAD_Y = 3.0
 
 # 表外那几段（本批次人数 / 落款 / 经办班委 / 日期）：模板没给 rPr，继承 docDefaults sz=21
 PASS_TAIL_SIZE = 10.5
-# 表格与落款之间那个空段：模板里是个 sz=32 的空段落，不是一个固定高度的间隔
+# 表格与落款之间那个空段：模板里是个 sz=32（16pt）的空段落，见 _blank
 PASS_BLANK_SIZE = 16.0
 
 # 照模板原文抄的常量。一个人一张表，本来就只会是 1 —— 提成常量是为了测试能断言
@@ -175,7 +188,7 @@ def generate_pass_pdf(student, req, *, committee_sign: Path | None = None) -> by
     story = [
         _ep(PASS_TITLE, PASS_TITLE_SIZE, align=TA_CENTER),
         _build_table(student, req),
-        _ep("", PASS_BLANK_SIZE, align=TA_CENTER),
+        _blank(PASS_BLANK_SIZE),          # 原模板里那个 sz=32 的空段
         _ep(PASS_BATCH_TEXT, PASS_TAIL_SIZE, align=TA_RIGHT),
         _ep(f"{settings.school}{settings.college}{_txt(student.class_name)}班委员会",
             PASS_TAIL_SIZE, align=TA_RIGHT),
@@ -229,16 +242,19 @@ def generate_promise_pdf(student, req, *, applicant_sign: Path | None = None) ->
     major = settings.major or getattr(student, "major", "") or ""
     story = [
         _ep(PROMISE_TITLE, PROMISE_TITLE_SIZE, align=TA_CENTER),
-        _ep("", PROMISE_TITLE_SIZE, align=TA_CENTER),
+        _blank(PROMISE_TITLE_SIZE),          # 原模板 P1：标题下空一行（16pt 的字）
         _ep(f"{settings.school}安稳部：", PROMISE_BODY_SIZE),
-        _ep("", PROMISE_BODY_SIZE),
+        _blank(PROMISE_BODY_SIZE),           # 原模板 P3：抬头下空一行
         # 模板里「姓名（学号：…）」那一段带单下划线，照画
         _ep(f"本人<u>{_txt(student.name)}（学号：{_txt(student.student_no)}）</u>，系"
             f"{settings.school}{settings.college}{major}专业{_txt(student.class_name)}班学生，"
             f"现申请办理电动车校内通行证。", PROMISE_BODY_SIZE, firstLineIndent=PROMISE_INDENT),
+        # 两段之间空一行：一段讲「我是谁」、一段讲「我承诺什么」，紧挨着读起来像一段。
+        # **这一处是原模板没有的**（模板里 P4/P5 直接连着），照观感加的
+        _blank(PROMISE_BODY_SIZE),
         _ep("本人承诺申请通行证所对应车辆为本人实际使用，绝不进行代办、伪造、线上买卖通行证等"
             "违反校规的行为。", PROMISE_BODY_SIZE, firstLineIndent=PROMISE_INDENT),
-        _ep("", PROMISE_BODY_SIZE, firstLineIndent=PROMISE_INDENT),
+        _blank(PROMISE_BODY_SIZE),           # 原模板 P6：签字前空一行
     ]
 
     if applicant_sign:

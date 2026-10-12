@@ -21,7 +21,8 @@ from PIL import Image
 
 from app.config import settings
 from app.utils.ev_pass_pdf import (
-    PASS_COL_W, PASS_CONTENT_W, PASS_GRID_W, PASS_MARGIN_LR,
+    PASS_BATCH_TEXT, PASS_COL_W, PASS_CONTENT_W, PASS_GRID_W, PASS_MARGIN_LR,
+    PROMISE_BODY_SIZE, _line_height,
 )
 
 # 签字框的声明宽度（4.5cm ≈ 127.6pt），给 1pt 余量。上限这么宽是为了抓
@@ -92,6 +93,16 @@ def _flat(page) -> str:
 def _font_sizes(page) -> set:
     """页面上出现过的所有字号（一位小数）"""
     return {round(span["size"], 1) for span in _spans(page)}
+
+
+def _line_tops(page) -> list:
+    """每行文字的顶端 y，从上到下（同一排版行里的多个片段去重）
+
+    空行是**取不到**的：Spacer 一个字都不印。所以「空了几行」只能靠相邻两行之间的
+    空白量反推 —— 比正常行距大一截的，就是中间夹了空行。
+    """
+    return sorted({round(line["bbox"][1], 1) for b in page.get_text("dict")["blocks"]
+                   for line in b.get("lines", [])})
 
 
 def _hline_lengths(page) -> list:
@@ -172,6 +183,22 @@ def test_pass_table_has_thin_grid_lines():
     widths = [d.get("width") for d in page.get_drawings()]
     assert any(w is not None and abs(w - PASS_GRID_W) < 0.01 for w in widths), \
         f"没找到 {PASS_GRID_W}pt 的框线，实际线宽有：{sorted(set(widths), key=str)}"
+
+
+def test_pass_keeps_the_blank_line_under_the_table():
+    """表格下沿与落款之间空一行
+
+    原模板里那是个 sz=32 的空段落。**写成 `_ep("", size)` 就没了** —— reportlab 给空字符串
+    算出的高度是 0，一声不响；落款会紧贴表格下边框（实测只隔 1.5pt），看着像落款也成了
+    表格的最后一行。
+    """
+    student, req = _sample()
+    page = _pass_page(student, req)[0]
+
+    hits = page.search_for(PASS_BATCH_TEXT)
+    assert hits, f"落款「{PASS_BATCH_TEXT}」不见了"
+    gap = hits[0].y0 - _table_hlines(page)[-1]
+    assert gap > 12, f"表格下沿到落款只有 {gap:.1f}pt，空行丢了"
 
 
 def test_pass_has_all_labels_and_values():
@@ -309,6 +336,23 @@ def test_committee_signature_is_not_stretched_or_oversized(tmp_path):
 
 
 # ---------- 承诺书 ----------
+
+def test_promise_keeps_its_blank_lines():
+    """承诺书的四处空行：标题下、抬头下、正文两段之间、签字前
+
+    前三处是原模板里的空段落（P1 / P3 / P6），第四处是后加的。**照原样写成空段落是白搭**：
+    reportlab 给空字符串算出的高度是 0，四处会一处不剩地全丢掉，整篇挤成一坨 ——
+    代码上看不出任何异常，只有量相邻行距才发现（会一律等于 16.8pt 的行距）。
+    """
+    student, req = _sample()
+    tops = _line_tops(_promise_page(student, req)[0])
+    gaps = [round(b - a, 1) for a, b in zip(tops, tops[1:])]
+
+    body = _line_height(PROMISE_BODY_SIZE)
+    blanks = [gap for gap in gaps if gap > body * 1.5]
+    assert len(blanks) == 4, f"空行该有 4 处，实际 {len(blanks)} 处：{gaps}"
+    assert max(gaps) < body * 3, f"有一段空得离谱：{gaps}"
+
 
 def test_promise_is_one_portrait_page_with_full_date():
     student, req = _sample()
