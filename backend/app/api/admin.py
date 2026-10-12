@@ -61,6 +61,7 @@ from ..services import (
     update_resource,
 )
 from ..services.data_health_service import check_data as data_health
+from ..services.student_photo_service import photo_path, photo_response, remove_photo, save_photo
 from ..utils.ip import normalize_target, parse_cidrs, parse_network, target_matches
 from ..utils.security import hash_password, validate_password
 from .deps import admin_required, get_client_ip
@@ -106,6 +107,20 @@ def _remove_avatar(file_name: str | None) -> None:
         (AVATAR_DIR / os.path.basename(file_name)).unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def _save_sign_photo(file: UploadFile) -> str:
+    """落盘域外账号的签字图，返回裸文件名
+
+    复用学生照片那套校验（后缀白名单 / 10MB / 非空），文件也存在 data/photos ——
+    域外账号没有 Student 行，但图放同一处，将来办件往 Word 里插签字时两边取法一样。
+    save_photo 抛的是 ValueError 且文案是照照片写的（「照片不能超过 10MB」），
+    这里转成 400 并换成签字的说法（api/sign_photos.py 的上传接口是同样的处理）。
+    """
+    try:
+        return save_photo(file)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e).replace("照片", "签字图片"))
 
 
 def _clean_login_name(raw: str) -> str:
@@ -201,6 +216,7 @@ def list_users(_: User = Depends(admin_required), db: Session = Depends(get_db))
             is_external=bool(user.is_external),
             has_id_card=bool(student and (student.id_card or "").strip()),
             has_avatar=bool(user.is_external and user.avatar),
+            has_sign_photo=bool(user.is_external and user.sign_photo),
             last_login_at=user.last_login_at,
             last_login_ip=user.last_login_ip,
             is_frozen=bool(user.is_frozen),
@@ -501,6 +517,7 @@ def create_external_user(
     password: str = Form(..., description="初始密码"),
     role: str = Form("student", description="等效权限"),
     avatar: UploadFile | None = File(None, description="头像，可选"),
+    sign_photo: UploadFile | None = File(None, description="签字图，可选"),
     user: User = Depends(admin_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
@@ -515,6 +532,7 @@ def create_external_user(
         raise HTTPException(status_code=400, detail=f"登录名「{login_name}」已被占用，请换一个")
 
     avatar_name = _save_avatar(avatar) if avatar and avatar.filename else None
+    sign_name = _save_sign_photo(sign_photo) if sign_photo and sign_photo.filename else None
     new_hash, new_salt = hash_password(password)
     db.add(
         User(
@@ -526,6 +544,7 @@ def create_external_user(
             role=role,
             display_name=display_name,
             avatar=avatar_name,
+            sign_photo=sign_name,
             is_external=True,
         )
     )
@@ -533,12 +552,16 @@ def create_external_user(
         db, user, "新建域外账号", target=f"{login_name} {display_name}",
         detail=f"角色：{ROLE_LABELS[role]}", ip=ip,
     )
+    if sign_name:
+        # 动作名与学生签字图那条链路一致，于是日志页按动作搜「签字」两边都搜得到
+        log_operation(db, user, "上传签字图片", target=f"{login_name} {display_name}", ip=ip)
     try:
         db.commit()
     except Exception:
-        # 写库没成功就别把头像文件留在磁盘上
+        # 写库没成功就别把头像、签字文件留在磁盘上
         db.rollback()
         _remove_avatar(avatar_name)
+        remove_photo(sign_name)
         raise
     return {"message": "域外账号已创建"}
 
@@ -550,6 +573,8 @@ def update_external_user(
     role: str = Form(...),
     remove_avatar: bool = Form(False, description="是否删掉现有头像"),
     avatar: UploadFile | None = File(None, description="新头像，可选；传了就换掉旧的"),
+    remove_sign_photo: bool = Form(False, description="是否删掉现有签字图"),
+    sign_photo: UploadFile | None = File(None, description="新签字图，可选；传了就换掉旧的"),
     user: User = Depends(admin_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
@@ -583,22 +608,50 @@ def update_external_user(
         stale_avatar = old_avatar
         changes.append("删除头像")
 
-    if not changes:
+    # 签字图和头像走同一套：新文件先落盘 → 改字段 → 提交成功后才删旧文件。
+    # 但日志单开动作名（与学生签字图那两个动作同名），于是日志页按动作搜「签字」
+    # 两条链路都搜得到 —— 「修改域外账号」的 detail 是搜不出来的
+    old_sign = target.sign_photo
+    new_sign = None
+    stale_sign = None
+    sign_action = None
+    if sign_photo and sign_photo.filename:
+        new_sign = _save_sign_photo(sign_photo)
+        target.sign_photo = new_sign
+        stale_sign = old_sign
+        sign_action = "上传签字图片"
+    elif remove_sign_photo and old_sign:
+        target.sign_photo = None
+        stale_sign = old_sign
+        sign_action = "删除签字图片"
+
+    # 只改了签字图时 changes 是空的，但**不能**在这里早返回：上面那张图已经落盘了，
+    # 回一句「没有改动」会让它变成谁都不引用的孤儿
+    if not changes and not sign_action:
         return {"message": "没有改动"}
 
-    log_operation(
-        db, user, "修改域外账号", target=f"{login_name} {target.display_name}",
-        detail="；".join(changes), ip=ip,
-    )
+    if changes:
+        log_operation(
+            db, user, "修改域外账号", target=f"{login_name} {target.display_name}",
+            detail="；".join(changes), ip=ip,
+        )
+    if sign_action:
+        log_operation(
+            db, user, sign_action, target=f"{login_name} {target.display_name}",
+            detail="替换了原有签字" if sign_action == "上传签字图片" and old_sign else "",
+            ip=ip,
+        )
     try:
         db.commit()
     except Exception:
         db.rollback()
         _remove_avatar(new_avatar)
+        remove_photo(new_sign)
         raise
-    # 只有换了新头像、或者明确要求清空时才删旧文件。
-    # 改个名字那种「没动头像」的编辑绝不能删 —— 库里那一列还指着这个文件
+    # 只有换了新的、或者明确要求清空时才删旧文件。
+    # 改个名字那种「没动头像/签字」的编辑绝不能删 —— 库里那一列还指着这个文件
     _remove_avatar(stale_avatar)
+    remove_photo(stale_sign)
     return {"message": "已保存"}
 
 
@@ -619,12 +672,35 @@ def delete_external_user(
     )
     # 推送订阅跟着账号走，账号没了就别再往下推
     db.query(PushSubscription).filter(PushSubscription.student_no == login_name).delete()
+    # 两个文件名都要在 db.delete 之前读出来，删完这行对象上就读不到了
     avatar_name = target.avatar
+    sign_name = target.sign_photo
     db.delete(target)
     db.commit()
-    # 提交成功后再删头像文件
+    # 提交成功后再删文件
     _remove_avatar(avatar_name)
+    remove_photo(sign_name)
     return {"message": "已删除"}
+
+
+@router.get("/external-users/{login_name}/sign-photo", summary="取域外账号的签字图（仅管理员）")
+def get_external_sign_photo(
+    login_name: str,
+    _: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    """域外账号的签字图**只有管理员能取**
+
+    域外账号本人、学生、班委一律 403（admin_required 就挡住了）—— 签字是审批落款
+    用的，不拿去给谁看。地址固定而图会随替换改变，所以 no-store，绝不能缓存。
+    """
+    target = _get_external_user(db, login_name)
+    if not target.sign_photo:
+        raise HTTPException(status_code=404, detail="该账号还没有签字图片")
+    if not photo_path(target.sign_photo).exists():
+        # 库里指着文件、盘上却没有（手工清过盘）：不判的话 FileResponse 会 500
+        raise HTTPException(status_code=404, detail="签字图片文件丢失")
+    return photo_response(target.sign_photo, cache="no-store")
 
 
 @router.get("/logs", response_model=OperationLogListResponse, summary="操作日志")

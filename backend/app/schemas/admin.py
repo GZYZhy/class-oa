@@ -20,6 +20,9 @@ class AdminUserResponse(BaseModel):
     has_id_card: bool
     # 域外账号有没有上传头像（学生账号恒为 False，头像看学生照片）
     has_avatar: bool = False
+    # 域外账号有没有上传签字图（学生账号恒为 False；学生签字看 Student.sign_photo）。
+    # 前端拿它显示弹窗里的「已有签字图」状态，列表里不铺成列
+    has_sign_photo: bool = False
     # 最近登录时间；为空表示补列之后还没人用过这个号登录
     last_login_at: Optional[datetime] = None
     # 最近登录 IP

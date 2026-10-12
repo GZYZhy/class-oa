@@ -1152,6 +1152,50 @@ console.log('\n▶ 审核页：签字查看申请这个 tab')
   check(!stripComments(asCm).includes('签字查看申请'), '班委的审核页里没有这个 tab')
 }
 
+console.log('\n▶ 系统管理：域外账号的签字图（管理员传、只有管理员能取）')
+{
+  // Admin.vue 的弹窗正文在 SSR 下根本不渲染（el-dialog 的行为），所以这一节
+  // 全是**源码断言** —— 和上面「前端不碰 sign_photo 这个列」同一个路子
+  const ADMIN = '/src/views/Admin.vue'
+  const src = readFileSync(`${ROOT}${ADMIN}`, 'utf8')
+
+  // 这块与头像同构：只显示状态文字、不渲染预览。签字是敏感物，管理界面里不必
+  // 把图摊在屏幕上 —— 连拼取图地址的代码都没有，想泄露也没有出口
+  check(!src.includes('sign-photo'),
+    'Admin.vue 里不出现取图地址（签字只给状态文字，不预览）')
+
+  // 上限得按照片那套 10MB 拦：签字走的是 save_photo，不是头像的 2MB。
+  // 复制粘贴头像那块忘了改阈值的话，用户会碰到「前端放行、后端 400」
+  const pickSign = src.slice(src.indexOf('function handleExtSignPicked'),
+    src.indexOf('function handleExtSignClear'))
+  check(pickSign.includes('10 * 1024 * 1024'),
+    '签字图的上限按照片那套 10MB 拦')
+  check(!pickSign.includes('2 * 1024 * 1024'),
+    '不是头像那个 2MB（阈值和提示文案都要跟着改）')
+  // 选了新图就把「清除」标志复位：两个信号同时为真时后端按哪条走没有定论
+  check(pickSign.includes('extForm.removeSignPhoto = false'),
+    '选了新签字图就清掉「清除」标志')
+
+  // 「清了」和「没动」必须回回都发 —— 不带 sign_photo 时后端分不清这两种，
+  // 分不清就会把已有的签字图当成「没动」
+  check(/fd\.append\('remove_sign_photo', extForm\.removeSignPhoto \? 'true' : 'false'\)/.test(src),
+    '编辑时明确回传 remove_sign_photo')
+  check(/if \(extForm\.signPhotoFile\) fd\.append\('sign_photo', extForm\.signPhotoFile\)/.test(src),
+    '签字图跟着同一个 FormData 提交（与头像并列，不另开接口）')
+
+  // 弹窗的「已有签字图」状态吃的是列表接口回传的 has_sign_photo
+  check(src.includes('extForm.hasSignPhoto = !!row.has_sign_photo'),
+    '弹窗按 has_sign_photo 显示「已有签字图」')
+  check(/extForm\.hasSignPhoto = false/.test(src),
+    '重置表单时一起清掉（否则新建时会显示上一个账号的状态）')
+
+  // 头像与签字各有一个隐藏的 file input，各按各的按钮
+  check(/ref="extSignInput"\s+type="file"/.test(src),
+    '签字图有自己那个隐藏 file input')
+  check(src.includes('ref="extAvatarInput"'),
+    '头像那个还在（两块同构、互不影响）')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

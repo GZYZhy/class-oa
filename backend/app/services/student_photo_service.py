@@ -27,7 +27,7 @@ from fastapi import UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..models import Student
+from ..models import Student, User
 from ..utils.media_type import guess_media_type
 from .log_service import log_operation
 from .student_import_service import PHOTO_DIR, _remove_photo_safe
@@ -124,6 +124,15 @@ def sign_photo_path(student: Student) -> Path | None:
     文件在不在由调用方判（exists），这里只管「库里那条记录指向哪个文件」。
     """
     return photo_path(student.sign_photo) if student.sign_photo else None
+
+
+def user_sign_photo_path(user: User) -> Path | None:
+    """域外账号的签字图磁盘路径；没传过签字返回 None
+
+    与 sign_photo_path 并列，办件将来按账号类型二选一：学生调那个、域外账号调这个。
+    文件在不在由调用方判（exists），这里只管「库里那条记录指向哪个文件」。
+    """
+    return photo_path(user.sign_photo) if user.sign_photo else None
 
 
 # 待确认的 zip 放临时目录，10 分钟过期。文件名带 photos_ 前缀，于是客户端
