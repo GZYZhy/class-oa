@@ -72,12 +72,16 @@ class User(Base):
         Boolean, nullable=False, default=False, server_default=text("0"),
         comment="是否接收通知邮件",
     )
-    # ---------- 以下三列仅域外账号用 ----------
+    # ---------- 以下几列仅域外账号用 ----------
     # 展示用户名：同时用作姓名、水印名、日志操作人、通知/公告发布人。
     # 学生账号留空，姓名仍从学生表实时取，这样学生改了名字各处能跟着变
     display_name = Column(String(50), nullable=True, comment="域外账号展示名，学生账号为空")
     # 头像的裸文件名（与 Student.gaokao_photo 同样只存文件名，不存路径）
     avatar = Column(String(200), nullable=True, comment="域外账号头像文件名，学生账号为空")
+    # 签字图的裸文件名。域外账号可能是办件的审批者，落款要用它，所以也要有一张。
+    # 与 Student.sign_photo 是两列：那边挂学生、这边挂账号，文件都存 data/photos，
+    # 取图方式（仅管理员 / 凭审批）也各不相同
+    sign_photo = Column(String(200), nullable=True, comment="域外账号签字图文件名，学生账号为空")
     # 是否域外账号。老库补列时默认 0，即升级前所有账号都是学生账号
     is_external = Column(
         Boolean, nullable=False, default=False, server_default=text("0"),
