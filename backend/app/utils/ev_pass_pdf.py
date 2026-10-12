@@ -111,7 +111,8 @@ PASS_COLUMNS = (
     ("姓名", lambda s, r: _txt(s.name)),
     ("车牌号", lambda s, r: _txt(r.plate_number)),
     ("联系电话", lambda s, r: _txt(s.phone)),
-    ("单位（学院）", lambda s, r: _txt(settings.college)),
+    # 格子窄，15pt 的字放不下六个，「（学院）」自己占一行比「单位（学 / 院）」好看
+    ("单位<br/>（学院）", lambda s, r: _txt(settings.college)),
     ("专业年级", lambda s, r: _txt(settings.ev_pass_grade)),
     ("毕业时间", lambda s, r: _txt(settings.ev_pass_graduation)),
     ("电动自行车品牌", lambda s, r: _txt(r.brand)),
@@ -120,9 +121,14 @@ PASS_COLUMNS = (
 
 
 def _build_table(student, req) -> Table:
-    """2 行 8 列的表：第一行标签、第二行值"""
-    labels = [_ep(label, PASS_LABEL_SIZE) for label, _ in PASS_COLUMNS]
-    values = [_ep(get(student, req), PASS_VALUE_SIZE) for _, get in PASS_COLUMNS]
+    """2 行 8 列的表：第一行标签、第二行值
+
+    格内**左右居中**（模板里是左对齐，但标签去掉编号与冒号后只剩两三个字，
+    贴左边会明显偏在格子一头）。纵向照模板的 vAlign=center。
+    """
+    labels = [_ep(label, PASS_LABEL_SIZE, align=TA_CENTER) for label, _ in PASS_COLUMNS]
+    values = [_ep(get(student, req), PASS_VALUE_SIZE, align=TA_CENTER)
+              for _, get in PASS_COLUMNS]
     grid = [labels, values]
 
     # 行高取「模板声明值」与「实测内容高」里大的那个：trHeight 是「至少这么高」，
@@ -142,8 +148,10 @@ def _build_table(student, req) -> Table:
         ("TOPPADDING", (0, 0), (-1, -1), PASS_CELL_PAD_Y),
         ("BOTTOMPADDING", (0, 0), (-1, -1), PASS_CELL_PAD_Y),
     ]
+    # hAlign 用 CENTER：列宽之和**正好等于版心**，眼下画出来就是左右各 72pt，和 LEFT 没区别；
+    # 写 CENTER 是为了哪天列宽改了、表格比版心窄时它会自己居中，而不是悄悄贴到左边去
     return Table(grid, colWidths=list(PASS_COL_W), rowHeights=heights,
-                 style=TableStyle(style), hAlign="LEFT")
+                 style=TableStyle(style), hAlign="CENTER")
 
 
 def _pass_date(req) -> datetime:

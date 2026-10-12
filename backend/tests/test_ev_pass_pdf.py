@@ -201,17 +201,50 @@ def test_pass_only_uses_its_own_font_sizes(tmp_path):
 
 # ---------- 表头那行：不带编号、冒号、示例值 ----------
 
+def _table_hlines(page) -> list:
+    """表格的横线（从上到下）—— 顶边、两行之间、底边"""
+    return sorted({round(it[1].y, 1) for d in page.get_drawings() for it in d["items"]
+                   if it[0] == "l" and abs(it[1].y - it[2].y) < 0.1})
+
+
 def _table_row_text(page, row: int) -> str:
     """表格第 row 行的文字 —— 按横线切行
 
     不能拿整页文字量：那会把落款旁边「经办班委：」的冒号也算进来（那是印上去的成品
     内容，跟给人手填的标签不是一码事）。
     """
-    ys = sorted({round(it[1].y, 1) for d in page.get_drawings() for it in d["items"]
-                 if it[0] == "l" and abs(it[1].y - it[2].y) < 0.1})
+    ys = _table_hlines(page)
     top, bottom = ys[row], ys[row + 1]
     spans = [s for s in _spans(page) if top <= s["bbox"][1] and s["bbox"][3] <= bottom + 1]
     return "".join(s["text"] for s in spans)
+
+
+def test_table_cells_are_centred():
+    """格内的字左右居中
+
+    标签去掉编号与冒号后只剩两三个字，还贴着格子左边就会明显偏在一头。
+    量的是每个 span 中心到所在格子左右边的距离，两边得一样。
+    """
+    student, req = _sample()
+    page = _pass_page(student, req)[0]
+
+    edges = [PASS_MARGIN_LR]
+    for width in PASS_COL_W:
+        edges.append(edges[-1] + width)
+    top, bottom = _table_hlines(page)[0], _table_hlines(page)[-1]
+
+    checked = 0
+    for span in _spans(page):
+        x0, _, x1, y1 = span["bbox"]
+        if not (top <= span["bbox"][1] and y1 <= bottom + 1):
+            continue                                  # 只看表格里的字
+        middle = (x0 + x1) / 2
+        col = next(i for i in range(len(PASS_COL_W)) if edges[i] <= middle < edges[i + 1])
+        gap_l, gap_r = middle - edges[col], edges[col + 1] - middle
+        assert abs(gap_l - gap_r) < 2, \
+            f"「{span['text']}」没居中：左边空 {gap_l:.1f}、右边空 {gap_r:.1f}"
+        checked += 1
+    assert checked >= 16, f"表格里的字只量到 {checked} 个片段，格子没画全？"
 
 
 def test_pass_labels_carry_no_number_colon_or_sample():
