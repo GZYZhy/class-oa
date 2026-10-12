@@ -244,6 +244,21 @@
                 </div>
               </template>
 
+              <!-- 请假审批表也不进文件访问日志，但它的时间戳是**真的下载时间**
+                   （令牌是下载那一刻现打的），所以这里能直接说「谁于何时下载的」 -->
+              <template v-else-if="watermarkResult.source_type === 'leave'">
+                <el-icon><CircleCheck /></el-icon>
+                检测到水印：请假审批表「{{ watermarkResult.file_title }}」
+                <div class="extract-hint">
+                  <strong>{{ watermarkResult.user_name || watermarkResult.user_no }}</strong>
+                  于 <strong>{{ formatDateTime(watermarkResult.accessed_at) }}</strong> 下载
+                </div>
+                <div class="extract-hint">
+                  请假审批表不写文件访问日志（申请人本人和管理员下到的是同一份文件），
+                  凭水印即可确定是谁下载的
+                </div>
+              </template>
+
               <template v-else>
                 <el-icon><CircleCheck /></el-icon>
                 检测到水印：

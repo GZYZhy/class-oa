@@ -136,22 +136,43 @@
               <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
             </template>
           </el-table-column>
+          <el-table-column label="班导师签字" width="120" align="center">
+            <template #default="{ row }">
+              <!-- 签字是批准那一步定的，待审核 / 已驳回的单子无所谓签没签 -->
+              <span v-if="row.status !== 'approved'" style="color: var(--el-text-color-disabled);">—</span>
+              <span v-else-if="row.has_advisor_sign" style="color: #67c23a;">
+                {{ row.advisor_sign_name }} 已签
+              </span>
+              <span v-else style="color: var(--el-text-color-secondary);">暂不签字</span>
+            </template>
+          </el-table-column>
           <el-table-column label="申请时间" width="150" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="280" align="center">
+          <el-table-column label="操作" width="330" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewLeaveProof(row)">
                 证明材料
               </el-button>
+              <!-- 申请人本人走学生端那个入口，这里只给管理员（班委点了必然 403） -->
               <el-button
-                v-if="row.status === 'approved'"
+                v-if="row.status === 'approved' && userStore.isAdmin"
                 size="small"
                 link
                 type="success"
-                @click="handleDownloadLeaveDocx(row)"
+                @click="handleDownloadLeavePdf(row)"
               >
                 下载请假表
+              </el-button>
+              <!-- 只有「已批准但当初选了暂不签字」才有得补。已签过的后端也会 400 -->
+              <el-button
+                v-if="row.status === 'approved' && !row.has_advisor_sign && userStore.isAdmin"
+                size="small"
+                link
+                type="warning"
+                @click="openLeaveDialog('sign', row)"
+              >
+                补签字
               </el-button>
               <template v-if="row.status === 'pending'">
                 <el-button
@@ -159,7 +180,7 @@
                   size="small"
                   link
                   type="success"
-                  @click="handleApproveLeave(row)"
+                  @click="openLeaveDialog('approve', row)"
                 >
                   通过
                 </el-button>
@@ -583,6 +604,50 @@
       title="学生签字"
     />
 
+    <!-- 批准 / 补签字弹框：同一套表单，两个入口
+         「通过」走 approve（顺带填意见、选签字），「补签字」走 advisor-sign（只补这两样） -->
+    <el-dialog v-model="leaveDialogVisible" :title="leaveDialogTitle" width="520px">
+      <div v-if="leaveDialogRow" style="margin-bottom: 12px;">
+        <strong>{{ leaveDialogRow.student_name }}</strong>
+        <span style="color: var(--el-text-color-regular);">
+          （{{ leaveDialogRow.leave_type }}，{{ formatDateTime(leaveDialogRow.start_at) }}
+          至 {{ formatDateTime(leaveDialogRow.end_at) }}）
+        </span>
+      </div>
+      <el-form label-width="92px">
+        <el-form-item label="班导师意见">
+          <el-input
+            v-model="leaveDialogForm.advisor_opinion"
+            type="textarea"
+            :rows="3"
+            maxlength="200"
+            show-word-limit
+            placeholder="选填"
+          />
+        </el-form-item>
+        <el-form-item label="班导师签字">
+          <el-select v-model="leaveDialogForm.advisor_sign_no" style="width: 100%;">
+            <el-option label="暂不签字" value="" />
+            <el-option
+              v-for="s in advisorSigners"
+              :key="s.student_no"
+              :label="s.is_external ? `${s.name}（域外账号）` : s.name"
+              :value="s.student_no"
+            />
+          </el-select>
+          <div style="font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.5;">
+            签的是批准当时这张图，之后换图也不会改动已生成的表。
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="leaveDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="leaveDialogSubmitting" @click="doLeaveDialog">
+          {{ leaveDialogMode === 'sign' ? '补签字' : '通过' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 上传成品 PDF 弹框 -->
     <el-dialog v-model="certResultUploadVisible" title="上传成品证明 PDF" width="480px">
       <div v-if="certResultUploadRow">
@@ -623,7 +688,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { blobErrorDetail } from '@/utils/download'
@@ -634,11 +699,13 @@ import {
   rejectChangeRequest
 } from '@/api/changeRequest'
 import {
+  getAdvisorSigners,
   getLeaveList,
   approveLeave,
+  advisorSign,
   rejectLeave,
   downloadLeaveProof,
-  downloadLeaveDocx as apiDownloadLeaveDocx
+  downloadLeavePdf as apiDownloadLeavePdf
 } from '@/api/leave'
 import {
   getFeedbackList,
@@ -812,21 +879,60 @@ function viewLeaveProof(row) {
   proofViewerVisible.value = true
 }
 
-function handleApproveLeave(row) {
-  ElMessageBox.confirm(
-    `确定通过「${row.student_name}」的${row.leave_type}申请吗？\n` +
-    `时间：${formatDateTime(row.start_at)} 至 ${formatDateTime(row.end_at)}`,
-    '审批确认',
-    { type: 'warning', confirmButtonText: '通过', cancelButtonText: '取消' }
-  ).then(async () => {
+// 批准 / 补签字共用一套弹窗：'approve' 走通过接口，'sign' 走补签字接口
+const leaveDialogVisible = ref(false)
+const leaveDialogMode = ref('approve')
+const leaveDialogRow = ref(null)
+const leaveDialogSubmitting = ref(false)
+const leaveDialogForm = ref({ advisor_opinion: '', advisor_sign_no: '' })
+// 能当签字人的管理员列表，第一次打开弹窗时拉一次就够了
+const advisorSigners = ref([])
+
+const leaveDialogTitle = computed(
+  () => (leaveDialogMode.value === 'sign' ? '补班导师签字' : '通过请假申请')
+)
+
+async function openLeaveDialog(mode, row) {
+  leaveDialogMode.value = mode
+  leaveDialogRow.value = row
+  // 补签字时把当初填过的意见带出来，方便接着改；批准时是空白
+  leaveDialogForm.value = {
+    advisor_opinion: (mode === 'sign' && row.advisor_opinion) || '',
+    advisor_sign_no: ''
+  }
+  leaveDialogVisible.value = true
+  if (!advisorSigners.value.length) {
     try {
-      await approveLeave(row.id)
-      ElMessage.success('已通过')
-      fetchLeaveList()
+      advisorSigners.value = await getAdvisorSigners()
     } catch (e) {
-      ElMessage.error(e?.response?.data?.detail || '操作失败')
+      ElMessage.error('签字人列表加载失败')
     }
-  }).catch(() => {})
+  }
+}
+
+async function doLeaveDialog() {
+  const row = leaveDialogRow.value
+  if (!row) return
+  leaveDialogSubmitting.value = true
+  try {
+    const payload = {
+      advisor_opinion: leaveDialogForm.value.advisor_opinion,
+      advisor_sign_no: leaveDialogForm.value.advisor_sign_no
+    }
+    if (leaveDialogMode.value === 'sign') {
+      await advisorSign(row.id, payload)
+      ElMessage.success('已补签字')
+    } else {
+      await approveLeave(row.id, payload)
+      ElMessage.success('已通过')
+    }
+    leaveDialogVisible.value = false
+    fetchLeaveList()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '操作失败')
+  } finally {
+    leaveDialogSubmitting.value = false
+  }
 }
 
 function handleRejectLeave(row) {
@@ -846,16 +952,17 @@ function handleRejectLeave(row) {
   }).catch(() => {})
 }
 
-function handleDownloadLeaveDocx(row) {
-  apiDownloadLeaveDocx(row.id).then(blob => {
+function handleDownloadLeavePdf(row) {
+  apiDownloadLeavePdf(row.id).then(blob => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${row.student_name}_请假审批表_${formatDate(row.start_at).replace(/-/g, '')}.docx`
+    a.download = `${row.student_name}_请假审批表_${formatDate(row.start_at).replace(/-/g, '')}.pdf`
     a.click()
     URL.revokeObjectURL(url)
-  }).catch(e => {
-    ElMessage.error(e?.response?.data?.detail || '下载失败')
+  }).catch(() => {
+    // blob 响应里报错体也是 Blob，读不出 detail，只能给一句通用提示
+    ElMessage.error('下载失败，请稍后重试')
   })
 }
 

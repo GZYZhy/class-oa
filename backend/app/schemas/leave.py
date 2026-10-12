@@ -38,6 +38,13 @@ class LeaveRequestResponse(BaseModel):
     reject_reason: str = ""
     created_at: Optional[datetime] = None
     reviewed_at: Optional[datetime] = None
+    # 班导师意见与签字：批准时填（意见选填、签字可以「暂不签字」）
+    advisor_opinion: str = ""
+    advisor_sign_no: str = ""
+    advisor_sign_name: str = ""
+    # 派生：签没签字。签字图**副本的文件名**本身不进响应 —— 前端只需要
+    # 知道「已由张三签字」/「暂不签字」，拿不到副本名也就拼不出别的下载地址
+    has_advisor_sign: bool = False
 
     class Config:
         from_attributes = True
@@ -46,3 +53,15 @@ class LeaveRequestResponse(BaseModel):
 class LeaveRejectRequest(BaseModel):
     """驳回申请"""
     reason: str = Field(..., min_length=1, max_length=500, description="驳回理由")
+
+
+class LeaveAdvisorSignature(BaseModel):
+    """班导师意见 + 用谁的签字（批准时收一次，之后补签字时再收一次）
+
+    两个字段都可空：意见选填，签字人留空就是「暂不签字」。
+    200 字这个上限是排版算出来的，不是随手定的 —— 行 9 的内宽在 12pt 下约 28 字一行，
+    200 字 8 行刚好在页面余量里，再长那张表就要翻页（请假表翻页等于半张表加
+    三行备注孤零零留在第二页）。改这里之前先跑 tests/test_leave_template.py
+    """
+    advisor_opinion: str = Field("", max_length=200, description="班导师意见（选填）")
+    advisor_sign_no: str = Field("", description="签字人的登录名，空串 = 暂不签字")

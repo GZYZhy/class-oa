@@ -51,6 +51,7 @@ from ..services import (
     delete_resource,
     TOKEN_SOURCE_ANNOUNCEMENT,
     TOKEN_SOURCE_EXPORT,
+    TOKEN_SOURCE_LEAVE,
     extract_watermark,
     list_all_resources,
     log_operation,
@@ -1108,20 +1109,23 @@ async def extract_watermark_from_pdf(
 
     accessed_at = datetime.fromtimestamp(parsed["timestamp"])
 
-    # file_id 是哪张表的主键，由令牌里的来源段决定 —— 公告和导出申请的 id
-    # 各自从 1 编号、必然撞号，只按 id 查会把导出文件溯到同号的公告文件上。
-    # 来源段是后加的，旧令牌没有：那时只有公告会打水印，但升级前生成的导出 PDF
-    # 也长这样，所以按「先公告、查不到再导出」兜底
-    from ..models import Announcement, ExportRequest
+    # file_id 是哪张表的主键，由令牌里的来源段决定 —— 公告、导出、请假表的 id
+    # 各自从 1 编号、必然撞号，只按 id 查会互相溯错。来源段是后加的，旧令牌没有：
+    # 那时只有公告会打水印，但升级前生成的导出 PDF 也长这样，
+    # 所以按「先公告、查不到再导出」兜底。三个表都不能互相兜底
+    from ..models import Announcement, ExportRequest, LeaveRequest
 
     source_code = parsed["source"]
     file_row = None
     export_row = None
+    leave_row = None
 
-    if source_code != TOKEN_SOURCE_EXPORT:
+    if source_code not in (TOKEN_SOURCE_EXPORT, TOKEN_SOURCE_LEAVE):
         file_row = db.query(Announcement).filter(Announcement.id == parsed["file_id"]).first()
-    if file_row is None and source_code != TOKEN_SOURCE_ANNOUNCEMENT:
+    if file_row is None and source_code not in (TOKEN_SOURCE_ANNOUNCEMENT, TOKEN_SOURCE_LEAVE):
         export_row = db.query(ExportRequest).filter(ExportRequest.id == parsed["file_id"]).first()
+    if file_row is None and export_row is None and source_code in (None, TOKEN_SOURCE_LEAVE):
+        leave_row = db.query(LeaveRequest).filter(LeaveRequest.id == parsed["file_id"]).first()
 
     if file_row:
         source_type = "announcement"
@@ -1148,30 +1152,46 @@ async def extract_watermark_from_pdf(
         export_status = None
         export_reviewer = None
 
+    elif export_row:
+        # 导出文件不进文件访问日志（它只在「学生信息」页下载，不在文件公开里），
+        # 所以这里没有动作和 IP 可核，只能报「谁申请的、什么时候生成的」
+        source_type = "export"
+        file_title = export_row.file_original_name or "导出文件"
+        export_type = export_row.export_type
+        export_scope = scope_label(export_row.scope_type)
+        export_status = export_row.status
+        export_reviewer = export_row.reviewer_name or None
+        action = None
+        ip = None
+        log_matched = False
+
+    elif leave_row:
+        # 请假审批表也不进文件访问日志（学生和管理员下到的是同一份文件，
+        # 记下来只是一堆噪音），所以同样没有动作和 IP 可核 —— 凭水印
+        # 就能确定「谁、什么时候、下载了哪张表」
+        source_type = "leave"
+        file_title = (
+            f"{leave_row.student_name}的请假审批表（{leave_row.start_at:%Y-%m-%d}）"
+        )
+        export_type = None
+        export_scope = None
+        export_status = None
+        export_reviewer = None
+        action = None
+        ip = None
+        log_matched = False
+
     else:
-        if export_row:
-            # 导出文件不进文件访问日志（它只在「学生信息」页下载，不在文件公开里），
-            # 所以这里没有动作和 IP 可核，只能报「谁申请的、什么时候生成的」
-            source_type = "export"
-            file_title = export_row.file_original_name or "导出文件"
-            export_type = export_row.export_type
-            export_scope = scope_label(export_row.scope_type)
-            export_status = export_row.status
-            export_reviewer = export_row.reviewer_name or None
-            action = None
-            ip = None
-            log_matched = False
-        else:
-            # 都不是，就只显示 token 里的基本信息
-            source_type = None
-            file_title = None
-            export_type = None
-            export_scope = None
-            export_status = None
-            export_reviewer = None
-            action = None
-            ip = None
-            log_matched = False
+        # 都不是，就只显示 token 里的基本信息
+        source_type = None
+        file_title = None
+        export_type = None
+        export_scope = None
+        export_status = None
+        export_reviewer = None
+        action = None
+        ip = None
+        log_matched = False
 
     return {
         "found": True,
@@ -1189,7 +1209,13 @@ async def extract_watermark_from_pdf(
         "action": action,
         "ip": ip,
         "log_matched": log_matched,
-        "message": "水印提取成功",
+        "message": (
+            # 请假表没写访问日志是**按设计**的，不是「日志丢了」，
+            # 这行字就是给管理员看的说明
+            "请假审批表按设计不写访问日志，凭水印即可确定下载人"
+            if source_type == "leave"
+            else "水印提取成功"
+        ),
     }
 
 

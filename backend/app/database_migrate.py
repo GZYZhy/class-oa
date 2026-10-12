@@ -100,6 +100,14 @@ NEW_COLUMNS = [
     # schedules 表在早期版本已创建，后来才加 event_type。默认空串 = 旧日程没有类型，
     # 与补列前行为一致（create_all 不会给已存在的表补列，只能走这里 ALTER）
     ("schedules", "event_type", "VARCHAR(20) NOT NULL DEFAULT ''"),
+    # ---------- 请假表的班导师意见与签字 ----------
+    # 四列都默认空串 = 「没填、没签字」，与补列前那张空白的班导师格完全一致。
+    # advisor_sign_file 存的是签字图的**副本名**（在 data/leaves/ 下），
+    # 非空即表示已签字；补列后老记录都是空 = 待补签
+    ("leave_requests", "advisor_opinion", "VARCHAR(200) NOT NULL DEFAULT ''"),
+    ("leave_requests", "advisor_sign_no", "VARCHAR(20) NOT NULL DEFAULT ''"),
+    ("leave_requests", "advisor_sign_name", "VARCHAR(50) NOT NULL DEFAULT ''"),
+    ("leave_requests", "advisor_sign_file", "VARCHAR(100) NOT NULL DEFAULT ''"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）

@@ -135,6 +135,10 @@ def backend(tmp_path):
                 # config.BASE_DIR 下那个真实数据目录 —— 不隔离的话，测试上传的图
                 # 会落在本机演示库的 photos 里，而且事后没人清得掉
                 "PHOTO_DIR": str(tmp_path / "photos"),
+                # 请假那条线的文件同理：辅助证明、班导师签字图副本都落在 LEAVE_DIR。
+                # 接口测试一调「批准（带签字）」就会往里复制文件 —— 不隔离就写进
+                # 本机演示库的真目录了
+                "LEAVE_DIR": str(tmp_path / "leaves"),
                 # 显式置空：不给的话会从仓库根或 backend/.env 里漏进来
                 "BOOTSTRAP_PASSWORD": "",
                 **env,

@@ -78,6 +78,7 @@ from .notify_service import Recipients, notify, recipients
 from .pdf_watermark_service import (
     TOKEN_SOURCE_ANNOUNCEMENT,
     TOKEN_SOURCE_EXPORT,
+    TOKEN_SOURCE_LEAVE,
     add_invisible_watermark,
     extract_watermark,
     make_watermark_token,
@@ -157,6 +158,7 @@ __all__ = [
     "recipients",
     "TOKEN_SOURCE_ANNOUNCEMENT",
     "TOKEN_SOURCE_EXPORT",
+    "TOKEN_SOURCE_LEAVE",
     "add_invisible_watermark",
     "extract_watermark",
     "make_watermark_token",

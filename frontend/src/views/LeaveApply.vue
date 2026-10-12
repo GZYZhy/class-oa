@@ -137,7 +137,7 @@
                   size="small"
                   link
                   type="success"
-                  @click="downloadDocx(row)"
+                  @click="downloadPdf(row)"
                 >
                   下载请假表
                 </el-button>
@@ -150,6 +150,10 @@
                 </span>
                 <span v-else-if="row.status === 'approved'" style="color: #67c23a;">
                   {{ row.reviewer_name || '管理员' }} 已通过
+                  <!-- 班导师意见是批准时填的（选填），没填就不占地方 -->
+                  <div v-if="row.advisor_opinion" style="color: var(--el-text-color-regular);">
+                    班导师意见：{{ row.advisor_opinion }}
+                  </div>
                 </span>
                 <span v-else style="color: var(--el-text-color-disabled);">待审核</span>
               </template>
@@ -172,7 +176,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getMyLeaves, submitLeave, downloadLeaveDocx } from '@/api/leave'
+import { getMyLeaves, submitLeave, downloadLeavePdf } from '@/api/leave'
 import { formatDate, formatDateTime } from '@/utils/format'
 import FileViewer from '@/components/FileViewer.vue'
 
@@ -335,17 +339,18 @@ function viewProof(row) {
   proofViewerVisible.value = true
 }
 
-function downloadDocx(row) {
-  downloadLeaveDocx(row.id).then(blob => {
+function downloadPdf(row) {
+  downloadLeavePdf(row.id).then(blob => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     // 只取日期部分做文件名，和后端生成的保持一致
-    a.download = `${row.student_name}_请假审批表_${formatDate(row.start_at).replace(/-/g, '')}.docx`
+    a.download = `${row.student_name}_请假审批表_${formatDate(row.start_at).replace(/-/g, '')}.pdf`
     a.click()
     URL.revokeObjectURL(url)
-  }).catch(e => {
-    ElMessage.error(e?.response?.data?.detail || '下载失败')
+  }).catch(() => {
+    // blob 响应里报错体也是 Blob，读不出 detail，只能给一句通用提示
+    ElMessage.error('下载失败，请稍后重试')
   })
 }
 
