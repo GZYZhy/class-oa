@@ -676,6 +676,32 @@
             </el-button>
           </div>
         </el-form-item>
+        <!-- 签字图：域外账号可能是办件的审批者，落款要用它。
+             这块**只显示状态文字、不渲染预览**（与头像一致）——
+             签字是敏感物，管理界面里没必要把图摊在屏幕上 -->
+        <el-form-item label="签字图">
+          <input
+            ref="extSignInput"
+            type="file"
+            accept="image/*"
+            style="display: none"
+            @change="handleExtSignPicked"
+          />
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <el-button @click="extSignInput?.click()">选择图片</el-button>
+            <span class="tip" style="margin: 0;">
+              {{ extSignText }}
+            </span>
+            <el-button
+              v-if="extForm.signPhotoFile || (extForm.hasSignPhoto && !extForm.removeSignPhoto)"
+              link
+              type="danger"
+              @click="handleExtSignClear"
+            >
+              清除签字图
+            </el-button>
+          </div>
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -1058,6 +1084,7 @@ async function fetchUserLogs() {
 const extDialogVisible = ref(false)
 const extSaving = ref(false)
 const extAvatarInput = ref(null)
+const extSignInput = ref(null)
 const extForm = reactive({
   editing: false,
   login_name: '',
@@ -1066,7 +1093,10 @@ const extForm = reactive({
   password: '',
   avatarFile: null,   // 本次选中的新图片
   hasAvatar: false,   // 服务端已有的头像
-  removeAvatar: false // 编辑时勾了「清除头像」
+  removeAvatar: false, // 编辑时勾了「清除头像」
+  signPhotoFile: null, // 本次选中的新签字图
+  hasSignPhoto: false, // 服务端已有的签字图
+  removeSignPhoto: false // 编辑时勾了「清除签字图」
 })
 
 const extAvatarText = computed(() => {
@@ -1074,6 +1104,13 @@ const extAvatarText = computed(() => {
   if (extForm.hasAvatar && !extForm.removeAvatar) return '已有头像，重新选择可替换'
   if (extForm.removeAvatar) return '保存后清除头像'
   return '不传则用姓名首字占位，单张不超过 2MB'
+})
+
+const extSignText = computed(() => {
+  if (extForm.signPhotoFile) return `已选择：${extForm.signPhotoFile.name}`
+  if (extForm.hasSignPhoto && !extForm.removeSignPhoto) return '已有签字图，重新选择可替换'
+  if (extForm.removeSignPhoto) return '保存后清除签字图'
+  return '不传则留空，单张不超过 10MB'
 })
 
 function resetExtForm() {
@@ -1085,8 +1122,12 @@ function resetExtForm() {
   extForm.avatarFile = null
   extForm.hasAvatar = false
   extForm.removeAvatar = false
+  extForm.signPhotoFile = null
+  extForm.hasSignPhoto = false
+  extForm.removeSignPhoto = false
   // 清掉原生 input 里的选择，否则再打开还是上次那个文件
   if (extAvatarInput.value) extAvatarInput.value.value = ''
+  if (extSignInput.value) extSignInput.value.value = ''
 }
 
 function openCreateExternal() {
@@ -1101,6 +1142,7 @@ function openEditExternal(row) {
   extForm.display_name = row.name
   extForm.role = row.role || 'student'
   extForm.hasAvatar = !!row.has_avatar
+  extForm.hasSignPhoto = !!row.has_sign_photo
   extDialogVisible.value = true
 }
 
@@ -1120,6 +1162,26 @@ function handleExtAvatarClear() {
   extForm.avatarFile = null
   extForm.removeAvatar = true
   if (extAvatarInput.value) extAvatarInput.value.value = ''
+}
+
+function handleExtSignPicked(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  // 上限与后端 save_photo 的 MAX_PHOTO_SIZE 一致（签字走的是照片那套校验），
+  // 不是头像那个 2MB
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.warning('签字图不能超过 10MB')
+    e.target.value = ''
+    return
+  }
+  extForm.signPhotoFile = file
+  extForm.removeSignPhoto = false
+}
+
+function handleExtSignClear() {
+  extForm.signPhotoFile = null
+  extForm.removeSignPhoto = true
+  if (extSignInput.value) extSignInput.value.value = ''
 }
 
 async function handleExtSave() {
@@ -1148,11 +1210,14 @@ async function handleExtSave() {
     // 用 remove_avatar 明确告诉后端「是清了还是没动」——
     // 不传 avatar 字段时后端无法区分这两种情况
     fd.append('remove_avatar', extForm.removeAvatar ? 'true' : 'false')
+    // 同样要明确告诉后端「签字图是清了还是没动」——不传 sign_photo 时后端分不清
+    fd.append('remove_sign_photo', extForm.removeSignPhoto ? 'true' : 'false')
   } else {
     fd.append('login_name', extForm.login_name.trim())
     fd.append('password', extForm.password)
   }
   if (extForm.avatarFile) fd.append('avatar', extForm.avatarFile)
+  if (extForm.signPhotoFile) fd.append('sign_photo', extForm.signPhotoFile)
 
   extSaving.value = true
   try {
