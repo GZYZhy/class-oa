@@ -10,9 +10,9 @@ from ..database import Base
 class EvPassRequest(Base):
     """电动车校内通行证补办申请
 
-    复用请假申请的架构：学生提交 → 管理员审批 → 通过后生成通行证和承诺书两份文档。
+    复用请假申请的架构：学生提交 → 管理员审批 → 通过后生成通行证和承诺书两份 PDF。
     住址、毕业时间、专业年级这些全班一样的项不存库 —— 它们在 EV_PASS_* 配置里，
-    生成文档时由模板占位符填上（见 utils/ev_pass_docx.py）。
+    生成 PDF 时由 utils/ev_pass_pdf.py 填上。
     """
     __tablename__ = "ev_pass_requests"
 
@@ -34,5 +34,12 @@ class EvPassRequest(Base):
     reviewer_name = Column(String(50), comment="审核人姓名")
     reviewed_at = Column(DateTime, comment="审核时间")
     reject_reason = Column(Text, comment="驳回理由")
+
+    # 经办班委签字。申请表的落款与日期之间那一行 —— 管理员**批准时**选一位管理员
+    # （或「暂不签署」），取的是当时那张图的**副本**，落在 data/ev_passes/ 下。
+    # 原图日后换了、删了都不影响已经批出去的单子，三列全空就是没签（见 services/signer_service.py）
+    sign_no = Column(String(20), default="", comment="经办班委签字人登录名（快照）")
+    sign_name = Column(String(50), default="", comment="经办班委签字人姓名（快照）")
+    sign_file = Column(String(100), default="", comment="签字图副本名（存在 EV_PASS_DIR，非空即已签）")
 
     student = relationship("Student", backref="ev_pass_requests")

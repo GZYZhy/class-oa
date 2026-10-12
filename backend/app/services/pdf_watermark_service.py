@@ -8,9 +8,11 @@
 令牌格式：OA-WM:<source>:<file_id>:<user_no>:<timestamp_unix>
 - 纯 ASCII，避开中文字体嵌入/ToUnicode 乱码问题
 - 用固定前缀 OA-WM: 方便提取时正则匹配
-- source 说明 file_id 是哪张表的主键：ann=公告文件、exp=导出文件、lea=请假审批表。
-  几边的 id 各自从 1 开始编号、必然撞号，只凭 id 去查会溯源到别的文件上；
-  上线前写的令牌没有这一段，那时只有公告会打水印，按公告处理。
+- source 说明 file_id 是哪张表的主键：ann=公告文件、exp=导出文件、lea=请假审批表、
+  evpa=电动车通行证申请表、evpc=电动车承诺书。几边的 id 各自从 1 开始编号、必然撞号，
+  只凭 id 去查会溯源到别的文件上；上线前写的令牌没有这一段，那时只有公告会打水印，按公告处理。
+  电动车的两份**必须分成两个短码**：它们的 file_id 都是 ev_pass_requests.id、一模一样，
+  只有 source 能分辨下载的是申请表还是承诺书。
 
 额外冗余层：同令牌也写入 PDF 元数据 /Info 的 Keywords 字段。
 （元数据容易被清除，只作为辅助，不作为唯一依据）
@@ -31,16 +33,23 @@ TOKEN_PREFIX = "OA-WM:"
 TOKEN_SOURCE_ANNOUNCEMENT = "ann"
 TOKEN_SOURCE_EXPORT = "exp"
 TOKEN_SOURCE_LEAVE = "lea"
+# 电动车那两份（见模块头：名字差一个字母也是必须的，两份的 file_id 是同一个数）
+TOKEN_SOURCE_EV_APPLY = "evpa"
+TOKEN_SOURCE_EV_PROMISE = "evpc"
 
 # 令牌正则：OA-WM:[来源:]文件ID:账号:时间戳
-# 来源那段的两个值都是字母开头，不可能和后面的数字抢位，
+# 来源那几个值都是字母开头，不可能和后面的数字抢位，
 # 所以旧令牌（没有来源段）照样能被这一条正则吃下来，来源留空
+#
+# **这是个枚举式正则**：新加的来源短码不并进这一组，parse_watermark_token 会把它认成
+# 「没有来源段」的旧令牌、静默落进「先按公告查」那一支（溯源就指到同号的公告上去了）。
 #
 # 账号那段用 [^:]+ 而不是 \w+：域外账号的登录名只禁空格，「T-001」「zhang.san」
 # 都合法，而 \w 匹配不到 - 和 . —— 那样会把已经写进 PDF 的水印认成「没水印」，
 # 管理员在溯源页看到的还是「未检测到水印」。账号经百分号编码后不含 :，不会有歧义
 TOKEN_PATTERN = re.compile(
-    rf"{TOKEN_PREFIX}(?:({TOKEN_SOURCE_ANNOUNCEMENT}|{TOKEN_SOURCE_EXPORT}|{TOKEN_SOURCE_LEAVE}):)?"
+    rf"{TOKEN_PREFIX}(?:({TOKEN_SOURCE_ANNOUNCEMENT}|{TOKEN_SOURCE_EXPORT}|{TOKEN_SOURCE_LEAVE}"
+    rf"|{TOKEN_SOURCE_EV_APPLY}|{TOKEN_SOURCE_EV_PROMISE}):)?"
     rf"(\d+):([^:]+):(\d+)"
 )
 

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # 应用信息
     app_name: str = "班级信息管理系统"
     # 版本号。页面上的「关于班级 → 系统版本」、/api/health、接口文档都取这一份
-    app_version: str = "1.10.12"
+    app_version: str = "1.10.13"
     # 站点名称。和前端 window.__SITE__.name 是同**一个**环境变量 SITE_NAME，
     # 后端只在 RSS 频道名里用它（「通知公告 - 示例班信息管理系统」），
     # 目的就是让阅读器里显示的源名和网页标题对得上。
@@ -32,14 +32,14 @@ class Settings(BaseSettings):
     # 生成的文档上印的专业得和「关于班级」页显示的对得上。
     # （同样保留 MAJOR 作为别名）
     major: str = Field(default="", validation_alias=AliasChoices("SITE_MAJOR", "MAJOR"))
-    # 校名（「示例大学」）。目前只有后端生成的 Word 用得到（落款、承诺书抬头），
+    # 校名（「示例大学」）。目前只有后端生成的 PDF 用得到（落款、承诺书抬头），
     # 前端页面上的校名是拼在 SITE_SUBTITLE / SITE_FOOTER 里的。
     school: str = Field(default="", validation_alias=AliasChoices("SITE_SCHOOL"))
 
-    # ---------- 电动车办件模板上的本班固有信息 ----------
+    # ---------- 电动车办件 PDF 上的本班固有信息 ----------
     # 这四项每一届都不一样，但同一届全班相同，所以放在配置里而不是学生表里。
-    # 模板（backend/templates/电动车*.docx）里相应位置是占位符，生成时用这几项填。
-    # 换届时改这里的配置即可，不用动模板、也不用改代码。
+    # 生成 PDF 时由 utils/ev_pass_pdf.py 填进去。
+    # 换届时改这里的配置即可，不用改代码。
     #
     # 「专业年级」那一栏的**整格**内容，如「示例专业26级」。
     # 故意不拆成「专业 + 年级」两项再拼：那样得同时配对 SITE_MAJOR 才不重复

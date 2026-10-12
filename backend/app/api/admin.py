@@ -50,6 +50,8 @@ from ..services import (
     default_password,
     delete_resource,
     TOKEN_SOURCE_ANNOUNCEMENT,
+    TOKEN_SOURCE_EV_APPLY,
+    TOKEN_SOURCE_EV_PROMISE,
     TOKEN_SOURCE_EXPORT,
     TOKEN_SOURCE_LEAVE,
     extract_watermark,
@@ -1109,23 +1111,44 @@ async def extract_watermark_from_pdf(
 
     accessed_at = datetime.fromtimestamp(parsed["timestamp"])
 
-    # file_id 是哪张表的主键，由令牌里的来源段决定 —— 公告、导出、请假表的 id
-    # 各自从 1 编号、必然撞号，只按 id 查会互相溯错。来源段是后加的，旧令牌没有：
-    # 那时只有公告会打水印，但升级前生成的导出 PDF 也长这样，
-    # 所以按「先公告、查不到再导出」兜底。三个表都不能互相兜底
-    from ..models import Announcement, ExportRequest, LeaveRequest
+    # file_id 是哪张表的主键，由令牌里的来源段决定 —— 公告、导出、请假表、电动车
+    # 两张表的 id 各自从 1 编号、必然撞号，只按 id 查会互相溯错。来源段是后加的，
+    # 旧令牌没有：那时只有公告会打水印，但升级前生成的导出 PDF 也长这样，
+    # 所以按「先公告、查不到再导出」兜底。几张表都不能互相兜底
+    from ..models import Announcement, EvPassRequest, ExportRequest, LeaveRequest
 
     source_code = parsed["source"]
     file_row = None
     export_row = None
     leave_row = None
+    ev_pass_row = None
 
-    if source_code not in (TOKEN_SOURCE_EXPORT, TOKEN_SOURCE_LEAVE):
+    # 三处 `not in (...)` 都要把电动车两个来源一起排掉：漏一处，同号的公告 / 导出
+    # 就会先被查出来，把电动车的水印溯到一份八竿子打不着的文件上
+    if source_code not in (
+        TOKEN_SOURCE_EXPORT, TOKEN_SOURCE_LEAVE,
+        TOKEN_SOURCE_EV_APPLY, TOKEN_SOURCE_EV_PROMISE,
+    ):
         file_row = db.query(Announcement).filter(Announcement.id == parsed["file_id"]).first()
-    if file_row is None and source_code not in (TOKEN_SOURCE_ANNOUNCEMENT, TOKEN_SOURCE_LEAVE):
+    if file_row is None and source_code not in (
+        TOKEN_SOURCE_ANNOUNCEMENT, TOKEN_SOURCE_LEAVE,
+        TOKEN_SOURCE_EV_APPLY, TOKEN_SOURCE_EV_PROMISE,
+    ):
         export_row = db.query(ExportRequest).filter(ExportRequest.id == parsed["file_id"]).first()
-    if file_row is None and export_row is None and source_code in (None, TOKEN_SOURCE_LEAVE):
+    # 请假与电动车这两支是**正面列表**（不是「排除其他来源」）：来源段是 None 的
+    # 老令牌只能是公告或导出，不能落进这两支。写成 `not in (...)` 就反了 ——
+    # 那会让 evpa 的令牌去查请假表，撞上一个同号的 LeaveRequest 就溯错成请假表
+    if file_row is None and export_row is None and source_code in (
+        None, TOKEN_SOURCE_LEAVE,
+    ):
         leave_row = db.query(LeaveRequest).filter(LeaveRequest.id == parsed["file_id"]).first()
+    # 两个电动车来源共用「同一张申请表」这个 id，先合起来查一次，再按来源决定标题
+    if file_row is None and export_row is None and leave_row is None and source_code in (
+        TOKEN_SOURCE_EV_APPLY, TOKEN_SOURCE_EV_PROMISE,
+    ):
+        ev_pass_row = (
+            db.query(EvPassRequest).filter(EvPassRequest.id == parsed["file_id"]).first()
+        )
 
     if file_row:
         source_type = "announcement"
@@ -1181,6 +1204,29 @@ async def extract_watermark_from_pdf(
         ip = None
         log_matched = False
 
+    elif ev_pass_row:
+        # 电动车那两份（申请表 / 承诺书）同样不进文件访问日志，凭水印即可确定下载人。
+        # **两份共用 source_type="evpass"、靠标题区分** —— 少给前端一支 v-else-if，
+        # 反正「哪一份」从标题上一眼就看出来了
+        source_type = "evpass"
+        who = ev_pass_row.student.name if ev_pass_row.student else "（学生已删除）"
+        what = (
+            "电动车使用承诺书"
+            if source_code == TOKEN_SOURCE_EV_PROMISE
+            else "电动车通行证申请表"
+        )
+        # 日期取申请当天（created_at），和下载下来的文件名口径一致；
+        # 手工导进来的行可能没有 created_at，退回下载时间，总之别让格式化炸掉
+        day = (ev_pass_row.created_at or accessed_at).strftime("%Y-%m-%d")
+        file_title = f"{who}的{what}（{day}）"
+        export_type = None
+        export_scope = None
+        export_status = None
+        export_reviewer = None
+        action = None
+        ip = None
+        log_matched = False
+
     else:
         # 都不是，就只显示 token 里的基本信息
         source_type = None
@@ -1192,6 +1238,14 @@ async def extract_watermark_from_pdf(
         action = None
         ip = None
         log_matched = False
+
+    # 「没写访问日志」是**按设计**来的，不是「日志丢了」，这行字就是给管理员看的说明
+    if source_type == "leave":
+        message = "请假审批表按设计不写访问日志，凭水印即可确定下载人"
+    elif source_type == "evpass":
+        message = "电动车两份表按设计不写访问日志，凭水印即可确定下载人"
+    else:
+        message = "水印提取成功"
 
     return {
         "found": True,
@@ -1209,13 +1263,7 @@ async def extract_watermark_from_pdf(
         "action": action,
         "ip": ip,
         "log_matched": log_matched,
-        "message": (
-            # 请假表没写访问日志是**按设计**的，不是「日志丢了」，
-            # 这行字就是给管理员看的说明
-            "请假审批表按设计不写访问日志，凭水印即可确定下载人"
-            if source_type == "leave"
-            else "水印提取成功"
-        ),
+        "message": message,
     }
 
 

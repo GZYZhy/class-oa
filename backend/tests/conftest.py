@@ -139,6 +139,9 @@ def backend(tmp_path):
                 # 接口测试一调「批准（带签字）」就会往里复制文件 —— 不隔离就写进
                 # 本机演示库的真目录了
                 "LEAVE_DIR": str(tmp_path / "leaves"),
+                # 电动车同理：行驶证和经办班委签字图的副本都落在 EV_PASS_DIR，
+                # 接口测试一调「批准（带签字）」或上传行驶证就会往里写文件
+                "EV_PASS_DIR": str(tmp_path / "ev_passes"),
                 # 显式置空：不给的话会从仓库根或 backend/.env 里漏进来
                 "BOOTSTRAP_PASSWORD": "",
                 **env,
