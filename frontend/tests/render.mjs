@@ -1474,6 +1474,73 @@ console.log('\n▶ 系统管理：水印溯源认得请假审批表')
   check(at > 0 && fallback > at, '通用那一支（带 log_matched 的）排在它后面')
 }
 
+console.log('\n▶ 首页统计卡：iPad 竖屏下两位数不折行')
+{
+  // 折行是布局算出来的，SSR 出来的 HTML 里没有宽度 —— 所以这一节断的是**样式表**：
+  // 把 <style> 里每条 @media 的条件解析出来，算出某宽度会命中哪几条，再断言命中的
+  // 那条确实把卡里的图标和数字收小了。
+  //
+  // 为什么盯 820：iPad 竖屏（810 / 820 / 834）在 768 之上，拿不到「手机」那套尺寸，
+  // 而四张卡已经按 1/4 宽排好了，桌面尺寸（图标 60px、数字 28px、内边距 20px）挤不下 ——
+  // 「36」当场被压成上下两个数字，标签「总人数」也竖成三行。
+  const src = readFileSync(`${ROOT}/src/views/Dashboard.vue`, 'utf8')
+  const style = src.slice(src.indexOf('<style'), src.lastIndexOf('</style>'))
+
+  /** 从 s[open]（'{' 的位置）起找配对的那个 '}'，返回里面那段文本 */
+  const inside = (s, open) => {
+    let depth = 0
+    for (let i = open; i < s.length; i++) {
+      if (s[i] === '{') depth++
+      else if (s[i] === '}' && --depth === 0) return s.slice(open + 1, i)
+    }
+    return ''
+  }
+  const media = [...style.matchAll(/@media\s*([^{]+)\{/g)].map((m) => {
+    const open = m.index + m[0].length - 1
+    const body = inside(style, open)
+    return { cond: m[1].trim(), start: m.index, end: open + body.length + 2, body }
+  })
+  check(media.length > 0, '样式表里有 @media')
+
+  /** 一条 @media 的条件把宽度 w 圈在里面吗（只认 min-width / max-width，够用了） */
+  const covers = (cond, w) => {
+    const min = cond.match(/min-width:\s*([\d.]+)px/)
+    const max = cond.match(/max-width:\s*([\d.]+)px/)
+    return !(min && w < +min[1]) && !(max && w > +max[1])
+  }
+  /** 样式文本里某个选择器的声明块（`[^}]` 收尾即可：这几条规则里没有嵌套） */
+  const decls = (text, sel) =>
+    (text.match(new RegExp(sel.replace(/\./g, '\\.') + '\\s*\\{([^}]*)\\}')) || ['', ''])[1]
+  /** 一条声明里的某个 px 值 */
+  const px = (decl, prop) => {
+    const m = decl.match(new RegExp(`${prop}:\\s*([\\d.]+)px`))
+    return m ? +m[1] : null
+  }
+
+  const W = 820
+  const hit = media.filter((b) => covers(b.cond, W))
+  const icons = hit.map((b) => px(decls(b.body, '.stat-icon'), 'width')).filter((v) => v !== null)
+  const values = hit.map((b) => px(decls(b.body, '.stat-value'), 'font-size')).filter((v) => v !== null)
+
+  check(icons.length > 0 && Math.min(...icons) <= 50,
+    `${W}px 会命中一条把图标收到 50px 以内的媒体查询（现在是 ${icons.length ? Math.min(...icons) + 'px' : '没命中'}）`)
+  check(values.length > 0 && Math.min(...values) <= 24,
+    `${W}px 会把数字收到 24px 以内（现在是 ${values.length ? Math.min(...values) + 'px' : '没命中'}）`)
+
+  // 兜底：数字任何宽度下都不许换行 —— 上面那条媒体查询哪天被删了，两位数也不该折成两行。
+  // 先把它那几条 @media 整块挖掉，才是各行其是的「基础样式」（倒着挖，下标才还准）
+  let base = style
+  for (const b of [...media].reverse()) base = base.slice(0, b.start) + base.slice(b.end)
+  check(/white-space:\s*nowrap/.test(decls(base, '.stat-value')),
+    '基础样式里 .stat-value 写着 white-space: nowrap')
+
+  // 这一页**渲染不了**（顶部 import echarts，而 zrender 在模块顶层就摸 document），
+  // 四张卡还在不在只能断源码
+  const cards = ['总人数', '女生人数', '男生人数', '班委人数']
+  check(cards.every((label) => src.includes(`<div class="stat-label">${label}</div>`)),
+    `四张统计卡都还在（${cards.join(' / ')}）`)
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
