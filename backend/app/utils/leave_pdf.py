@@ -115,8 +115,10 @@ NOTES = (
     (31.5, -10.5, "3.公假由学院审批及办理相关手续并报学生工作部（处）备案。公假一般不得超过二周。"),
 )
 
-# 行 11 那一行给签字腾地方：模板的 34 个空格把日期顶在最右边、中间没处插图，这里减到 21 个
-ROW11_SPACES = 21
+# 行 11 那一行给签字腾地方：模板的 34 个空格把日期顶在最右边、中间没处插图，这里减到 17 个。
+# 比原先的 21 个少 4 个，是因为那一行的日期从空白的「年 月 日」（60pt）换成了实日期
+# 「2026年10月17日」（84pt）—— 减少 4 个空格正好把多出来的 24pt 还回去，字和图的位置一点不变
+ROW11_SPACES = 17
 
 
 def _sp(n: int) -> str:
@@ -345,6 +347,23 @@ def _sign_line(
 # ---------- 表格 ----------
 
 
+def _date_cn(value) -> str:
+    """模板里那串空白的「年　　月　　日」，给得出日期就换成「2026年10月17日」
+
+    三处签名旁的日期各对应哪一天由 _rows 决定（申请当天 / 批准当天 / 假期结束日）。
+    **给不出日期就原样留白**：这表是打印出来手签的，日期缺了还能手写补上，印个空的
+    「2026年 月 日」或者「None」就真没法看了。历史记录里 reviewed_at 本来就可能为空。
+    """
+    if isinstance(value, str):  # 模型给了字符串时（直读 sqlite）自己转一下
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            value = None
+    if not value:
+        return "年" + _sp(2) + "月" + _sp(2) + "日"
+    return f"{value.year}年{value.month}月{value.day}日"
+
+
 def _rows(student, leave, *, applicant_sign: Path | None, advisor_sign: Path | None) -> list:
     """按 (行, 起列, 止列, 内容) 描述整张表；跨列的格只在左上角放东西，其余由 SPAN 合并
 
@@ -425,7 +444,8 @@ def _rows(student, leave, *, applicant_sign: Path | None, advisor_sign: Path | N
     put(8, 0, 5, _p("2、请假期间个人人身安全及财产安全责任自负。"))
     put(8, 0, 5, _sign_line("请假人(签字):", applicant_sign,
                             inner_w=full_w, boxes=(2.4 * cm, 1.1 * cm), spaces_before=43))
-    put(8, 0, 5, _p("年" + _sp(2) + "月" + _sp(2) + "日", align=TA_RIGHT))
+    # 承诺段末那个日期 = **申请当天**（学生签这份承诺就是在提交申请那天）
+    put(8, 0, 5, _p(_date_cn(leave.created_at), align=TA_RIGHT))
 
     # 行 9：班导师意见（批准时填）+ 班导师签字。
     # 签字行在模板里是「居中 + 21 个空格」，等价于从内宽中点起排；这里换成固定的左缩进 ——
@@ -436,7 +456,9 @@ def _rows(student, leave, *, applicant_sign: Path | None, advisor_sign: Path | N
             _p(leave.advisor_opinion or "", size=s),
             _sign_line("签字：", advisor_sign, inner_w=c1_w, indent_pt=93.2,
                        boxes=(4.5 * cm, 1.1 * cm), spaces_before=21),
-            _p(_sp(3) + "年" + _sp(2) + "月" + _sp(2) + "日", align=TA_RIGHT),
+            # 班导师签字旁边的日期 = **批准当天**。当时选了「暂不签字」、事后补签的，
+            # 这里还是批准那天 —— 补的是签字，批准确实是那天批的（补签接口不动 reviewed_at）
+            _p(_sp(3) + _date_cn(leave.reviewed_at), align=TA_RIGHT),
         ],
         c1_w, ROW_H[9] - 2 * CELL_PAD_Y,
     ))
@@ -449,11 +471,11 @@ def _rows(student, leave, *, applicant_sign: Path | None, advisor_sign: Path | N
         _p("辅导员签字:" + _sp(22) + "学院领导签字（盖章）：", leftIndent=24, firstLineIndent=-24),
         _p(_sp(35) + "年" + _sp(2) + "月" + _sp(2) + "日", leftIndent=24))
 
-    # 行 11：销假记录 + 申请人签字（同一行）
+    # 行 11：销假记录 + 申请人签字（同一行）。销假的日期 = **假期结束日**（请到哪天就哪天销假）
     put(11, 0, 0, _c("销假记录"))
     put(11, 1, 5, _sign_line(
         "请假人(签字):", applicant_sign, inner_w=c1_w, boxes=(2.4 * cm, 0.7 * cm),
-        spaces_after=ROW11_SPACES, tail="年" + _sp(2) + "月" + _sp(2) + "日",
+        spaces_after=ROW11_SPACES, tail=_date_cn(end),
     ))
     return cells
 

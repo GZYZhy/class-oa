@@ -44,6 +44,8 @@ def _sample():
         leave_type="事假", reason="家里有事需要回去一趟", travel_mode="高铁",
         travel_detail="G123 次", destination="山东省济南市历下区解放路1号",
         destination_phone="13700137000", advisor_opinion="",
+        # 三处签名旁的日期就取这三个字段（见 test_signature_dates_come_from_the_right_day）
+        created_at=datetime(2026, 10, 12, 9, 30), reviewed_at=datetime(2026, 10, 13, 14, 20),
     )
     return student, leave
 
@@ -251,6 +253,39 @@ def test_filled_values_are_on_the_page():
     assert "共 3 天" in text, "请假天数要算出来（含起止当天）"
     assert "[事假] 家里有事需要回去一趟" in text
     assert "高铁" in text and "G123 次" in text
+
+
+# ---------- 三处签名旁的日期 ----------
+
+def test_signature_dates_come_from_the_right_day():
+    """三处手签旁的日期各是各的日子：承诺签字处 = 申请当天、班导师签字处 = 批准当天、
+    销假处 = 假期结束日
+
+    这三个日子在库里是三个字段（created_at / reviewed_at / end_at），印错了没人看得出来 ——
+    表上都是「2026年10月○○日」，长得一模一样。
+    """
+    student, leave = _sample()
+    text = _doc(student, leave)[0].get_text()
+
+    assert "2026年10月12日" in text, "承诺段签字处该是申请那天（created_at）"
+    assert "2026年10月13日" in text, "班导师签字处该是批准那天（reviewed_at）"
+    assert "2026年10月17日" in text, "销假处该是假期结束那天（end_at）"
+
+
+def test_missing_review_time_still_leaves_a_blank_to_sign():
+    """批准时间缺失（老记录 / 手工导的数据）时留白给人手签，不印个编出来的日子
+
+    这表本来就是打印出来手签的，日期缺了还能手写补上；印成「2026年 月 日」或者「None」
+    就真没法看了。
+    """
+    student, leave = _sample()
+    assert "2026年10月13日" in _doc(student, leave)[0].get_text(), "前提：有批准时间时印这一天"
+
+    leave.reviewed_at = None
+    text = _doc(student, leave)[0].get_text()
+    assert "2026年10月13日" not in text, "批准时间没了就没这一天"
+    assert "None" not in text, "别把 None 印到表上"
+    assert "2026年10月12日" in text and "2026年10月17日" in text, "另外两处不受影响"
 
 
 def test_template_rows_are_all_there():
