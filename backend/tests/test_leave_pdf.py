@@ -37,6 +37,8 @@ def _sample():
         leave_type="事假", reason="家里有事需要回去一趟", travel_mode="高铁",
         travel_detail="G123 次", destination="山东省济南市历下区解放路1号",
         destination_phone="13700137000", advisor_opinion="",
+        # 三处签名旁的日期就取这三个字段（见 test_signature_dates_come_from_the_right_day）
+        created_at=datetime(2026, 10, 12, 9, 30), reviewed_at=datetime(2026, 10, 13, 14, 20),
     )
     return student, leave
 
