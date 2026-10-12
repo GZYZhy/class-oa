@@ -1,9 +1,14 @@
 """
 生成请假审批表 Word 文档
 
-直接拿模板（data/downloads/请假审批表.docx）改里面的表格单元格。
+直接拿模板（backend/templates/请假审批表.docx）改里面的表格单元格。
 模板的结构是 12 行 × 6 列的表格，前 8 行是学生填的内容，
 后面是班导师意见、学院意见、销假记录（这三块系统不管，管理员下载后打印出来手签）。
+
+模板放在 backend/templates/ 里（进 git、也随镜像走），不再用 data/downloads/ 那份：
+data/ 是挂载进来的数据卷，跑一次 scripts/setup_resources.py 就会被素材目录里的
+同名文件覆盖回去，改在这里的排版会无声丢失。「资料下载」里那份是给学生下载手填的
+空白表（本次没跟着改），与这份生成模板各管各的。
 """
 
 from pathlib import Path
@@ -17,8 +22,8 @@ from docx.oxml.ns import qn
 from ..config import BASE_DIR
 from ..models import Student, LeaveRequest
 
-# 模板路径：资料下载里的那份请假审批表
-TEMPLATE_PATH = BASE_DIR / "data" / "downloads" / "请假审批表.docx"
+# 模板路径：仓库里那份生成模板（data/downloads 那份是给学生手填的空白表，不是它）
+TEMPLATE_PATH = BASE_DIR / "templates" / "请假审批表.docx"
 
 # 表格里的单元格坐标（行, 列），按模板的实际结构来
 # 模板是 6 列，很多单元格是合并的，实际写入时找对位置就行
