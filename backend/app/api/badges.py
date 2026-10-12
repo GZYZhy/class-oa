@@ -10,7 +10,16 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import CertificateRequest, ChangeRequest, EvPassRequest, ExportRequest, Feedback, LeaveRequest, User
+from ..models import (
+    CertificateRequest,
+    ChangeRequest,
+    EvPassRequest,
+    ExportRequest,
+    Feedback,
+    LeaveRequest,
+    SignPhotoRequest,
+    User,
+)
 from ..services import unread_count
 from ..services.inbox_service import unread_count as inbox_unread_count
 from .deps import get_current_user
@@ -29,9 +38,10 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
 
     review_tabs 的键就是审核页的 tab 名，审核页每个 tab 上各显示自己那个数字。
 
-    leave / evpass / export **只给管理员算**：这三类只有管理员能批
-    （leaves.py、ev_passes.py、exports.py 的 approve/reject 都是 admin_required），
-    给班委也算上的话，红点数字虚高、点进去却批不了。
+    leave / evpass / export / certificate / signphoto **只给管理员算**：这几类只有管理员能批
+    （leaves.py、ev_passes.py、exports.py、certificates.py、sign_photos.py 的
+    approve/reject 都是 admin_required），给班委也算上的话，
+    红点数字虚高、点进去却批不了。
 
     review_pending 是 review_tabs 的和，不再单独算一遍 —— 菜单上的数字和
     点进去各 tab 的数字同源，不会出现「菜单显示 3、每个 tab 都是 0」这种对不上的情况。
@@ -47,6 +57,7 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
         "evpass": 0,
         "export": 0,
         "certificate": 0,
+        "signphoto": 0,
     }
     if user.role == "admin":
         review_tabs["leave"] = _count(db, LeaveRequest, "pending")
@@ -56,6 +67,8 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
         review_tabs["export"] = _count(db, ExportRequest, "pending")
         # 证明开具：管理员审批
         review_tabs["certificate"] = _count(db, CertificateRequest, "pending")
+        # 签字查看申请：管理员审批
+        review_tabs["signphoto"] = _count(db, SignPhotoRequest, "pending")
 
     return {
         "notice_unread": unread_count(db, user.student_no),

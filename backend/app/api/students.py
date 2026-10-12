@@ -15,6 +15,7 @@ from ..models import (
     EvPassRequest,
     LeaveRequest,
     PushSubscription,
+    SignPhotoRequest,
     Student,
     User,
 )
@@ -52,6 +53,7 @@ from ..services.student_import_service import (
 # 照片领域的规则（后缀白名单 / 大小上限 / 类型→列名 / 落盘与取回）只在
 # student_photo_service 里定义一份，单张上传、批量导入、修改申请三处共用
 from ..services.student_photo_service import (
+    IMPORT_PHOTO_FIELDS,
     PHOTO_FIELDS,
     PHOTO_TYPE_LABELS,
     save_photo,
@@ -142,6 +144,20 @@ def _photo_field(photo_type: str) -> str:
     return field
 
 
+def _check_import_type(photo_type: str) -> None:
+    """打包导入（zip）认的类型校验 —— 比通用照片接口多一个「签字」
+
+    两个清单分开，不是笔误：**单张取图只认 PHOTO_FIELDS，签字不在里面**。
+    照片那条链路的权限是「能看这个学生就能看他的照片」，而签字要凭管理员审批
+    （见 api/sign_photos.py），混进去等于开一条绕过审批的直通车。
+    打包导入是管理员的动作，跟照片没区别，所以认签字。
+    """
+    if photo_type not in IMPORT_PHOTO_FIELDS:
+        raise HTTPException(
+            status_code=400, detail="照片类型只能是 " + " / ".join(IMPORT_PHOTO_FIELDS)
+        )
+
+
 def _save_photo_or_400(file: UploadFile) -> str:
     """落盘一张照片；后缀 / 大小 / 空文件不合规时把 service 的话原样转成 400"""
     try:
@@ -184,10 +200,11 @@ def _pending_blockers(db: Session, student: Student) -> list[str]:
         )
         if n:
             blockers.append(f"{n} 条{label}")
-    # 证明、通行证是按**学生主键**挂的
+    # 证明、通行证、签字查看申请是按**学生主键**挂的
     for model, label in (
         (CertificateRequest, "待处理的证明开具"),
         (EvPassRequest, "待处理的电动车通行证"),
+        (SignPhotoRequest, "待审核的签字查看申请"),
     ):
         n = (
             db.query(model)
@@ -668,7 +685,9 @@ def delete_student_api(
 
     # 先取出后面要用的值：删除并 commit 之后再访问属性会报 ObjectDeletedError
     target = f"{student.student_no} {student.name}"
-    photo_names = [student.gaokao_photo, student.on_site_photo, student.id_photo]
+    photo_names = [
+        student.gaokao_photo, student.on_site_photo, student.id_photo, student.sign_photo,
+    ]
     # 办件文件也必须在删记录**之前**收集 —— 记录一没就查不出文件名了
     request_files = certificate_files(db, student_id) + ev_pass_files(db, student_id)
     # 备注附件文件也一起收集
@@ -873,7 +892,8 @@ _MAX_PHOTO_ZIP_SIZE = 60 * 1024 * 1024
              summary="解析照片 zip 并预览（仅管理员，不写库）")
 async def photo_zip_preview(
     file: UploadFile = File(..., description="zip 压缩包"),
-    photo_type: str = Query(..., description="gaokao=高考照片, on_site=实地采集"),
+    photo_type: str = Query(
+        ..., description="gaokao=高考照片, on_site=实地采集, id=自备证件照, sign=签字图"),
     user: User = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
@@ -881,7 +901,7 @@ async def photo_zip_preview(
 
     返回里带一个 token，确认导入时连同 photo_type 一起传回来。
     """
-    _photo_field(photo_type)  # 非法类型在这里就被拒了
+    _check_import_type(photo_type)  # 非法类型在这里就被拒了
 
     ext = Path(file.filename or "").suffix.lower()
     if ext != ".zip":
@@ -918,7 +938,7 @@ def photo_zip_confirm(
 
     覆盖与否由这次请求的 overwrite 决定，不在预览阶段定 —— 预览时用户还没做选择。
     """
-    _photo_field(body.photo_type)
+    _check_import_type(body.photo_type)
 
     content = load_zip(body.token, body.photo_type)
     if not content:
@@ -1000,6 +1020,8 @@ def delete_students_batch(
             deleted_photos.append(s.on_site_photo)
         if s.id_photo:
             deleted_photos.append(s.id_photo)
+        if s.sign_photo:
+            deleted_photos.append(s.sign_photo)
         # 办件文件也必须在删记录**之前**收集 —— 记录一没就查不出文件名了
         deleted_files += certificate_files(db, s.id) + ev_pass_files(db, s.id)
         # 备注附件也一起收集

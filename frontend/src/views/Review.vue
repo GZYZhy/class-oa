@@ -298,6 +298,64 @@
         <el-empty v-if="!loading && !certificateList.length" description="暂无申请" style="margin-top: 20px;" />
       </el-tab-pane>
 
+      <!-- ============ 签字查看申请（仅管理员）============ -->
+      <!-- 整个 tab 只给管理员：别的几个 tab 班委进来至少还能看列表，
+           签字这条的列表接口本身是 admin_required —— 让班委点进来看一个红叉更糟 -->
+      <el-tab-pane v-if="userStore.isAdmin" name="signphoto">
+        <template #label>签字查看申请<span v-if="tabBadge('signphoto')" class="tab-badge">{{ tabBadge('signphoto') }}</span></template>
+        <div class="tab-toolbar">
+          <el-radio-group v-model="signStatus" size="small" @change="fetchSignList">
+            <el-radio-button value="pending">待审核</el-radio-button>
+            <el-radio-button value="approved">已通过</el-radio-button>
+            <el-radio-button value="rejected">已驳回</el-radio-button>
+            <el-radio-button value="">全部</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <el-table :data="signList" stripe border style="width: 100%; margin-top: 12px;">
+          <el-table-column label="申请人" width="140" align="center">
+            <template #default="{ row }">
+              {{ row.applicant_name }}
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.applicant_no }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="被查看学生" width="140" align="center">
+            <template #default="{ row }">
+              {{ row.student_name }}
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="申请时间" width="160" align="center">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.status === 'pending'" type="warning" size="small">待审核</el-tag>
+              <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
+              <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="审批人 / 驳回理由" min-width="160" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.status === 'rejected' ? (row.reason || '') : (row.reviewer_name || '-') }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="200" align="center">
+            <template #default="{ row }">
+              <!-- 签字图本身也在这里给管理员看一眼：批之前总得知道批的是什么。
+                   管理员看签字不受审批限制（取图接口直接放行） -->
+              <el-button size="small" link type="primary" @click="viewSignImage(row)">查看签字</el-button>
+              <template v-if="row.status === 'pending'">
+                <el-button size="small" link type="success" @click="handleApproveSign(row)">通过</el-button>
+                <el-button size="small" link type="danger" @click="handleRejectSign(row)">驳回</el-button>
+              </template>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-empty v-if="!loading && !signList.length" description="暂无申请" style="margin-top: 20px;" />
+      </el-tab-pane>
+
       <!-- ============ 导出申请 ============ -->
       <el-tab-pane name="export">
         <template #label>导出申请<span v-if="tabBadge('export')" class="tab-badge">{{ tabBadge('export') }}</span></template>
@@ -516,6 +574,15 @@
       title="申请依据附件"
     />
 
+    <!-- 签字图预览弹框（管理员在审批页直接看，不需申请） -->
+    <FileViewer
+      v-model="signViewerVisible"
+      :file-url="signFileUrl"
+      :file-name="signFileName"
+      :download-name="signFileName"
+      title="学生签字"
+    />
+
     <!-- 上传成品 PDF 弹框 -->
     <el-dialog v-model="certResultUploadVisible" title="上传成品证明 PDF" width="480px">
       <div v-if="certResultUploadRow">
@@ -607,6 +674,13 @@ import {
   uploadCertificateResult,
   downloadCertificateResult
 } from '@/api/certificate'
+import {
+  getSignRequests,
+  getSignStatus,
+  signImageUrl,
+  approveSignRequest,
+  rejectSignRequest
+} from '@/api/signPhoto'
 
 const userStore = useUserStore()
 const badgeStore = useBadgeStore()
@@ -617,7 +691,7 @@ const route = useRoute()
 const loading = ref(false)
 // 从推送点进来时带着 ?tab=leave 之类的参数，直接落到对应分类；
 // 不带参数（正常从菜单进）就还是老样子，停在信息修改申请
-const TABS = ['change', 'leave', 'evpass', 'certificate', 'export', 'feedback']
+const TABS = ['change', 'leave', 'evpass', 'certificate', 'signphoto', 'export', 'feedback']
 const activeTab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'change')
 
 /**
@@ -958,6 +1032,77 @@ function handleRejectCertificate(row) {
   }).catch(() => {})
 }
 
+// —— 签字查看申请（仅管理员审批）——
+const signList = ref([])
+const signStatus = ref('pending')
+const signViewerVisible = ref(false)
+const signFileUrl = ref('')
+const signFileName = ref('')
+
+async function fetchSignList() {
+  loading.value = true
+  try {
+    const res = await getSignRequests({ status: signStatus.value || undefined })
+    signList.value = res.items || []
+  } catch (e) {
+    ElMessage.error('签字申请列表加载失败')
+  } finally {
+    loading.value = false
+    badgeStore.refresh()
+  }
+}
+
+/** 管理员看一眼这条申请要看的那张签字图。取图不受审批限制，但**文件名得现问** ——
+ *  列表里只有学号姓名，而预览组件靠文件名后缀判类型，库里那个 uuid 名不能给前端 */
+async function viewSignImage(row) {
+  try {
+    const s = await getSignStatus(row.student_id)
+    if (!s.download_name) {
+      ElMessage.warning('该学生现在没有签字图片')
+      return
+    }
+    signFileUrl.value = signImageUrl(row.student_id, s.download_name)
+    signFileName.value = s.download_name
+    signViewerVisible.value = true
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '加载失败')
+  }
+}
+
+function handleApproveSign(row) {
+  ElMessageBox.confirm(
+    `确定通过「${row.applicant_name}」查看「${row.student_name}」签字的申请吗？\n` +
+    '通过后他可以在 1 小时内查看，过期要重新申请。',
+    '审批确认',
+    { type: 'warning', confirmButtonText: '通过', cancelButtonText: '取消' }
+  ).then(async () => {
+    try {
+      await approveSignRequest(row.id)
+      ElMessage.success('已通过')
+      fetchSignList()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
+function handleRejectSign(row) {
+  ElMessageBox.prompt('请填写驳回理由，会展示给申请人', '驳回申请', {
+    inputPlaceholder: '如：用途不明确',
+    inputValidator: (v) => (v && v.trim() ? true : '请填写驳回理由'),
+    confirmButtonText: '驳回',
+    cancelButtonText: '取消'
+  }).then(async ({ value }) => {
+    try {
+      await rejectSignRequest(row.id, value.trim())
+      ElMessage.success('已驳回')
+      fetchSignList()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
 // 上传成品 PDF
 const certResultUploadVisible = ref(false)
 const certResultUploadRow = ref(null)
@@ -1202,6 +1347,9 @@ function handleTabChange() {
     fetchEvPassList()
   } else if (activeTab.value === 'certificate') {
     fetchCertificateList()
+  } else if (activeTab.value === 'signphoto' && userStore.isAdmin) {
+    // 带上 isAdmin：通知里的 ?tab=signphoto 谁都可能点进来，班委拉这个列表是 403
+    fetchSignList()
   } else if (activeTab.value === 'export') {
     fetchExportList()
   } else if (activeTab.value === 'feedback') {

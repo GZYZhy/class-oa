@@ -61,6 +61,12 @@ from .student_photo import (
     PhotoZipResultResponse,
 )
 from .certificate import CertificateRequestResponse, CertificateRejectRequest
+from .sign_photo import (
+    SignPhotoRequestCreate,
+    SignPhotoRequestListResponse,
+    SignPhotoRequestResponse,
+    SignPhotoStatusResponse,
+)
 from .attendance import (
     AttendanceCreate,
     AttendanceItemIn,
@@ -244,4 +250,8 @@ __all__ = [
     "ScheduleImportResultResponse",
     "ScheduleBatchResponse",
     "ICalTokenResponse",
+    "SignPhotoRequestCreate",
+    "SignPhotoRequestListResponse",
+    "SignPhotoRequestResponse",
+    "SignPhotoStatusResponse",
 ]

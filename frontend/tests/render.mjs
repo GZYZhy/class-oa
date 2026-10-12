@@ -24,6 +24,15 @@ function check(cond, msg) {
   if (!cond) failed++
 }
 
+/**
+ * 掐掉模板注释。SSR 是带注释输出的（Vue 的 dev 编译保留了它们），而注释里常写着
+ * 「签字图按钮」这类词 —— 裸 includes 会被注释命中，不管元素渲没渲都是真。
+ * 通知公告那节的 `<!-- RSS 订阅弹窗 -->` 踩过一次，这里统一走这个函数。
+ */
+function stripComments(html) {
+  return html.replace(/<!--[\s\S]*?-->/g, '')
+}
+
 // SSR 里没有 window，可 useIsMobile 这类 composable 在 setup 阶段就摸它
 // （matchMedia 是同步调的，不像 onMounted 那样能躲过去），所以得补个最小桩。
 // 只满足「读到不是窄屏」这一个判断：matches 恒 false，监听器空实现
@@ -130,12 +139,26 @@ async function render(path, extraComponents = {}) {
  */
 let seq = 0
 async function renderPatched(relPath, marker, replacement, extraComponents = {}) {
-  const src = readFileSync(`${ROOT}${relPath}`, 'utf8')
-  if (!src.includes(marker)) throw new Error(`${relPath} 里找不到要替换的那段：${marker}`)
+  return renderPatchedMany(relPath, [[marker, replacement]], extraComponents)
+}
+
+/**
+ * 一次换好几处的 renderPatched。分两次调 renderPatched 是不行的：第二次又从原文件
+ * 重读，第一处替换就丢了。要同时改「身份」和「弹窗初始状态」时用这个。
+ *
+ * 每处都必须是唯一的（String.replace 只换第一处），找不到就抛 —— 源码改了这段，
+ * 报错是提醒，不是故障。
+ */
+async function renderPatchedMany(relPath, patches, extraComponents = {}) {
+  let src = readFileSync(`${ROOT}${relPath}`, 'utf8')
+  for (const [marker, replacement] of patches) {
+    if (!src.includes(marker)) throw new Error(`${relPath} 里找不到要替换的那段：${marker}`)
+    src = src.replace(marker, replacement)
+  }
   const dir = relPath.slice(0, relPath.lastIndexOf('/'))
   const file = `__render_test_${++seq}.vue`
   const tmp = `${ROOT}${dir}/${file}`
-  writeFileSync(tmp, src.replace(marker, replacement), 'utf8')
+  writeFileSync(tmp, src, 'utf8')
   try {
     return await render(`${dir}/${file}`, extraComponents)
   } finally {
@@ -989,6 +1012,144 @@ const subscribeUrl = ref('http://oa.example.com/api/notices/rss/cafebabe.xml')`,
   check(src.includes('onMounted(focusFromQuery)'), '首屏走 focusFromQuery（没有 ?id= 就是普通加载）')
   check(src.includes('watch(() => route.query.id, focusFromQuery)'),
     '同标签内换到另一条时跟着切（组件不会重建）')
+}
+
+console.log('\n▶ 学生名单：签字图（管理员传、班委申请、学生看不见）')
+{
+  const LIST = '/src/views/StudentList.vue'
+  const who = (role, name) => `const userStore = useUserStore()
+  userStore.info = { student_no: '2024000009', name: '${name}', role: '${role}', is_external: false }`
+  // 详情弹窗打开、且后端把「有图 + 已批准」的状态都给全了 —— 数据这边挑最坏的情况，
+  // 断言的才是「按角色该不该渲染」，而不是「碰巧没数据所以没渲染」
+  const DETAIL_OPEN = `const detailVisible = ref(true)
+const currentStudent = ref({ id: 7, student_no: '2024000004', name: '丁' })`
+  const signState = (status, downloadName) =>
+    `const signStatus = ref({ status: '${status}', expires_at: null, download_name: '${downloadName}' })`
+
+  // 取每个按钮里的纯文本。判「按钮在不在」必须这么取：页面上别处（标签、tips）也可能
+  // 出现同样的字，只有落到 <button> 里才说明真渲染了按钮。文案那一层再掐掉模板注释
+  // （`<!-- 签字图按钮：… -->` 里就写着「签字」两个字）
+  const buttonTexts = (html) =>
+    [...stripComments(html).matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)]
+      .map((m) => m[1].replace(/<[^>]+>/g, '').trim())
+
+  // 1. 学生：连「签字」两个字都不该出现在他眼前（用户明确要求的「无文案」）
+  const { html: asStudent } = await renderPatchedMany(
+    LIST,
+    [['const userStore = useUserStore()', who('student', '戊')],
+     ['const detailVisible = ref(false)\nconst currentStudent = ref(null)', DETAIL_OPEN],
+     ["const signStatus = ref({ status: 'none', expires_at: null, download_name: '' })",
+      signState('approved', '丁_签字.png')]],
+    { ElDialog: ElDialogStub })
+  const studentButtons = buttonTexts(asStudent)
+  check(!studentButtons.some((t) => t.includes('签字') || t.includes('申请')),
+    '学生角色的详情弹窗上没有「申请签署」这类按钮')
+  check(!stripComments(asStudent).includes('签字'),
+    '学生角色的整页里不出现「签字」二字（状态接口他压根不会去调）')
+
+  // 2. 班委：四态各渲一次，文案跟着 status 走
+  const STATES = [
+    ['none', '丁_签字.png', '申请签署'],
+    ['pending', '丁_签字.png', '申请待审核'],
+    ['approved', '丁_签字.png', '查看签字'],
+    ['expired', '丁_签字.png', '重新申请']
+  ]
+  for (const [status, name, text] of STATES) {
+    const { html } = await renderPatchedMany(
+      LIST,
+      [['const userStore = useUserStore()', who('committee', '乙')],
+       ['const detailVisible = ref(false)\nconst currentStudent = ref(null)', DETAIL_OPEN],
+       ["const signStatus = ref({ status: 'none', expires_at: null, download_name: '' })",
+        signState(status, name)]],
+      { ElDialog: ElDialogStub })
+    check(buttonTexts(html).includes(text), `班委在 ${status} 状态下看到「${text}」`)
+  }
+
+  // 3. 该生没有签字图：后端不给 download_name，按钮整个不出现（不解释「为什么没有」）
+  const { html: noPhoto } = await renderPatchedMany(
+    LIST,
+    [['const userStore = useUserStore()', who('committee', '乙')],
+     ['const detailVisible = ref(false)\nconst currentStudent = ref(null)', DETAIL_OPEN],
+     ["const signStatus = ref({ status: 'none', expires_at: null, download_name: '' })",
+      signState('none', '')]],
+    { ElDialog: ElDialogStub })
+  check(!buttonTexts(noPhoto).some((t) => t.includes('签字') || t.includes('申请')),
+    '该生没有签字图时按钮不渲染（判据是 download_name 空不空，不是状态字符串）')
+
+  // 4. 编辑弹窗那一格：管理员看得见图（用户后来放宽的），班委看不到
+  const EDIT_OPEN = `const editVisible = ref(true)
+const editForm = reactive({ id: 7 })`
+  const HAS_SIGN = "const signEdit = ref({ has: true, uploading: false, fileName: '丁_签字.png' })"
+  const EDIT_PATCHES = [
+    ['const editVisible = ref(false)\nconst editForm = reactive({})', EDIT_OPEN],
+    ['const signEdit = ref({ has: false, uploading: false, fileName: \'\' })', HAS_SIGN],
+    ['const detailVisible = ref(false)\nconst currentStudent = ref(null)', DETAIL_OPEN],
+    ["const signStatus = ref({ status: 'none', expires_at: null, download_name: '' })", signState('none', '')]
+  ]
+  const signImg = (html) => /<img[^>]*src="[^"]*\/api\/sign-photos\/image\//.test(html)
+
+  const { html: adminEdit } = await renderPatchedMany(
+    LIST,
+    [['const userStore = useUserStore()', who('admin', '甲')], ...EDIT_PATCHES],
+    { ElDialog: ElDialogStub })
+  check(signImg(adminEdit), '管理员在编辑弹窗里能看到签字图（改成真 <img> 的前提就是它）')
+  check(buttonTexts(adminEdit).some((t) => t.includes('选择图片')),
+    '管理员那一格有传图入口')
+
+  const { html: cmEdit } = await renderPatchedMany(
+    LIST,
+    [['const userStore = useUserStore()', who('committee', '乙')], ...EDIT_PATCHES],
+    { ElDialog: ElDialogStub })
+  check(!signImg(cmEdit), '班委的编辑弹窗里没有签字图这一格（要看只能走申请）')
+
+  // 5. 出网的地址只带学生 id，不带库里的文件名 —— 库里存的是 uuid4().hex.jpg，
+  //    前端一旦自己拼过文件名就等于把内部命名泄露出去
+  const listSrc = readFileSync(`${ROOT}${LIST}`, 'utf8')
+  check(!listSrc.includes('sign_photo'), '前端不碰 sign_photo 这个列（连字段名都拿不到）')
+  check(/signImageUrl\(editForm\.id/.test(listSrc),
+    '取图地址由 signImageUrl() 拼，只带学生 id')
+  check(/signImageUrl\(row\.student_id/.test(
+    readFileSync(`${ROOT}/src/views/Review.vue`, 'utf8')),
+    '审核页取图同样只带学生 id')
+}
+
+console.log('\n▶ 审核页：签字查看申请这个 tab')
+{
+  const REVIEW = '/src/views/Review.vue'
+  const src = readFileSync(`${ROOT}${REVIEW}`, 'utf8')
+
+  check(src.includes("'signphoto'"), "TABS 里有 signphoto（?tab=signphoto 才认得出来）")
+  check(/<template #label>签字查看申请<span v-if="tabBadge\('signphoto'\)"/.test(src),
+    'tab 上写着「签字查看申请」，并挂上待办红点')
+  check(/<el-tab-pane v-if="userStore\.isAdmin" name="signphoto">/.test(src),
+    '这个 tab 只给管理员（列表接口本身是 admin_required，班委进来只会看到一个红叉）')
+  check(src.includes("activeTab.value === 'signphoto' && userStore.isAdmin"),
+    '切到这个 tab 拉列表前先判管理员（通知里的 ?tab=signphoto 谁都可能点进来）')
+  const fetchSign = src.slice(src.indexOf('async function fetchSignList'),
+    src.indexOf('/** 管理员看一眼这条申请'))
+  check(fetchSign.includes('badgeStore.refresh()'),
+    '拉完列表刷红点（红点清了才说明这批待办真的处理完了）')
+
+  // 管理员看签字图得现问文件名：列表里只有学号姓名，库里那个 uuid 名不能给前端
+  const viewSign = src.slice(src.indexOf('async function viewSignImage'),
+    src.indexOf('function handleApproveSign'))
+  check(viewSign.includes('getSignStatus(row.student_id)') &&
+    viewSign.includes('signFileName.value = s.download_name'),
+    '预览用的文件名是后端拼的下载名，不是库里的裸文件名')
+  check(viewSign.includes('没有签字图片'),
+    '没有签字图时给一句提示，而不是打开一个必 404 的预览框')
+
+  // tab 页签是 el-tabs 按每个 pane 的 label 插槽渲的，得真给管理员身份才出得来
+  const { html } = await renderPatched(REVIEW, 'const userStore = useUserStore()',
+    `const userStore = useUserStore()
+  userStore.info = { student_no: '2024000001', name: '甲', role: 'admin', is_external: false }`)
+  check(stripComments(html).includes('签字查看申请'),
+    '管理员渲出来的 tab 页签上真有这四个字（label 插槽在 SSR 下是渲染的）')
+
+  const { html: asCm } = await renderPatched(REVIEW, 'const userStore = useUserStore()',
+    `const userStore = useUserStore()
+  userStore.info = { student_no: '2024000002', name: '乙', role: 'committee', is_external: false }`)
+  check(!stripComments(asCm).includes('签字查看申请'), '班委的审核页里没有这个 tab')
 }
 
 await server.close()
