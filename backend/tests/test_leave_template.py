@@ -127,6 +127,67 @@ def test_one_page_even_with_long_content(name):
     assert _doc(student, leave).page_count == 1, f"{name} 排到第二页去了"
 
 
+# ---------- 折行：标点不许独占行首 ----------
+
+# 表格右边框的 x 坐标：左边距 90 + 表宽 421.65。越过它就是在格子外面
+TABLE_RIGHT = 511.65
+
+
+def _drawn_lines(page) -> list[str]:
+    """页面上真正画出来的每一行（按排版行拼回整行文字）"""
+    return ["".join(s["text"] for s in line["spans"])
+            for block in page.get_text("dict")["blocks"]
+            for line in block.get("lines", [])]
+
+
+@pytest.mark.parametrize("name", ["普通"] + list(LONG_CASES))
+def test_promise_line_keeps_the_full_stop_with_the_char_before_it(name):
+    """承诺段结尾的句号跟着「续」走，不许自己占一行
+
+    Word 排中文有「避头尾」：句号这类不能出现在行首的标点会连着前一个字一起被推下去。
+    reportlab 没这条规矩，它按宽度硬切汉字 —— 那句 41 字的承诺前 40 字正好占满格内版心，
+    句号就自己落到第二行去了（见 leave_pdf._Paragraph）。
+    """
+    student, leave = _sample()
+    if name != "普通":
+        LONG_CASES[name](student, leave)
+
+    lines = _drawn_lines(_doc(student, leave)[0])
+    promise = [ln for ln in lines if "销假" in ln]
+    assert promise, "承诺段整段不见了"
+    # 承诺段排两行，末尾那行就是「续。」；句号自己占一行时，这一行只剩一个「。」
+    assert lines[lines.index(promise[0]) + 1].startswith("续。"), \
+        f"承诺段第二行该以「续。」开头，实际整页这几行是 {lines}"
+
+
+def test_no_punctuation_starts_a_line():
+    """正常内容下，整页没有一个标点独占行首（首行不算 —— 那是各格自己开的头）"""
+    from app.utils.leave_pdf import _CANNOT_START
+
+    student, leave = _sample()
+    lines = _drawn_lines(_doc(student, leave)[0])
+    bad = [ln for ln in lines[1:] if ln[:1] in _CANNOT_START]
+    assert not bad, f"这些行的行首是标点：{bad}"
+
+
+@pytest.mark.parametrize("name", ["普通"] + list(LONG_CASES))
+def test_drawn_content_stays_inside_the_table(name):
+    """字和图都不越过表格右边框 —— 横向溢出是静默的，只能事后量
+
+    推标点的那套（把标点连着前一个字挤到下一行）也是往右推东西，弄不好正好把它推出格子。
+    """
+    student, leave = _sample()
+    if name != "普通":
+        LONG_CASES[name](student, leave)
+    page = _doc(student, leave)[0]
+
+    boxes = [pymupdf.Rect(s["bbox"]) for b in page.get_text("dict")["blocks"]
+             for l in b.get("lines", []) for s in l["spans"]]
+    boxes += [pymupdf.Rect(i["bbox"]) for i in page.get_image_info()]
+    overs = [r for r in boxes if r.x1 > TABLE_RIGHT + 0.5]
+    assert not overs, f"{name}：有 {len(overs)} 处越过表格右边框，最右到 {max(r.x1 for r in overs):.1f}"
+
+
 def test_long_content_shrinks_the_font_before_turning_the_page():
     """长意见是「缩字号」换来的单页，不是把字排到格子外面
 
