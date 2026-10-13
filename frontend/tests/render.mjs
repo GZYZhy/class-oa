@@ -1673,6 +1673,241 @@ console.log('\n▶ 点名与抽签：台上只留姓名学号，不再显示头�
   }
 }
 
+console.log('\n▶ 共青团员：点名能选、出卷能筛，判据只有一份')
+{
+  const { pickByScope, isLeagueMember } = await server.ssrLoadModule('/src/utils/roster.js')
+
+  // 边界值都塞进来：空串、整个字段缺失，还有「中共预备党员」—— 它带「党员」二字，
+  // 写成 includes('团员') 之类会把「预备党员」也算进去，这条就是拦那种写法
+  const st = (no, ps) => ({
+    id: Number(no),
+    student_no: no,
+    name: no,
+    ...(ps === undefined ? {} : { political_status: ps })
+  })
+  const roster = [
+    st('001', '共青团员'),
+    st('002', '群众'),
+    st('003', '共青团员'),
+    st('004', '中共预备党员'),
+    st('005', ''),
+    st('006', undefined)
+  ]
+  const nos = (list) => list.map((s) => s.student_no).join(',')
+
+  check(nos(pickByScope(roster, '共青团员')) === '001,003',
+    '点名选「共青团员」只出团员：群众 / 预备党员 / 空 / 整个字段没有的都不进')
+  check(isLeagueMember(null) === false && isLeagueMember(undefined) === false,
+    '判据对 null / undefined 不炸（名单里字段可能是空的）')
+  check(nos(pickByScope(roster, '全班')) === '001,002,003,004,005,006'
+    && nos(pickByScope(roster, '男生')) === '',
+    '加了这一条没有影响原有的「全班」和按性别的两个范围')
+
+  // 统计页那张团员卡必须和点名、出卷是同一批人 —— 哪边单独重写一遍判据，这条会红
+  const { buildRoster } = await server.ssrLoadModule('/src/utils/statGroups.js')
+  check(nos(buildRoster('league', roster).rows) === '001,003',
+    '分类统计的共青团员名单与点名/出卷共用同一个判据')
+
+  // 点名第一步真渲染：按钮上的人数按政治面貌现算
+  const DIALOG = { ElDialog: ElDialogStub }
+  const TWO = '{ id: 1, student_no: "001", name: "甲", political_status: "共青团员" },'
+    + '{ id: 2, student_no: "002", name: "乙", political_status: "群众" }'
+  const roll = await renderPatchedMany('/src/components/RollCallDialog.vue', [
+    ['const visible = ref(false)', 'const visible = ref(true)'],
+    ['const roster = ref([])', `const roster = ref([${TWO}])`]
+  ], DIALOG)
+  const rollHtml = stripComments(roll.html)
+  check(rollHtml.includes('共青团员（1）'),
+    '点名第一步真渲染出团员按钮，人数只算团员（两个人里一个）')
+  check(rollHtml.includes('全班（2）'), '同一次渲染里「全班」还是两个人，没被带偏')
+
+  // 点了会发生什么 SSR 测不到（事件不进 HTML），只能断源码
+  const rollSrc = readFileSync(`${ROOT}/src/components/RollCallDialog.vue`, 'utf8')
+  check(/@click="startCall\('共青团员'\)"/.test(rollSrc),
+    '这个按钮按「共青团员」这个范围点名 —— 范围名会原样写进考勤记录')
+
+  // 出卷弹窗的「仅团员」：和「仅班委」并排，用的是同一份判据
+  const pollSrc = readFileSync(`${ROOT}/src/components/PollCreateDialog.vue`, 'utf8')
+  check(pollSrc.includes('>仅团员<'), '出卷「有权表决的人」多了一枚「仅团员」')
+  check(/roster\.value\.filter\(isLeagueMember\)/.test(pollSrc),
+    '「仅团员」调的是共用判据，不是在这儿再比一遍「共青团员」四个字')
+  check(/import \{ isLeagueMember \} from '@\/utils\/roster'/.test(pollSrc),
+    '判据是从 utils/roster.js 引进来的，不是本地又定义了一个')
+
+  // 后端得把政治面貌带出来，否则上面这个判据没有数据可判
+  const pollsApi = readFileSync(`${ROOT}/../backend/app/api/polls.py`, 'utf8')
+  check(/"political_status": student\.political_status/.test(pollsApi),
+    '出卷名单接口回填每个人的政治面貌')
+  const pollSchema = readFileSync(`${ROOT}/../backend/app/schemas/poll.py`, 'utf8')
+  check(/class PollRosterItem[\s\S]{0,500}political_status/.test(pollSchema),
+    'PollRosterItem 里有 political_status 字段')
+}
+
+console.log('\n▶ 投票页盖水印：整页 + 两个弹窗')
+{
+  const voteSrc = readFileSync(`${ROOT}/src/views/Vote.vue`, 'utf8')
+  const { html } = await render('/src/views/Vote.vue')
+  const { SITE } = await server.ssrLoadModule('/src/utils/site.js')
+
+  // 水印字样是 encodeURIComponent 塞进 SVG 再当背景图的，中文在 HTML 里是 %XX，
+  // 所以断言也得编码后再比 —— 直接 includes('统26-1班') 永远为假
+  check(html.includes(encodeURIComponent(SITE.shortName)),
+    '整页真渲染出一层水印（字样「当前登录人@班级」，SSR 里没登录态所以是「未知用户」）')
+  check((html.match(/class="watermark"/g) || []).length === 1,
+    '页面上只铺一层：弹窗没打开，水印不该跟着混进来')
+
+  check(/<div class="vote">[\s\S]{0,300}?<Watermark/.test(voteSrc), '水印放在根容器第一行')
+  check(/\.vote \{[\s\S]{0,120}?position: relative/.test(voteSrc),
+    '根容器是 position: relative —— 水印是 absolute，没有定位基准会铺到整页之外')
+
+  // 两个弹窗：SSR 渲不出弹窗正文（见文件头），只能断源码。两处的字样必须同一份
+  check(/<Watermark :text="watermarkText" \/>\s*<div v-loading="voteLoading"/.test(voteSrc),
+    '投票弹窗盖了水印（投过之后这里会回显「我投了什么」）')
+  check(/<Watermark :text="watermarkText" \/>\s*<div v-loading="resultLoading"/.test(voteSrc),
+    '结果/名单弹窗盖了水印（名单里是「谁投了、谁还没投」）')
+  check(/import \{ useWatermark \} from '@\/composables\/useWatermark'/.test(voteSrc),
+    '水印字样用的还是那份共用的 composable，没有在页面里另写一套')
+}
+
+console.log('\n▶ 投票能编辑：标题描述随时改，题目只在没开始时能改')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const pollSrc = src('/src/components/PollCreateDialog.vue')
+
+  // 「详情填进表单」那一段映射（formFromPoll）是纯函数，**真跑它**。
+  // 不能在渲染结果里断：SSR 下 el-input 只输出 placeholder、不输出 value（实测过），
+  // 所以「标题填回来了没有」在 HTML 里根本看不见 —— 断它只会断到假的东西
+  const { formFromPoll, blankForm, blankQuestion } =
+    await server.ssrLoadModule('/src/utils/poll.js')
+
+  const DETAIL = (status) => ({
+    id: 7, title: '关于班服的表决', description: '先看看款式', anonymous: false,
+    status, start_at: '2026-11-01T08:00:00', end_at: '2026-11-02T20:00:00', target_count: 38,
+    questions: [
+      { id: 11, sort: 0, title: '你赞成哪一款？', multiple: false, max_choices: 1,
+        options: ['A 款', 'B 款'], my_choices: [], tallies: null }
+    ]
+  })
+
+  // ---------- 详情 → 表单（真跑） ----------
+  const f = formFromPoll(DETAIL('pending'))
+  check(f.title === '关于班服的表决', '标题填回来了')
+  check(f.description === '先看看款式', '描述填回来了')
+  // 这条是这一节最该钉住的：详情回的是 ISO 串，picker 的 value-format 是
+  // 'YYYY-MM-DD HH:mm'，中间那步格式化一旦没了，两个时间栏就都是空的
+  check(f.start_at === '2026-11-01 08:00' && f.end_at === '2026-11-02 20:00',
+    '起止时间转成了 picker 认的格式（ISO 串原样塞进去这一栏会是空的）')
+  check(f.questions.length === 1 && f.questions[0].title === '你赞成哪一款？',
+    '题干填回来了')
+  check(JSON.stringify(f.questions[0].options) === JSON.stringify(['A 款', 'B 款']),
+    '选项填回来了，而且原顺序不动')
+  check(f.questions[0].multiple === false && f.questions[0].max_choices === 1,
+    '单选题的「最多选几项」固定是 1')
+  check(f.targets.length === 0, '不带表决范围（范围改不了，选中的名单也不该被回填）')
+
+  // 填空题、脏数据和兜底
+  const multi = formFromPoll({ questions: [{ title: 'q', multiple: true, max_choices: 9, options: ['a', 'b'] }] })
+    .questions[0]
+  check(multi.multiple && multi.max_choices === 2,
+    '「最多选几项」超过选项数就夹回选项数（照抄组件里 removeOption 的口径）')
+  check(formFromPoll({ questions: [{ title: 'q', multiple: true, options: ['a', 'b', 'c'] }] })
+    .questions[0].max_choices === 2, '多选没给 max_choices 时默认 2')
+  check(formFromPoll({ questions: [{ title: 'q', multiple: false, max_choices: 3, options: ['a', 'b'] }] })
+    .questions[0].max_choices === 1, '单选就算库里存着别的数，也一律按 1 来')
+  check(JSON.stringify(formFromPoll({ questions: [{ title: 'q', options: [] }] })
+    .questions[0].options) === JSON.stringify(['', '']), '选项为空时补两个空框，不然没法输入')
+  check(formFromPoll({ questions: [] }).questions.length === 1,
+    '详情里一道题都没有时补一道空题，弹窗不能是空的')
+  check(formFromPoll({ start_at: null, end_at: '' }).start_at === '',
+    '时间缺失给空串，不能是 formatDateTime 那个「-」（picker 里会显示成一个破折号）')
+
+  // blankForm / blankQuestion：出卷和编辑共用同一份「空表单」定义
+  check(blankForm().questions.length === 1, '空表单自带一道题')
+  check(blankQuestion().max_choices === 1 && blankQuestion(true).max_choices === 2,
+    '空题的选项数跟着单选/多选走')
+  check(/Object\.assign\(form, blankForm\(\), formFromPoll\(poll\)\)/.test(pollSrc),
+    'openForEdit 用的是这段纯函数（拿详情拼表单只有这一处实现）')
+
+  // ---------- 未开始：题目能改（这一半是渲染接线） ----------
+  // 通用的 ElDialogStub 不渲染 title 这个 prop，而这节要断「标题切没切」——
+  // 就地补一个把它渲出来的，比去 grep 源码 :title 那句结实
+  const DialogWithTitle = {
+    name: 'DialogWithTitle',
+    props: { modelValue: Boolean, title: String },
+    setup(props, { slots }) {
+      return () => (props.modelValue
+        ? h('div', [h('div', props.title), slots.default?.(), slots.footer?.()])
+        : null)
+    }
+  }
+  /** 打开编辑态：openForEdit 是父组件调用的，SSR 里没人调，干脆在 setup 里补一句 */
+  async function editMode(status) {
+    const r = await renderPatchedMany('/src/components/PollCreateDialog.vue', [
+      ['defineExpose({ open, openForEdit })',
+        `openForEdit(${JSON.stringify(DETAIL(status))})\n` + 'defineExpose({ open, openForEdit })']
+    ], { ElDialog: DialogWithTitle })
+    return stripComments(r.html)
+  }
+
+  /** 某个 placeholder 的输入框那一整个标签（要按属性名判 disabled 就只能看整条） */
+  function inputTag(html, placeholder) {
+    return (html.match(/<input[^>]*>/g) || [])
+      .find((t) => t.includes(`placeholder="${placeholder}"`)) || ''
+  }
+
+  const draft = await editMode('pending')
+  check(draft.includes('编辑投票'), '弹窗标题切成「编辑投票」')
+  check(draft.includes('保存修改'), '按钮切成「保存修改」')
+  check(!/\sdisabled/.test(inputTag(draft, '题干，例如：你赞成哪一款班服？')),
+    '没开始：题干能改')
+  check(!draft.includes('已开始，题目不能改了'), '没开始：不挂「题目不能改」的说明')
+  check(draft.includes('共 38 人 · 不能改'), '表决范围只显示人数')
+  check(!draft.includes('仅团员'), '编辑时整块名单不渲染（范围本来就改不了，也不用拉）')
+
+  // ---------- 已开始：题目锁住，标题描述还能改 ----------
+  const started = await editMode('open')
+  check(/\sdisabled/.test(inputTag(started, '题干，例如：你赞成哪一款班服？')),
+    '已开始：题干是只读的')
+  check(/\sdisabled/.test(inputTag(started, '选项 1')), '已开始：选项也是只读的')
+  check(started.includes('已开始，题目不能改了'), '已开始：挂出为什么不能改')
+  check(!/\sdisabled/.test(inputTag(started, '例如：关于班服款式的表决')),
+    '已开始：**标题照样能改**（封的是题目，不是整场投票）')
+  check(!/\sdisabled/.test(inputTag(started, '选填。写清背景或注意事项')),
+    '已开始：描述照样能改')
+
+  // ---------- 提交那一下 ----------
+  check(/if \(!questionsLocked\.value\) payload\.questions = buildQuestions\(\)/.test(pollSrc),
+    '题目锁着时**一个字都不传 questions** —— 后端只在收到它时才替换，已开始带了会被 400')
+  check(/await updatePoll\(editingId\.value, payload\)/.test(pollSrc), '编辑走 updatePoll')
+  check(/defineExpose\(\{ open, openForEdit \}\)/.test(pollSrc), 'openForEdit 暴露给父组件')
+  check(/const emit = defineEmits\(\['saved'\]\)/.test(pollSrc),
+    '出卷和编辑发同一个 saved：父组件一律重拉列表')
+
+  // ---------- 入口 ----------
+  const voteSrc = src('/src/views/Vote.vue')
+  check(/<el-dropdown-item command="edit">编辑<\/el-dropdown-item>/.test(voteSrc),
+    '管理下拉里多了「编辑」')
+  check(/command === 'edit'[\s\S]{0,80}?handleEdit\(row\)/.test(voteSrc), '「编辑」分发到 handleEdit')
+  check(/async function handleEdit[\s\S]{0,300}?openForEdit\(await getPoll\(row\.id\)\)/.test(voteSrc),
+    '编辑前先拉一次详情（列表行里没有题目）')
+  check(/@saved="handleSaved"/.test(voteSrc), '保存后父组件重拉列表')
+
+  const voteApi = src('/src/api/vote.js')
+  check(/export function updatePoll[\s\S]{0,400}?method: 'patch'/.test(voteApi),
+    'updatePoll 走 PATCH')
+
+  // ---------- 后端 ----------
+  const pollsPy = src('/../backend/app/api/polls.py')
+  check(/@router\.patch\("\/\{poll_id\}"/.test(pollsPy), '后端有 PATCH /api/polls/{poll_id}')
+  check(/poll_status\(poll\) != STATUS_PENDING[\s\S]{0,400}?题目改不了/.test(pollsPy),
+    '题目只在未开始时能换，否则回一句中文原因（不是 422 的数组）')
+  // 窗口 800：update_poll 光是 docstring 就五百来字，卡太紧会因为「注释写长了」而红
+  check(/def update_poll[\s\S]{0,800}?_load_manageable\(db, poll_id, user, is_admin\(user\)\)/
+    .test(pollsPy), '编辑走的是「我能管」那道闸，越权一律 404')
+  check(/_check_questions\(data\.questions\)/.test(pollsPy),
+    '替换题目复用出卷那份校验，没有另写一套')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

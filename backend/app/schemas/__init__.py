@@ -95,6 +95,7 @@ from .poll import (
     PollRemindResponse,
     PollRosterItem,
     PollRosterResponse,
+    PollUpdate,
     PollVoteIn,
 )
 from .schedule import (
@@ -223,6 +224,7 @@ __all__ = [
     "PollBallotsResponse",
     "PollRosterItem",
     "PollRosterResponse",
+    "PollUpdate",
     "PollRemindResponse",
     "PollCloseResponse",
     "GradeColumnPreview",
