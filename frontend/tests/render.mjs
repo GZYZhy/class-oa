@@ -1631,6 +1631,48 @@ console.log('\n▶ 分类统计：概览卡点开是哪些人')
   check(/studentStore\.fetchAllStudents\(\)/.test(src), '名单走 store 的 fetchAllStudents（一次拉全班，本地分组）')
 }
 
+console.log('\n▶ 点名与抽签：台上只留姓名学号，不再显示头像')
+{
+  // 两个弹窗的正文都在 el-dialog 里（SSR 下不渲染），所以给它盖上会渲染正文的桩，
+  // 再把弹窗拨到「台上正好有人」的那一步，真渲染一遍看输出里有什么。
+  //
+  // 夹具里的人**特意带 gaokao_photo**：有照片却不出图，才证明是头像被拿掉了，
+  // 而不是照片字段恰好为空 —— 后者用空字段测会假通过。
+  const WHO = "{ id: 1, name: '张三', student_no: '26102030101', gaokao_photo: 'gk.png' }"
+  const DIALOG = { ElDialog: ElDialogStub }
+
+  const roll = await renderPatchedMany('/src/components/RollCallDialog.vue', [
+    ['const visible = ref(false)', 'const visible = ref(true)'],
+    ["const step = ref('scope')", "const step = ref('calling')"],
+    ['const queue = ref([])', `const queue = ref([${WHO}])`]
+  ], DIALOG)
+  const rollHtml = stripComments(roll.html)
+  check(rollHtml.includes('张三') && rollHtml.includes('26102030101'),
+    '点名第二步真渲染出来了（台上的姓名学号都在）')
+  check(!rollHtml.includes('<img'), '点名台上没有头像')
+
+  const draw = await renderPatchedMany('/src/components/DrawDialog.vue', [
+    ['const visible = ref(false)', 'const visible = ref(true)'],
+    ["const step = ref('setup')", "const step = ref('drawing')"],
+    ["const mode = ref('batch')", "const mode = ref('one')"],
+    ['const latest = ref(null)', `const latest = ref(${WHO})`]
+  ], DIALOG)
+  const drawHtml = stripComments(draw.html)
+  check(drawHtml.includes('张三') && drawHtml.includes('26102030101'),
+    '抽签「点一回取一个」真渲染出来了（台上的姓名学号都在）')
+  check(!drawHtml.includes('<img'), '抽签台上没有头像')
+
+  // 源码兜底：把上面两条断言的范围从「这两个状态」放大到「整个文件」——
+  // 比如哪天给「一次抽取」模式也补个头像，或者把头像块从别处搬回来，这两条会红
+  for (const [file, cls] of [['RollCallDialog', 'rc'], ['DrawDialog', 'dr']]) {
+    const src = readFileSync(`${ROOT}/src/components/${file}.vue`, 'utf8')
+    check(!src.includes('<img') && !src.includes('gaokao_photo') && !src.includes('/photo')
+      && !src.includes(`.${cls}-photo`) && !src.includes(`.${cls}-img`)
+      && !src.includes(`.${cls}-placeholder`),
+      `${file}.vue 里没有图片、照片接口和头像块的样式`)
+  }
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

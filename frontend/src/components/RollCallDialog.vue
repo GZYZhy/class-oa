@@ -58,18 +58,6 @@
         <el-progress :percentage="progressPercent" :show-text="false" />
       </div>
 
-      <div class="rc-photo">
-        <img
-          v-if="currentStudent.gaokao_photo && !photoBroken"
-          :src="photoUrl(currentStudent)"
-          class="rc-img"
-          @error="photoBroken = true"
-        />
-        <div v-else class="rc-placeholder">
-          <el-icon style="font-size: 48px;"><Avatar /></el-icon>
-        </div>
-      </div>
-
       <div class="rc-name">{{ currentStudent.name }}</div>
       <div class="rc-no">{{ currentStudent.student_no }}</div>
 
@@ -138,7 +126,6 @@ const roster = ref([])   // 能参与点名的名单（open 时一次性拉回�
 const excluded = ref([]) // 被滤掉的人，只用来在第一步提示一句
 const queue = ref([])    // 本次要点的人（不含请假的）
 const answers = ref([])  // 与 queue 一一对应的结果，true=到，false=无应答
-const photoBroken = ref(false)
 
 // 请假联动：这三项在第一次点名时定下来，汇总和上报都用它们
 const onLeave = ref([])      // 当前处在已批准请假区间内的人（第一步提示用）
@@ -181,7 +168,6 @@ function reset() {
   excluded.value = []
   queue.value = []
   answers.value = []
-  photoBroken.value = false
   onLeave.value = []
   leaveInScope.value = []
   scopeTotal.value = 0
@@ -227,7 +213,6 @@ function startCall(picked) {
   scopeTotal.value = inScope.length
 
   answers.value = []
-  photoBroken.value = false
 
   // 整个范围都在请假时没人可点，直接出汇总（否则会卡在第二步不动）
   if (!queue.value.length) {
@@ -241,14 +226,12 @@ function startCall(picked) {
 function mark(answered) {
   if (!currentStudent.value) return
   answers.value.push(answered)
-  photoBroken.value = false
   if (answers.value.length >= queue.value.length) finish()
 }
 
 function undo() {
   if (!answers.value.length) return
   answers.value.pop()
-  photoBroken.value = false
 }
 
 function finish() {
@@ -285,11 +268,6 @@ function backToScope() {
   answers.value = []
   leaveInScope.value = []
   scopeTotal.value = 0
-}
-
-/** 照片走带鉴权的接口，靠 Cookie 自动带凭证，与「学生信息」表格里一致 */
-function photoUrl(student) {
-  return `/api/students/${student.id}/photo?type=gaokao`
 }
 
 // 点了半天再关掉等于白点，先问一句
@@ -398,30 +376,6 @@ defineExpose({ open })
   color: var(--el-text-color-secondary);
 }
 
-.rc-photo {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 14px;
-}
-
-.rc-img,
-.rc-placeholder {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
-}
-
-.rc-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-disabled);
-}
-
 .rc-name {
   font-size: 30px;
   font-weight: 600;
@@ -498,12 +452,6 @@ defineExpose({ open })
 @media (max-width: 768px) {
   .rc-name {
     font-size: 26px;
-  }
-
-  .rc-img,
-  .rc-placeholder {
-    width: 96px;
-    height: 96px;
   }
 
   /* 手机上没有物理键盘，快捷键提示只会占地方 */
