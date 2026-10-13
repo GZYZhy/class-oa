@@ -1,7 +1,8 @@
 <template>
   <!-- 出卷：基本信息 → 有权表决的人 → 题目，一次定完。
        也当编辑弹窗用（父组件调 openForEdit）—— 那时候标题和描述随时能改，
-       **题目只在还没开始时能改**，时间和表决范围一律只读 -->
+       **题目只在还没开始时能改**，**时间按状态分档**（见 utils/poll.js 的
+       canEditTimes：没开始的两个都能改、开始了只能改截止时间），表决范围只读 -->
   <el-dialog
     v-model="visible"
     :title="isEdit ? '编辑投票' : '发起投票'"
@@ -38,7 +39,7 @@
             format="YYYY-MM-DD HH:mm"
             value-format="YYYY-MM-DD HH:mm"
             style="width: 100%;"
-            :disabled="isEdit"
+            :disabled="!timeEdit.start_at"
           />
         </el-form-item>
         <el-form-item label="截止时间" required>
@@ -49,18 +50,22 @@
             format="YYYY-MM-DD HH:mm"
             value-format="YYYY-MM-DD HH:mm"
             style="width: 100%;"
-            :disabled="isEdit"
+            :disabled="!timeEdit.end_at"
           />
         </el-form-item>
-        <div v-if="isEdit" class="pc-tip">
-          时间不能改：投票进行中改截止时间，等于中途延长或缩短。要改就删了重发
+        <!-- 灰掉的框要说清为什么灰，不然看着像坏了。能改的时候不占地方 -->
+        <div v-if="!timeEdit.start_at" class="pc-tip">
+          投票已经开始，开始时间改不了了（它已经过去）。截止时间还能调
+        </div>
+        <div v-if="!timeEdit.end_at" class="pc-tip">
+          投票已经结束，时间改不了了
         </div>
         <el-form-item label="是否记名">
           <el-switch
             v-model="form.anonymous"
             active-text="不记名"
             inactive-text="记名"
-            :disabled="isEdit"
+            :disabled="startedLocked"
             @change="onAnonymousChange"
           />
           <div class="pc-tip">
@@ -68,6 +73,8 @@
               ? '不记名：发起人也查不到谁选了什么。界面上会明确标出「不记名」'
               : '记名：默认不额外标注，需要时发起人可以查每个人选了什么' }}
           </div>
+          <!-- 灰掉的开关要说清为什么灰，跟上面两个时间框一个道理 -->
+          <div v-if="startedLocked" class="pc-tip">投票已经开始，记名方式改不了了</div>
         </el-form-item>
       </el-form>
 
@@ -77,11 +84,9 @@
         <span v-if="isEdit" class="pc-count">共 {{ editTargetCount }} 人 · 不能改</span>
         <span v-else class="pc-count">已选 {{ form.targets.length }} / 共 {{ roster.length }} 人</span>
       </h4>
-      <div v-if="isEdit" class="pc-tip">
-        表决范围不能改：把已经投过的人挪出范围，那张票就算不清了；反过来加人，等于
-        已经开投了才放人进来。要换人请删了重发
-      </div>
-      <template v-else>
+      <!-- 编辑时整块名单都不渲染：范围改不了（把已经投过的人挪出去，他那张票就算不清了），
+           上面 h4 里的「共 N 人 · 不能改」就是全部信息 -->
+      <template v-if="!isEdit">
         <div class="pc-scope-btns">
           <el-button size="small" @click="selectAll">全选</el-button>
           <el-button size="small" @click="form.targets = []">全不选</el-button>
@@ -106,9 +111,9 @@
       <h4 class="pc-h">
         三、题目
         <span class="pc-count">共 {{ form.questions.length }} 题</span>
-        <span v-if="questionsLocked" class="pc-count">已开始，题目不能改了</span>
+        <span v-if="startedLocked" class="pc-count">已开始，题目不能改了</span>
       </h4>
-      <div v-if="questionsLocked" class="pc-tip">
+      <div v-if="startedLocked" class="pc-tip">
         投票已经开始，题目就锁住了：作答存的是选项的序号，这时候删掉一个选项，
         已经投过的人那张票就对不上了。标题和描述还能改
       </div>
@@ -118,7 +123,7 @@
           <el-radio-group
             v-model="q.multiple"
             size="small"
-            :disabled="questionsLocked"
+            :disabled="startedLocked"
             @change="onMultipleChange(q)"
           >
             <el-radio-button :value="false">单选</el-radio-button>
@@ -133,7 +138,7 @@
               size="small"
               controls-position="right"
               style="width: 92px;"
-              :disabled="questionsLocked"
+              :disabled="startedLocked"
             />
             项
           </span>
@@ -141,7 +146,7 @@
             class="pc-q-del"
             link
             type="danger"
-            :disabled="questionsLocked || form.questions.length <= 1"
+            :disabled="startedLocked || form.questions.length <= 1"
             @click="removeQuestion(i)"
           >删除本题</el-button>
         </div>
@@ -151,7 +156,7 @@
           maxlength="500"
           placeholder="题干，例如：你赞成哪一款班服？"
           class="pc-q-title"
-          :disabled="questionsLocked"
+          :disabled="startedLocked"
         />
 
         <div v-for="(opt, j) in q.options" :key="j" class="pc-opt">
@@ -160,19 +165,19 @@
             v-model="q.options[j]"
             maxlength="200"
             :placeholder="`选项 ${j + 1}`"
-            :disabled="questionsLocked"
+            :disabled="startedLocked"
           />
           <el-button
             link
             type="danger"
-            :disabled="questionsLocked || q.options.length <= 2"
+            :disabled="startedLocked || q.options.length <= 2"
             @click="removeOption(q, j)"
           >删除</el-button>
         </div>
 
         <el-button
           size="small"
-          :disabled="questionsLocked || q.options.length >= 20"
+          :disabled="startedLocked || q.options.length >= 20"
           @click="q.options.push('')"
         >
           添加选项
@@ -183,7 +188,7 @@
       </div>
 
       <el-button
-        :disabled="questionsLocked || form.questions.length >= 30"
+        :disabled="startedLocked || form.questions.length >= 30"
         @click="addQuestion"
       >
         添加题目（最多 30 题）
@@ -204,7 +209,14 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { createPoll, getRoster, updatePoll } from '@/api/vote'
 import { errText } from '@/utils/request'
-import { POLL_LETTERS, blankForm, blankQuestion, formFromPoll } from '@/utils/poll'
+import {
+  POLL_LETTERS,
+  blankForm,
+  blankQuestion,
+  canEditBeforeStart,
+  canEditTimes,
+  formFromPoll,
+} from '@/utils/poll'
 // 「仅团员」的判据与点名、分类统计共用一份，见 utils/roster.js
 import { isLeagueMember } from '@/utils/roster'
 import { useUserStore } from '@/store/user'
@@ -221,8 +233,18 @@ const roster = ref([])
 /** 正在编辑的投票 ID；null = 出卷（新建）。标题、按钮文案、只读与否都看它 */
 const editingId = ref(null)
 const isEdit = computed(() => editingId.value !== null)
-/** 编辑中的这场已经开始了 → 题目只读（**只有未开始能改题**，见 api/vote.js 的 updatePoll） */
-const questionsLocked = ref(false)
+/** 编辑中的那场处于什么状态。时间、题目、记名改不改得了都看它，出卷时是 pending */
+const editingStatus = ref('pending')
+/** 两个时间各能不能改（分档规则见 utils/poll.js 的 canEditTimes，后端按同一套判） */
+const timeEdit = computed(() => canEditTimes(editingStatus.value))
+/**
+ * 已经开始了 → 「只有没开始才能改」的那几样一起锁上：**题目和记名与否**
+ *
+ * 两样的理由是同一条：都会「换一张票」。题目换了下标错位，记名方式换了则等于把
+ * 已经投出去的票重新定义一遍。没开始时库里不可能有作答（can_vote 要求状态是 open），
+ * 所以那时改怎么都安全 —— 出卷时状态恒为 pending，这个锁自然是开的。
+ */
+const startedLocked = computed(() => !canEditBeforeStart(editingStatus.value))
 /** 编辑时只显示表决范围的人数：名单不拉（范围本来就改不了），人数从详情里带过来 */
 const editTargetCount = ref(0)
 
@@ -242,7 +264,7 @@ const iAmOutOfScope = computed(() => {
 function open() {
   Object.assign(form, blankForm())
   editingId.value = null
-  questionsLocked.value = false
+  editingStatus.value = 'pending'
   visible.value = true
   fetchRoster()
 }
@@ -255,7 +277,7 @@ function open() {
 function openForEdit(poll) {
   Object.assign(form, blankForm(), formFromPoll(poll))
   editingId.value = poll.id
-  questionsLocked.value = poll.status !== 'pending'
+  editingStatus.value = poll.status || 'pending'
   editTargetCount.value = poll.target_count || 0
   roster.value = []
   visible.value = true
@@ -265,7 +287,7 @@ function reset() {
   Object.assign(form, blankForm())
   roster.value = []
   editingId.value = null
-  questionsLocked.value = false
+  editingStatus.value = 'pending'
   editTargetCount.value = 0
 }
 
@@ -325,8 +347,8 @@ function onMultipleChange(q) {
 }
 
 function onAnonymousChange(value) {
-  // 改成不记名是要紧事，给一次确认 —— 发出去之后改不了：编辑接口只管标题、描述和
-  // 题目，记名与否不在可编辑之列（改了等于换了一种票）
+  // 改成不记名是要紧事，给一次确认 —— 发出去之后改不了：编辑接口只管标题、描述、
+  // 时间和题目，记名与否不在可编辑之列（改了等于换了一种票）
   if (value) ElMessage.info('已设为不记名：发起人也查不到谁选了什么')
 }
 
@@ -338,8 +360,9 @@ function onAnonymousChange(value) {
 function firstError() {
   if (!form.title.trim()) return '请填写标题'
 
-  // 时间和表决范围只有出卷时才要填：编辑时这两样是只读的，值也来自库里的原值
-  if (!isEdit.value) {
+  // 时间：出卷时必填，编辑时看这场还能不能改。拿 end_at 当开关 —— 它俩是一起松一起
+  // 紧的（只有「已结束」两个才全灰），所以「截止时间改得动」就等于这段时间得校验
+  if (timeEdit.value.end_at) {
     if (!form.start_at) return '请选择开始时间'
     if (!form.end_at) return '请选择截止时间'
 
@@ -348,12 +371,13 @@ function firstError() {
     if (!(end > start)) return '截止时间必须晚于开始时间'
     if (end.getTime() <= Date.now()) return '截止时间已经过了'
     if (end - start > 365 * 24 * 3600 * 1000) return '投票跨度不能超过一年'
-
-    if (!form.targets.length) return '至少要选一名有权表决的同学'
   }
 
+  // 表决范围只有出卷时才要选：编辑时那块是只读的，人数从详情里带过来
+  if (!isEdit.value && !form.targets.length) return '至少要选一名有权表决的同学'
+
   // 题目锁着（已经开始的投票）就原样提交，没什么可校验的 —— 能锁住就说明当初校验过
-  if (questionsLocked.value) return ''
+  if (startedLocked.value) return ''
   return questionsError()
 }
 
@@ -393,7 +417,13 @@ async function handleSubmit() {
       const payload = { title: form.title.trim(), description: form.description.trim() }
       // **题目锁着就一个字都不传**：后端只在收到 questions 时才替换题目，
       // 已经开始的那场带了会被 400（见 api/vote.js 的 updatePoll）
-      if (!questionsLocked.value) payload.questions = buildQuestions()
+      if (!startedLocked.value) payload.questions = buildQuestions()
+      // 时间同理：不能改的那个字段一个字都别带。原样回传也不会写坏什么（后端比对过
+      // 值才落库），但灰着的框还往上传，读代码的人会以为它真的能改
+      if (timeEdit.value.start_at) payload.start_at = form.start_at
+      if (timeEdit.value.end_at) payload.end_at = form.end_at
+      // 记名与否和题目同款：只有没开始才传得出去
+      if (!startedLocked.value) payload.anonymous = form.anonymous
       await updatePoll(editingId.value, payload)
       ElMessage.success('已保存')
     } else {

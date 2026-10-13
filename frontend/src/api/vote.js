@@ -32,9 +32,14 @@ export function createPoll(data) {
  * 编辑一场投票（发起人和管理员）
  *
  * @param {number} id
- * @param {{title: string, description: string, questions?: object[]}} data
- *   **只有这三样**：时间、表决范围、记名与否都改不了（改了要动摇已经投出去的票），
- *   要改请删了重发。
+ * @param {{title: string, description: string, start_at?: string, end_at?: string,
+ *          anonymous?: boolean, questions?: object[]}} data
+ *   时间**不传 = 不动**；传了按状态分档，后端说了算（api/polls.py 的 update_poll）：
+ *   未开始的两个都能改，已开始的只能改 end_at，已结束的都不给改。判据在
+ *   utils/poll.js 的 canEditTimes —— 调用方按它决定哪个框能编辑、哪个字段要带。
+ *   anonymous **不传 = 不动**；只在**未开始**时改得动，判据是 utils/poll.js 的
+ *   canEditBeforeStart（和题目同一条：开始之后改，等于把投出去的票重新定义一遍）。
+ *   **表决范围改不了**（把已投的人挪出去，他那张票就算不清了），要换人请删了重发。
  *   questions **不传 = 不动题目**；传了 = 整卷替换，而且只在**未开始**时有效 ——
  *   已经开始的那场传了会被后端 400（作答存的是选项下标，换题目会让历史作答错位）。
  *   所以编辑一个已开始的投票时，调用方别带 questions。
