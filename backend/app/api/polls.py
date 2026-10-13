@@ -409,15 +409,21 @@ def update_poll(
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
-    """改标题和描述；还没开始的还能整卷换题目
+    """改标题、描述、时间和记名方式；还没开始的还能整卷换题目
 
-    **题目只在这张卷子还没开始时能改**：作答存的是选项**下标**（models/poll.py 的
-    PollQuestion 写着这件事），已经开始之后删掉一个选项，历史作答的下标就整体错位。
-    没开始时库里不可能有这场投票的作答 —— can_vote 要求状态是 open，而 open 是按
-    start_at 现算的，没到点谁也提交不上来。所以那时把旧题删掉重建最省事：
-    不用按题号去 diff（题干改了、选项多一个少一个都要小心对齐），也不会留下废题。
+    **时间按状态分档**，不是「编辑时一概不能改」：还没开始的两个都能改（把开场时间
+    往后推 = 推迟开始，总比删了重发强）；**已经开始的只能改截止时间**（start_at 已经
+    过去了，改它没有任何意义，还会把「开始时锁题」那条规则的依据弄乱）；**已结束的
+    一个都不给改** —— closed_at 优先于时间判断，改了也不会生效，允许就是骗人。
 
-    时间、表决范围、记名与否都不在这里 —— 见 schemas/poll.py 的 PollUpdate。
+    **题目和记名与否都只在这张卷子还没开始时能改** —— 两样都会「换一张票」：题目换了
+    下标就错位（作答存的是选项**下标**，models/poll.py 的 PollQuestion 写着这件事），
+    记名方式换了等于把已经投出去的票重新定义一遍（不记名的票突然有了主）。没开始时
+    库里不可能有这场投票的作答 —— can_vote 要求状态是 open，而 open 是按 start_at
+    现算的，没到点谁也提交不上来。所以那时把旧题删掉重建最省事：不用按题号去 diff
+    （题干改了、选项多一个少一个都要小心对齐），也不会留下废题。
+
+    表决范围才是真的一个字都不能动 —— 见 schemas/poll.py 的 PollUpdate。
     """
     poll = _load_manageable(db, poll_id, user, is_admin(user))
 
@@ -434,8 +440,32 @@ def update_poll(
     if description != (poll.description or ""):
         changed.append("描述")
 
+    # 状态取一次，下面几处判据共用。**必须在任何改动落库之前取**：一次请求里的改动是
+    # 原子的 —— 同时把开场时间提到现在、又改题目，两样都该算数
+    status = poll_status(poll)
+
+    # 时间先只校验、不往 poll 上写（赋值统一放到最后）
+    if data.start_at is not None or data.end_at is not None:
+        if status == STATUS_CLOSED:
+            raise HTTPException(status_code=400, detail="投票已经结束，时间改不了了")
+        if data.start_at is not None and status != STATUS_PENDING:
+            raise HTTPException(status_code=400, detail="投票已经开始，开始时间改不了了")
+        # 和出卷走同一套校验。**想提前收口就用「立即结束」**，别指望把截止时间拨到过去
+        # —— 那条会被「截止时间已经过了」挡下，而这样正好：手动结束会写 closed_at，操作
+        # 日志和详情里都看得出这场是被谁提前掐掉的，时间悄悄拨过去就什么都没留下
+        _check_time(data.start_at or poll.start_at, data.end_at or poll.end_at)
+
+    # 记名与否和题目同款：只有还没开始能改。开始之后再改，等于把已经投出去的那些票
+    # 重新定义一遍（不记名的票突然有了主）；没开始时则没有任何作答可动摇
+    if data.anonymous is not None:
+        if status != STATUS_PENDING:
+            raise HTTPException(status_code=400, detail="投票已经开始，记名方式改不了了")
+        if data.anonymous != bool(poll.anonymous):
+            poll.anonymous = data.anonymous
+            changed.append("记名方式")
+
     if data.questions is not None:
-        if poll_status(poll) != STATUS_PENDING:
+        if status != STATUS_PENDING:
             raise HTTPException(status_code=400, detail="投票已经开始，题目改不了了")
         questions = _check_questions(data.questions)
         # 先删干净再重建。**SQLite 默认不开外键约束**，顺序上只删题目这一张表，
@@ -457,6 +487,14 @@ def update_poll(
             ]
         )
         changed.append(f"{len(questions)} 道题")
+
+    # 值真的变了才写、才记一笔。「原样回传」和「真改了」在日志上要分得开
+    if data.start_at is not None and data.start_at != poll.start_at:
+        poll.start_at = data.start_at
+        changed.append("开始时间")
+    if data.end_at is not None and data.end_at != poll.end_at:
+        poll.end_at = data.end_at
+        changed.append("截止时间")
 
     poll.title = title
     poll.description = description

@@ -140,9 +140,10 @@ def test_roll_call_rejects_an_overlong_scope(pb):
 
 # ---------- 编辑投票（PATCH /api/polls/{id}）----------
 #
-# 口径：标题和描述随时能改；**题目只有还没开始时能改**（作答存的是选项下标，
-# 已经开始之后再动题目会让历史作答错位）。时间、表决范围、记名与否都不在可编辑
-# 之列，所以这里也不测它们 —— 请求体里根本没有这些字段，多传会被 pydantic 忽略。
+# 口径：标题和描述随时能改；**题目和记名与否只有还没开始时能改**（题目换了作答
+# 的下标就错位，记名换了等于把投出去的票重新定义一遍）。**表决范围任何状态都不
+# 在可编辑之列** —— 它改了会动摇已经投出去的票。**时间是另一节**（见下面「改时间」）
+# 按状态分档，**记名是再下面那一节**。
 
 CREATOR = "2024000002"  # 提成班委用来出卷
 CREATOR_PW = "010002"
@@ -187,9 +188,9 @@ def _edit(b, poll_id, **payload):
 def _start_now(b, poll_id):
     """把 start_at 拨到一小时前 = 让这场投票真的开始
 
-    只能从库里改：编辑接口里压根没有时间字段（改了要动摇已经投出去的票），
-    而测试里等真实时间过去不现实。**这正是这一整套要跑的路径** ——
-    没开始时改题目 → 到点开始 → 大家按新卷子投。
+    直接改库、不走编辑接口：**开始时间一旦过去就改不了了**（update_poll 只让还没开始
+    的投票改 start_at），而测试里等真实时间过去不现实。**这正是这一整套要跑的路径**
+    —— 没开始时改题目 → 到点开始 → 大家按新卷子投。
     """
     b.run(
         "UPDATE polls SET start_at = ? WHERE id = ?",
@@ -490,6 +491,268 @@ def test_locked_poll_keeps_questions_frozen(pe):
 
     # 但标题描述照样能改：封的是题目，不是整场投票（和进行中同款）
     assert _edit(pe, pid, title="暂停期间改标题", description="").status_code == 200
+
+
+# ---------- 改时间（PATCH 里的 start_at / end_at）----------
+#
+# 口径（用户 2026-10-14 拍板）：**未开始的两个时间都能改；已经开始的只能改截止
+# 时间；已结束的一个都不给改**。要改时间的动机就两种 —— 推迟开场、延长或缩短收票，
+# 都不该逼人「删了重发」（删了重发意味着已经投出去的票全没了）。
+#
+# 校验整段复用出卷那套 _check_time：先后、跨度、截止时间必须还在未来。所以「想提前
+# 收口」不该走这儿 —— 拨到现在之前会被拒，正经入口是「立即结束」，那条会写 closed_at。
+
+
+def test_a_pending_poll_can_change_both_times(pe):
+    """还没开始：开始和截止都能改（推迟开场），状态自然也还是未开始"""
+    _as_creator(pe)
+    pid = _create(pe, start=2, end=3)
+    new_start, new_end = _stamp(5), _stamp(9)
+
+    r = _edit(pe, pid, title="要不要聚餐", description="",
+              start_at=new_start, end_at=new_end)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["status"] == "pending"
+    assert data["start_at"][:16] == new_start.replace(" ", "T")
+    assert data["end_at"][:16] == new_end.replace(" ", "T")
+
+
+def test_a_pending_poll_starts_early_when_the_start_moves_into_the_past(pe):
+    """出卷那栏写着「选过去的时间 = 立刻开始」，编辑时同样成立"""
+    _as_creator(pe)
+    pid = _create(pe, start=2, end=3)
+
+    r = _edit(pe, pid, title="要不要聚餐", description="", start_at=_stamp(-1))
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "open"
+
+
+def test_a_running_poll_can_extend_its_deadline(pe):
+    """进行中延长截止时间 —— 最要紧的一条：延长之后票真的还能接着投"""
+    _as_creator(pe)
+    pid = _create(pe, start=-1, end=2)
+    new_end = _stamp(6)
+
+    r = _edit(pe, pid, title="要不要聚餐", description="", end_at=new_end)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "open"
+    assert r.json()["end_at"][:16] == new_end.replace(" ", "T")
+
+    # 不是只把字段改了：换个人来，票投得进去
+    assert _vote_as(pe, VOTER, VOTER_PW, pid).status_code == 200
+
+
+def test_a_running_poll_cannot_change_its_start(pe):
+    """已经开始的改不了开始时间：它已经过去了，改它没有意义"""
+    _as_creator(pe)
+    pid = _create(pe, start=-1, end=3)
+
+    r = _edit(pe, pid, title="要不要聚餐", description="",
+              start_at=_stamp(2), end_at=_stamp(5))
+    assert r.status_code == 400, r.text
+    assert "开始时间" in r.json()["detail"]
+
+
+def test_a_finished_poll_takes_no_time_change(pe):
+    """已结束的一个都不给改 —— 改完也不生效（closed_at 优先于时间判断），允许就是骗人"""
+    _as_creator(pe)
+    pid = _create(pe, start=-2, end=2)
+    _set_end(pe, pid, -1)  # 截止时间已经过去 = 这场结束了
+
+    r = _edit(pe, pid, title="要不要聚餐", description="", end_at=_stamp(5))
+    assert r.status_code == 400, r.text
+    assert "结束" in r.json()["detail"]
+
+
+def test_a_paused_poll_can_still_change_its_deadline(pe):
+    """暂停只是临时不收票，调截止时间仍是正常的管理动作（暂停期间到点照常结束）"""
+    _as_creator(pe)
+    pid = _create(pe, start=-1, end=2)
+    assert _lock(pe, pid).status_code == 200
+    new_end = _stamp(6)
+
+    r = _edit(pe, pid, title="要不要聚餐", description="", end_at=new_end)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "locked"
+    assert r.json()["end_at"][:16] == new_end.replace(" ", "T")
+
+
+def test_the_deadline_cannot_be_moved_into_the_past(pe):
+    """进行中的，截止时间改不到现在或更早（用户 2026-10-14 指的边界）
+
+    想提前收口就走「立即结束」，别把截止时间拨到过去 —— 那条路留不下任何痕迹：
+    谁提前掐的、什么时候掐的，操作日志和详情里都看不出来。
+    """
+    _as_creator(pe)
+    pid = _create(pe, start=-1, end=3)
+    before = pe.client.get(f"/api/polls/{pid}").json()
+
+    # 用 -0.5 而不是 -1：这场是 start=-1 开的，同一分钟会被「必须晚于开始时间」
+    # 先拦下，测不到想测的那条。0 是「正好拨到现在」—— 同样得拒，一到点就算结束
+    for bad in (_stamp(-0.5), _stamp(0)):
+        r = _edit(pe, pid, title="要不要聚餐", description="", end_at=bad)
+        assert r.status_code == 400, r.text
+        assert "截止时间已经过了" in r.json()["detail"]
+
+    # 拒了就是拒了，一个字都不该落库：状态还得是进行中、截止时间照旧
+    now = pe.client.get(f"/api/polls/{pid}").json()
+    assert now["status"] == "open"
+    assert now["end_at"] == before["end_at"]
+
+    # 正经入口在这儿，而且它会写上 closed_at
+    assert pe.client.post(f"/api/polls/{pid}/close").status_code == 200
+
+
+def test_the_deadline_must_stay_after_the_start(pe):
+    """时间和出卷同一套校验：开始推到晚上、截止还留在下午，就得拒"""
+    _as_creator(pe)
+    pid = _create(pe, start=2, end=3)
+
+    r = _edit(pe, pid, title="要不要聚餐", description="",
+              start_at=_stamp(6), end_at=_stamp(3))
+    assert r.status_code == 400, r.text
+    assert "晚于开始时间" in r.json()["detail"]
+
+
+def test_editing_without_times_leaves_them_alone(pe):
+    """不传时间 = 一个字都不动。前端把原值原样回传，也不该留下「改了截止时间」的日志"""
+    _as_creator(pe)
+    pid = _create(pe, start=-1, end=3)
+    before = pe.client.get(f"/api/polls/{pid}").json()
+
+    r = _edit(pe, pid, title="换个标题", description="")
+    assert r.status_code == 200, r.text
+    assert r.json()["start_at"] == before["start_at"]
+    assert r.json()["end_at"] == before["end_at"]
+
+
+def test_times_and_questions_can_change_in_one_request(pe):
+    """一次 PATCH 同时改开场时间和题目：按**改时间之前**的状态判，两样都算数
+
+    判定用的状态要在动手改之前取 —— 否则「把开场提早到现在」会先把这场变成进行中，
+    同一份表单里刚填好的题目就莫名改不了了。
+    """
+    _as_creator(pe)
+    pid = _create(pe, start=2, end=3)
+
+    r = _edit(pe, pid, title="要不要聚餐", description="",
+              start_at=_stamp(-1), end_at=_stamp(5),
+              questions=[{"title": "改过的题", "multiple": False,
+                          "max_choices": 1, "options": ["甲", "乙"]}])
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["status"] == "open"  # 开场时间真的提前了
+    assert data["questions"][0]["title"] == "改过的题"
+
+
+def test_questions_freeze_once_the_start_moves_into_the_past(pe):
+    """改时间会连带改变「题目还改不改得了」—— 状态本来就是现算的"""
+    _as_creator(pe)
+    pid = _create(pe, start=2, end=3)
+    assert _edit(pe, pid, title="要不要聚餐", description="",
+                 start_at=_stamp(-1)).status_code == 200
+
+    r = _edit(pe, pid, title="要不要聚餐", description="",
+              questions=[{"title": "偷偷换一题", "multiple": False,
+                          "max_choices": 1, "options": ["甲", "乙"]}])
+    assert r.status_code == 400, r.text
+    assert "题目改不了" in r.json()["detail"]
+
+
+# ---------- 改记名（PATCH 里的 anonymous）----------
+#
+# 口径（用户 2026-10-14 拍板）：**开始前允许改记名情况，开始了不许**。和题目同一条
+# 理由 —— 改了等于「换一张票」：记名方式一换，已经投出去的那些票就被重新定义了一遍
+# （不记名的票突然有了主）。没开始时库里不可能有这场投票的作答（can_vote 要求状态
+# 是 open），所以那时怎么改都安全。暂停不等于回到未开始，锁着一样不给改。
+#
+# **字段语义别搞反**：`anonymous=True` 是**不记名**，名册上就不返回谁选了什么。
+
+
+def test_anonymous_can_be_turned_on_before_start(pe):
+    """还没开始时能改成不记名，而且**真生效**：开场、投票，名册上就看不到谁选了什么"""
+    _as_creator(pe)
+    pid = _create(pe, start=2, end=3)  # _body 默认 anonymous=False = 记名
+    assert pe.client.get(f"/api/polls/{pid}").json()["anonymous"] is False
+
+    r = _edit(pe, pid, title="要不要聚餐", description="", anonymous=True)
+    assert r.status_code == 200, r.text
+    assert r.json()["anonymous"] is True
+
+    _start_now(pe, pid)
+    assert _vote_as(pe, VOTER, VOTER_PW, pid).status_code == 200
+    _as_creator(pe)
+    rows = pe.client.get(f"/api/polls/{pid}/ballots").json()["rows"]
+    row = next(r for r in rows if r["student_no"] == VOTER)
+    assert row["voted"] is True, "名单照给 —— 催票要按它算未投人数"
+    assert row["choices"] is None, "改成不记名了，谁选了什么就不该再露出来"
+
+
+def test_anonymous_can_be_turned_off_before_start(pe):
+    """反过来也一样：还没开始时能从「不记名」改回记名"""
+    _as_creator(pe)
+    pid = _create(pe, start=2, end=3)
+    assert _edit(pe, pid, title="要不要聚餐", description="",
+                 anonymous=True).json()["anonymous"] is True
+
+    r = _edit(pe, pid, title="要不要聚餐", description="", anonymous=False)
+    assert r.status_code == 200, r.text
+    assert r.json()["anonymous"] is False
+
+
+def test_anonymous_is_frozen_once_started(pe):
+    """已经开投了就不许再改 —— 记名的票不能突然变成没主"""
+    _as_creator(pe)
+    pid = _create(pe, start=-1, end=3)  # start_at 在过去 = 进行中
+    assert _vote_as(pe, VOTER, VOTER_PW, pid).status_code == 200
+    _as_creator(pe)
+
+    r = _edit(pe, pid, title="要不要聚餐", description="", anonymous=True)
+    assert r.status_code == 400, r.text
+    assert "记名方式" in r.json()["detail"]
+    # 拒了就不许落库
+    assert pe.client.get(f"/api/polls/{pid}").json()["anonymous"] is False
+
+
+def test_a_paused_poll_still_freezes_anonymous(pe):
+    """暂停不等于回到未开始：锁着一样不给改记名，那会儿的票还挂在那儿"""
+    _as_creator(pe)
+    pid = _create(pe, start=-1, end=3)
+    assert _lock(pe, pid).status_code == 200
+
+    r = _edit(pe, pid, title="要不要聚餐", description="", anonymous=True)
+    assert r.status_code == 400, r.text
+    assert "记名方式" in r.json()["detail"]
+
+
+def test_editing_without_anonymous_leaves_it_alone(pe):
+    """不传 = 一个字都不动：改成记名之后只动标题，记名得留着"""
+    _as_creator(pe)
+    pid = _create(pe, start=2, end=3)
+    assert _edit(pe, pid, title="要不要聚餐", description="",
+                 anonymous=True).status_code == 200
+
+    r = _edit(pe, pid, title="换个标题", description="")
+    assert r.status_code == 200, r.text
+    assert r.json()["title"] == "换个标题"
+    assert r.json()["anonymous"] is True
+
+
+def test_times_and_anonymous_can_change_in_one_request(pe):
+    """一次 PATCH 同时提前开场和改记名：状态按**改时间之前**取，两样都算数
+
+    判定用的状态必须在动手改之前取 —— 否则「把开场提早到现在」会先把这场变成
+    进行中，同一份表单里刚打开的记名开关就莫名改不了了。
+    """
+    _as_creator(pe)
+    pid = _create(pe, start=2, end=3)
+
+    r = _edit(pe, pid, title="要不要聚餐", description="",
+              start_at=_stamp(-1), anonymous=True)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "open"  # 开场时间真的提前了
+    assert r.json()["anonymous"] is True
 
 
 # ---------- 迁移 ----------
