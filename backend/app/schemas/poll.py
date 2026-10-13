@@ -42,16 +42,29 @@ class PollCreate(BaseModel):
 class PollUpdate(BaseModel):
     """编辑一次投票（发起人或管理员）
 
-    **只有标题和描述是随便改的**，匿名与否、起止时间、表决范围这三样一个都不在
-    这里 —— 它们改了都会动摇已经投出去的票。表决范围尤其不能动：把已投的人改成
-    范围外，他那张票算不算数就说不清了。要改这些就删了重发（删除接口本来就允许
-    删已有人投的）。
+    **标题和描述随便改**；起止时间按状态分档（**不在这里判，见 api/polls.py 的
+    update_poll**）：还没开始的两个都能改，已经开始的只能改截止时间，已结束的一个
+    都不给改。**记名与否只有还没开始时能改。**
+
+    **表决范围一个都不在这里** —— 它改了会动摇已经投出去的票：把已投的人改成范围外，
+    他那张票算不算数就说不清了，反过来加人等于已经开投了才放人进来。要换人只能删了
+    重发（删除接口本来就允许删已有人投的）。
 
     questions 不传 = 只改标题和描述；传了 = 整卷替换，而且**只有还没开始的投票**
     接受，理由见 api/polls.py 的 update_poll。
     """
     title: str = Field(..., max_length=200, description="标题")
     description: str = Field("", max_length=2000, description="描述")
+    # None = 不改。**不给空值留别的含义**：时间本来就不可能被清成空
+    start_at: datetime | None = Field(
+        None, description="新的开始时间，不传=不改。只有还没开始的投票能改"
+    )
+    end_at: datetime | None = Field(
+        None, description="新的截止时间，不传=不改。已经开始的（含已暂停）也能调整"
+    )
+    anonymous: bool | None = Field(
+        None, description="记名还是匿名，不传=不改。只有还没开始的投票能改"
+    )
     questions: list[PollQuestionIn] | None = Field(
         None, min_length=1, max_length=30,
         description="传了就把题目整卷换掉，只对还没开始的投票有效",

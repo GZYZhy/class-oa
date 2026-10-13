@@ -1876,7 +1876,7 @@ console.log('\n▶ 投票能编辑：标题描述随时改，题目只在没开�
     '已开始：描述照样能改')
 
   // ---------- 提交那一下 ----------
-  check(/if \(!questionsLocked\.value\) payload\.questions = buildQuestions\(\)/.test(pollSrc),
+  check(/if \(!startedLocked\.value\) payload\.questions = buildQuestions\(\)/.test(pollSrc),
     '题目锁着时**一个字都不传 questions** —— 后端只在收到它时才替换，已开始带了会被 400')
   check(/await updatePoll\(editingId\.value, payload\)/.test(pollSrc), '编辑走 updatePoll')
   check(/defineExpose\(\{ open, openForEdit \}\)/.test(pollSrc), 'openForEdit 暴露给父组件')
@@ -1899,7 +1899,8 @@ console.log('\n▶ 投票能编辑：标题描述随时改，题目只在没开�
   // ---------- 后端 ----------
   const pollsPy = src('/../backend/app/api/polls.py')
   check(/@router\.patch\("\/\{poll_id\}"/.test(pollsPy), '后端有 PATCH /api/polls/{poll_id}')
-  check(/poll_status\(poll\) != STATUS_PENDING[\s\S]{0,400}?题目改不了/.test(pollsPy),
+  // 状态是上面算好一次的 `status`（记名那段也用它），不再在题目这里现算一遍
+  check(/status != STATUS_PENDING[\s\S]{0,400}?题目改不了/.test(pollsPy),
     '题目只在未开始时能换，否则回一句中文原因（不是 422 的数组）')
   // 窗口 800：update_poll 光是 docstring 就五百来字，卡太紧会因为「注释写长了」而红
   check(/def update_poll[\s\S]{0,800}?_load_manageable\(db, poll_id, user, is_admin\(user\)\)/
@@ -2020,6 +2021,136 @@ console.log('\n▶ 投票能暂停：暂停不是结束')
   const schemaSrc = src('/../backend/app/schemas/poll.py')
   check(/status: str = Field[\s\S]{0,220}?locked 已暂停/.test(schemaSrc),
     '接口文档里的 status 说明补上了第四种取值')
+}
+
+console.log('\n▶ 投票能改时间：没开始的都能改，开始了只能改截止时间')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const { canEditTimes } = await server.ssrLoadModule('/src/utils/poll.js')
+
+  // ---------- 分档规则（真跑） ----------
+  check(JSON.stringify(canEditTimes('pending')) === '{"start_at":true,"end_at":true}',
+    '未开始：两个都能改（把开场时间往后推 = 推迟开场）')
+  check(JSON.stringify(canEditTimes('open')) === '{"start_at":false,"end_at":true}',
+    '进行中：只能改截止时间')
+  check(JSON.stringify(canEditTimes('locked')) === '{"start_at":false,"end_at":true}',
+    '已暂停也是只能改截止时间 —— 暂停只是不收票，不等于回到未开始')
+  check(JSON.stringify(canEditTimes('closed')) === '{"start_at":false,"end_at":false}',
+    '已结束：一个都不给改（closed_at 优先，改了也不生效，允许就是骗人）')
+  check(canEditTimes('').end_at === true && canEditTimes().end_at === true,
+    '状态取不到时按「还能改」兜底 —— 宁可让后端去拒，也别把框锁死让人干瞪眼')
+
+  // ---------- 接线：两个 picker 各绑各的字段 ----------
+  const dlgSrc = src('/src/components/PollCreateDialog.vue')
+  check(!/时间不能改/.test(dlgSrc),
+    '那句「时间不能改：投票进行中改截止时间…要改就删了重发」删干净了')
+  check(/const timeEdit = computed\(\(\) => canEditTimes\(editingStatus\.value\)\)/.test(dlgSrc),
+    '能不能改时间来自那个纯函数，组件里不另写一份判据')
+  check(/editingStatus\.value = poll\.status \|\| 'pending'/.test(dlgSrc),
+    'openForEdit 把这场投票的状态记下来 —— 忘了记，进行中的开始时间就会被当成未开始放开')
+  check(/editingStatus\.value = 'pending'/.test(dlgSrc),
+    '出卷 / 重置时状态回到 pending（不然上一次编辑留下的状态会串到下一次）')
+
+  // 两个 disabled 绑反了会怎样：开始时间那一栏跟着 end_at 走，「进行中还能改截止时间」
+  // 就变成了「还能改开始时间」，看着能编辑、提交却被后端 400
+  const startPicker = dlgSrc.slice(dlgSrc.indexOf('form.start_at'), dlgSrc.indexOf('form.end_at'))
+  const endPicker = dlgSrc.slice(dlgSrc.indexOf('form.end_at'), dlgSrc.indexOf('是否记名'))
+  check(/:disabled="!timeEdit\.start_at"/.test(startPicker), '开始时间那个框绑的是 start_at')
+  check(/:disabled="!timeEdit\.end_at"/.test(endPicker), '截止时间那个框绑的是 end_at')
+
+  // ---------- 接线：校验与提交 ----------
+  check(/if \(timeEdit\.value\.end_at\) \{[\s\S]{0,600}?投票跨度不能超过一年'/.test(dlgSrc),
+    '编辑时也走同一套时间校验 —— 原先整块包在「只有出卷才填」里，编辑改的时间没人管')
+  check(/if \(timeEdit\.value\.start_at\) payload\.start_at = form\.start_at/.test(dlgSrc)
+    && /if \(timeEdit\.value\.end_at\) payload\.end_at = form\.end_at/.test(dlgSrc),
+    '不能改的字段一个字都不往上传（灰着的框还传，读代码的人会以为它真能改）')
+
+  // ---------- 后端 ----------
+  const pollsPy = src('/../backend/app/api/polls.py')
+  check(/if status == STATUS_CLOSED:\s*\n\s*raise HTTPException\(status_code=400, detail="投票已经结束，时间改不了了"\)/
+    .test(pollsPy), '已结束的投票改时间直接 400')
+  check(/if data\.start_at is not None and status != STATUS_PENDING:/.test(pollsPy),
+    '已经开始的改不了开始时间（它已经过去了）')
+  // **顺序即口径**：时间先校验、题目在中间、赋值放最后。反过来先赋值的话，「把开场提早
+  // 到现在」会当场把这场变成进行中，同一份表单里刚填好的题目就莫名改不了了
+  const checkTimeAt = pollsPy.indexOf('_check_time(data.start_at or poll.start_at')
+  const questionsAt = pollsPy.indexOf('if data.questions is not None:')
+  const assignAt = pollsPy.indexOf('poll.start_at = data.start_at')
+  check(checkTimeAt > 0 && checkTimeAt < questionsAt && questionsAt < assignAt,
+    '顺序：先校验时间 → 再处理题目 → 最后落库（题目那段要按改时间之前的状态判）')
+  check(/poll\.end_at = data\.end_at\s*\n\s*changed\.append\("截止时间"\)/.test(pollsPy),
+    '值真变了才写、才记一笔 —— 「原样回传」和「真改了」在操作日志上得分得开')
+
+  const schemaSrc = src('/../backend/app/schemas/poll.py')
+  check(/start_at: datetime \| None = Field\(/.test(schemaSrc)
+    && /end_at: datetime \| None = Field\(/.test(schemaSrc),
+    'PollUpdate 里多了这两个可选字段（不传 = 不改）')
+  check(!/匿名与否、起止时间、表决范围这三样一个都不在这里/.test(schemaSrc),
+    'schema 的说明里不再写着「起止时间不在可编辑之列」')
+
+  const voteApi = src('/src/api/vote.js')
+  check(/start_at\?: string, end_at\?: string/.test(voteApi),
+    'api 的 JSDoc 里也标出了这两个字段')
+}
+
+console.log('\n▶ 投票能改记名：开始前随便改，开始了不许')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const { canEditBeforeStart } = await server.ssrLoadModule('/src/utils/poll.js')
+
+  // ---------- 判据（真跑） ----------
+  check(canEditBeforeStart('pending') === true, '未开始：能改')
+  check(canEditBeforeStart('open') === false, '进行中：不许改 —— 那会儿已经有票了')
+  check(canEditBeforeStart('locked') === false,
+    '已暂停也不许改：暂停只是不收票，票还挂在那儿，不等于回到未开始')
+  check(canEditBeforeStart('closed') === false, '已结束：更不用说了')
+  check(canEditBeforeStart() === false, '状态取不到时按「不许改」兜底 —— 后端说了算')
+
+  // ---------- 接线 ----------
+  const dlgSrc = src('/src/components/PollCreateDialog.vue')
+  check(/const startedLocked = computed\(\(\) => !canEditBeforeStart\(editingStatus\.value\)\)/
+    .test(dlgSrc), '题目和记名共用同一个判据（都是「只有没开始才改得动」），不另写一份')
+  check(!/questionsLocked/.test(dlgSrc),
+    '原来那个 questionsLocked 已改名 —— 留着会让人以为它只管题目，记名就能绕过去')
+
+  // 记名那一整块：开关绑的是状态，不是「在不在编辑」——绑 isEdit 的话，
+  // 编辑一场还没开始的投票时，记名会被无端锁死（明明还能改）
+  const anonAt = dlgSrc.indexOf('<el-form-item label="是否记名">')
+  const anonBlock = dlgSrc.slice(anonAt, dlgSrc.indexOf('二、有权表决的人'))
+  check(/:disabled="startedLocked"/.test(anonBlock), '记名开关绑的是「已经开始了没有」')
+  check(!/isEdit/.test(anonBlock), '它不再绑 isEdit —— 未开始的投票编辑时记名照样能改')
+  check(/投票已经开始，记名方式改不了了/.test(anonBlock),
+    '灰掉时说清为什么，不然看着像坏了')
+  check(/if \(!startedLocked\.value\) payload\.anonymous = form\.anonymous/.test(dlgSrc),
+    '没开始的才把记名往上传')
+
+  // ---------- 那句「表决范围不能改」按用户要求删掉了 ----------
+  check(!/表决范围不能改/.test(dlgSrc), '那句「要换人请删了重发」删干净了')
+  check(/共 \{\{ editTargetCount \}\} 人 · 不能改/.test(dlgSrc),
+    '但范围本身还是改不了：编辑时只显示一个人数，整块名单都不渲染')
+
+  // ---------- 后端 ----------
+  const pollsPy = src('/../backend/app/api/polls.py')
+  check(/if data\.anonymous is not None:\s*\n\s*if status != STATUS_PENDING:\s*\n\s*raise HTTPException\(status_code=400, detail="投票已经开始，记名方式改不了了"\)/
+    .test(pollsPy), '已经开始的改记名直接 400')
+  const statusAt = pollsPy.indexOf('status = poll_status(poll)')
+  const anonAt2 = pollsPy.indexOf('if data.anonymous is not None:')
+  const assignAt2 = pollsPy.indexOf('poll.anonymous = data.anonymous')
+  check(statusAt > 0 && statusAt < anonAt2 && anonAt2 < assignAt2,
+    '状态在任何改动之前算一次，记名段用的就是它（一次请求里的改动是原子的）')
+  check(/if data\.anonymous != bool\(poll\.anonymous\):\s*\n\s*poll\.anonymous = data\.anonymous/
+    .test(pollsPy), '值真变了才写、才记一笔（「原样回传」和「真改了」得分得开）')
+  check(/题目和记名与否都只在这张卷子还没开始时能改/.test(pollsPy),
+    '接口注释里的口径跟着改了（题目和记名同一条理由：改了都是「换一张票」）')
+
+  const schemaSrc = src('/../backend/app/schemas/poll.py')
+  check(/anonymous: bool \| None = Field\(/.test(schemaSrc),
+    'PollUpdate 里多了 anonymous（不传 = 不改）')
+  check(/记名与否只有还没开始时能改/.test(schemaSrc), 'schema 的说明跟着换成新口径')
+
+  const voteApi = src('/src/api/vote.js')
+  check(/anonymous\?: boolean/.test(voteApi), 'api 的 JSDoc 里标出了这个字段')
+  check(!/记名与否还是改不了/.test(voteApi), '那句过期的话删了')
 }
 
 await server.close()
