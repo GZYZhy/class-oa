@@ -89,6 +89,10 @@
                 <el-dropdown-menu>
                   <el-dropdown-item command="edit">编辑</el-dropdown-item>
                   <el-dropdown-item command="roster">投票名单</el-dropdown-item>
+                  <!-- 一个入口两用，文案跟着状态走。暂停不是结束：解锁后照样能投 -->
+                  <el-dropdown-item command="toggleLock" :disabled="!canToggleLock(row)">
+                    {{ row.status === 'locked' ? '恢复投票' : '暂停投票' }}
+                  </el-dropdown-item>
                   <el-dropdown-item command="close" :disabled="row.status === 'closed'">
                     立即结束
                   </el-dropdown-item>
@@ -323,7 +327,9 @@ import {
   getBallots,
   getPoll,
   getPolls,
+  lockPoll,
   remindPoll,
+  unlockPoll,
   // 和下面存详情的 votePoll 重名，改个名
   votePoll as submitVote
 } from '@/api/vote'
@@ -333,11 +339,14 @@ import { formatDateTime } from '@/utils/format'
 import {
   POLL_LETTERS as letters,
   actionText,
+  canToggleLock,
   myStateText,
   percentOf,
   statusLabel,
   statusTag,
-  sumOf
+  sumOf,
+  // 和下面那个 computed 重名，改个名。判据本身放 utils 里是为了能被单独跑起来验
+  voteBlockReason as blockReasonOf
 } from '@/utils/poll'
 import { useUserStore } from '@/store/user'
 
@@ -369,14 +378,8 @@ const resultPoll = ref({})
 const resultTab = ref('tally')
 const ballots = ref({ total: 0, voted_count: 0, rows: [] })
 
-/** 不能投的原因。顺序与后端 can_vote 的口径一致：已投 → 没开始 → 已结束 → 不在范围内 */
-const voteBlockReason = computed(() => {
-  const p = votePoll.value
-  if (p.status === 'pending') return '投票还没开始，到时间后才能作答'
-  if (p.status === 'closed') return '投票已结束'
-  if (!p.is_target) return '你不在本次投票的表决范围内，只能看题目'
-  return '现在不能投票'
-})
+/** 不能投的原因。判据在 utils/poll.js，和「暂停了」「不在范围内」的分支顺序一起放在那儿 */
+const voteBlockReason = computed(() => blockReasonOf(votePoll.value))
 
 // ---------- 列表 ----------
 
@@ -586,6 +589,7 @@ async function handleRemind() {
 function handleCommand(command, row) {
   if (command === 'edit') return handleEdit(row)
   if (command === 'roster') return openDetail(row, 'roster')
+  if (command === 'toggleLock') return handleToggleLock(row)
   if (command === 'close') return handleClose(row)
   if (command === 'delete') return handleDelete(row)
 }
@@ -604,6 +608,41 @@ function handleSaved() {
   fetchList()
   // silent：这里失败了不用再弹一次错，上面那条已经提示过保存的结果了
   if (resultVisible.value) refreshResult(true)
+}
+
+/**
+ * 暂停 / 恢复收票。**暂停不是结束**：解锁后照样能投，到点没解开则照常自动结束
+ *
+ * 两条路径共用这一个函数，文案和请求都跟着当前状态走 —— 分成两个函数的话，
+ * 「结果弹窗正开着要刷新、轮询要跟着停/起」这段就得抄两遍。
+ */
+async function handleToggleLock(row) {
+  const locking = row.status !== 'locked'
+  const tip = locking
+    ? '暂停期间谁都不能投票，结果和名单照常能看。到截止时间还没恢复的话，会照常自动结束。'
+    : '恢复后范围内的人又能接着投。'
+  try {
+    await ElMessageBox.confirm(`${tip}确定${locking ? '暂停' : '恢复'}「${row.title}」吗？`,
+      locking ? '暂停投票' : '恢复投票',
+      { type: 'warning', confirmButtonText: locking ? '暂停' : '恢复', cancelButtonText: '取消' }
+    )
+  } catch {
+    return // 点了取消
+  }
+  try {
+    await (locking ? lockPoll : unlockPoll)(row.id)
+    ElMessage.success(locking ? '已暂停' : '已恢复')
+    fetchList()
+    if (resultVisible.value && resultPoll.value.id === row.id) {
+      await refreshResult()
+      // startPolling 不在 refreshResult 里，所以这里得自己管一次：暂停期间票数不会
+      // 再变，让定时器空转纯属白发请求；解锁了票数又能变，照 handleClose 的反面接上
+      if (locking) stopPolling()
+      else startPolling()
+    }
+  } catch (e) {
+    ElMessage.error(errText(e, locking ? '暂停失败' : '恢复失败'))
+  }
 }
 
 async function handleClose(row) {

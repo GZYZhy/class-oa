@@ -23,12 +23,17 @@ from ..database import Base
 class Poll(Base):
     """一次投票（一张卷子）
 
-    **状态不落库**：未开始 / 进行中 / 已结束由 start_at、end_at、closed_at
-    三个时刻现算（services/poll_service.poll_status）。存一个 status 列就要在
-    到点时有人去改它，而本项目没有为投票转的调度线程 —— 算出来的状态永远不会过期。
+    **状态不落库**：未开始 / 进行中 / 已暂停 / 已结束由 start_at、end_at、
+    closed_at、locked_at 几个时刻现算（services/poll_service.poll_status）。存一个
+    status 列就要在到点时有人去改它，而本项目没有为投票转的调度线程 —— 算出来的
+    状态永远不会过期。
 
     `closed_at` 是「立即结束」按下的时刻，单独一列而不直接改写 end_at：
     改了就再也看不出这场原本打算什么时候截止。
+
+    `locked_at` 同款，是「暂停」按下的时刻。**暂停不是结束**：它只暂时不收票，
+    暂停期间到了截止时间照样自动结束 —— 落地方式就是 poll_status 里 end_at 那条
+    判断抢在锁定判断前面，不需要任何定时任务。
     """
     __tablename__ = "polls"
 
@@ -47,6 +52,9 @@ class Poll(Base):
     start_at = Column(DateTime, nullable=False, comment="开始时间")
     end_at = Column(DateTime, nullable=False, comment="截止时间")
     closed_at = Column(DateTime, nullable=True, comment="手动结束的时刻，空=没手动结束")
+    # 和 closed_at 一样，存的是「某个动作发生的时刻」而不是状态本身：状态仍由
+    # poll_status 现算，解锁就是把它清回 NULL
+    locked_at = Column(DateTime, nullable=True, comment="暂停的时刻，空=没暂停")
 
     creator_no = Column(String(20), index=True, comment="发起人学号")
     # 姓名冗余一份：与 LeaveRequest / AttendanceItem 同一口径，发起人删档后投票还读得懂

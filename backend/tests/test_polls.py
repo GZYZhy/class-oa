@@ -1,8 +1,8 @@
-"""投票的回归：出卷名单带得出政治面貌、点名收得下「共青团员」、投票能编辑
+"""投票的回归：出卷名单带得出政治面貌、点名收得下「共青团员」、投票能编辑、能暂停
 
     cd backend && python -m pytest tests -q
 
-盯三件事：
+盯四件事：
 
 1. GET /api/polls/roster 得把每个人的政治面貌带回给出卷弹窗。「仅团员」那枚快捷键
    的判据在前端（utils/roster.js 的 isLeagueMember），后端只要少回一个字段、
@@ -15,6 +15,11 @@
 3. PATCH /api/polls/{id} 编辑投票的边界。最容易写错、也最不该写错的是**题目只在
    没开始时能换**：作答存的是选项下标，已经开始之后再动题目，历史作答会整体错位，
    而库里的数据看不出任何异常。
+
+4. POST /api/polls/{id}/lock 暂停收票。**暂停不是结束** —— 解开之后照样能投，
+   锁着到截止时间则照常自动结束。最容易写丢的是后半句：它的落地方式仅仅是
+   poll_service.poll_status 里判断截止时间那条排在暂停之前，谁把这两条调个个儿，
+   被暂停过的投票就会永远挂在「已暂停」上，再没人能收尾。
 """
 from datetime import datetime, timedelta
 
@@ -311,3 +316,203 @@ def test_edit_is_404_for_anyone_else(pe):
     pe.logout()
     assert pe.login(student_no=CREATOR, password=CREATOR_PW).status_code == 200
     assert pe.client.get(f"/api/polls/{pid}").json()["title"] == "要不要聚餐"
+
+
+# ---------- 暂停 / 恢复（POST /api/polls/{id}/lock | /unlock）----------
+#
+# 口径：**暂停不是结束**。暂停只是临时不收票，解锁后照样能投；锁着到点没解开则
+# 照常自动结束。所以这一节盯的不是「状态翻没翻」，而是**解除之后真投得进去**，
+# 以及**锁着到点了会不会自己停** —— 后者靠 poll_status 里判断截止时间那条排在
+# 暂停之前，一旦有人把它们调换，这场投票就会永远挂在「已暂停」上没人能收尾。
+
+
+def _lock(b, poll_id):
+    return b.client.post(f"/api/polls/{poll_id}/lock")
+
+
+def _unlock(b, poll_id):
+    return b.client.post(f"/api/polls/{poll_id}/unlock")
+
+
+def _set_end(b, poll_id, hours):
+    """把截止时间拨到相对现在 hours 小时之后（负数 = 已经过点）
+
+    同 _start_now：编辑接口里没有时间字段，测「到点自动结束」只能直接改库。
+    """
+    b.run(
+        "UPDATE polls SET end_at = ? WHERE id = ?",
+        (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+        poll_id,
+    )
+
+
+def _vote_as(b, student_no, password, poll_id, choices=(0,)):
+    """换个人登录去把这场投了（_body 里只有一题）。返回响应对象"""
+    b.logout()
+    assert b.login(student_no=student_no, password=password).status_code == 200
+    question_id = b.client.get(f"/api/polls/{poll_id}").json()["questions"][0]["id"]
+    return b.client.post(f"/api/polls/{poll_id}/vote", json={
+        "answers": [{"question_id": question_id, "choices": list(choices)}],
+    })
+
+
+def _as_creator(b):
+    """切回发起人视角（_vote_as 会把登录切成别人）"""
+    b.logout()
+    assert b.login(student_no=CREATOR, password=CREATOR_PW).status_code == 200
+
+
+def test_lock_then_unlock_then_vote(pe):
+    """**暂停不是结束**：锁着投不进、解开就投得进 —— 这一条是整件事的落点"""
+    pid = _create(pe, start=-1, end=2)  # start_at 在过去 = 进行中
+
+    r = _lock(pe, pid)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "locked"
+    assert r.json()["can_vote"] is False, "锁着的时候谁都不该还能投"
+
+    blocked = _vote_as(pe, VOTER, VOTER_PW, pid)
+    assert blocked.status_code == 400, blocked.text
+    # **必须是「暂停」那句**：回「还没开始或已经结束」会让人以为这场票黄了，
+    # 而它其实只是歇一会儿
+    assert "暂停" in blocked.json()["detail"], blocked.json()
+    assert pe.rows("SELECT COUNT(*) FROM poll_answers WHERE poll_id = ?", pid)[0][0] == 0
+
+    _as_creator(pe)
+    assert _unlock(pe, pid).json()["status"] == "open"
+
+    r = _vote_as(pe, VOTER, VOTER_PW, pid)
+    assert r.status_code < 300, r.text
+    assert pe.rows("SELECT COUNT(*) FROM poll_answers WHERE poll_id = ?", pid)[0][0] == 1
+
+
+def test_locked_poll_still_shows_results_and_ballots(pe):
+    """锁定期结果和名单照常看得到（用户口径：可见性规则一行都不改）"""
+    pid = _create(pe, start=-1, end=2)
+    assert _vote_as(pe, VOTER, VOTER_PW, pid).status_code < 300
+    _as_creator(pe)
+    assert _lock(pe, pid).status_code == 200
+
+    detail = pe.client.get(f"/api/polls/{pid}").json()
+    assert detail["results_visible"] is True
+    assert detail["questions"][0]["tallies"] == [1, 0], "发起人锁定期照样看得到票数"
+    assert detail["voted_count"] == 1
+    assert pe.client.get(f"/api/polls/{pid}/ballots").json()["voted_count"] == 1
+
+
+def test_locked_poll_closes_at_its_deadline(pe):
+    """锁着到点了就照常结束 —— 不用谁去解锁，也不会永远挂着"""
+    pid = _create(pe, start=-2, end=1)
+    assert _lock(pe, pid).json()["status"] == "locked"
+
+    _set_end(pe, pid, -1)  # 截止时间过了，locked_at 还原样挂着
+
+    detail = pe.client.get(f"/api/polls/{pid}").json()
+    assert detail["status"] == "closed", "判断截止时间那条要排在暂停之前"
+    assert detail["can_vote"] is False
+
+    # 解锁**不判当前状态**：这种「票已经结束了、暂停的标记还留着」的局面点一下
+    # 就能清掉，不该回一句「只有已暂停的投票才能恢复」——用户看到的只是「标记还在」
+    r = _unlock(pe, pid)
+    assert r.status_code == 200, r.text
+    assert pe.rows("SELECT locked_at FROM polls WHERE id = ?", pid)[0][0] is None
+
+
+def test_locked_poll_can_still_be_closed(pe):
+    """暂停期间照样能「立即结束」：想收口的人不该先被迫解锁一次"""
+    pid = _create(pe, start=-1, end=2)
+    assert _lock(pe, pid).status_code == 200
+
+    r = pe.client.post(f"/api/polls/{pid}/close")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "closed"
+
+
+def test_lock_needs_creator_or_admin(pe):
+    """表决范围里的普通成员也锁不动 —— 一律 404（不泄露「存在但你管不了」）"""
+    pid = _create(pe, start=-1, end=2)
+
+    pe.logout()
+    assert pe.login(student_no=VOTER, password=VOTER_PW).status_code == 200
+    assert _lock(pe, pid).status_code == 404
+    assert _unlock(pe, pid).status_code == 404
+    assert pe.rows("SELECT locked_at FROM polls WHERE id = ?", pid)[0][0] is None
+
+    # 管理员能锁别人发起的投票（和发起人是两个判据，分开钉）
+    pe.logout()
+    assert pe.login(student_no=ADMIN, password=ADMIN_PW).status_code == 200
+    assert _lock(pe, pid).status_code == 200
+
+
+def test_lock_only_works_on_a_running_poll(pe):
+    """没开始的本来就没在收票，已结束的更谈不上暂停 —— 都回一句中文原因"""
+    pending = _create(pe, start=1, end=2)
+    r = _lock(pe, pending)
+    assert r.status_code == 400, r.text
+    assert "进行中" in r.json()["detail"], r.json()
+    assert pe.rows("SELECT locked_at FROM polls WHERE id = ?", pending)[0][0] is None
+
+    closed = _create(pe, start=-1, end=2)
+    assert pe.client.post(f"/api/polls/{closed}/close").status_code == 200
+    assert _lock(pe, closed).status_code == 400
+
+
+def test_lock_and_unlock_are_idempotent(pe):
+    """连点两次：状态不变、**locked_at 不被这次点击改写**、操作日志也不多记"""
+    pid = _create(pe, start=-1, end=2)
+    assert _lock(pe, pid).status_code == 200
+    first = pe.rows("SELECT locked_at FROM polls WHERE id = ?", pid)[0][0]
+
+    assert _lock(pe, pid).json()["status"] == "locked", "第二次点击照样是 200"
+    assert pe.rows("SELECT locked_at FROM polls WHERE id = ?", pid)[0][0] == first, \
+        "再点一次不该把「什么时候暂停的」往后推"
+    logs = "SELECT COUNT(*) FROM operation_logs WHERE action = '暂停投票'"
+    assert pe.rows(logs)[0][0] == 1, "幂等的那次不该再记一条假日志"
+
+    assert _unlock(pe, pid).json()["status"] == "open"
+    assert _unlock(pe, pid).status_code == 200, "本来就没暂停，点一下也不该报错"
+    assert pe.rows("SELECT locked_at FROM polls WHERE id = ?", pid)[0][0] is None
+    logs = "SELECT COUNT(*) FROM operation_logs WHERE action = '恢复投票'"
+    assert pe.rows(logs)[0][0] == 1
+
+
+def test_locked_poll_keeps_questions_frozen(pe):
+    """暂停不等于回到未开始：题目照样锁着（作答存的是选项下标，换了整卷就错位）"""
+    pid = _create(pe, start=-1, end=2)
+    assert _lock(pe, pid).status_code == 200
+
+    r = _edit(pe, pid, title="暂停期间改标题", description="", questions=[{
+        "title": "偷偷换一题", "multiple": False, "max_choices": 1,
+        "options": ["甲", "乙"],
+    }])
+    assert r.status_code == 400, r.text
+    assert "开始" in r.json()["detail"], r.json()
+
+    # 但标题描述照样能改：封的是题目，不是整场投票（和进行中同款）
+    assert _edit(pe, pid, title="暂停期间改标题", description="").status_code == 200
+
+
+# ---------- 迁移 ----------
+
+def test_migration_adds_locked_at(backend):
+    """老库（polls 缺 locked_at）启动一次就该补上，老行一律「从没暂停过」"""
+    b = _world(backend, "polls_mig.db")
+    r = b.client.put(f"/api/admin/users/{CREATOR}/role", json={"role": "committee"})
+    assert r.status_code < 300, r.text
+    pid = _create(b, start=-1, end=2)
+
+    # 退回补列之前的样子：SQLite 3.35+ 才有 DROP COLUMN（本机 3.50）
+    b.run("ALTER TABLE polls DROP COLUMN locked_at")
+    assert "locked_at" not in {row[1] for row in b.rows("PRAGMA table_info(polls)")}, \
+        "得先确认旧结构真造出来了，否则下面那条是假通过"
+
+    b2 = backend(db="polls_mig.db", BOOTSTRAP_PASSWORD=PW)  # 同一个库再起一次 = 重启
+    assert "locked_at" in {row[1] for row in b2.rows("PRAGMA table_info(polls)")}
+    assert b2.rows("SELECT locked_at FROM polls WHERE id = ?", pid)[0][0] is None
+
+    # 补上来的列得**真能用**：老投票照常读得出、也照常暂停得了 —— 这才是接口层的落点
+    # （b2 是另一个进程、另一份 cookie，先登录）
+    assert b2.login(student_no=ADMIN, password=ADMIN_PW).status_code == 200
+    detail = b2.client.get(f"/api/polls/{pid}").json()
+    assert detail["status"] == "open", "补列前就在进行的投票，不该凭空变成已暂停"
+    assert b2.client.post(f"/api/polls/{pid}/lock").json()["status"] == "locked"

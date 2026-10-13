@@ -109,7 +109,11 @@ class PollListItem(BaseModel):
     title: str
     description: str = ""
     anonymous: bool = Field(False, description="不记名：界面上要标出来，记名反而不标")
-    status: str = Field(..., description="pending 未开始 / open 进行中 / closed 已结束")
+    status: str = Field(
+        ...,
+        description="pending 未开始 / open 进行中 / locked 已暂停（临时停收票，解锁后还能投）"
+        " / closed 已结束",
+    )
     start_at: datetime
     end_at: datetime
     closed_at: datetime | None = None
