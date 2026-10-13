@@ -66,17 +66,6 @@
       <!-- 舞台：两种模式的展示方式不同，下面的结果列表是共用的 -->
       <div class="dr-stage">
         <template v-if="mode === 'one'">
-          <div class="dr-photo">
-            <img
-              v-if="latest && latest.gaokao_photo && !photoBroken"
-              :src="photoUrl(latest)"
-              class="dr-img"
-              @error="photoBroken = true"
-            />
-            <div v-else class="dr-placeholder">
-              <el-icon style="font-size: 48px;"><Avatar /></el-icon>
-            </div>
-          </div>
           <div class="dr-name">{{ latest ? latest.name : '还没抽' }}</div>
           <div class="dr-no">{{ latest ? latest.student_no : '' }}</div>
 
@@ -152,7 +141,6 @@ const picked = ref([])   // 抽中名单：显示的和复制的都是它
 const latest = ref(null) // 仅 one 模式：舞台上展示的最新一个
 // 仅「不重复」用：本轮抽过谁。重置本轮时清空，picked 不动
 const roundDrawnIds = ref([])
-const photoBroken = ref(false)
 
 const counts = computed(() => ({
   male: pickByScope(roster.value, '男生').length,
@@ -213,7 +201,6 @@ function reset() {
   picked.value = []
   latest.value = null
   roundDrawnIds.value = []
-  photoBroken.value = false
 }
 
 /** 一次性拉全量名单：后端 page_size 上限 500，够全班用，无需分页 */
@@ -268,11 +255,6 @@ function resetRound() {
 
 function copyResult() {
   copyText(picked.value.map((s) => s.name).join('\n'))
-}
-
-/** 照片走带鉴权的接口，靠 Cookie 自动带凭证，与「学生信息」表格里一致 */
-function photoUrl(student) {
-  return `/api/students/${student.id}/photo?type=gaokao`
 }
 
 // 抽了人再关掉，先问一句。结果本来就不落库，所以文案说的是「不再显示」而不是「会丢失记录」
@@ -390,30 +372,6 @@ defineExpose({ open })
   text-align: center;
 }
 
-.dr-photo {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 14px;
-}
-
-.dr-img,
-.dr-placeholder {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
-}
-
-.dr-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-disabled);
-}
-
 .dr-name {
   font-size: 30px;
   font-weight: 600;
@@ -501,12 +459,6 @@ defineExpose({ open })
 @media (max-width: 768px) {
   .dr-name {
     font-size: 26px;
-  }
-
-  .dr-img,
-  .dr-placeholder {
-    width: 96px;
-    height: 96px;
   }
 }
 </style>
