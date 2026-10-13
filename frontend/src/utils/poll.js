@@ -5,9 +5,9 @@
  * 而且「这人在这次投票里是什么处境」这类判断写错不会报错、只会显示成别的字，
  * 放在这儿能被单独跑起来验。
  *
- * 注意：**状态的判定不在前端**。一场投票是未开始 / 进行中 / 已结束，由后端按
- * 开始、截止、手动结束三个时刻现算（services/poll_service.py），前端只把后端给的
- * status 翻成中文，不自己拿时间去比 —— 否则两处口径迟早走散。
+ * 注意：**状态的判定不在前端**。一场投票是未开始 / 进行中 / 已暂停 / 已结束，由后端
+ * 按开始、截止、手动结束、暂停四个时刻现算（services/poll_service.py），前端只把
+ * 后端给的 status 翻成中文，不自己拿时间去比 —— 否则两处口径迟早走散。
  */
 
 import { formatDateTime } from './format'
@@ -15,8 +15,10 @@ import { formatDateTime } from './format'
 /** 选项前的字母：A B C…（选项最多 20 个，用不到后面） */
 export const POLL_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
-const STATUS_TEXT = { pending: '未开始', open: '进行中', closed: '已结束' }
-const STATUS_TAG = { pending: 'warning', open: 'success', closed: 'info' }
+// 进行中绿、未开始橙、已结束灰，暂停给红 —— 四色不撞，且暂停是件要留意的事：
+// 它看着像「进行中」，实际上投不了
+const STATUS_TEXT = { pending: '未开始', open: '进行中', closed: '已结束', locked: '已暂停' }
+const STATUS_TAG = { pending: 'warning', open: 'success', closed: 'info', locked: 'danger' }
 
 export function statusLabel(status) {
   return STATUS_TEXT[status] || status || '—'
@@ -27,13 +29,34 @@ export function statusTag(status) {
   return STATUS_TAG[status] || 'info'
 }
 
-/** 我在这场投票里的处境：已投 / 无需投票 / 未开始 / 未投 / 待投票 */
+/** 我在这场投票里的处境：已投 / 无需投票 / 未开始 / 未投 / 已暂停 / 待投票 */
 export function myStateText(row) {
   if (row.has_voted) return '已投'
   if (!row.is_target) return '无需投票'
   if (row.status === 'pending') return '未开始'
   if (row.status === 'closed') return '未投'
+  // 已投的和范围外的那两条在前面：暂停只影响「还能不能投」，改不了这两件事
+  if (row.status === 'locked') return '已暂停'
   return '待投票'
+}
+
+/** 能不能暂停 / 恢复这场投票：只有进行中和已暂停的能来回切 */
+export function canToggleLock(row) {
+  return row.status === 'open' || row.status === 'locked'
+}
+
+/**
+ * 现在不能投的话，说清楚为什么（能投时这个函数根本不会被调用）
+ *
+ * **顺序即口径**：「不在表决范围内」排在「已暂停」前面 —— 范围外的人看到「已暂停」
+ * 是误导，他等解锁也投不了。两条调换就反了，测试盯着这个顺序。
+ */
+export function voteBlockReason(p = {}) {
+  if (p.status === 'pending') return '投票还没开始，到时间后才能作答'
+  if (p.status === 'closed') return '投票已结束'
+  if (!p.is_target) return '你不在本次投票的表决范围内，只能看题目'
+  if (p.status === 'locked') return '投票已暂停，等发起人解锁后才能继续投'
+  return '现在不能投票'
 }
 
 /** 列表里那个主按钮该叫什么：能投就叫「投票」，否则按看不看得到结果区分 */

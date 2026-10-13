@@ -87,6 +87,21 @@ export function closePoll(id) {
   return request({ url: `/polls/${id}/close`, method: 'post' })
 }
 
+/**
+ * 暂停收票（发起人和管理员）。**暂停不是结束**：解锁后照样能投
+ *
+ * 只认「进行中」的投票；已经结束或还没开始的会被 400。重复调用幂等（返回详情）。
+ * 到点没解开的话，状态会自己变成已结束，不需要谁去收拾。
+ */
+export function lockPoll(id) {
+  return request({ url: `/polls/${id}/lock`, method: 'post' })
+}
+
+/** 恢复收票（发起人和管理员）。重复调用幂等，返回详情 */
+export function unlockPoll(id) {
+  return request({ url: `/polls/${id}/unlock`, method: 'post' })
+}
+
 /** 删除一场投票（发起人和管理员），已有人投过也允许 */
 export function deletePoll(id) {
   return request({ url: `/polls/${id}`, method: 'delete' })

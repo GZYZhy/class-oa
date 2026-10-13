@@ -15,22 +15,27 @@ from sqlalchemy.orm import Session
 
 from ..models import Poll, PollAnswer, PollQuestion, PollTarget, Student, User
 
-# 三种状态。前端在 views/Vote.vue 里按这三个值分支，改的时候两边一起改
+# 四种状态。前端在 views/Vote.vue 和 utils/poll.js 里按这几个值分支，改的时候一起改
 STATUS_PENDING = "pending"
 STATUS_OPEN = "open"
 STATUS_CLOSED = "closed"
+# 已暂停：发起人临时停止收票，**不是结束** —— 解锁后还能继续投
+STATUS_LOCKED = "locked"
 
 
 # ---------- 状态与可见性 ----------
 
 def poll_status(poll: Poll, now: datetime | None = None) -> str:
-    """未开始 / 进行中 / 已结束
+    """未开始 / 进行中 / 已暂停 / 已结束
 
-    表里**没有 status 列**，全靠 start_at、end_at、closed_at 三个时刻现算 ——
+    表里**没有 status 列**，全靠 start_at、end_at、closed_at、locked_at 几个时刻现算 ——
     到点自动结束是「算出来」的，不需要有人定时去改状态（本项目没有为投票转的调度线程，
     存了状态列反而要担心它过期）。
 
     closed_at 优先于时间判断：手动结束之后，即便还没到 end_at 也算结束。
+
+    **locked 那两条必须排在 end_at 那条之后**：暂停期间到了截止时间要照常自动结束
+    （暂停只是不收票，不是把终点推后），锁着不放也不会让这场投票永远挂着。
     """
     now = now or datetime.now()
     if poll.closed_at is not None:
@@ -39,6 +44,8 @@ def poll_status(poll: Poll, now: datetime | None = None) -> str:
         return STATUS_PENDING
     if now > poll.end_at:
         return STATUS_CLOSED
+    if poll.locked_at is not None:
+        return STATUS_LOCKED
     return STATUS_OPEN
 
 

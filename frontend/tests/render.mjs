@@ -1908,6 +1908,120 @@ console.log('\n▶ 投票能编辑：标题描述随时改，题目只在没开�
     '替换题目复用出卷那份校验，没有另写一套')
 }
 
+console.log('\n▶ 投票能暂停：暂停不是结束')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+
+  // ---------- 判定规则：真跑 utils/poll.js ----------
+  const { statusLabel, statusTag, myStateText, canToggleLock, voteBlockReason } =
+    await server.ssrLoadModule('/src/utils/poll.js')
+
+  check(statusLabel('locked') === '已暂停', '第四种状态的标签是「已暂停」')
+  check(statusTag('locked') === 'danger', '暂停用红色 —— 它看着像进行中，其实投不了')
+  check(new Set(['pending', 'open', 'closed', 'locked'].map(statusTag)).size === 4,
+    '四种状态四种颜色，互不撞：撞了暂停就和别的状态分不出来')
+
+  // 我的状态那一列：暂停只影响「还能不能投」，改不了另两种处境
+  const row = (o) => ({ has_voted: false, is_target: true, status: 'open', ...o })
+  check(myStateText(row({ status: 'locked' })) === '已暂停',
+    '进行中没投的人，暂停后显示「已暂停」')
+  check(myStateText(row({ status: 'locked', has_voted: true })) === '已投',
+    '投过的人照样显示「已投」—— 暂停不是把票退回来')
+  check(myStateText(row({ status: 'locked', is_target: false })) === '无需投票',
+    '范围外的人也不该被暂停影响（那两条判据排在前面）')
+  check(myStateText(row({})) === '待投票', '原样的进行中还是「待投票」，没被带偏')
+
+  check(canToggleLock(row({ status: 'open' })) && canToggleLock(row({ status: 'locked' })),
+    '只有进行中和已暂停的能来回切')
+  check(!canToggleLock(row({ status: 'pending' })) && !canToggleLock(row({ status: 'closed' })),
+    '没开始、已结束的都不给点（菜单项是禁用的）')
+
+  // **顺序是这一段最该钉的**：「不在范围内」排在「已暂停」前面
+  check(voteBlockReason({ status: 'locked', is_target: true })
+    === '投票已暂停，等发起人解锁后才能继续投', '锁定时给的是「暂停」那句')
+  check(voteBlockReason({ status: 'locked', is_target: false })
+    === '你不在本次投票的表决范围内，只能看题目',
+    '范围外的人先看范围：跟他说「已暂停」是误导 —— 等解锁他也投不了')
+  check(voteBlockReason({ status: 'closed', is_target: false }) === '投票已结束',
+    '已结束排在范围前面（结束这件事对谁都一样）')
+  check(voteBlockReason({ status: 'open', is_target: true }) === '现在不能投票',
+    '兜底那句话说得出话')
+  check(typeof voteBlockReason() === 'string' && voteBlockReason() !== '',
+    '弹窗没开时传进来的是空对象，不能抛异常、也不能返回空白')
+
+  // ---------- 列表状态列真渲染 ----------
+  // 表格数据行在 SSR 下不渲染（见文件头），把 rows 灌进去才看得到那一列
+  const LIST_ROW = (status) => JSON.stringify([{
+    id: 1, title: '要不要聚餐', description: '', anonymous: false, status,
+    question_count: 1, target_count: 3, voted_count: 1, end_at: '2026-10-13 18:00',
+    closed_at: null, is_target: true, has_voted: true, results_visible: true,
+    can_manage: true, can_vote: false
+  }])
+  const listHtml = async (status) => stripComments(
+    (await renderPatchedMany('/src/views/Vote.vue',
+      [['const rows = ref([])', `const rows = ref(${LIST_ROW(status)})`]])).html
+  )
+
+  const paused = await listHtml('locked')
+  check(paused.includes('已暂停'), '列表状态列真渲染出「已暂停」')
+  // 不记名那一枚没渲染时，页面上就这一个 el-tag，所以断颜色是准的
+  check(paused.includes('el-tag--danger'),
+    '暂停的标签是红的（别和进行中的绿混了，两者一眼看上去都是「还没结束」）')
+  check((await listHtml('open')).includes('el-tag--success'),
+    '进行中照旧是绿的 —— 暂停没有把原有那一档也染红')
+
+  // ---------- 接线：入口、分发、轮询 ----------
+  const voteSrc = src('/src/views/Vote.vue')
+  check(/<el-dropdown-item command="toggleLock"/.test(voteSrc), '管理下拉里多了这一项')
+  check(/:disabled="!canToggleLock\(row\)"/.test(voteSrc),
+    '没开始 / 已结束的那两行是禁用的')
+  check(/row\.status === 'locked' \? '恢复投票' : '暂停投票'/.test(voteSrc),
+    '一个入口两用，文案跟着状态走')
+  check(/command === 'toggleLock'[\s\S]{0,80}?handleToggleLock\(row\)/.test(voteSrc),
+    '「暂停投票」分发到 handleToggleLock')
+  check(/async function handleToggleLock[\s\S]{0,1200}?\(locking \? lockPoll : unlockPoll\)\(row\.id\)/
+    .test(voteSrc), '按当前状态决定调 lock 还是 unlock（不是两个函数各写一遍）')
+  check(/if \(locking\) stopPolling\(\)[\s\S]{0,80}?else startPolling\(\)/.test(voteSrc),
+    '暂停时停掉轮询、恢复时开回来 —— startPolling 不在 refreshResult 里，'
+    + '不自己管这一次，解锁之后票数就再也不会自动刷新了')
+  check(/voteBlockReason as blockReasonOf/.test(voteSrc),
+    '「不能投的原因」挪去了 utils/poll.js，页面里不再重写一份判据')
+  check(/const voteBlockReason = computed\(\(\) => blockReasonOf\(votePoll\.value\)\)/.test(voteSrc),
+    'computed 转调那个纯函数，模板一个字不用改')
+
+  // 筛选项仍是三档：暂停归在「进行中」里（用户口径），不新增选项
+  check((voteSrc.match(/<el-option\b/g) || []).length === 4
+    && !/value="locked"/.test(voteSrc), '筛选下拉还是「全部 + 三档」，没多出「已暂停」')
+
+  const voteApi = src('/src/api/vote.js')
+  check(/export function lockPoll[\s\S]{0,200}?\/lock`[\s\S]{0,60}?method: 'post'/.test(voteApi)
+    && /export function unlockPoll[\s\S]{0,200}?\/unlock`[\s\S]{0,60}?method: 'post'/.test(voteApi),
+    'lockPoll / unlockPoll 都是 POST')
+
+  // ---------- 后端 ----------
+  const pollsPy = src('/../backend/app/api/polls.py')
+  check(/@router\.post\(\s*"\/\{poll_id\}\/lock"/.test(pollsPy)
+    && /@router\.post\(\s*"\/\{poll_id\}\/unlock"/.test(pollsPy), '后端有这两个接口')
+  check(/if status == STATUS_LOCKED:[\s\S]{0,300}?return detail\(db, poll, user\.student_no, admin\)[\s\S]{0,200}?if status != STATUS_OPEN/.test(pollsPy),
+    '锁定的幂等分支排在「不是进行中」前面 —— 反了的话再点一次会收到 400')
+  check(voteSrc && /"投票已暂停，等发起人解锁后才能继续投"/.test(pollsPy),
+    '暂停期间投票回的是「暂停」那句，不是「还没开始或已经结束」')
+
+  const serviceSrc = src('/../backend/app/services/poll_service.py')
+  check(/if now > poll\.end_at:\s*\n\s*return STATUS_CLOSED\s*\n\s*if poll\.locked_at is not None:/
+    .test(serviceSrc),
+    '**判断截止时间那条排在暂停之前** —— 顺序反了，被暂停过的投票到点也结束不了，'
+    + '永远挂在「已暂停」上没人能收尾')
+
+  const migrateSrc = src('/../backend/app/database_migrate.py')
+  check(/\("polls", "locked_at", "DATETIME"\)/.test(migrateSrc),
+    '老库启动时会补出 polls.locked_at（create_all 不给已存在的表补列）')
+
+  const schemaSrc = src('/../backend/app/schemas/poll.py')
+  check(/status: str = Field[\s\S]{0,220}?locked 已暂停/.test(schemaSrc),
+    '接口文档里的 status 说明补上了第四种取值')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
