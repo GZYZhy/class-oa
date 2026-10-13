@@ -37,6 +37,7 @@ from ..schemas import (
 from ..services import account_name, log_operation, notify, recipients
 from ..services.poll_service import (
     STATUS_CLOSED,
+    STATUS_LOCKED,
     STATUS_OPEN,
     STATUS_PENDING,
     ballot_rows,
@@ -237,8 +238,10 @@ def list_polls(
     query = filter_visible(db, db.query(Poll), user.student_no, admin)
 
     # 状态筛选必须落在 SQL 里，否则分页会算错（先取一页再在 Python 里滤，
-    # 每页条数就不是 page_size 了）。下面三个条件和 poll_service.poll_status
-    # **一一对应**，改那边必须回来改这里
+    # 每页条数就不是 page_size 了）。**这三档不等于状态的四种取值**：STATUS_OPEN
+    # 那一档同时圈进「进行中」和「已暂停」—— 暂停只是中途歇一下，界面上仍归在
+    # 「进行中」里（用户口径），所以 locked 的行没有、也不需要单独一条 SQL。
+    # 改 poll_service.poll_status 时回来核一遍这里还等不等价
     now = datetime.now()
     if status == STATUS_PENDING:
         query = query.filter(Poll.closed_at.is_(None), Poll.start_at > now)
@@ -497,7 +500,11 @@ def vote(
     """
     admin = is_admin(user)
     poll = _load_visible(db, poll_id, user, admin)
-    if poll_status(poll) != STATUS_OPEN:
+    status = poll_status(poll)
+    if status == STATUS_LOCKED:
+        # 单独一条文案：暂停不是「还没开始或已经结束」，回那句会让人以为这场票黄了
+        raise HTTPException(status_code=400, detail="投票已暂停，等发起人解锁后才能继续投")
+    if status != STATUS_OPEN:
         raise HTTPException(status_code=400, detail="投票还没开始或已经结束")
     if not is_target(db, poll_id, user.student_no):
         # 看得见（是发起人或管理员）但不在名单里：能看不能投，说清楚原因
@@ -648,6 +655,67 @@ def close_poll(
     )
     db.commit()
     return {"status": STATUS_CLOSED, "voted_count": votes}
+
+
+@router.post(
+    "/{poll_id}/lock", response_model=PollDetailResponse, summary="暂停投票（发起人/管理员）"
+)
+def lock_poll(
+    poll_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """暂停收票。**暂停不是结束**：解锁后照样能投
+
+    到点还没解开就照常自动结束 —— 这条不用在这儿写任何代码，poll_service.poll_status
+    里判断截止时间那一条排在锁定之前，算出来的自然就是「已结束」（见那个函数的说明）。
+
+    只认「进行中」这一种状态：没开始的本来就没在收票，已结束的更谈不上暂停。
+    **重复调用幂等**（同 close_poll）：已经暂停就不再改写 locked_at、也不再记日志，
+    否则连点几次会把「什么时候暂停的」一直往后推。
+    """
+    admin = is_admin(user)
+    poll = _load_manageable(db, poll_id, user, admin)
+    status = poll_status(poll)
+    if status == STATUS_LOCKED:
+        # 这一条必须排在下面 != OPEN 那句**之前**：已经暂停的正是要幂等返回的那种，
+        # 顺序写反了第二次点击就会拿到「只有进行中的投票才能暂停」
+        return detail(db, poll, user.student_no, admin)
+    if status != STATUS_OPEN:
+        raise HTTPException(status_code=400, detail="只有进行中的投票才能暂停")
+
+    poll.locked_at = datetime.now()
+    log_operation(db, user, action="暂停投票", target=poll.title, ip=ip)
+    db.commit()
+    return detail(db, poll, user.student_no, admin)
+
+
+@router.post(
+    "/{poll_id}/unlock", response_model=PollDetailResponse, summary="恢复投票（发起人/管理员）"
+)
+def unlock_poll(
+    poll_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """恢复收票：把 locked_at 清回 NULL。**重复调用幂等**
+
+    **不判当前状态、无条件清空**：暂停期间到了截止时间的那种，状态早就自己变成
+    已结束了，locked_at 却还挂在一条已结束的投票上。这时要是按状态判，会回一句
+    「只有已暂停的投票才能恢复」—— 用户看到的却只是「票结束了，暂停的标记还留着」。
+    清掉没有任何副作用：已结束的投票本来就不再收票。
+    """
+    admin = is_admin(user)
+    poll = _load_manageable(db, poll_id, user, admin)
+    was_locked = poll.locked_at is not None
+    poll.locked_at = None
+    if was_locked:
+        # 本来就没暂停就别记一条「恢复投票」的假日志
+        log_operation(db, user, action="恢复投票", target=poll.title, ip=ip)
+    db.commit()
+    return detail(db, poll, user.student_no, admin)
 
 
 @router.delete("/{poll_id}", summary="删除投票（发起人/管理员）")

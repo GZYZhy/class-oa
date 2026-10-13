@@ -114,6 +114,10 @@ NEW_COLUMNS = [
     ("ev_pass_requests", "sign_no", "VARCHAR(20) NOT NULL DEFAULT ''"),
     ("ev_pass_requests", "sign_name", "VARCHAR(50) NOT NULL DEFAULT ''"),
     ("ev_pass_requests", "sign_file", "VARCHAR(100) NOT NULL DEFAULT ''"),
+    # ---------- 投票的暂停 ----------
+    # 可空的时刻：非空 = 这场投票被发起人临时暂停了（不是结束，暂停期间到点照常
+    # 自动结束）。老行补成 NULL = 从来没暂停过，与补列前行为完全一致，不需要回填
+    ("polls", "locked_at", "DATETIME"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张邗语（班长）、赵梦婷（团支书）
