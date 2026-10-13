@@ -8,7 +8,12 @@
  *
  * 判定口径与后端统计保持一致（backend/app/services/student_service.py 的 get_statistics）：
  * 班委/团学会 = 非空且不是「无」，贫困生取中文「是」。
+ *
+ * 「是不是共青团员」不在下面重写一遍，用 utils/roster.js 那个 —— 点名和投票出卷的
+ * 「仅团员」用的也是它。
  */
+import { isLeagueMember } from './roster'
+
 
 /** 少数民族：民族填了、而且不是汉族。
     空值不算 —— 字段没填的人不该被凭空划成少数民族 */
@@ -51,7 +56,7 @@ function hasPosition(field) {
 const SPECS = {
   male: { title: '男生名单', pick: (s) => s.gender === '男' },
   female: { title: '女生名单', pick: (s) => s.gender === '女' },
-  league: { title: '共青团员名单', pick: (s) => s.political_status === '共青团员' },
+  league: { title: '共青团员名单', pick: isLeagueMember },
   poor: { title: '贫困生名单', pick: (s) => s.is_poor === '是' },
   committee: {
     title: '班委任职表',

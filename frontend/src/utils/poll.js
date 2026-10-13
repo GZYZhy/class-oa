@@ -10,6 +10,8 @@
  * status 翻成中文，不自己拿时间去比 —— 否则两处口径迟早走散。
  */
 
+import { formatDateTime } from './format'
+
 /** 选项前的字母：A B C…（选项最多 20 个，用不到后面） */
 export const POLL_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
@@ -55,4 +57,74 @@ export function percentOf(question, index) {
   const sum = sumOf(question)
   if (!sum) return 0
   return Math.round(((question.tallies?.[index] || 0) / sum) * 100)
+}
+
+// ---------- 出卷 / 编辑的那张表单 ----------
+//
+// 这一段是纯数据搬运，**故意放在这儿而不是组件里**：SSR 下 el-input 不输出 value
+// （只输出 placeholder），表单「填回来了没有」在渲染结果里根本断不到 —— 抽成纯函数
+// 才真跑得起来。同 utils/roster.js、utils/statGroups.js 那个路子。
+
+/** 表单里的一道空题。多选题的「最多选几项」默认 2 */
+export function blankQuestion(multiple = false) {
+  return {
+    title: '',
+    multiple,
+    max_choices: multiple ? 2 : 1,
+    options: ['', ''],
+    // 切回多选时要恢复上次填的「最多选几项」，不然来回切一次就得重填
+    lastMax: 2
+  }
+}
+
+/** 出卷时的空表单 */
+export function blankForm() {
+  return {
+    title: '',
+    description: '',
+    anonymous: false,
+    start_at: '',
+    end_at: '',
+    targets: [],
+    questions: [blankQuestion()]
+  }
+}
+
+/** 详情里的一道题 → 表单里的一道题 */
+function toFormQuestion(q) {
+  const options = (q.options || []).length ? [...q.options] : ['', '']
+  // 单选在库里 max_choices 恒为 1；多选至少 2，越界就夹回选项数（与组件里 removeOption 同口径）
+  const max = Math.min(Math.max(q.max_choices || 2, 2), options.length)
+  return {
+    title: q.title || '',
+    multiple: !!q.multiple,
+    max_choices: q.multiple ? max : 1,
+    options,
+    lastMax: max
+  }
+}
+
+/**
+ * 投票详情 → 编辑表单的一份值（GET /api/polls/{id} 的返回拿进来）
+ *
+ * **时间必须过一遍 formatDateTime**：详情回的是 ISO 串（2026-11-01T08:00:00），而两个
+ * picker 的 value-format 是 'YYYY-MM-DD HH:mm'，把 ISO 串直接塞进 v-model，那一栏
+ * 会显示成空的 —— 看着像「这场投票没设时间」。
+ *
+ * **不带表决范围**：范围改不了（把已经投过的人挪出去，他那张票就算不清了），编辑时
+ * 整块名单都不渲染，只显示一个从详情带过来的人数。
+ */
+export function formFromPoll(poll) {
+  const questions = (poll.questions || []).map(toFormQuestion)
+  // formatDateTime 对空值回的是 '-'，直接塞给 picker 会显示成一个破折号；空就给空串
+  const toPicker = (value) => (value ? formatDateTime(value) : '')
+  return {
+    title: poll.title || '',
+    description: poll.description || '',
+    anonymous: !!poll.anonymous,
+    start_at: toPicker(poll.start_at),
+    end_at: toPicker(poll.end_at),
+    targets: [],
+    questions: questions.length ? questions : [blankQuestion()]
+  }
 }

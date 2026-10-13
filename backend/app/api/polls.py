@@ -31,6 +31,7 @@ from ..schemas import (
     PollListResponse,
     PollRemindResponse,
     PollRosterResponse,
+    PollUpdate,
     PollVoteIn,
 )
 from ..services import account_name, log_operation, notify, recipients
@@ -271,11 +272,14 @@ def get_roster(
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
-    """出卷时勾人用：在校状态正常的学生，带一个「是不是班委」标记给「仅班委」快捷键
+    """出卷时勾人用：在校状态正常的学生，带「是不是班委」和「政治面貌」给快捷键
 
     **「是不是班委」必须 join users.role，绝不能读 students.class_position** ——
     那个字段学生自己在「我的信息 → 申请修改」里就能提交改，拿它当权限等于允许自我
     提权（models/user.py 里 role 那一列写得很清楚）。这是最容易踩进去的一个坑。
+
+    政治面貌则是**学生档案里的普通字段**，读它没有问题 —— 「仅团员」筛的是身份、
+    不是权限。
     """
     students = (
         db.query(Student)
@@ -291,6 +295,7 @@ def get_roster(
                 "name": student.name or student.student_no,
                 "committee": ROLE_RANK.get(roles.get(student.student_no) or "student", 0)
                 >= ROLE_RANK["committee"],
+                "political_status": student.political_status or "",
             }
             for student in students
         ]
@@ -307,8 +312,8 @@ def create_poll(
 ):
     """出卷：题目、参与范围、起止时间、记名不记名，一次定完
 
-    **发起之后不提供编辑**（没有 PATCH/PUT）：作答存的是选项**下标**，
-    能改题目的话，删掉一个选项会让历史作答的下标整体错位。要改就删了重发。
+    发出去之后标题和描述随时能改（下面的 update_poll），**题目只有还没开始时能改**
+    —— 作答存的是选项**下标**，已经开始之后再动题目会让历史作答整体错位。
     """
     _check_time(data.start_at, data.end_at)
     questions = _check_questions(data.questions)
@@ -390,6 +395,77 @@ def create_poll(
             level="timeSensitive",
             page=f"/vote?id={poll.id}",
         )
+    return detail(db, poll, user.student_no, is_admin(user))
+
+
+@router.patch("/{poll_id}", response_model=PollDetailResponse, summary="编辑投票（发起人/管理员）")
+def update_poll(
+    poll_id: int,
+    data: PollUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """改标题和描述；还没开始的还能整卷换题目
+
+    **题目只在这张卷子还没开始时能改**：作答存的是选项**下标**（models/poll.py 的
+    PollQuestion 写着这件事），已经开始之后删掉一个选项，历史作答的下标就整体错位。
+    没开始时库里不可能有这场投票的作答 —— can_vote 要求状态是 open，而 open 是按
+    start_at 现算的，没到点谁也提交不上来。所以那时把旧题删掉重建最省事：
+    不用按题号去 diff（题干改了、选项多一个少一个都要小心对齐），也不会留下废题。
+
+    时间、表决范围、记名与否都不在这里 —— 见 schemas/poll.py 的 PollUpdate。
+    """
+    poll = _load_manageable(db, poll_id, user, is_admin(user))
+
+    title = data.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="标题不能为空")
+    description = (data.description or "").strip()
+
+    # 日志里写清改了哪几样。只记一个标题的话，「改了描述」和「原样提交了一次」
+    # 在操作日志上长得一模一样
+    changed = []
+    if title != poll.title:
+        changed.append("标题")
+    if description != (poll.description or ""):
+        changed.append("描述")
+
+    if data.questions is not None:
+        if poll_status(poll) != STATUS_PENDING:
+            raise HTTPException(status_code=400, detail="投票已经开始，题目改不了了")
+        questions = _check_questions(data.questions)
+        # 先删干净再重建。**SQLite 默认不开外键约束**，顺序上只删题目这一张表，
+        # 不会留下孤儿行（同上面删除接口那段的注释）
+        db.query(PollQuestion).filter(PollQuestion.poll_id == poll.id).delete(
+            synchronize_session=False
+        )
+        db.add_all(
+            [
+                PollQuestion(
+                    poll_id=poll.id,
+                    sort=index,
+                    title=question["title"],
+                    multiple=question["multiple"],
+                    max_choices=question["max_choices"],
+                    options=json.dumps(question["options"], ensure_ascii=False),
+                )
+                for index, question in enumerate(questions)
+            ]
+        )
+        changed.append(f"{len(questions)} 道题")
+
+    poll.title = title
+    poll.description = description
+    log_operation(
+        db,
+        user,
+        action="编辑投票",
+        target=title,
+        detail="改了" + "、".join(changed) if changed else "内容没变",
+        ip=ip,
+    )
+    db.commit()
     return detail(db, poll, user.student_no, is_admin(user))
 
 
