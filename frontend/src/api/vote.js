@@ -11,7 +11,7 @@ export function getPolls(params) {
   return request({ url: '/polls', method: 'get', params })
 }
 
-/** 出卷时可选的学生名单，带 committee 标记给「仅班委」快捷键（班委及以上） */
+/** 出卷时可选的学生名单，带 committee / political_status 给「仅班委」「仅团员」快捷键（班委及以上） */
 export function getRoster() {
   return request({ url: '/polls/roster', method: 'get' })
 }
@@ -29,11 +29,28 @@ export function createPoll(data) {
 }
 
 /**
+ * 编辑一场投票（发起人和管理员）
+ *
+ * @param {number} id
+ * @param {{title: string, description: string, questions?: object[]}} data
+ *   **只有这三样**：时间、表决范围、记名与否都改不了（改了要动摇已经投出去的票），
+ *   要改请删了重发。
+ *   questions **不传 = 不动题目**；传了 = 整卷替换，而且只在**未开始**时有效 ——
+ *   已经开始的那场传了会被后端 400（作答存的是选项下标，换题目会让历史作答错位）。
+ *   所以编辑一个已开始的投票时，调用方别带 questions。
+ */
+export function updatePoll(id, data) {
+  return request({ url: `/polls/${id}`, method: 'patch', data })
+}
+
+/**
  * 投票详情
  *
  * 返回里 status / is_target / has_voted / results_visible / can_vote 都是后端
  * 算好的，**页面只认这些字段、不自己拿时间去比**（可见性只有后端一处口径）。
  * 看得到结果时每道题带 tallies（每个选项的票数），看不到时是 null。
+ *
+ * 编辑弹窗要用它拿题目：列表行里没有 questions。
  */
 export function getPoll(id) {
   return request({ url: `/polls/${id}`, method: 'get' })

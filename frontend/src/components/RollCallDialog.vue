@@ -44,6 +44,9 @@
         <el-button size="large" :disabled="!counts.female" @click="startCall('女生')">
           <el-icon><Female /></el-icon>女生（{{ counts.female }}）
         </el-button>
+        <el-button size="large" :disabled="!counts.league" @click="startCall('共青团员')">
+          <el-icon><Star /></el-icon>共青团员（{{ counts.league }}）
+        </el-button>
         <el-button size="large" type="primary" :disabled="!counts.all" @click="startCall('全班')">
           <el-icon><UserFilled /></el-icon>全班（{{ counts.all }}）
         </el-button>
@@ -137,6 +140,7 @@ const leaveByNoRef = ref(new Map())
 const counts = computed(() => ({
   male: pickByScope(roster.value, '男生').length,
   female: pickByScope(roster.value, '女生').length,
+  league: pickByScope(roster.value, '共青团员').length,
   all: roster.value.length
 }))
 

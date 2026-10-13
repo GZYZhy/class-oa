@@ -1,8 +1,10 @@
 <template>
-  <!-- 出卷：基本信息 → 有权表决的人 → 题目，一次定完，发起后不可编辑 -->
+  <!-- 出卷：基本信息 → 有权表决的人 → 题目，一次定完。
+       也当编辑弹窗用（父组件调 openForEdit）—— 那时候标题和描述随时能改，
+       **题目只在还没开始时能改**，时间和表决范围一律只读 -->
   <el-dialog
     v-model="visible"
-    title="发起投票"
+    :title="isEdit ? '编辑投票' : '发起投票'"
     width="720px"
     :close-on-click-modal="false"
     @closed="reset"
@@ -36,6 +38,7 @@
             format="YYYY-MM-DD HH:mm"
             value-format="YYYY-MM-DD HH:mm"
             style="width: 100%;"
+            :disabled="isEdit"
           />
         </el-form-item>
         <el-form-item label="截止时间" required>
@@ -46,13 +49,18 @@
             format="YYYY-MM-DD HH:mm"
             value-format="YYYY-MM-DD HH:mm"
             style="width: 100%;"
+            :disabled="isEdit"
           />
         </el-form-item>
+        <div v-if="isEdit" class="pc-tip">
+          时间不能改：投票进行中改截止时间，等于中途延长或缩短。要改就删了重发
+        </div>
         <el-form-item label="是否记名">
           <el-switch
             v-model="form.anonymous"
             active-text="不记名"
             inactive-text="记名"
+            :disabled="isEdit"
             @change="onAnonymousChange"
           />
           <div class="pc-tip">
@@ -66,35 +74,53 @@
       <!-- ---------- 二、有权表决的人 ---------- -->
       <h4 class="pc-h">
         二、有权表决的人
-        <span class="pc-count">已选 {{ form.targets.length }} / 共 {{ roster.length }} 人</span>
+        <span v-if="isEdit" class="pc-count">共 {{ editTargetCount }} 人 · 不能改</span>
+        <span v-else class="pc-count">已选 {{ form.targets.length }} / 共 {{ roster.length }} 人</span>
       </h4>
-      <div class="pc-scope-btns">
-        <el-button size="small" @click="selectAll">全选</el-button>
-        <el-button size="small" @click="form.targets = []">全不选</el-button>
-        <el-button size="small" @click="selectCommittee">仅班委</el-button>
+      <div v-if="isEdit" class="pc-tip">
+        表决范围不能改：把已经投过的人挪出范围，那张票就算不清了；反过来加人，等于
+        已经开投了才放人进来。要换人请删了重发
       </div>
-      <!-- 发起人常常默认自己在里面，一旦勾掉自己得能看出来，否则会以为自己也能投 -->
-      <div v-if="iAmOutOfScope" class="pc-tip pc-warn">
-        你自己不在这次投票的表决范围内（只出卷、不投票）
-      </div>
-      <div v-loading="rosterLoading" class="pc-roster">
-        <el-checkbox-group v-model="form.targets">
-          <el-checkbox v-for="s in roster" :key="s.student_no" :value="s.student_no">
-            {{ s.name }}<span class="pc-no">{{ s.student_no }}</span>
-          </el-checkbox>
-        </el-checkbox-group>
-        <p v-if="!rosterLoading && !roster.length" class="pc-empty">没有可表决的同学</p>
-      </div>
+      <template v-else>
+        <div class="pc-scope-btns">
+          <el-button size="small" @click="selectAll">全选</el-button>
+          <el-button size="small" @click="form.targets = []">全不选</el-button>
+          <el-button size="small" @click="selectCommittee">仅班委</el-button>
+          <el-button size="small" @click="selectLeague">仅团员</el-button>
+        </div>
+        <!-- 发起人常常默认自己在里面，一旦勾掉自己得能看出来，否则会以为自己也能投 -->
+        <div v-if="iAmOutOfScope" class="pc-tip pc-warn">
+          你自己不在这次投票的表决范围内（只出卷、不投票）
+        </div>
+        <div v-loading="rosterLoading" class="pc-roster">
+          <el-checkbox-group v-model="form.targets">
+            <el-checkbox v-for="s in roster" :key="s.student_no" :value="s.student_no">
+              {{ s.name }}<span class="pc-no">{{ s.student_no }}</span>
+            </el-checkbox>
+          </el-checkbox-group>
+          <p v-if="!rosterLoading && !roster.length" class="pc-empty">没有可表决的同学</p>
+        </div>
+      </template>
 
       <!-- ---------- 三、题目 ---------- -->
       <h4 class="pc-h">
         三、题目
         <span class="pc-count">共 {{ form.questions.length }} 题</span>
+        <span v-if="questionsLocked" class="pc-count">已开始，题目不能改了</span>
       </h4>
+      <div v-if="questionsLocked" class="pc-tip">
+        投票已经开始，题目就锁住了：作答存的是选项的序号，这时候删掉一个选项，
+        已经投过的人那张票就对不上了。标题和描述还能改
+      </div>
       <div v-for="(q, i) in form.questions" :key="i" class="pc-q">
         <div class="pc-q-head">
           <span class="pc-q-no">第 {{ i + 1 }} 题</span>
-          <el-radio-group v-model="q.multiple" size="small" @change="onMultipleChange(q)">
+          <el-radio-group
+            v-model="q.multiple"
+            size="small"
+            :disabled="questionsLocked"
+            @change="onMultipleChange(q)"
+          >
             <el-radio-button :value="false">单选</el-radio-button>
             <el-radio-button :value="true">多选</el-radio-button>
           </el-radio-group>
@@ -107,6 +133,7 @@
               size="small"
               controls-position="right"
               style="width: 92px;"
+              :disabled="questionsLocked"
             />
             项
           </span>
@@ -114,7 +141,7 @@
             class="pc-q-del"
             link
             type="danger"
-            :disabled="form.questions.length <= 1"
+            :disabled="questionsLocked || form.questions.length <= 1"
             @click="removeQuestion(i)"
           >删除本题</el-button>
         </div>
@@ -124,20 +151,30 @@
           maxlength="500"
           placeholder="题干，例如：你赞成哪一款班服？"
           class="pc-q-title"
+          :disabled="questionsLocked"
         />
 
         <div v-for="(opt, j) in q.options" :key="j" class="pc-opt">
           <span class="pc-opt-label">{{ letters[j] }}</span>
-          <el-input v-model="q.options[j]" maxlength="200" :placeholder="`选项 ${j + 1}`" />
+          <el-input
+            v-model="q.options[j]"
+            maxlength="200"
+            :placeholder="`选项 ${j + 1}`"
+            :disabled="questionsLocked"
+          />
           <el-button
             link
             type="danger"
-            :disabled="q.options.length <= 2"
+            :disabled="questionsLocked || q.options.length <= 2"
             @click="removeOption(q, j)"
           >删除</el-button>
         </div>
 
-        <el-button size="small" :disabled="q.options.length >= 20" @click="q.options.push('')">
+        <el-button
+          size="small"
+          :disabled="questionsLocked || q.options.length >= 20"
+          @click="q.options.push('')"
+        >
           添加选项
         </el-button>
         <span class="pc-tip pc-tip-inline">
@@ -145,14 +182,19 @@
         </span>
       </div>
 
-      <el-button :disabled="form.questions.length >= 30" @click="addQuestion">
+      <el-button
+        :disabled="questionsLocked || form.questions.length >= 30"
+        @click="addQuestion"
+      >
         添加题目（最多 30 题）
       </el-button>
     </div>
 
     <template #footer>
       <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="handleSubmit">发起投票</el-button>
+      <el-button type="primary" :loading="submitting" @click="handleSubmit">
+        {{ isEdit ? '保存修改' : '发起投票' }}
+      </el-button>
     </template>
   </el-dialog>
 </template>
@@ -160,12 +202,15 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createPoll, getRoster } from '@/api/vote'
+import { createPoll, getRoster, updatePoll } from '@/api/vote'
 import { errText } from '@/utils/request'
-import { POLL_LETTERS } from '@/utils/poll'
+import { POLL_LETTERS, blankForm, blankQuestion, formFromPoll } from '@/utils/poll'
+// 「仅团员」的判据与点名、分类统计共用一份，见 utils/roster.js
+import { isLeagueMember } from '@/utils/roster'
 import { useUserStore } from '@/store/user'
 
-const emit = defineEmits(['created'])
+// 出卷和编辑都发这个：父组件一律重拉列表，不用分两种情况
+const emit = defineEmits(['saved'])
 const userStore = useUserStore()
 
 const visible = ref(false)
@@ -173,32 +218,19 @@ const submitting = ref(false)
 const rosterLoading = ref(false)
 const roster = ref([])
 
+/** 正在编辑的投票 ID；null = 出卷（新建）。标题、按钮文案、只读与否都看它 */
+const editingId = ref(null)
+const isEdit = computed(() => editingId.value !== null)
+/** 编辑中的这场已经开始了 → 题目只读（**只有未开始能改题**，见 api/vote.js 的 updatePoll） */
+const questionsLocked = ref(false)
+/** 编辑时只显示表决范围的人数：名单不拉（范围本来就改不了），人数从详情里带过来 */
+const editTargetCount = ref(0)
+
 /** 选项前面的序号，和表决、结果里显示的是同一套 */
 const letters = POLL_LETTERS
 
-function blankQuestion(multiple = false) {
-  return {
-    title: '',
-    multiple,
-    max_choices: multiple ? 2 : 1,
-    options: ['', ''],
-    // 切回多选时要恢复上次填的「最多选几项」，不然来回切一次就得重填
-    lastMax: 2
-  }
-}
-
-function blankForm() {
-  return {
-    title: '',
-    description: '',
-    anonymous: false,
-    start_at: '',
-    end_at: '',
-    targets: [],
-    questions: [blankQuestion()]
-  }
-}
-
+// blankForm / blankQuestion / formFromPoll 都在 utils/poll.js：SSR 下 el-input 不输出
+// value，表单填回来没有只能靠真跑那段映射来验，所以它得是可单独 import 的纯函数
 const form = reactive(blankForm())
 
 /** 勾选里没有我 → 提示一句。发起人默认全选时通常在里面，但改范围时容易把自己漏掉 */
@@ -209,13 +241,32 @@ const iAmOutOfScope = computed(() => {
 
 function open() {
   Object.assign(form, blankForm())
+  editingId.value = null
+  questionsLocked.value = false
   visible.value = true
   fetchRoster()
+}
+
+/**
+ * 打开编辑。参数是 GET /api/polls/{id} 的详情 —— 列表行里没有题目
+ *
+ * 编辑时**不拉表决名单**：范围本来就改不了，名单区整个不显示，省一次请求。
+ */
+function openForEdit(poll) {
+  Object.assign(form, blankForm(), formFromPoll(poll))
+  editingId.value = poll.id
+  questionsLocked.value = poll.status !== 'pending'
+  editTargetCount.value = poll.target_count || 0
+  roster.value = []
+  visible.value = true
 }
 
 function reset() {
   Object.assign(form, blankForm())
   roster.value = []
+  editingId.value = null
+  questionsLocked.value = false
+  editTargetCount.value = 0
 }
 
 async function fetchRoster() {
@@ -239,6 +290,10 @@ function selectAll() {
 
 function selectCommittee() {
   form.targets = roster.value.filter((s) => s.committee).map((s) => s.student_no)
+}
+
+function selectLeague() {
+  form.targets = roster.value.filter(isLeagueMember).map((s) => s.student_no)
 }
 
 function addQuestion() {
@@ -270,7 +325,8 @@ function onMultipleChange(q) {
 }
 
 function onAnonymousChange(value) {
-  // 改成不记名是要紧事，给一次确认 —— 发出去之后改不了（没有编辑接口）
+  // 改成不记名是要紧事，给一次确认 —— 发出去之后改不了：编辑接口只管标题、描述和
+  // 题目，记名与否不在可编辑之列（改了等于换了一种票）
   if (value) ElMessage.info('已设为不记名：发起人也查不到谁选了什么')
 }
 
@@ -281,17 +337,28 @@ function onAnonymousChange(value) {
  */
 function firstError() {
   if (!form.title.trim()) return '请填写标题'
-  if (!form.start_at) return '请选择开始时间'
-  if (!form.end_at) return '请选择截止时间'
 
-  const start = new Date(form.start_at.replace(' ', 'T'))
-  const end = new Date(form.end_at.replace(' ', 'T'))
-  if (!(end > start)) return '截止时间必须晚于开始时间'
-  if (end.getTime() <= Date.now()) return '截止时间已经过了'
-  if (end - start > 365 * 24 * 3600 * 1000) return '投票跨度不能超过一年'
+  // 时间和表决范围只有出卷时才要填：编辑时这两样是只读的，值也来自库里的原值
+  if (!isEdit.value) {
+    if (!form.start_at) return '请选择开始时间'
+    if (!form.end_at) return '请选择截止时间'
 
-  if (!form.targets.length) return '至少要选一名有权表决的同学'
+    const start = new Date(form.start_at.replace(' ', 'T'))
+    const end = new Date(form.end_at.replace(' ', 'T'))
+    if (!(end > start)) return '截止时间必须晚于开始时间'
+    if (end.getTime() <= Date.now()) return '截止时间已经过了'
+    if (end - start > 365 * 24 * 3600 * 1000) return '投票跨度不能超过一年'
 
+    if (!form.targets.length) return '至少要选一名有权表决的同学'
+  }
+
+  // 题目锁着（已经开始的投票）就原样提交，没什么可校验的 —— 能锁住就说明当初校验过
+  if (questionsLocked.value) return ''
+  return questionsError()
+}
+
+/** 题目那一段单独拎出来：编辑已经开始的投票时，这一整段要跳过 */
+function questionsError() {
   for (let i = 0; i < form.questions.length; i++) {
     const q = form.questions[i]
     const no = i + 1
@@ -306,38 +373,52 @@ function firstError() {
   return ''
 }
 
+/** 表单里的题目 → 提交用的题目 */
+function buildQuestions() {
+  return form.questions.map((q) => ({
+    title: q.title.trim(),
+    multiple: q.multiple,
+    max_choices: q.multiple ? q.max_choices : 1,
+    options: q.options.map((o) => o.trim())
+  }))
+}
+
 async function handleSubmit() {
   const problem = firstError()
   if (problem) return ElMessage.warning(problem)
 
   submitting.value = true
   try {
-    await createPoll({
-      title: form.title.trim(),
-      description: form.description.trim(),
-      anonymous: form.anonymous,
-      start_at: form.start_at,
-      end_at: form.end_at,
-      targets: [...form.targets],
-      questions: form.questions.map((q) => ({
-        title: q.title.trim(),
-        multiple: q.multiple,
-        max_choices: q.multiple ? q.max_choices : 1,
-        options: q.options.map((o) => o.trim())
-      }))
-    })
-    ElMessage.success('已发起，范围内的同学会收到提醒')
+    if (isEdit.value) {
+      const payload = { title: form.title.trim(), description: form.description.trim() }
+      // **题目锁着就一个字都不传**：后端只在收到 questions 时才替换题目，
+      // 已经开始的那场带了会被 400（见 api/vote.js 的 updatePoll）
+      if (!questionsLocked.value) payload.questions = buildQuestions()
+      await updatePoll(editingId.value, payload)
+      ElMessage.success('已保存')
+    } else {
+      await createPoll({
+        title: form.title.trim(),
+        description: form.description.trim(),
+        anonymous: form.anonymous,
+        start_at: form.start_at,
+        end_at: form.end_at,
+        targets: [...form.targets],
+        questions: buildQuestions()
+      })
+      ElMessage.success('已发起，范围内的同学会收到提醒')
+    }
     visible.value = false
-    emit('created')
+    emit('saved')
   } catch (e) {
-    ElMessage.error(errText(e, '发起失败'))
+    ElMessage.error(errText(e, isEdit.value ? '保存失败' : '发起失败'))
   } finally {
     submitting.value = false
   }
 }
 
-// 让父组件通过 ref 调用 open()
-defineExpose({ open })
+// 让父组件通过 ref 调用（出卷走 open，编辑走 openForEdit）
+defineExpose({ open, openForEdit })
 </script>
 
 <style scoped>

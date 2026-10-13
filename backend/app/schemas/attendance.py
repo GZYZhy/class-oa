@@ -18,7 +18,7 @@ class AttendanceItemIn(BaseModel):
 
 class AttendanceCreate(BaseModel):
     """一次点名结束后上报"""
-    scope: str = Field(..., max_length=10, description="点名范围：全班 / 男生 / 女生")
+    scope: str = Field(..., max_length=10, description="点名范围：全班 / 男生 / 女生 / 共青团员")
     records: list[AttendanceItemIn] = Field(..., min_length=1, description="被点到的每个人")
 
 

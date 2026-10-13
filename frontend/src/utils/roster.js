@@ -1,10 +1,13 @@
 /**
  * 学生名单的共用规则与抽样
  *
- * 点名和抽签用的是同一套规则：谁算「能参与的人」、「男生/女生/全班」各对应
- * 库里哪个 gender 值。放这里是为了只写一份 —— 点名当初把筛选逻辑在 counts 和
+ * 点名和抽签用的是同一套规则：谁算「能参与的人」、「男生/女生/共青团员/全班」各
+ * 对应库里哪个字段值。放这里是为了只写一份 —— 点名当初把筛选逻辑在 counts 和
  * startCall 里各写了一份，counts 用了单字、startCall 却拿按钮上的「男生」直接比，
  * 于是选男生/女生永远是空名单，只有不筛选的「全班」正常。
+ *
+ * 「是不是共青团员」也放这儿：投票出卷的「仅团员」快捷键、分类统计的共青团员卡
+ * 都要用同一个判据，三处各写一遍迟早漂成不一样的。
  */
 
 /** 在校状态为这个值才参与点名/抽签。
@@ -16,9 +19,19 @@ export const NORMAL_SCHOOL_STATUS = '正常'
     界面上和日志里都写「男生」，但库里存的是「男」，这两个必须对上 */
 export const GENDER_BY_SCOPE = { 男生: '男', 女生: '女' }
 
+/** 政治面貌填这个值才算共青团员。空着、填「群众」或「中共预备党员」的都不算 */
+export const LEAGUE_STATUS = '共青团员'
+
+/** 是不是共青团员。判据只此一份：点名、投票出卷、分类统计共用它 */
+export function isLeagueMember(student) {
+  return student?.political_status === LEAGUE_STATUS
+}
+
 /** 按范围取人。显示人数和实际取人共用它，就不会再各写一套比法 */
 export function pickByScope(list, scopeName) {
   if (scopeName === '全班') return [...list]
+  // 团员看的是政治面貌、不是性别，得在下面那条按性别比的之前单独分出来
+  if (scopeName === LEAGUE_STATUS) return list.filter(isLeagueMember)
   return list.filter((s) => s.gender === GENDER_BY_SCOPE[scopeName])
 }
 

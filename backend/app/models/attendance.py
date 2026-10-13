@@ -22,9 +22,9 @@ class AttendanceRecord(Base):
     # 字段名不叫 date：类体里一旦被 Column 占住这个名字，同一个类里再写
     # default=date.today 就会解析成那个 Column 对象（真实的手滑来源）
     call_date = Column(Date, index=True, comment="点名当天")
-    # 存的就是前端那个中文字符串（全班 / 男生 / 女生）原样，不另造一套枚举 ——
+    # 存的就是前端那个中文字符串（全班 / 男生 / 女生 / 共青团员）原样，不另造一套枚举 ——
     # 点名弹窗和考勤页说的得是同一个词
-    scope = Column(String(10), comment="点名范围：全班/男生/女生")
+    scope = Column(String(10), comment="点名范围：全班/男生/女生/共青团员")
 
     called_at = Column(DateTime, default=datetime.now, comment="点名时刻")
     operator_no = Column(String(20), comment="操作人学号")

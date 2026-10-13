@@ -86,8 +86,10 @@ class PollQuestion(Base):
     代价是票数没法在 SQL 里按选项 GROUP BY，只能在 Python 侧聚合
     （services/poll_service.tally）—— 班级几十人，这个量级无所谓。
 
-    **发起之后不提供编辑**（api/polls.py 没有编辑接口）：作答存的是选项**下标**，
-    能改题目的话，删掉一个选项会让历史作答的下标整体错位。
+    **题目只在投票还没开始时能改**（api/polls.py 的 update_poll 会把旧题整卷删了
+    重建）：作答存的是选项**下标**，已经开始之后再动题目，删掉一个选项就会让历史
+    作答的下标整体错位。没开始 = 按 start_at 现算出来的 pending 状态，那时谁也提交
+    不上来（can_vote 要求 open），库里必定没有这场投票的作答，重建才是安全的。
     """
     __tablename__ = "poll_questions"
 

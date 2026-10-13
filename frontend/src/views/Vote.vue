@@ -1,5 +1,8 @@
 <template>
   <div class="vote">
+    <!-- 整页都是表决内容（谁投了什么、谁还没投），盖一层「谁在看」的水印 -->
+    <Watermark :text="watermarkText" />
+
     <!-- 筛选 + 发起 -->
     <div class="page-card vt-bar">
       <el-form :inline="true" size="default" class="vt-filter">
@@ -84,6 +87,7 @@
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
+                  <el-dropdown-item command="edit">编辑</el-dropdown-item>
                   <el-dropdown-item command="roster">投票名单</el-dropdown-item>
                   <el-dropdown-item command="close" :disabled="row.status === 'closed'">
                     立即结束
@@ -116,6 +120,8 @@
       width="640px"
       :close-on-click-modal="false"
     >
+      <!-- 投过之后这里会回显「我投了什么」，同样盖一层 -->
+      <Watermark :text="watermarkText" />
       <div v-loading="voteLoading" class="vt-body">
         <p v-if="votePoll.description" class="vt-desc">{{ votePoll.description }}</p>
         <div class="vt-meta">
@@ -213,6 +219,8 @@
       width="720px"
       @closed="stopPolling"
     >
+      <!-- 票数标签页和投票名单标签页都在这个弹窗里，名单里是「谁投了谁没投」，盖一层 -->
+      <Watermark :text="watermarkText" />
       <div v-loading="resultLoading" class="vt-body">
         <div class="vt-meta">
           <el-tag :type="statusTag(resultPoll.status)" size="small">
@@ -299,7 +307,7 @@
       </template>
     </el-dialog>
 
-    <PollCreateDialog ref="createRef" @created="fetchList" />
+    <PollCreateDialog ref="createRef" @saved="handleSaved" />
   </div>
 </template>
 
@@ -308,6 +316,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PollCreateDialog from '@/components/PollCreateDialog.vue'
+import Watermark from '@/components/Watermark.vue'
 import {
   closePoll,
   deletePoll,
@@ -318,6 +327,7 @@ import {
   // 和下面存详情的 votePoll 重名，改个名
   votePoll as submitVote
 } from '@/api/vote'
+import { useWatermark } from '@/composables/useWatermark'
 import { errText } from '@/utils/request'
 import { formatDateTime } from '@/utils/format'
 import {
@@ -333,6 +343,8 @@ import { useUserStore } from '@/store/user'
 
 const route = useRoute()
 const userStore = useUserStore()
+/** 页面和两个弹窗共用同一份字样 */
+const watermarkText = useWatermark()
 
 const loading = ref(false)
 const rows = ref([])
@@ -572,9 +584,26 @@ async function handleRemind() {
 // ---------- 管理动作 ----------
 
 function handleCommand(command, row) {
+  if (command === 'edit') return handleEdit(row)
   if (command === 'roster') return openDetail(row, 'roster')
   if (command === 'close') return handleClose(row)
   if (command === 'delete') return handleDelete(row)
+}
+
+/** 编辑：题目在列表行里没有，得先拉一次详情，弹窗才填得上 */
+async function handleEdit(row) {
+  try {
+    createRef.value?.openForEdit(await getPoll(row.id))
+  } catch (e) {
+    ElMessage.error(errText(e, '读取投票失败'))
+  }
+}
+
+/** 出卷/编辑保存后：列表要重拉；正好开着这场的结果弹窗的话，标题也得跟着变 */
+function handleSaved() {
+  fetchList()
+  // silent：这里失败了不用再弹一次错，上面那条已经提示过保存的结果了
+  if (resultVisible.value) refreshResult(true)
 }
 
 async function handleClose(row) {
@@ -651,6 +680,11 @@ onUnmounted(stopPolling)
 </script>
 
 <style scoped>
+.vote {
+  /* 水印的定位基准：水印铺满整个投票页 */
+  position: relative;
+}
+
 .vt-bar {
   display: flex;
   justify-content: space-between;
