@@ -2228,6 +2228,108 @@ console.log('\n▶ 日程选人：仅班委 / 仅团员 / 仅团学成员，判�
     '学生列表返回的字段里有班级职务和团学会职务')
 }
 
+console.log('\n▶ 日程重叠：同一时段撞在一起的要并排，不再一条压住一条')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const { columnizeDay } = await server.ssrLoadModule('/src/utils/schedule.js')
+
+  // startIdx / endIdx 是 10 分钟一格的格子下标（28px 一格）：0 = 07:00，6 = 08:00
+  const ev = (id, startIdx, endIdx) => ({ id, startIdx, endIdx })
+  // 按 id 排序再比：结果本身与入参同序，直接比字符串会被「谁先传进来」带着走
+  const cols = (list) => {
+    const laid = columnizeDay(list)
+    return list
+      .map((e, i) => ({ id: e.id, ...laid[i] }))
+      .sort((a, b) => a.id - b.id)
+      .map((x) => `${x.id}:${x.col}/${x.cols}`)
+      .join(' ')
+  }
+
+  check(cols([ev(1, 0, 6)]) === '1:0/1', '一天只有一条：独占整列（宽度和从前一样）')
+  check(cols([ev(1, 0, 6), ev(2, 3, 9)]) === '1:0/2 2:1/2', '两条重叠：并成两列，各占半列')
+  check(cols([ev(2, 3, 9), ev(1, 0, 6)]) === '1:0/2 2:1/2',
+    '换个传进来的顺序，谁在第几列不变（内部按开始时间重排）')
+  check(cols([ev(1, 0, 6), ev(2, 6, 12)]) === '1:0/1 2:0/1',
+    '首尾相接（8:00-9:00 接 9:00-10:00）不算重叠，各自独占整列')
+  check(cols([ev(1, 0, 6), ev(2, 0, 6), ev(3, 0, 6)]) === '1:0/3 2:1/3 3:2/3',
+    '三条同一时刻：并成三列')
+  check(cols([ev(1, 0, 12), ev(2, 3, 6)]) === '1:0/2 2:1/2', '长会压短：照样两列')
+  check(cols([ev(1, 0, 6), ev(2, 0, 6), ev(3, 8, 12), ev(4, 8, 12)]) === '1:0/2 2:1/2 3:0/2 4:1/2',
+    '上午两条、下午两条：各分各的列，下午那两条不会被拖成 1/4 宽')
+  // 链式重叠：1 压 2、2 压 3，可 1 和 3 自己并不重叠。断开得看「簇里最晚的结尾」，
+  // 拿上一条的结尾比的话 3 会另起一簇、独占整列，画出来正好盖住 1
+  check(cols([ev(1, 0, 6), ev(2, 3, 9), ev(3, 6, 12)]) === '1:0/2 2:1/2 3:0/2',
+    '链式重叠的三条同一簇，第 3 条接着第 1 条腾出来的那列排 —— 只用两列，不是三列')
+  check(columnizeDay([]).length === 0, '这天没有定时日程：返回空数组')
+  check(cols([ev(1, 0, 6)]) === cols([ev(1, 0, 6)]), '同样的输入算两次结果一样（排序不飘）')
+
+  // ---------- 接线 ----------
+  const schedSrc = src('/src/views/Schedule.vue')
+  check(/import \{ daysInRange, centerScrollLeft, columnizeDay \} from '@\/utils\/schedule'/
+    .test(schedSrc), '并排的算法是从 utils/schedule.js 引的纯函数')
+  check(/const laid = columnizeDay\(list\)/.test(schedSrc)
+    && /const \{ col, cols \} = laid\[k\]/.test(schedSrc),
+    '按天分组后真调了它，并且用的是「第几列、共几列」')
+  check(/const colWidth = 100 \/ 7 \/ cols/.test(schedSrc)
+    && /left: `calc\(\$\{dayIndex \* \(100 \/ 7\) \+ col \* colWidth\}%/.test(schedSrc)
+    && /width: `calc\(\$\{colWidth\}% - \$\{gap \* 2\}px\)`/.test(schedSrc),
+    '宽度按列数平分、位置按列号偏移')
+  check(/const gap = cols === 1 \? 4 : 2/.test(schedSrc),
+    '一条独占时留白还是 4px/8px —— 没有重叠的日子观感分毫不变')
+  check(!/\$\{100 \/ 7\}% - 8px/.test(schedSrc),
+    '原来那条「整列宽、后画的盖住先画的」的写法定死了，改不回去')
+
+  // 窄块上那颗铃铛正好压在标题的字上，藏掉
+  check(/'evt-narrow': evt\.narrow/.test(schedSrc), '并排出来的窄块带上了 evt-narrow')
+  check(/\.evt-narrow \.evt-bell \{\s*\n\s*display: none;/.test(schedSrc),
+    '窄块里藏着那颗铃铛（点开卡片还有提醒那一栏）')
+
+  // ---------- 真渲染：量一下两种块实际的宽和位置 ----------
+  // 灌数据的手段同上面几节（onMounted 在 SSR 里不跑，只能在 setup 里直接赋值）
+  const MARKER = 'const editForm = ref(defaultForm())'
+  const EVT = (o) => ({
+    repeat_type: 'none', repeat_end_date: null, notify_enabled: false, notify_minutes_before: 10,
+    location: '', description: '', event_type: '', ...o
+  })
+  const at = (id, title, start, end) => EVT({
+    id, title, all_day: false, instance_date: '2026-10-06',
+    start_time: `2026-10-06T${start}:00`, end_time: `2026-10-06T${end}:00`
+  })
+  // 08:00-09:00 和 08:30-09:30：重叠半小时
+  const [班, 团] = [at(21, '班会', '08:00', '09:00'), at(22, '团学会例会', '08:30', '09:30')]
+  const render2 = (evts) => renderPatched('/src/views/Schedule.vue', MARKER,
+    `${MARKER}
+    schedules.value = ${JSON.stringify(evts)}
+    currentMonday.value = new Date(2026, 9, 5)`, { ElDialog: ElDialogStub })
+
+  // 从渲染结果里量：left / width 都被写成 calc(百分比 + 像素)
+  const pcts = (h, prop) => [...h.matchAll(new RegExp(`${prop}:calc\\(([\\d.]+)% ([+-]) (\\d+)px\\)`, 'g'))]
+    .map((m) => [Number(m[1]), m[2] === '+' ? Number(m[3]) : -Number(m[3])])
+
+  const both = await render2([班, 团])
+  const bothLeft = pcts(both.html, 'left')
+  const bothWidth = pcts(both.html, 'width')
+  const colPct = 100 / 7
+  check(bothLeft.length === 2 && bothWidth.length === 2, '重叠的两个块都真渲染出来了')
+  check(new Set(bothLeft.map(([p]) => p)).size === 2,
+    '两个块的横向位置不同 —— 真是并排，不是一上一下压着')
+  check(bothWidth.every(([p]) => Math.abs(p - colPct / 2) < 1e-9),
+    `每个块占整列的一半（${colPct.toFixed(2)}% → ${(colPct / 2).toFixed(2)}%）`)
+  check(bothLeft.every(([, px]) => px === 2) && bothWidth.every(([, px]) => px === -4),
+    '并排时留白收成 2px/4px（原来是 4px/8px），两条之间才不会空出大半条缝')
+
+  // 对照：同样这一天只留一条，得和从前一模一样
+  const alone = await render2([班])
+  const aloneLeft = pcts(alone.html, 'left')
+  const aloneWidth = pcts(alone.html, 'width')
+  check(aloneLeft.length === 1 && Math.abs(aloneWidth[0][0] - colPct) < 1e-9,
+    '没有重叠的日子照样占满整列 —— 宽度、位置分毫未动')
+  check(aloneLeft[0][1] === 4 && aloneWidth[0][1] === -8,
+    '没有重叠时留白仍是原来的 4px/8px')
+  check(!/evt-narrow/.test(alone.html) && /evt-narrow/.test(both.html),
+    '只有并排出来的块才带 evt-narrow')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
