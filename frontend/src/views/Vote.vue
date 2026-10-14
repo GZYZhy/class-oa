@@ -182,12 +182,12 @@
               @change="(value) => (draft[q.id] = [value])"
             >
               <el-radio v-for="(opt, j) in q.options" :key="j" :value="j">
-                {{ letters[j] }}. {{ opt }}
+                <span class="vt-opt-letter">{{ letters[j] }}.</span> {{ opt }}
               </el-radio>
             </el-radio-group>
             <el-checkbox-group v-else v-model="draft[q.id]" :max="q.max_choices">
               <el-checkbox v-for="(opt, j) in q.options" :key="j" :value="j">
-                {{ letters[j] }}. {{ opt }}
+                <span class="vt-opt-letter">{{ letters[j] }}.</span> {{ opt }}
               </el-checkbox>
             </el-checkbox-group>
           </template>
@@ -202,7 +202,7 @@
             >
               <el-icon v-if="picked(q, j)"><Select /></el-icon>
               <span v-else class="vt-ro-dot"></span>
-              {{ letters[j] }}. {{ opt }}
+              <span class="vt-opt-letter">{{ letters[j] }}.</span> {{ opt }}
             </div>
           </template>
         </div>
@@ -257,7 +257,9 @@
                 </div>
                 <!-- j 是**选项的原始下标**：排了序也只是行的先后变了，字母、票数、进度条都还各就各位 -->
                 <div v-for="j in tallyOrder(q, tallySorted)" :key="j" class="vt-opt">
-                  <span class="vt-opt-name">{{ letters[j] }}. {{ q.options[j] }}</span>
+                  <span class="vt-opt-name">
+                    <span class="vt-opt-letter">{{ letters[j] }}.</span> {{ q.options[j] }}
+                  </span>
                   <el-progress
                     :percentage="percentOf(q, j)"
                     :stroke-width="14"
@@ -864,6 +866,15 @@ onUnmounted(stopPolling)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 字母单占一格定宽。
+   字母是比例字形，「I.」只有两三个像素宽、「M.」有十几个，而字母和选项名本来是
+   同一条行内文本 —— 名字的起点就跟着「这行的字母多宽」左右跳（一列十六行看过去
+   就是歪的）。钉住这一格的宽度，名字才落在同一列上（和出卷弹窗的 .pc-opt-label 一个路子）。 */
+.vt-opt-letter {
+  display: inline-block;
+  min-width: 1.5em;
 }
 
 .vt-bar {
