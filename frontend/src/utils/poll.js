@@ -107,6 +107,23 @@ export function percentOf(question, index) {
   return Math.round(((question.tallies?.[index] || 0) / sum) * 100)
 }
 
+/**
+ * 结果页里一道题的选项显示顺序（「按得票排序」那个开关）
+ *
+ * 返回的是**原始下标**数组，不是排好序的选项本身：字母（A/B/C）、票数、进度条
+ * 全都按原下标去取，换的只是行的先后 —— 这样排序前后每一行还是同一个选项，
+ * 字母也不会跟着挪（「A. 张三」排到第二个去的时候，它还得叫 A）。
+ *
+ * 票数相同的保持原顺序：不然同票的两项按 sort 的实现来回换，每次刷新位置都在
+ * 跳，看着像自己看错了。sorted 为假时原样返回。
+ */
+export function tallyOrder(question, sorted) {
+  const idx = (question?.options || []).map((_, j) => j)
+  if (!sorted) return idx
+  const tally = (j) => question.tallies?.[j] || 0
+  return idx.sort((a, b) => tally(b) - tally(a) || a - b)
+}
+
 // ---------- 出卷 / 编辑的那张表单 ----------
 //
 // 这一段是纯数据搬运，**故意放在这儿而不是组件里**：SSR 下 el-input 不输出 value
