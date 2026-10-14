@@ -261,6 +261,12 @@
     <!-- 学生选择器（简化版：输入框 + 搜索，后续可优化） -->
     <el-dialog v-model="studentPicker.open" title="选择学生" width="600px">
       <el-input v-model="studentPicker.keyword" placeholder="搜索学生姓名/学号" clearable style="margin-bottom: 12px" />
+      <!-- 快捷范围：一键把某类人全选上。点一次是替换当前选择，不是往上加 -->
+      <div class="picker-scopes">
+        <el-button size="small" @click="studentScopes.committee">仅班委</el-button>
+        <el-button size="small" @click="studentScopes.league">仅团员</el-button>
+        <el-button size="small" @click="studentScopes.officer">仅团学成员</el-button>
+      </div>
       <div class="student-picker-list">
         <el-checkbox
           v-for="s in filteredStudents"
@@ -428,6 +434,12 @@
     <!-- 导入学生选择器 -->
     <el-dialog v-model="importStudentPicker.open" title="选择学生" width="600px">
       <el-input v-model="importStudentPicker.keyword" placeholder="搜索" clearable style="margin-bottom: 12px" />
+      <!-- 快捷范围，与上面新建日程那个选人弹窗同一套 -->
+      <div class="picker-scopes">
+        <el-button size="small" @click="importScopes.committee">仅班委</el-button>
+        <el-button size="small" @click="importScopes.league">仅团员</el-button>
+        <el-button size="small" @click="importScopes.officer">仅团学成员</el-button>
+      </div>
       <div class="student-picker-list">
         <el-checkbox
           v-for="s in importFilteredStudents"
@@ -521,6 +533,8 @@ import {
   getIcalToken, resetIcalToken, getSemesterInfo
 } from '@/api/schedule'
 import { getStudentList } from '@/api/student'
+// 选人快捷范围的判据（班委/团员/团学成员），和点名、投票出卷、分类统计共用一份
+import { COMMITTEE_FIELD, LEAGUE_OFFICER_FIELD, hasPosition, isLeagueMember } from '@/utils/roster'
 import { daysInRange, centerScrollLeft } from '@/utils/schedule'
 import { errText } from '@/utils/request'
 
@@ -1234,6 +1248,26 @@ const importFilteredStudents = computed(() => {
   )
 })
 
+// ---------- 选人的快捷范围 ----------
+// 「仅班委」「仅团员」「仅团学成员」：一键把某类人全选上，省得在几十个复选框里逐个点。
+// 点一次是**替换**当前选择、不是往上加 —— 点「仅班委」要的就是这批人。
+// 一律从全班名单里挑，搜索框筛过的那份不参与：快捷范围说的是「班里哪些人」，
+// 不是「这次搜出来的哪些人」。判据在 utils/roster，和点名、投票出卷、分类统计共用一份
+function scopePickers(target) {
+  const pick = (predicate) => () => {
+    target.value = allStudents.value.filter(predicate).map((s) => s.id)
+  }
+  return {
+    committee: pick(hasPosition(COMMITTEE_FIELD)),
+    league: pick(isLeagueMember),
+    officer: pick(hasPosition(LEAGUE_OFFICER_FIELD)),
+  }
+}
+
+// 两个选人弹窗（新建日程、导入日程）各一份，选中的都是学生 id
+const studentScopes = scopePickers(selectedStudents)
+const importScopes = scopePickers(importSelectedStudents)
+
 function handleImportFile(file) {
   importFile.value = file
   // 换文件就把锚点清掉：上一个文件的「第 8 周周一」跟这份没关系，留着会算错日期
@@ -1804,6 +1838,13 @@ async function handleResetToken() {
 }
 
 /* 学生选择器 */
+/* 快捷范围按钮：搜索框和名单之间那一排 */
+.picker-scopes {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .student-picker-list {
   max-height: 320px;
   overflow-y: auto;

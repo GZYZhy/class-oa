@@ -8,6 +8,9 @@
  *
  * 「是不是共青团员」也放这儿：投票出卷的「仅团员」快捷键、分类统计的共青团员卡
  * 都要用同一个判据，三处各写一遍迟早漂成不一样的。
+ *
+ * 「有没有职务」（班委、团学成员）同理：分类统计的班委/团学会卡片、日程选人的
+ * 快捷范围共用它。
  */
 
 /** 在校状态为这个值才参与点名/抽签。
@@ -25,6 +28,18 @@ export const LEAGUE_STATUS = '共青团员'
 /** 是不是共青团员。判据只此一份：点名、投票出卷、分类统计共用它 */
 export function isLeagueMember(student) {
   return student?.political_status === LEAGUE_STATUS
+}
+
+/** 班委看这个字段，团学成员看 league_position。字段名散在各处就会写错一个字母
+    （写错的表现是「一个有职务的人都没筛出来」，不是报错） */
+export const COMMITTEE_FIELD = 'class_position'
+export const LEAGUE_OFFICER_FIELD = 'league_position'
+
+/** 「有没有职务」：空串、null 和字面量「无」都算没有。口径与后端统计一致
+    （backend/app/services/student_service.py 的 get_statistics）。
+    返回的是判据函数本身、不是一个布尔 —— 它的用处就是丢给 filter */
+export function hasPosition(field) {
+  return (s) => !!s?.[field] && s[field] !== '无'
 }
 
 /** 按范围取人。显示人数和实际取人共用它，就不会再各写一套比法 */

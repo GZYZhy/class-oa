@@ -10,9 +10,10 @@
  * 班委/团学会 = 非空且不是「无」，贫困生取中文「是」。
  *
  * 「是不是共青团员」不在下面重写一遍，用 utils/roster.js 那个 —— 点名和投票出卷的
- * 「仅团员」用的也是它。
+ * 「仅团员」用的也是它。「有没有职务」同理（票选班委/团学会那两张卡和日程选人的
+ * 快捷范围共用一份）。
  */
-import { isLeagueMember } from './roster'
+import { hasPosition, isLeagueMember } from './roster'
 
 
 /** 少数民族：民族填了、而且不是汉族。
@@ -37,11 +38,6 @@ export function countMinority(ethnicity) {
     (n, [name, count]) => n + (isMinorityName(name) ? count : 0),
     0
   )
-}
-
-/** 「有没有职务」：空串、null 和字面量「无」都算没有 */
-function hasPosition(field) {
-  return (s) => !!s[field] && s[field] !== '无'
 }
 
 /**
