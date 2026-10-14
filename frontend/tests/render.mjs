@@ -2330,6 +2330,67 @@ console.log('\n▶ 日程重叠：同一时段撞在一起的要并排，不再�
     '只有并排出来的块才带 evt-narrow')
 }
 
+console.log('\n▶ 结果页的「按得票排序」：只是换个看的顺序，票数一分不动')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const { tallyOrder } = await server.ssrLoadModule('/src/utils/poll.js')
+
+  const q = { options: ['甲', '乙', '丙', '丁'], tallies: [3, 11, 5, 1] }
+  check(tallyOrder(q, false).join('') === '0123', '开关没开：还是原来的选项顺序（A/B/C/D 原样）')
+  check(tallyOrder(q, true).join('') === '1203', '开了就按票数从多到少：乙(11) 丙(5) 甲(3) 丁(1)')
+  check(tallyOrder(q, true).map((j) => q.options[j]).join('') === '乙丙甲丁',
+    '排的是行不是选项本身：下标仍指着原来那个选项')
+
+  // 同票必须稳住。结果页轮到新票会重渲染（5 秒一次），同票的两项来回换的话，
+  // 每次刷新位置都在跳，看着像自己看错了
+  check(tallyOrder({ options: ['甲', '乙', '丙'], tallies: [2, 5, 2] }, true).join('') === '102',
+    '同票的按原顺序（甲和丙都是 2 票，甲还排在丙前面）')
+  check(tallyOrder({ options: ['甲', '乙'], tallies: [0, 0] }, true).join('') === '01', '全是 0 票也不乱动')
+  check(tallyOrder({ options: ['甲', '乙'] }, true).join('') === '01', 'tallies 整个缺了也不炸')
+  check(tallyOrder({}, true).length === 0 && tallyOrder(null, false).length === 0,
+    '没有题目 / 没有选项：返回空数组')
+
+  // ---------- 接线 ----------
+  const voteSrc = src('/src/views/Vote.vue')
+  check(/v-for="j in tallyOrder\(q, tallySorted\)"/.test(voteSrc),
+    '结果页的选项行照 tallyOrder 给的次序渲染')
+  check(/\{\{ letters\[j\] \}\}\. \{\{ q\.options\[j\] \}\}/.test(voteSrc),
+    '字母和选项名按同一个下标取 —— 排完序每一行还是原来那个选项')
+  check(/:percentage="percentOf\(q, j\)"/.test(voteSrc) && /q\.tallies\?\.\[j\] \?\? 0/.test(voteSrc),
+    '进度条和票数也仍按原下标算，排序没顺手把它们也换一遍')
+  check(/@click="tallySorted = !tallySorted"/.test(voteSrc), '那枚按钮翻的就是这个开关')
+  check(/\{\{ tallySorted \? '按选项顺序' : '按得票排序' \}\}/.test(voteSrc),
+    '按钮上的字跟着当前状态变，按下去会变成什么一看就知道')
+  check(/const tallySorted = ref\(false\)/.test(voteSrc), '开关默认关着，进页面不会无端重排')
+
+  // ---------- 真渲染：两行的先后，以及字母跟不跟着走 ----------
+  const RESULT = {
+    id: 1, title: '入党推优选举（系统测试）', status: 'closed', anonymous: false,
+    results_visible: true, can_manage: false, voted_count: 20, target_count: 20,
+    start_at: '2026-10-01T08:00:00', end_at: '2026-10-02T08:00:00',
+    questions: [{
+      id: 1, title: '选谁', multiple: false,
+      options: ['甲', '乙', '丙'], tallies: [3, 11, 5]
+    }]
+  }
+  const renderResult = (sorted) => renderPatchedMany('/src/views/Vote.vue', [
+    ['const resultVisible = ref(false)', 'const resultVisible = ref(true)'],
+    ['const resultPoll = ref({})', `const resultPoll = ref(${JSON.stringify(RESULT)})`],
+    ['const tallySorted = ref(false)', `const tallySorted = ref(${sorted})`]
+  ], { ElDialog: ElDialogStub })
+  // SSR 会在插值两边插注释记号（<!--[-->…<!--]-->），不剥掉就断不到那几个字
+  const rows = (h) => [...h.matchAll(/class="vt-opt-name"[^>]*>([\s\S]*?)<\/span>/g)]
+    .map((m) => m[1].replace(/<!--[\s\S]*?-->/g, '').trim())
+
+  const plain = rows((await renderResult(false)).html)
+  check(plain.join(' | ') === 'A. 甲 | B. 乙 | C. 丙', '没开排序：A/B/C 按卷子上的顺序排')
+  const sorted = rows((await renderResult(true)).html)
+  check(sorted.join(' | ') === 'B. 乙 | C. 丙 | A. 甲',
+    '开了排序：乙(11) 丙(5) 甲(3)，而且字母跟着选项走 —— 乙排到第一行也还叫 B')
+  check((await renderResult(false)).warns.every((w) => !/Failed to resolve/.test(w)),
+    '没有未解析的组件/指令')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
