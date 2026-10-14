@@ -98,7 +98,7 @@
               v-for="evt in positionedEvents"
               :key="evt.key"
               class="cal-event"
-              :class="'theme-' + evtTheme(evt.event_type)"
+              :class="['theme-' + evtTheme(evt.event_type), { 'evt-narrow': evt.narrow }]"
               :style="evt.style"
               @click.stop="openEdit(evt)"
             >
@@ -535,7 +535,7 @@ import {
 import { getStudentList } from '@/api/student'
 // 选人快捷范围的判据（班委/团员/团学成员），和点名、投票出卷、分类统计共用一份
 import { COMMITTEE_FIELD, LEAGUE_OFFICER_FIELD, hasPosition, isLeagueMember } from '@/utils/roster'
-import { daysInRange, centerScrollLeft } from '@/utils/schedule'
+import { daysInRange, centerScrollLeft, columnizeDay } from '@/utils/schedule'
 import { errText } from '@/utils/request'
 
 const userStore = useUserStore()
@@ -757,15 +757,15 @@ onMounted(() => {
 onUnmounted(() => clearInterval(clockTimer))
 
 // ---------- 定位日程块 ----------
+// 定时日程的块：先按天分组，同一天里时间上撞在一起的并排（columnizeDay）
 const positionedEvents = computed(() => {
   const events = []
   const slotsPerHour = 6
-  const startSlotIdx = 0  // 07:00 是第 0 个
+  const byDay = new Map()
 
   for (const evt of schedules.value) {
     if (evt.all_day) continue
-    const dayIdx = new Date(evt.instance_date).getDay() || 7  // 周一=0 不对，要调整
-    // 调整：周一为 0（数组下标）
+    // 周一为 0：getDay() 把周日排在第 0 位，得挪到最后去
     const dayIndex = (new Date(evt.instance_date).getDay() + 6) % 7
 
     // 计算起始和结束的 slot 索引
@@ -778,18 +778,32 @@ const positionedEvents = computed(() => {
 
     if (startIdx < 0 || endIdx > timeSlots.value.length) continue
 
-    const top = startIdx * slotHeight
-    const height = (endIdx - startIdx) * slotHeight - 2  // -2 留间隙
+    if (!byDay.has(dayIndex)) byDay.set(dayIndex, [])
+    byDay.get(dayIndex).push({ ...evt, startIdx, endIdx })
+  }
 
-    events.push({
-      ...evt,
-      key: `${evt.id}-${evt.instance_date}`,
-      style: {
-        top: top + 'px',
-        height: Math.max(height, 20) + 'px',
-        left: `calc(${dayIndex * (100 / 7)}% + 4px)`,
-        width: `calc(${100 / 7}% - 8px)`,
-      }
+  for (const [dayIndex, list] of byDay) {
+    const laid = columnizeDay(list)
+    list.forEach((evt, k) => {
+      const { col, cols } = laid[k]
+      // 一条独占时和从前一模一样：左留 4px、右缩 8px（并排那些列本身窄了，
+      // 留白也跟着收一收，紧挨着才不显空）
+      const gap = cols === 1 ? 4 : 2
+      const colWidth = 100 / 7 / cols
+      const height = (evt.endIdx - evt.startIdx) * slotHeight - 2  // -2 留间隙
+
+      events.push({
+        ...evt,
+        key: `${evt.id}-${evt.instance_date}`,
+        // 窄到只够放一个字的时候那颗铃铛会正好压在标题上，藏掉它（见模板）
+        narrow: cols > 1,
+        style: {
+          top: evt.startIdx * slotHeight + 'px',
+          height: Math.max(height, 20) + 'px',
+          left: `calc(${dayIndex * (100 / 7) + col * colWidth}% + ${gap}px)`,
+          width: `calc(${colWidth}% - ${gap * 2}px)`,
+        }
+      })
     })
   }
   return events
@@ -1732,6 +1746,12 @@ async function handleResetToken() {
   right: 4px;
   font-size: 11px;
   color: var(--el-text-color-secondary);
+}
+
+/* 并排的日程块窄（两条重合只剩半列宽），那颗铃铛正好压在标题的字上，
+   看着像坏了。宁可不显示 —— 点开卡片还有提醒那一栏 */
+.evt-narrow .evt-bell {
+  display: none;
 }
 
 /* 全天事件行（表头正下方那一行） */
