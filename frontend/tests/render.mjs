@@ -2153,6 +2153,81 @@ console.log('\n▶ 投票能改记名：开始前随便改，开始了不许')
   check(!/记名与否还是改不了/.test(voteApi), '那句过期的话删了')
 }
 
+console.log('\n▶ 日程选人：仅班委 / 仅团员 / 仅团学成员，判据与分类统计共用一份')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const { hasPosition, isLeagueMember, COMMITTEE_FIELD, LEAGUE_OFFICER_FIELD } =
+    await server.ssrLoadModule('/src/utils/roster.js')
+
+  // ---------- 判据（真跑） ----------
+  // 「有职务」的坑都在这一份名单里：字面量「无」、空串、null、字段整个没填
+  const st = (id, o = {}) => ({ id, student_no: String(id), name: String(id), ...o })
+  const roster = [
+    st(1, { class_position: '班长' }),                        // 只是班委
+    st(2, { class_position: '无', league_position: '部长' }),  // 只是团学（「无」不算职务）
+    st(3, { class_position: '团支书', league_position: '副部长' }), // 两个都是
+    st(4, {}),                                                // 什么都没有
+    st(5, { class_position: '', league_position: null }),     // 空串 / null
+    st(6, { political_status: '共青团员' }),                   // 只是团员、没有职务
+    st(7, { political_status: '群众', league_position: '干事' }) // 团学但不是团员
+  ]
+  // 顺带排一下序：统计那边是按职务分组重排过的，比集合而不是比顺序
+  const idSet = (list) => list.map((s) => s.id).sort((a, b) => a - b).join(',')
+
+  check(idSet(roster.filter(hasPosition(COMMITTEE_FIELD))) === '1,3',
+    '仅班委：填了班级职务的才是，「无」/ 空串 / null / 没填的都不进')
+  check(idSet(roster.filter(hasPosition(LEAGUE_OFFICER_FIELD))) === '2,3,7',
+    '仅团学成员：看的是团学会职务，与性别、政治面貌无关')
+  check(roster.filter(isLeagueMember).length === 1 && isLeagueMember(roster[5]),
+    '仅团员：仍用点名/出卷那份判据（这 7 个人里只有 6 号是）')
+  check(hasPosition(COMMITTEE_FIELD)(null) === false
+    && hasPosition('league_position')(undefined) === false,
+    '判据对 null / undefined 不炸（学生的职务字段可能是空的）')
+
+  // 统计页那两张卡必须和日程选人是同一批人 —— 谁单独重写一份判据，这条会红
+  const { buildRoster } = await server.ssrLoadModule('/src/utils/statGroups.js')
+  check(idSet(buildRoster('committee', roster).rows) === '1,3',
+    '分类统计的班委名单与日程「仅班委」共用同一个判据')
+  check(idSet(buildRoster('leagueMember', roster).rows) === '2,3,7',
+    '分类统计的团学会名单与日程「仅团学成员」共用同一个判据')
+
+  // statGroups 那份是本地的还是引来的：留着本地定义迟早和 roster 那份漂开
+  const statSrc = src('/src/utils/statGroups.js')
+  check(/import \{ hasPosition, isLeagueMember \} from '\.\/roster'/.test(statSrc),
+    '分类统计的职务判据是从 utils/roster.js 引的')
+  check(!/function hasPosition/.test(statSrc), '本地那份 hasPosition 已经删干净了')
+
+  // ---------- 接线 ----------
+  const schedSrc = src('/src/views/Schedule.vue')
+  check(/import \{ COMMITTEE_FIELD, LEAGUE_OFFICER_FIELD, hasPosition, isLeagueMember \} from '@\/utils\/roster'/
+    .test(schedSrc), '日程页的判据同样引自 utils/roster.js')
+  check(/const studentScopes = scopePickers\(selectedStudents\)/.test(schedSrc)
+    && /const importScopes = scopePickers\(importSelectedStudents\)/.test(schedSrc),
+    '两个选人弹窗（新建日程、导入日程）各挂一份快捷范围')
+  check(/target\.value = allStudents\.value\.filter\(predicate\)\.map\(\(s\) => s\.id\)/.test(schedSrc),
+    '点一次是整份替换（选中的是学生 id，和复选框绑的是同一个东西），不是往上加')
+  check(/committee: pick\(hasPosition\(COMMITTEE_FIELD\)\)/.test(schedSrc)
+    && /league: pick\(isLeagueMember\)/.test(schedSrc)
+    && /officer: pick\(hasPosition\(LEAGUE_OFFICER_FIELD\)\)/.test(schedSrc),
+    '三枚按钮各自接的是共用判据，不是就地再比一遍字符串')
+
+  // 三枚按钮要在两个弹窗里都渲染出来（少了哪边，那边就只能靠手点几十下）
+  for (const [name, scope] of [['新建日程', 'studentScopes'], ['导入日程', 'importScopes']]) {
+    for (const [label, fn] of [['仅班委', 'committee'], ['仅团员', 'league'], ['仅团学成员', 'officer']]) {
+      check(schedSrc.includes(`@click="${scope}.${fn}">${label}</el-button>`),
+        `${name}的选人弹窗里有「${label}」`)
+    }
+  }
+  // 范围说的始终是「全班里哪些人」，不能被搜索框里剩下的那几个左右
+  check(/function scopePickers\(target\) \{\s*\n\s*const pick = \(predicate\) => \(\) => \{\s*\n\s*target\.value = allStudents\.value\.filter/
+    .test(schedSrc), '快捷范围从全班名单里取人，不受搜索框影响')
+
+  // 学生列表接口得把两个职务字段带出来，否则上面这些判据没有数据可判
+  const stuSchema = src('/../backend/app/schemas/student.py')
+  check(/class_position: Optional\[str\]/.test(stuSchema) && /league_position: Optional\[str\]/.test(stuSchema),
+    '学生列表返回的字段里有班级职务和团学会职务')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
