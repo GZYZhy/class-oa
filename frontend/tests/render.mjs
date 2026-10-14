@@ -2354,7 +2354,7 @@ console.log('\n▶ 结果页的「按得票排序」：只是换个看的顺序�
   const voteSrc = src('/src/views/Vote.vue')
   check(/v-for="j in tallyOrder\(q, tallySorted\)"/.test(voteSrc),
     '结果页的选项行照 tallyOrder 给的次序渲染')
-  check(/\{\{ letters\[j\] \}\}\. \{\{ q\.options\[j\] \}\}/.test(voteSrc),
+  check(/class="vt-opt-letter">\{\{ letters\[j\] \}\}\.<\/span> \{\{ q\.options\[j\] \}\}/.test(voteSrc),
     '字母和选项名按同一个下标取 —— 排完序每一行还是原来那个选项')
   check(/:percentage="percentOf\(q, j\)"/.test(voteSrc) && /q\.tallies\?\.\[j\] \?\? 0/.test(voteSrc),
     '进度条和票数也仍按原下标算，排序没顺手把它们也换一遍')
@@ -2378,9 +2378,17 @@ console.log('\n▶ 结果页的「按得票排序」：只是换个看的顺序�
     ['const resultPoll = ref({})', `const resultPoll = ref(${JSON.stringify(RESULT)})`],
     ['const tallySorted = ref(false)', `const tallySorted = ref(${sorted})`]
   ], { ElDialog: ElDialogStub })
-  // SSR 会在插值两边插注释记号（<!--[-->…<!--]-->），不剥掉就断不到那几个字
-  const rows = (h) => [...h.matchAll(/class="vt-opt-name"[^>]*>([\s\S]*?)<\/span>/g)]
-    .map((m) => m[1].replace(/<!--[\s\S]*?-->/g, '').trim())
+  // SSR 会在插值两边插注释记号（<!--[-->…<!--]-->），不剥掉就断不到那几个字；
+  // 名字列里还套着字母格那一层（.vt-opt-letter），所以两头都要取上再剥标签。
+  // 这条也顺带钉住了结构：字母格要是没了（退回「字母和名字一条行内文本」），
+  // 这里一条都匹配不上，下面几条会当场全红。
+  const rows = (h) => [
+    ...h.matchAll(
+      /class="vt-opt-name"[^>]*>\s*(<span class="vt-opt-letter"[^>]*>[\s\S]*?<\/span>)([\s\S]*?)<\/span>/g
+    )
+  ].map((m) =>
+    (m[1] + m[2]).replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+  )
 
   const plain = rows((await renderResult(false)).html)
   check(plain.join(' | ') === 'A. 甲 | B. 乙 | C. 丙', '没开排序：A/B/C 按卷子上的顺序排')
@@ -2389,6 +2397,63 @@ console.log('\n▶ 结果页的「按得票排序」：只是换个看的顺序�
     '开了排序：乙(11) 丙(5) 甲(3)，而且字母跟着选项走 —— 乙排到第一行也还叫 B')
   check((await renderResult(false)).warns.every((w) => !/Failed to resolve/.test(w)),
     '没有未解析的组件/指令')
+}
+
+console.log('\n▶ 选项字母单占一格：名字的起点才对得齐')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const voteSrc = src('/src/views/Vote.vue')
+
+  // 字母和名字本来是**同一条行内文本**（「A. 名字」）。字母是比例字形：「I.」两三个像素宽、
+  // 「M.」十几个 —— 于是每行名字的起点跟着这行的字母有多宽左右跳。截图里那十六行量过：
+  // 全 0 票、进度条左端都钉在同一个 x 上，唯一参差的就是这一列名字。
+  const CELL = /class="vt-opt-letter">\{\{ letters\[j\] \}\}\.<\/span> \{/g
+  check((voteSrc.match(CELL) || []).length === 4,
+    '四处都套上了字母格：结果页、单选、多选、只读回显（少拿一处，那处就还是歪的）')
+  check(!/\{\{ letters\[j\] \}\}\. \{\{/.test(voteSrc),
+    '没有漏网的：字母直接拼进文本的老写法一处都不剩')
+
+  check(/\.vt-opt-letter\s*\{[^}]*display: inline-block/.test(voteSrc)
+    && /\.vt-opt-letter\s*\{[^}]*min-width: 1\.5em/.test(voteSrc),
+    '这一格是行内块 + 钉住宽度 —— 只包一层不钉宽度，宽度仍跟着字母走，等于没改')
+  // 用 min-width 而不是 width：万一某套字体把「M.」撑得比这一格还宽，写死宽度会让它压到名字上
+  check(!/\.vt-opt-letter\s*\{[^}]*[^-]width: /.test(voteSrc),
+    '钉的是下限不是死宽度')
+  check(/class="pc-opt-label"/.test(src('/src/components/PollCreateDialog.vue')),
+    '和出卷弹窗早就有的定宽写法一个路子，不是另发明一种')
+
+  // ---------- 真渲染：结果页和作答弹窗里字母都真进了那一格 ----------
+  const RESULT = {
+    id: 1, title: '选谁', status: 'closed', anonymous: false, can_vote: false,
+    results_visible: true, can_manage: false, voted_count: 3, target_count: 3,
+    questions: [{ id: 1, title: '选谁', multiple: false, options: ['甲', '乙'], tallies: [2, 1] }]
+  }
+  const resultsHtml = stripComments((await renderPatchedMany('/src/views/Vote.vue', [
+    ['const resultVisible = ref(false)', 'const resultVisible = ref(true)'],
+    ['const resultPoll = ref({})', `const resultPoll = ref(${JSON.stringify(RESULT)})`]
+  ], { ElDialog: ElDialogStub })).html)
+  check(/class="vt-opt-name"[^>]*>\s*<span class="vt-opt-letter"[^>]*>A\.<\/span> 甲/.test(resultsHtml),
+    '结果页里字母归字母格、名字跟在后面（名字的起点由这一格决定，不再由字母的宽窄决定）')
+
+  const VOTE = {
+    id: 1, title: '要不要聚餐', status: 'open', anonymous: false, can_vote: true,
+    has_voted: false, results_visible: false, can_manage: false, is_target: true,
+    voted_count: 0, target_count: 3,
+    questions: [
+      { id: 1, title: '单选', multiple: false, max_choices: 1, options: ['甲', '乙'] },
+      { id: 2, title: '多选', multiple: true, max_choices: 2, options: ['丙', '丁'] }
+    ]
+  }
+  const voteHtml = stripComments((await renderPatchedMany('/src/views/Vote.vue', [
+    ['const voteVisible = ref(false)', 'const voteVisible = ref(true)'],
+    ['const votePoll = ref({})', `const votePoll = ref(${JSON.stringify(VOTE)})`]
+  ], { ElDialog: ElDialogStub })).html)
+  const cells = [...voteHtml.matchAll(/class="vt-opt-letter"[^>]*>([\s\S]*?)<\/span>/g)]
+    .map((m) => m[1].replace(/<!--[\s\S]*?-->/g, '').trim())
+  check(cells.join(' ') === 'A. B. A. B.',
+    '作答弹窗里四个字母各占一格（单选两个、多选两个；每道题各自从 A 数起）')
+  check(/vt-opt-letter"[^>]*>B\.<\/span> 丁/.test(voteHtml),
+    '名字就跟在那一格后面（单选和多选共用这条写法）—— 学生作答时看见的也是齐的')
 }
 
 await server.close()
