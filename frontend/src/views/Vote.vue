@@ -239,18 +239,25 @@
         <el-tabs v-model="resultTab">
           <el-tab-pane label="票数" name="tally">
             <template v-if="resultPoll.results_visible">
-              <p class="vt-hint">
-                已投 {{ resultPoll.voted_count }} / {{ resultPoll.target_count }} 人。
-                多选题每人可选的项数不止一个，所以一道题的票数之和会大于人数
-              </p>
+              <div class="vt-tally-head">
+                <p class="vt-hint">
+                  已投 {{ resultPoll.voted_count }} / {{ resultPoll.target_count }} 人。
+                  多选题每人可选的项数不止一个，所以一道题的票数之和会大于人数
+                </p>
+                <!-- 纯前端重排，不改后端也不动票数：只是换个看的角度（选举时先看谁领先） -->
+                <el-button size="small" @click="tallySorted = !tallySorted">
+                  {{ tallySorted ? '按选项顺序' : '按得票排序' }}
+                </el-button>
+              </div>
               <div v-for="(q, i) in resultPoll.questions" :key="q.id" class="vt-rq">
                 <div class="vt-q-title">
                   <span>{{ i + 1 }}. {{ q.title }}</span>
                   <el-tag v-if="q.multiple" size="small" type="info" effect="plain">多选</el-tag>
                   <span class="vt-sub">共 {{ sumOf(q) }} 项选择</span>
                 </div>
-                <div v-for="(opt, j) in q.options" :key="j" class="vt-opt">
-                  <span class="vt-opt-name">{{ letters[j] }}. {{ opt }}</span>
+                <!-- j 是**选项的原始下标**：排了序也只是行的先后变了，字母、票数、进度条都还各就各位 -->
+                <div v-for="j in tallyOrder(q, tallySorted)" :key="j" class="vt-opt">
+                  <span class="vt-opt-name">{{ letters[j] }}. {{ q.options[j] }}</span>
                   <el-progress
                     :percentage="percentOf(q, j)"
                     :stroke-width="14"
@@ -345,6 +352,7 @@ import {
   statusLabel,
   statusTag,
   sumOf,
+  tallyOrder,
   // 和下面那个 computed 重名，改个名。判据本身放 utils 里是为了能被单独跑起来验
   voteBlockReason as blockReasonOf
 } from '@/utils/poll'
@@ -376,6 +384,8 @@ const resultVisible = ref(false)
 const resultLoading = ref(false)
 const resultPoll = ref({})
 const resultTab = ref('tally')
+/** 票数页是不是按得票从多到少排。只是个看的习惯，换一场投票不用重设 */
+const tallySorted = ref(false)
 const ballots = ref({ total: 0, voted_count: 0, rows: [] })
 
 /** 不能投的原因。判据在 utils/poll.js，和「暂停了」「不在范围内」的分支顺序一起放在那儿 */
@@ -787,6 +797,17 @@ onUnmounted(stopPolling)
   font-size: 12px;
   color: var(--el-text-color-secondary);
   line-height: 1.6;
+}
+
+/* 说明那行很长，排序按钮跟它并排、靠右，免得单独再占一行 */
+.vt-tally-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.vt-tally-head .vt-hint {
+  flex: 1;
 }
 
 .vt-q,
