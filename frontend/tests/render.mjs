@@ -1547,6 +1547,22 @@ console.log('\n▶ 三个办件的顶部说明：办件详情、提交材料、�
     '组件什么都不传时，五个位置都落「未指定」')
 }
 
+console.log('\n▶ 三个办件页面铺满工作区，宽度口径一致')
+{
+  // 请假页从第一版起就多套了一层 max-width: 860px 的壳（.leave-apply），后来加的电动车、
+  // 证明则是裸 <div> 直接放 page-card —— 都是「办件」，点进去三个页面宽度却不一样，
+  // 宽屏上请假两边空一大块。根节点上挂类，十有八九就是想给这一页单独定宽，这里钉死。
+  const PAGES = ['LeaveApply', 'EvPass', 'Certificate']
+  for (const name of PAGES) {
+    const lines = readFileSync(`${ROOT}/src/views/${name}.vue`, 'utf8').split('\n')
+    // <template> 的下一行就是根节点
+    check(lines[1].trim() === '<div>',
+      `${name}：根节点是裸 <div>，不给这一页单独套定宽的壳`)
+    check(lines[2].includes('<div class="page-card"'),
+      `${name}：page-card 直接铺在根节点里，宽度跟着工作区走`)
+  }
+}
+
 console.log('\n▶ 系统管理：水印溯源认得电动车申请表与承诺书')
 {
   // 同上一节：这块在 tab 正文里，SSR 下不渲染，走源码断言
