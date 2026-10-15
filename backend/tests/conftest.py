@@ -142,6 +142,10 @@ def backend(tmp_path):
                 # 电动车同理：行驶证和经办班委签字图的副本都落在 EV_PASS_DIR，
                 # 接口测试一调「批准（带签字）」或上传行驶证就会往里写文件
                 "EV_PASS_DIR": str(tmp_path / "ev_passes"),
+                # 证明的申请附件与成品 PDF 同理（这两个目录原先没吃环境变量，
+                # 所以是后补的，见 certificates.py 里 ATTACH_DIR / RESULT_DIR 的注释）
+                "CERT_ATTACH_DIR": str(tmp_path / "cert_attachments"),
+                "CERT_RESULT_DIR": str(tmp_path / "cert_results"),
                 # 显式置空：不给的话会从仓库根或 backend/.env 里漏进来
                 "BOOTSTRAP_PASSWORD": "",
                 **env,

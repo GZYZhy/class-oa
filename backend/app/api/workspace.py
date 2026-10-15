@@ -42,10 +42,14 @@ _TYPE_META = {
             "rejected": ("已驳回", "danger"),
         },
     },
+    # 三个办件的状态逐字同构（提交 → 受理 → 办结），五档齐全。少写一档的话
+    # _status_info 会兜底把英文状态名直接显示给学生（services/review_flow.py 是这五档的出处）
     "leave": {
         "name": "请假申请",
         "status_labels": {
-            "pending": ("待审核", "warning"),
+            "pending": ("待受理", "warning"),
+            "accepted": ("已受理", "primary"),
+            "correcting": ("待补正", "warning"),
             "approved": ("已通过", "success"),
             "rejected": ("已驳回", "danger"),
         },
@@ -53,7 +57,9 @@ _TYPE_META = {
     "evpass": {
         "name": "电动车通行证",
         "status_labels": {
-            "pending": ("待审核", "warning"),
+            "pending": ("待受理", "warning"),
+            "accepted": ("已受理", "primary"),
+            "correcting": ("待补正", "warning"),
             "approved": ("已通过", "success"),
             "rejected": ("已驳回", "danger"),
         },
@@ -61,7 +67,9 @@ _TYPE_META = {
     "certificate": {
         "name": "证明开具",
         "status_labels": {
-            "pending": ("待审核", "warning"),
+            "pending": ("待受理", "warning"),
+            "accepted": ("已受理", "primary"),
+            "correcting": ("待补正", "warning"),
             "approved": ("已通过", "success"),
             "rejected": ("已驳回", "danger"),
         },

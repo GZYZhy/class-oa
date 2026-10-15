@@ -22,6 +22,7 @@ from ..models import (
 )
 from ..services import unread_count
 from ..services.inbox_service import unread_count as inbox_unread_count
+from ..services.review_flow import ADMIN_TODO
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/badges", tags=["未读红点"])
@@ -43,6 +44,12 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
     approve/reject 都是 admin_required），给班委也算上的话，
     红点数字虚高、点进去却批不了。
 
+    三个办件（leave / evpass / certificate）数的是 **ADMIN_TODO**（待受理 + 已受理），
+    不是单单一档 pending：办件多了「受理」这一步，受理后状态就变成 accepted 了，
+    只数 pending 的话管理员一受理，红点当场减一、而这件事其实还等着他批。
+    这个口径和审核页默认那一档（列表接口的 status=open）、
+    以及「删学生时的未办结拦截」同源，见 services/review_flow.py。
+
     review_pending 是 review_tabs 的和，不再单独算一遍 —— 菜单上的数字和
     点进去各 tab 的数字同源，不会出现「菜单显示 3、每个 tab 都是 0」这种对不上的情况。
 
@@ -60,13 +67,14 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
         "signphoto": 0,
     }
     if user.role == "admin":
-        review_tabs["leave"] = _count(db, LeaveRequest, "pending")
+        # 三个办件都走管理员审批，且都有受理环节（口径见上面的 ADMIN_TODO）
+        review_tabs["leave"] = _count(db, LeaveRequest, ADMIN_TODO)
         # 电动车通行证也走管理员审批（ev_passes.py 的 approve/reject 都是 admin_required）
-        review_tabs["evpass"] = _count(db, EvPassRequest, "pending")
+        review_tabs["evpass"] = _count(db, EvPassRequest, ADMIN_TODO)
         # 导出申请：管理员审批
         review_tabs["export"] = _count(db, ExportRequest, "pending")
         # 证明开具：管理员审批
-        review_tabs["certificate"] = _count(db, CertificateRequest, "pending")
+        review_tabs["certificate"] = _count(db, CertificateRequest, ADMIN_TODO)
         # 签字查看申请：管理员审批
         review_tabs["signphoto"] = _count(db, SignPhotoRequest, "pending")
 
@@ -78,8 +86,13 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
     }
 
 
-def _count(db: Session, model, status: str) -> int:
-    """数某个模型里处于某状态的行数（模型自己的 status 列）"""
-    return (
-        db.query(func.count(model.id)).filter(model.status == status).scalar() or 0
-    )
+def _count(db: Session, model, status: str | tuple[str, ...]) -> int:
+    """数某个模型里处于某个状态（或某几个状态之一）的行数（模型自己的 status 列）
+
+    收一个元组是为了三个办件：它们要数的是 ADMIN_TODO 那两档。
+    """
+    if isinstance(status, tuple):
+        cond = model.status.in_(status)
+    else:
+        cond = model.status == status
+    return db.query(func.count(model.id)).filter(cond).scalar() or 0

@@ -29,11 +29,18 @@ class EvPassRequest(Base):
     license_original_name = Column(String(200), comment="行驶证原始文件名")
 
     # 审核
-    status = Column(String(20), default="pending", index=True, comment="pending/approved/rejected")
+    status = Column(
+        String(20), default="pending", index=True,
+        comment="pending/accepted/correcting/approved/rejected",
+    )
     reviewer_no = Column(String(20), comment="审核人学号")
     reviewer_name = Column(String(50), comment="审核人姓名")
     reviewed_at = Column(DateTime, comment="审核时间")
     reject_reason = Column(Text, comment="驳回理由")
+    # 退回补正的理由（受理后发现材料不对，打回让申请人补齐；申请人重交时清空）。
+    # default="" 而不是留空：补列时给的是 NOT NULL DEFAULT ''，模型这边不跟上的话
+    # 新记录是 NULL、老记录是空串，同一列两种「没有」，响应体里一会儿 null 一会儿 ""
+    correction_reason = Column(Text, default="", comment="退回补正的理由")
 
     # 经办班委签字。申请表的落款与日期之间那一行 —— 管理员**批准时**选一位管理员
     # （或「暂不签署」），取的是当时那张图的**副本**，落在 data/ev_passes/ 下。
