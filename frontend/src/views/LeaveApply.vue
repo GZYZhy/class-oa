@@ -11,7 +11,12 @@
 
       <el-tabs v-model="activeTab">
         <!-- 提交申请 -->
-        <el-tab-pane label="提交申请" name="apply">
+        <el-tab-pane :label="editingId ? '修改申请' : '提交申请'" name="apply">
+          <!-- 修改这条申请时把表单预填成它的内容，提交走 PUT 覆盖原记录 -->
+          <div v-if="editingId" class="edit-hint">
+            正在修改这条申请，改完点「保存修改」；不重选文件就沿用原来那份。
+          </div>
+
           <el-form :model="form" :rules="rules" ref="formRef" label-width="110px" style="max-width: 640px;">
             <el-form-item label="请假类型" prop="leave_type">
               <el-radio-group v-model="form.leave_type">
@@ -85,7 +90,10 @@
               >
                 <el-button>选择文件</el-button>
                 <template #tip>
-                  <div class="el-upload__tip">支持 PDF / 图片，最大 20MB，必填</div>
+                  <div v-if="editingId" class="el-upload__tip">
+                    支持 PDF / 图片，最大 20MB。不重选就沿用当前那份
+                  </div>
+                  <div v-else class="el-upload__tip">支持 PDF / 图片，最大 20MB，必填</div>
                 </template>
               </el-upload>
             </el-form-item>
@@ -116,8 +124,9 @@
             <el-form-item>
               <el-button type="primary" :loading="submitting" @click="handleSubmit">
                 <!-- 证明材料多是拍照，慢网络下传得久，把进度显示出来 -->
-                提交申请{{ submitting && uploadProgress ? ` ${uploadProgress}%` : '' }}
+                {{ editingId ? '保存修改' : '提交申请' }}{{ submitting && uploadProgress ? ` ${uploadProgress}%` : '' }}
               </el-button>
+              <el-button v-if="editingId" @click="cancelEdit">取消修改</el-button>
             </el-form-item>
           </el-form>
         </el-tab-pane>
@@ -136,7 +145,9 @@
             <el-table-column prop="reason" label="事由" min-width="180" show-overflow-tooltip />
             <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
-                <el-tag v-if="row.status === 'pending'" type="warning" size="small">待审核</el-tag>
+                <el-tag v-if="row.status === 'pending'" type="warning" size="small">待受理</el-tag>
+                <el-tag v-else-if="row.status === 'accepted'" type="primary" size="small">已受理</el-tag>
+                <el-tag v-else-if="row.status === 'correcting'" type="warning" size="small">待补正</el-tag>
                 <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
                 <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
               </template>
@@ -144,10 +155,29 @@
             <el-table-column label="申请时间" width="160" align="center">
               <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="180" align="center">
+            <el-table-column label="操作" width="240" align="center">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="viewProof(row)">
                   查看证明
+                </el-button>
+                <!-- 待受理、待补正都能改；撤只有待受理能撤（受理过的要撤得找班委先撤回受理） -->
+                <el-button
+                  v-if="row.status === 'pending' || row.status === 'correcting'"
+                  size="small"
+                  link
+                  type="warning"
+                  @click="startEdit(row)"
+                >
+                  修改
+                </el-button>
+                <el-button
+                  v-if="row.status === 'pending'"
+                  size="small"
+                  link
+                  type="danger"
+                  @click="handleDelete(row)"
+                >
+                  撤销
                 </el-button>
                 <el-button
                   v-if="row.status === 'approved'"
@@ -160,7 +190,7 @@
                 </el-button>
               </template>
             </el-table-column>
-            <el-table-column label="审核意见" width="160" show-overflow-tooltip>
+            <el-table-column label="审核意见" width="180" show-overflow-tooltip>
               <template #default="{ row }">
                 <span v-if="row.status === 'rejected'" style="color: #f56c6c;">
                   {{ row.reject_reason || '未填写理由' }}
@@ -172,7 +202,13 @@
                     班导师意见：{{ row.advisor_opinion }}
                   </div>
                 </span>
-                <span v-else style="color: var(--el-text-color-disabled);">待审核</span>
+                <!-- 退回补正的理由是让申请人照办的话，得跟状态一起看得见 -->
+                <span v-else-if="row.status === 'correcting'" style="color: #e6a23c;">
+                  需补正：{{ row.correction_reason || '请补齐材料' }}
+                </span>
+                <span v-else style="color: var(--el-text-color-disabled);">
+                  {{ row.status === 'accepted' ? '已受理，等待审批' : '待受理' }}
+                </span>
               </template>
             </el-table-column>
           </el-table>
@@ -192,8 +228,8 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { getMyLeaves, submitLeave, downloadLeavePdf } from '@/api/leave'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getMyLeaves, submitLeave, updateLeave, deleteLeave, downloadLeavePdf } from '@/api/leave'
 import { formatDate, formatDateTime } from '@/utils/format'
 import FileViewer from '@/components/FileViewer.vue'
 import ServiceIntro from '@/components/ServiceIntro.vue'
@@ -206,6 +242,8 @@ const loading = ref(false)
 const leaves = ref([])
 const formRef = ref(null)
 const fileList = ref([])
+// 正在修改的那条记录（null = 新建）。改完走 PUT 覆盖原记录，不会又多出一条
+const editingId = ref(null)
 
 // 起止时间都是 'YYYY-MM-DD HH:00' 这种字符串，交给后端解析成 datetime
 const form = reactive({
@@ -245,8 +283,9 @@ const rules = {
   proof: [
     {
       validator: (_, __, callback) => {
-        if (!fileList.value.length) callback(new Error('请上传请假辅助证明'))
-        else callback()
+        // 修改时可以不重选：不选就沿用原来那份（后端 PUT 的 proof 字段就是这么定的）
+        if (editingId.value || fileList.value.length) callback()
+        else callback(new Error('请上传请假辅助证明'))
       },
       trigger: 'change'
     }
@@ -286,6 +325,57 @@ function handleFileRemove() {
   formRef.value?.validateField('proof')
 }
 
+/** 清空表单，回到「新建」状态 */
+function resetForm() {
+  Object.assign(form, {
+    leave_type: '病假',
+    start_at: '',
+    end_at: '',
+    reason: '',
+    travel_mode: '',
+    travel_detail: '',
+    destination: '',
+    destination_phone: '',
+    agreed: false,
+    promised: false,
+    signConfirmed: false
+  })
+  fileList.value = []
+  editingId.value = null
+}
+
+/** 修改：把这条记录预填进表单并切回表单那一栏 */
+function startEdit(row) {
+  editingId.value = row.id
+  Object.assign(form, {
+    leave_type: row.leave_type,
+    // 后端给的是 ISO（2026-10-15T08:00:00），选择器要的是 'YYYY-MM-DD HH:00'
+    start_at: toPickerValue(row.start_at),
+    end_at: toPickerValue(row.end_at),
+    reason: row.reason,
+    travel_mode: row.travel_mode || '',
+    travel_detail: row.travel_detail || '',
+    destination: row.destination || '',
+    destination_phone: row.destination_phone || '',
+    // 三条承诺是每次提交都要认一遍的话，不替申请人预勾
+    agreed: false,
+    promised: false,
+    signConfirmed: false
+  })
+  fileList.value = []
+  activeTab.value = 'apply'
+  formRef.value?.clearValidate()
+}
+
+function cancelEdit() {
+  resetForm()
+  activeTab.value = 'history'
+}
+
+function toPickerValue(value) {
+  return value ? formatDateTime(value).slice(0, 13) + ':00' : ''
+}
+
 async function handleSubmit() {
   if (!formRef.value) return
   try {
@@ -298,7 +388,7 @@ async function handleSubmit() {
     return ElMessage.warning('结束时间必须晚于开始时间')
   }
 
-  if (!fileList.value.length) {
+  if (!editingId.value && !fileList.value.length) {
     return ElMessage.warning('请上传请假辅助证明')
   }
 
@@ -311,39 +401,54 @@ async function handleSubmit() {
   fd.append('travel_detail', form.travel_detail)
   fd.append('destination', form.destination)
   fd.append('destination_phone', form.destination_phone)
-  // el-upload 的 raw 才是真实文件对象
-  fd.append('proof', fileList.value[0].raw || fileList.value[0])
+  // el-upload 的 raw 才是真实文件对象。
+  // 修改时不选文件就是「证明不动」，所以这个地方是空的就别 append 了
+  if (fileList.value.length) {
+    fd.append('proof', fileList.value[0].raw || fileList.value[0])
+  }
+
+  const onProgress = (loaded, total) => {
+    uploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+  }
 
   submitting.value = true
   uploadProgress.value = 0
   try {
-    await submitLeave(fd, (loaded, total) => {
-      uploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
-    })
-    ElMessage.success('申请已提交，等待管理员审核')
+    if (editingId.value) {
+      await updateLeave(editingId.value, fd, onProgress)
+      ElMessage.success('已保存修改')
+    } else {
+      await submitLeave(fd, onProgress)
+      ElMessage.success('申请已提交，等待管理员审核')
+    }
     // 切到记录页
     activeTab.value = 'history'
     await fetchLeaves()
-    // 清空表单
-    Object.assign(form, {
-      leave_type: '病假',
-      start_at: '',
-      end_at: '',
-      reason: '',
-      travel_mode: '',
-      travel_detail: '',
-      destination: '',
-      destination_phone: '',
-      agreed: false,
-      promised: false,
-      signConfirmed: false
-    })
-    fileList.value = []
+    resetForm()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '提交失败')
   } finally {
     submitting.value = false
   }
+}
+
+/** 撤销：只有待受理能撤，撤了就真删掉了（连证明材料） */
+function handleDelete(row) {
+  ElMessageBox.confirm(
+    '撤销后这条申请和证明材料都会被删掉，不能恢复。',
+    '撤销申请',
+    { confirmButtonText: '撤销', cancelButtonText: '再想想', type: 'warning' }
+  ).then(async () => {
+    try {
+      await deleteLeave(row.id)
+      ElMessage.success('已撤销')
+      // 撤的正好是正在改的那条，就别让表单还停在「修改」上
+      if (editingId.value === row.id) resetForm()
+      fetchLeaves()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '撤销失败')
+    }
+  }).catch(() => {})
 }
 
 async function fetchLeaves() {
@@ -398,6 +503,17 @@ onMounted(() => {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   margin-top: 4px;
+}
+
+/* 修改模式的提示条。用 Element 的调色板变量，深色模式跟着一起变 */
+.edit-hint {
+  max-width: 640px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-regular);
+  font-size: 13px;
 }
 
 /* 起止时间竖排两行，比一行 "a ~ b" 好读 */

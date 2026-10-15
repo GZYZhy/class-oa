@@ -118,6 +118,14 @@ NEW_COLUMNS = [
     # 可空的时刻：非空 = 这场投票被发起人临时暂停了（不是结束，暂停期间到点照常
     # 自动结束）。老行补成 NULL = 从来没暂停过，与补列前行为完全一致，不需要回填
     ("polls", "locked_at", "DATETIME"),
+    # ---------- 三个办件的「退回补正」理由 ----------
+    # 三张表各加一列。不复用 reject_reason 是因为两件事不同：驳回是「这件事不批了」
+    # 的正式结论，补正是「材料补齐还能批」。混用一列的话申请人分不清自己是被拒了
+    # 还是被打回改。默认空串 = 没被打回过，与补列前行为一致，不需要回填。
+    # certificate_requests 是第一次进这份列表（它此前没补过任何列）
+    ("leave_requests", "correction_reason", "VARCHAR(500) NOT NULL DEFAULT ''"),
+    ("ev_pass_requests", "correction_reason", "TEXT NOT NULL DEFAULT ''"),
+    ("certificate_requests", "correction_reason", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）

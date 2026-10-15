@@ -18,11 +18,15 @@ class EvPassRequestResponse(BaseModel):
     brand: Optional[str] = None
     plate_number: Optional[str] = None
     license_original_name: Optional[str] = None
-    status: Optional[str] = None  # pending / approved / rejected
+    # pending 待受理 / accepted 已受理 / correcting 待补正 / approved 已通过 / rejected 已驳回
+    status: Optional[str] = None
     created_at: Optional[datetime] = None
     reviewer_name: Optional[str] = None
     reviewed_at: Optional[datetime] = None
     reject_reason: Optional[str] = None
+    # 退回补正的理由（受理后发现材料不对）。和 reject_reason 不是一回事：补正是
+    # 「补齐了还能批」，驳回是「这件事不批了」
+    correction_reason: Optional[str] = None
     # 经办班委签字：批准时选一位管理员签名，或选「暂不签署」（那时三列全空）
     sign_name: str = ""
     # 派生：签没签字。签字图**副本的文件名**不进响应 —— 前端只需要知道
@@ -36,6 +40,11 @@ class EvPassRequestResponse(BaseModel):
 class EvPassRejectRequest(BaseModel):
     """驳回申请"""
     reason: str = Field(..., min_length=1, max_length=500, description="驳回理由")
+
+
+class EvPassCorrectRequest(BaseModel):
+    """退回补正：受理后发现材料不对，打回让申请人补齐（和驳回不是一回事）"""
+    reason: str = Field(..., min_length=1, max_length=500, description="要补什么材料")
 
 
 class EvPassSignature(BaseModel):

@@ -30,11 +30,18 @@ class CertificateRequest(Base):
     attachments = Column(Text, default="", comment="附件列表（JSON，最多 3 个）")
 
     # 审核
-    status = Column(String(20), default="pending", index=True, comment="pending/approved/rejected")
+    status = Column(
+        String(20), default="pending", index=True,
+        comment="pending/accepted/correcting/approved/rejected",
+    )
     reviewer_no = Column(String(20), comment="审核人学号")
     reviewer_name = Column(String(50), comment="审核人姓名")
     reviewed_at = Column(DateTime, comment="审核时间")
     reject_reason = Column(Text, comment="驳回理由")
+    # 退回补正的理由（受理后发现材料不对，打回让申请人补齐；申请人重交时清空）。
+    # default="" 而不是留空：补列时给的是 NOT NULL DEFAULT ''，模型这边不跟上的话
+    # 新记录是 NULL、老记录是空串，同一列两种「没有」，响应体里一会儿 null 一会儿 ""
+    correction_reason = Column(Text, default="", comment="退回补正的理由")
 
     # 成品 PDF（管理员上传）
     result_file = Column(String(100), comment="成品 PDF 存盘名")

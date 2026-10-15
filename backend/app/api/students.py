@@ -41,6 +41,8 @@ from ..services import (
     delete_student,
     log_operation,
 )
+# 三个办件的「没办结」口径（含受理、待补正两档），与红点、列表 open 档同源
+from ..services.review_flow import STATUS_PENDING, UNFINISHED
 from ..utils.media_type import guess_media_type
 from ..utils.student_fields import describe_changes
 from ..services.student_import_service import (
@@ -184,33 +186,32 @@ def _pending_blockers(db: Session, student: Student) -> list[str]:
     单条删除和批量删除共用这一份判断。两处各写一遍的话，以后加一类申请就得改两个
     地方，漏掉一个就会出现「批量能删、单条删不了」这种自相矛盾的行为。
 
-    拦住的是**待处理**的申请：办件还挂在半路上，学生先没了的话，班委点「通过」
+    拦住的是**没办结**的申请：办件还挂在半路上，学生先没了的话，班委点「通过」
     会撞上「学生不存在」，那些待办就没法收尾了。
+
+    ⚠️ 判据是「算不算办件」，**不是**「挂在学号上还是主键上」—— 后者只是查询方式，
+    跟要不要受理没关系（信息修改走学号却不受理，证明走主键却要受理）。三个办件认
+    UNFINISHED，待补正那种也得留住学生（不然班委收不了尾）；另外两类没有受理环节，
+    只认 pending。所以每一行自带自己的状态条件，不按挂靠方式分组。
     """
     blockers = []
-    # 请假、信息修改是按**学号**挂的（它们存了姓名学号快照，本来就不依赖学生表）
-    for model, label in (
-        (LeaveRequest, "待审核的请假申请"),
-        (ChangeRequest, "待审核的信息修改申请"),
-    ):
-        n = (
-            db.query(model)
-            .filter(model.student_no == student.student_no, model.status == "pending")
-            .count()
-        )
-        if n:
-            blockers.append(f"{n} 条{label}")
-    # 证明、通行证、签字查看申请是按**学生主键**挂的
-    for model, label in (
-        (CertificateRequest, "待处理的证明开具"),
-        (EvPassRequest, "待处理的电动车通行证"),
-        (SignPhotoRequest, "待审核的签字查看申请"),
-    ):
-        n = (
-            db.query(model)
-            .filter(model.student_id == student.id, model.status == "pending")
-            .count()
-        )
+    # (模型, 这条记录属不属于这个学生, 文案, 算「没办结」的状态)
+    checks = (
+        # 请假、信息修改按**学号**挂（它们存了姓名学号快照，本来就不依赖学生表）
+        (LeaveRequest, LeaveRequest.student_no == student.student_no,
+         "待处理的请假申请", UNFINISHED),
+        (ChangeRequest, ChangeRequest.student_no == student.student_no,
+         "待审核的信息修改申请", (STATUS_PENDING,)),
+        # 证明、通行证、签字查看申请按**学生主键**挂
+        (CertificateRequest, CertificateRequest.student_id == student.id,
+         "待处理的证明开具", UNFINISHED),
+        (EvPassRequest, EvPassRequest.student_id == student.id,
+         "待处理的电动车通行证", UNFINISHED),
+        (SignPhotoRequest, SignPhotoRequest.student_id == student.id,
+         "待审核的签字查看申请", (STATUS_PENDING,)),
+    )
+    for model, belongs, label, statuses in checks:
+        n = db.query(model).filter(belongs, model.status.in_(statuses)).count()
         if n:
             blockers.append(f"{n} 条{label}")
     return blockers

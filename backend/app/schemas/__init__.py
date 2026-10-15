@@ -47,12 +47,18 @@ from .admin import (
 from .about import CommitteeMember, AboutResponse
 from .leave import (
     LeaveAdvisorSignature,
+    LeaveCorrectRequest,
     LeaveRejectRequest,
     LeaveRequestCreate,
     LeaveRequestResponse,
 )
 from .feedback import FeedbackAttachment, FeedbackReply, FeedbackResponse
-from .ev_pass import EvPassRequestResponse, EvPassRejectRequest, EvPassSignature
+from .ev_pass import (
+    EvPassCorrectRequest,
+    EvPassRejectRequest,
+    EvPassRequestResponse,
+    EvPassSignature,
+)
 from .student_import import (
     ImportPreviewResponse,
     ImportPreviewSample,
@@ -65,7 +71,11 @@ from .student_photo import (
     PhotoZipConfirmRequest,
     PhotoZipResultResponse,
 )
-from .certificate import CertificateRequestResponse, CertificateRejectRequest
+from .certificate import (
+    CertificateCorrectRequest,
+    CertificateRejectRequest,
+    CertificateRequestResponse,
+)
 from .sign_photo import (
     SignPhotoRequestCreate,
     SignPhotoRequestListResponse,
@@ -189,12 +199,14 @@ __all__ = [
     "LeaveRequestCreate",
     "LeaveRequestResponse",
     "LeaveRejectRequest",
+    "LeaveCorrectRequest",
     "LeaveAdvisorSignature",
     "FeedbackAttachment",
     "FeedbackReply",
     "FeedbackResponse",
     "EvPassRequestResponse",
     "EvPassRejectRequest",
+    "EvPassCorrectRequest",
     "EvPassSignature",
     "ImportPreviewResponse",
     "ImportPreviewSample",
@@ -206,6 +218,7 @@ __all__ = [
     "PhotoZipResultResponse",
     "CertificateRequestResponse",
     "CertificateRejectRequest",
+    "CertificateCorrectRequest",
     "AttendanceCreate",
     "AttendanceItemIn",
     "AttendanceItemResponse",

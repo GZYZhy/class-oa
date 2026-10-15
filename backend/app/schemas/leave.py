@@ -33,9 +33,15 @@ class LeaveRequestResponse(BaseModel):
     destination: str = ""
     destination_phone: str = ""
     proof_original_name: Optional[str] = None
-    status: str
+    status: str = Field(
+        ...,
+        description="pending 待受理 / accepted 已受理 / correcting 待补正 / approved 已通过 / rejected 已驳回",
+    )
     reviewer_name: Optional[str] = None
     reject_reason: str = ""
+    # 退回补正的理由（受理后发现材料不对）。和 reject_reason 不是一回事：补正是
+    # 「补齐了还能批」，驳回是「这件事不批了」，所以申请人看到的提示也不同
+    correction_reason: str = ""
     created_at: Optional[datetime] = None
     reviewed_at: Optional[datetime] = None
     # 班导师意见与签字：批准时填（意见选填、签字可以「暂不签字」）
@@ -53,6 +59,15 @@ class LeaveRequestResponse(BaseModel):
 class LeaveRejectRequest(BaseModel):
     """驳回申请"""
     reason: str = Field(..., min_length=1, max_length=500, description="驳回理由")
+
+
+class LeaveCorrectRequest(BaseModel):
+    """退回补正：受理后发现材料不对，打回让申请人补齐
+
+    和驳回不是一回事（补齐了还能批），所以理由另收一份、另存一列，申请人也分得清
+    自己是被驳回了还是被打回去改。
+    """
+    reason: str = Field(..., min_length=1, max_length=500, description="要补什么材料")
 
 
 class LeaveAdvisorSignature(BaseModel):

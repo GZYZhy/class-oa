@@ -27,6 +27,7 @@ from ..database import get_db
 from ..models import LeaveRequest, Student, User
 from ..schemas import (
     LeaveAdvisorSignature,
+    LeaveCorrectRequest,
     LeaveRequestCreate,
     LeaveRequestResponse,
     LeaveRejectRequest,
@@ -40,6 +41,16 @@ from ..services import (
     make_watermark_token,
     notify,
     recipients,
+)
+from ..services.review_flow import (
+    ADMIN_TODO,
+    STATUS_CORRECTING,
+    STATUS_PENDING,
+    accept,
+    correct,
+    require_accepted,
+    resubmit,
+    unaccept,
 )
 from ..services.signer_service import copy_signature, signer_options
 from ..services.student_photo_service import sign_photo_path
@@ -80,6 +91,29 @@ def _safe_name(original: str) -> str:
     if ext not in ALLOWED_PROOF_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"不支持的文件类型：{ext}，仅支持 PDF / 图片")
     return f"{uuid.uuid4().hex}{ext}"
+
+
+def _check_fields(leave_type: str, start_at: datetime, end_at: datetime, reason: str) -> None:
+    """提交与修改共用的字段校验（两边必须一模一样，所以抽出来一处写）"""
+    if leave_type not in LEAVE_TYPES:
+        raise HTTPException(status_code=400, detail=f"请假类型只能是：{'/'.join(LEAVE_TYPES)}")
+    if end_at <= start_at:
+        raise HTTPException(status_code=400, detail="结束时间必须晚于开始时间")
+    if not reason.strip():
+        raise HTTPException(status_code=400, detail="请假事由不能为空")
+
+
+async def _save_proof(proof: UploadFile) -> str:
+    """校验并落盘一份证明材料，返回存盘文件名（提交与修改共用）"""
+    if not proof.filename:
+        raise HTTPException(status_code=400, detail="请上传请假辅助证明")
+    proof_name = _safe_name(proof.filename)
+    content = await proof.read()
+    if len(content) > MAX_PROOF_SIZE:
+        raise HTTPException(status_code=400, detail="证明文件大小不能超过 20MB")
+    with open(LEAVE_DIR / proof_name, "wb") as f:
+        f.write(content)
+    return proof_name
 
 
 def _to_response(leave: LeaveRequest) -> LeaveRequestResponse:
@@ -154,24 +188,8 @@ async def submit_leave(
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
-    # 基本校验
-    if leave_type not in LEAVE_TYPES:
-        raise HTTPException(status_code=400, detail=f"请假类型只能是：{'/'.join(LEAVE_TYPES)}")
-    if end_at <= start_at:
-        raise HTTPException(status_code=400, detail="结束时间必须晚于开始时间")
-    if not reason.strip():
-        raise HTTPException(status_code=400, detail="请假事由不能为空")
-
-    # 校验并保存证明文件
-    if not proof.filename:
-        raise HTTPException(status_code=400, detail="请上传请假辅助证明")
-    proof_name = _safe_name(proof.filename)
-    content = await proof.read()
-    if len(content) > MAX_PROOF_SIZE:
-        raise HTTPException(status_code=400, detail="证明文件大小不能超过 20MB")
-    save_path = LEAVE_DIR / proof_name
-    with open(save_path, "wb") as f:
-        f.write(content)
+    _check_fields(leave_type, start_at, end_at, reason)
+    proof_name = await _save_proof(proof)
 
     leave = LeaveRequest(
         student_id=student.id,
@@ -217,6 +235,111 @@ async def submit_leave(
     return _to_response(leave)
 
 
+@router.put("/{leave_id}", response_model=LeaveRequestResponse, summary="修改请假申请（未办结时）")
+async def update_leave(
+    leave_id: int,
+    leave_type: str = Form(..., description="病假/事假/公假"),
+    start_at: datetime = Form(..., description="开始时间，精确到小时"),
+    end_at: datetime = Form(..., description="结束时间，精确到小时"),
+    reason: str = Form(..., description="请假事由"),
+    travel_mode: str = Form(""),
+    travel_detail: str = Form(""),
+    destination: str = Form(""),
+    destination_phone: str = Form(""),
+    # 不传就是「证明文件不动」；传了就把旧的换成新的（旧文件提交成功后删掉）
+    proof: UploadFile | None = File(None),
+    user: User = Depends(get_current_user),
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """申请人自己改：待受理、待补正这两种状态能改，其余一律 400
+
+    字段是**整套覆盖**，跟重新提交一次一样 —— 少传一个就等于清空它，所以前端
+    编辑时必须把原值都带上。
+
+    改完的落点分两种（见 review_flow.resubmit）：原本待补正的回到「已受理」——
+    待补正也算已受理，受理没被撤销，只是材料要补齐，补完不必让班委再看一遍；
+    原本待受理的仍是待受理，它本来就还没人看过。补正后重交也走这里，不必另开接口。
+
+    **不发通知**：这条申请从头到尾都在管理员的「待处理」列表里（open 档含这两档状态），
+    不需要再喊一声。
+    """
+    leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
+    if not leave or leave.student_id != student.id:
+        raise HTTPException(status_code=404, detail="请假记录不存在")
+    if leave.status not in (STATUS_PENDING, STATUS_CORRECTING):
+        raise HTTPException(
+            status_code=400,
+            detail="该申请已受理，需要修改请联系班委先撤回受理",
+        )
+
+    _check_fields(leave_type, start_at, end_at, reason)
+
+    old_proof = leave.proof_file
+    if proof is not None:
+        leave.proof_file = await _save_proof(proof)
+        leave.proof_original_name = proof.filename
+
+    leave.leave_type = leave_type
+    leave.start_at = start_at
+    leave.end_at = end_at
+    leave.reason = reason.strip()
+    leave.travel_mode = travel_mode.strip()
+    leave.travel_detail = travel_detail.strip()
+    leave.destination = destination.strip()
+    leave.destination_phone = destination_phone.strip()
+    resubmit(leave)
+
+    log_operation(
+        db, user, "修改请假申请",
+        target=f"{leave.student_no} {leave.student_name}",
+        detail=f"{leave_type}：{start_at:%Y-%m-%d %H时} ~ {end_at:%Y-%m-%d %H时}",
+        ip=ip,
+    )
+    db.commit()
+    # 提交成功了再删旧证明：反过来的话 commit 一失败，学生手里就只剩一条指着
+    # 不存在文件的记录（照 approve 里「先落签字再改状态」的次序）
+    if proof is not None and old_proof and old_proof != leave.proof_file:
+        (LEAVE_DIR / old_proof).unlink(missing_ok=True)
+    db.refresh(leave)
+    return _to_response(leave)
+
+
+@router.delete("/{leave_id}", summary="撤销请假申请（待受理时）")
+def delete_leave(
+    leave_id: int,
+    user: User = Depends(get_current_user),
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """申请人自己撤：**只有「待受理」能撤**，直接删掉记录和盘上的证明材料
+
+    已受理的不给撤（那是班委看过、正在走流程的单子，要撤得先让班委撤回受理）；
+    待补正的不给撤（是让补材料，不是让放弃，真不想办了跟班委说一声）。
+    撤销**不留档、不通知**：撤回一条自己刚交的东西，不需要惊动谁。
+    """
+    leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
+    if not leave or leave.student_id != student.id:
+        raise HTTPException(status_code=404, detail="请假记录不存在")
+    if leave.status != STATUS_PENDING:
+        raise HTTPException(status_code=400, detail="该申请已进入受理流程，不能撤销")
+
+    log_operation(
+        db, user, "撤销请假申请",
+        target=f"{leave.student_no} {leave.student_name}",
+        detail=f"{leave.leave_type}：{leave.start_at:%Y-%m-%d %H时} ~ {leave.end_at:%Y-%m-%d %H时}",
+        ip=ip,
+    )
+    proof = leave.proof_file
+    db.delete(leave)
+    db.commit()
+    if proof:
+        (LEAVE_DIR / proof).unlink(missing_ok=True)
+    return {"ok": True}
+
+
 @router.get("/{leave_id}/proof", summary="查看/下载我的请假证明")
 def my_proof(
     leave_id: int,
@@ -245,13 +368,23 @@ def my_proof(
 
 @router.get("", response_model=list[LeaveRequestResponse], summary="请假申请列表（班委及以上可见）")
 def list_leaves(
-    status: str | None = Query(None, description="pending/approved/rejected，不传为全部"),
+    status: str | None = Query(
+        None,
+        description="pending/accepted/correcting/approved/rejected；open = 待处理（待受理+已受理），不传为全部",
+    ),
     _: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
-    """班委可以看列表和详情，但只有管理员能审批（通过/驳回）和生成 Word"""
+    """班委可以看列表和详情，但只有管理员能审批（通过/驳回）和生成 Word
+
+    `open` 是管理端默认那一档：受理后状态会从 pending 变成 accepted，只看 pending
+    的话「受理」这个动作看起来像把申请弄丢了，而菜单红点还照数它 —— 所以待办口径
+    必须是「还没办结且轮到我动手的」，见 services/review_flow.py 的 ADMIN_TODO
+    """
     query = db.query(LeaveRequest)
-    if status:
+    if status == "open":
+        query = query.filter(LeaveRequest.status.in_(ADMIN_TODO))
+    elif status:
         query = query.filter(LeaveRequest.status == status)
     rows = query.order_by(desc(LeaveRequest.id)).all()
     return [_to_response(r) for r in rows]
@@ -338,6 +471,106 @@ def admin_proof(
     )
 
 
+@router.post("/{leave_id}/accept", response_model=LeaveRequestResponse, summary="受理请假申请")
+def accept_leave(
+    leave_id: int,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """受理：这份材料看过了，可以进入审批
+
+    前端在管理员打开证明材料时顺手发一个，另有一个「受理」按钮兜底（材料文件丢了、
+    或者根本没附件的单子，只看是受理不了的）。已经受理过的原样返回（幂等）——
+    反复打开材料不该报错。
+
+    **不发通知**（用户口径）：受理只是审批人自己的一步，学生那边只看到状态变了；
+    受理也不碰 reviewer_no / reviewed_at —— 那是审批结果的一部分，记上去会让这条
+    申请提前出现在「我审批的」里。
+    """
+    leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=404, detail="请假记录不存在")
+    if accept(leave):
+        log_operation(
+            db, user, "受理请假申请",
+            target=f"{leave.student_no} {leave.student_name}",
+            detail=leave.leave_type,
+            ip=ip,
+        )
+        db.commit()
+        db.refresh(leave)
+    return _to_response(leave)
+
+
+@router.post("/{leave_id}/unaccept", response_model=LeaveRequestResponse, summary="撤回受理")
+def unaccept_leave(
+    leave_id: int,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """受理点错了的回头路：已受理 → 待受理
+
+    只退受理，不动审批结果 —— 但已办结（通过/驳回）的单子本来就退不回来：审批一旦
+    发出（通知已推送、PDF 已生成、签字图已快照），静默改写等于篡改已发出的正式单据
+    （与「补签字不重审」同一条口径）。
+    """
+    leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=404, detail="请假记录不存在")
+    if not unaccept(leave):
+        raise HTTPException(status_code=400, detail="该申请不在「已受理」状态，撤回不了")
+    log_operation(
+        db, user, "撤回受理请假申请",
+        target=f"{leave.student_no} {leave.student_name}",
+        detail=leave.leave_type,
+        ip=ip,
+    )
+    db.commit()
+    db.refresh(leave)
+    return _to_response(leave)
+
+
+@router.post("/{leave_id}/correcting", response_model=LeaveRequestResponse, summary="退回补正")
+def correcting_leave(
+    leave_id: int,
+    payload: LeaveCorrectRequest,
+    background: BackgroundTasks,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """材料不对，打回让申请人补齐（带理由，申请人看得见）
+
+    和驳回分开：驳回是「这件事不批了」，补正是「补齐了还能批」。学生改完重交会回到
+    「已受理」—— 受理没被撤销，不必让班委再看一遍。
+
+    退回补正**要发通知**：这是一句需要学生动手的交代，不喊一声他不会知道材料被退回来了。
+    """
+    leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=404, detail="请假记录不存在")
+    if not correct(leave, payload.reason):
+        raise HTTPException(status_code=400, detail="只有已受理的申请才能退回补正")
+    log_operation(
+        db, user, "退回补正请假申请",
+        target=f"{leave.student_no} {leave.student_name}",
+        detail=f"理由：{payload.reason.strip()}",
+        ip=ip,
+    )
+    targets = recipients(db, only_no=leave.student_no)
+    db.commit()
+    db.refresh(leave)
+
+    notify(
+        db, background, targets, "请假申请需要补交材料",
+        f"理由：{clip(leave.correction_reason)}", level="timeSensitive",
+        page="/my-info?tab=workspace&sub=submitted",
+    )
+    return _to_response(leave)
+
+
 @router.get("/advisor-signers", summary="能当班导师签字人的账号（管理员）")
 def advisor_signers(
     _: User = Depends(admin_required),
@@ -366,10 +599,9 @@ def approve_leave(
     leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
     if not leave:
         raise HTTPException(status_code=404, detail="请假记录不存在")
-    # 只允许批「待审核」的：能在已批准的单子上再点一次「通过」，会重新快照签字、
-    # 覆盖掉当初那张，外加把已发出的通知再来一遍。这条同时兜住了重复提交
-    if leave.status != "pending":
-        raise HTTPException(status_code=400, detail="该申请已处理过")
+    # 得先受理过；已办结的也不能再批一次（在已批准的单子上再点「通过」会重新快照
+    # 签字、覆盖掉当初那张，外加把已发出的通知再来一遍）。两条都在这一句里
+    require_accepted(leave)
 
     # 先把签字副本落盘再改状态：复制失败时这条还是 pending，管理员能重试；
     # 反过来的话就会出现「状态已通过、签字丢了」的单子，而签字是批的时候才定的，
@@ -466,8 +698,7 @@ def reject_leave(
     leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
     if not leave:
         raise HTTPException(status_code=404, detail="请假记录不存在")
-    if leave.status != "pending":
-        raise HTTPException(status_code=400, detail="该申请已处理过")
+    require_accepted(leave)
 
     leave.status = "rejected"
     leave.reject_reason = payload.reason.strip()

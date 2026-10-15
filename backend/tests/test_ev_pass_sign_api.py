@@ -81,8 +81,17 @@ def submit(client, brand="雅迪", plate="京A1234567") -> int:
     return r.json()["id"]
 
 
+def accept(b, req_id):
+    """受理。审批的前置动作（没受理过一律 400），所以 approve 里先替所有用例做掉"""
+    return b.client.post(f"/api/ev-passes/{req_id}/accept")
+
+
 def approve(b, req_id, sign_no=None):
-    """管理员批准。sign_no=None 就是**整个不 body**（老前端那句 approveEvPass(id)）"""
+    """先受理再批（审批的硬前置，见 review_flow.require_accepted）
+
+    sign_no=None 就是**整个不 body**（老前端那句 approveEvPass(id)）
+    """
+    accept(b, req_id)
     url = f"/api/ev-passes/{req_id}/approve"
     return b.client.post(url) if sign_no is None else b.client.post(url, json={"sign_no": sign_no})
 
@@ -223,11 +232,13 @@ def test_empty_sign_no_is_the_same_as_not_signing(ep):
 def test_a_signer_without_a_photo_on_disk_is_refused(ep):
     """选了没有签字图的账号 → 400（库里留着文件名、图却没了的那种）"""
     rid = submit(ep.applicant)
+    accept(ep.b, rid)                       # 受理是审批的前置动作，先成功
     r = approve(ep.b, rid, sign_no=NOSIGN)
 
     assert r.status_code == 400 and "签字图" in r.json()["detail"]
     # 校验失败要挡在改状态**之前**，否则会留下一条「已通过、没签字」的单子
-    assert ep.b.rows("SELECT status FROM ev_pass_requests WHERE id = ?", rid)[0][0] == "pending"
+    # （停在受理后的 accepted 是对的：受理没有被这次失败推翻）
+    assert ep.b.rows("SELECT status FROM ev_pass_requests WHERE id = ?", rid)[0][0] == "accepted"
 
 
 def test_an_unknown_signer_is_refused(ep):

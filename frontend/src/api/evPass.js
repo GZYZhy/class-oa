@@ -19,6 +19,25 @@ export function submitEvPass(formData, onProgress) {
   })
 }
 
+/** 修改自己的申请（待受理、待补正时；表单整套覆盖）
+ *
+ * 不传 license_file 就是「行驶证不动」；onProgress 同 submitEvPass（重传照片时看得到进度）
+ */
+export function updateEvPass(id, formData, onProgress) {
+  return request({
+    url: `/ev-passes/${id}`,
+    method: 'put',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
+  })
+}
+
+/** 撤销自己的申请（只有待受理时能撤，记录和行驶证一起删掉） */
+export function deleteEvPass(id) {
+  return request({ url: `/ev-passes/${id}`, method: 'delete' })
+}
+
 /** 全部申请列表（班委及以上，可按状态筛选） */
 export function getEvPassList(status) {
   return request({
@@ -35,6 +54,21 @@ export function getEvPassList(status) {
  */
 export function approveEvPass(id, payload) {
   return request({ url: `/ev-passes/${id}/approve`, method: 'post', data: payload })
+}
+
+/** 管理员：受理（看过行驶证了，可以进入审批）。已受理的重复调用无副作用 */
+export function acceptEvPass(id) {
+  return request({ url: `/ev-passes/${id}/accept`, method: 'post' })
+}
+
+/** 管理员：撤回受理（受理点错了的回头路） */
+export function unacceptEvPass(id) {
+  return request({ url: `/ev-passes/${id}/unaccept`, method: 'post' })
+}
+
+/** 管理员：退回补正（材料不对，打回让申请人补齐；理由必填，会通知申请人） */
+export function correctEvPass(id, reason) {
+  return request({ url: `/ev-passes/${id}/correcting`, method: 'post', data: { reason } })
 }
 
 /** 管理员：补签字（批准时选了「暂不签署」之后） */
