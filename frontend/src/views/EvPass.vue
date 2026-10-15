@@ -39,9 +39,17 @@
                 </template>
               </el-upload>
             </el-form-item>
+            <!-- 这句是《电动自行车使用承诺书》上「本人承诺」栏的原话，勾选即表示
+                 认下那张纸上的内容（承诺书是要交给安稳部的） -->
             <el-form-item prop="confirmed" class="confirm-item">
               <el-checkbox v-model="form.confirmed">
-                我确认信息真实，遵守学校规定，车辆本人使用，提交前已与班委联系
+                <div>本人承诺申请通行证所对应车辆为本人实际使用，绝不进行代办、伪造、线上买卖通行证等违反校规的行为。</div>
+              </el-checkbox>
+            </el-form-item>
+
+            <el-form-item prop="signConfirmed" class="confirm-item">
+              <el-checkbox v-model="form.signConfirmed">
+                <div>我确认在承诺书上签字</div>
               </el-checkbox>
             </el-form-item>
             <el-form-item>
@@ -124,7 +132,8 @@ const form = reactive({
   brand: '',
   plate_number: '',
   license: null,   // 行驶证文件
-  confirmed: false,
+  confirmed: false,      // 认下承诺书上「本人承诺」那句
+  signConfirmed: false,  // 会在承诺书上签字
 })
 
 // 自定义校验
@@ -136,12 +145,17 @@ const validateConfirmed = (_rule, _value, callback) => {
   if (!form.confirmed) callback(new Error('请勾选确认'))
   else callback()
 }
+const validateSignConfirmed = (_rule, _value, callback) => {
+  if (!form.signConfirmed) callback(new Error('请确认会在承诺书上签字'))
+  else callback()
+}
 
 const rules = {
   brand: [{ required: true, message: '请输入品牌', trigger: 'blur' }],
   plate_number: [{ required: true, message: '请输入牌照号', trigger: 'blur' }],
   license: [{ validator: validateLicense, trigger: 'change' }],
   confirmed: [{ validator: validateConfirmed, trigger: 'change' }],
+  signConfirmed: [{ validator: validateSignConfirmed, trigger: 'change' }],
 }
 
 // 选择文件

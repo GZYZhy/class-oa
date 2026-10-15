@@ -96,6 +96,22 @@
               </el-checkbox>
             </el-form-item>
 
+            <!-- 这段是《北方工业大学学生请假审批表》上「本人承诺」栏的原话，
+                 勾选即表示认下表上这两条，落在纸面上的表不用再重复誊写一遍 -->
+            <el-form-item prop="promised">
+              <el-checkbox v-model="form.promised" class="agree-checkbox">
+                <div>本人承诺：</div>
+                <div>1、请假期间保持与班导师和辅导员的联系，请假期满按时返校并办理销假手续。</div>
+                <div>2、请假期间个人人身安全及财产安全责任自负。</div>
+              </el-checkbox>
+            </el-form-item>
+
+            <el-form-item prop="signConfirmed">
+              <el-checkbox v-model="form.signConfirmed" class="agree-checkbox">
+                <div>我确认在请假审批表上签字</div>
+              </el-checkbox>
+            </el-form-item>
+
             <el-form-item>
               <el-button type="primary" :loading="submitting" @click="handleSubmit">
                 <!-- 证明材料多是拍照，慢网络下传得久，把进度显示出来 -->
@@ -199,8 +215,23 @@ const form = reactive({
   travel_detail: '',
   destination: '',
   destination_phone: '',
-  agreed: false
+  agreed: false,
+  promised: false,        // 认下审批表上「本人承诺」栏的两条
+  signConfirmed: false    // 会在审批表上签字
 })
+
+/** 三个勾选项的校验只有提示语不同，共用一份 */
+function mustCheck(message) {
+  return [
+    {
+      validator: (_, value, callback) => {
+        if (!value) callback(new Error(message))
+        else callback()
+      },
+      trigger: 'change'
+    }
+  ]
+}
 
 const rules = {
   leave_type: [{ required: true, message: '请选择请假类型', trigger: 'change' }],
@@ -218,15 +249,9 @@ const rules = {
       trigger: 'change'
     }
   ],
-  agreed: [
-    {
-      validator: (_, value, callback) => {
-        if (!value) callback(new Error('请先勾选同意条款'))
-        else callback()
-      },
-      trigger: 'change'
-    }
-  ]
+  agreed: mustCheck('请先勾选同意条款'),
+  promised: mustCheck('请先勾选承诺内容'),
+  signConfirmed: mustCheck('请确认会在请假审批表上签字')
 }
 
 function parseTime(text) {
@@ -307,7 +332,9 @@ async function handleSubmit() {
       travel_detail: '',
       destination: '',
       destination_phone: '',
-      agreed: false
+      agreed: false,
+      promised: false,
+      signConfirmed: false
     })
     fileList.value = []
   } catch (e) {
