@@ -1,13 +1,11 @@
 <template>
   <div>
     <div class="page-card" v-loading="loading">
-      <!-- 重要提示 -->
-      <el-alert type="warning" :closable="false" show-icon class="notice-alert">
-        <div class="alert-text">
-          班委会开具的介绍信公信力有限，如需学院或学校证明、各类导师签字的文件，请勿在此提交。
-          提交前请与班委联系。
-        </div>
-      </el-alert>
+      <ServiceIntro
+        :notice="'班委会开具的介绍信公信力有限，如需学院或学校证明、各类导师签字的文件，请勿在此提交。\n提交前请与班委联系。'"
+        submitted="申请依据材料，支持 PDF / 图片 / Word，单个不超过 20MB，最多 3 个，必填"
+        finished="由班委上传的证明成品（PDF），审核通过后可下载"
+      />
 
       <el-tabs v-model="activeTab">
         <!-- ============ 申请开具 ============ -->
@@ -147,6 +145,7 @@ import {
 import { formatDateTime, formatFileSize } from '@/utils/format'
 import { blobErrorDetail, downloadFile } from '@/utils/download'
 import FileViewer from '@/components/FileViewer.vue'
+import ServiceIntro from '@/components/ServiceIntro.vue'
 
 const activeTab = ref('apply')
 const loading = ref(false)
@@ -294,15 +293,6 @@ onMounted(fetchList)
 </script>
 
 <style scoped>
-.notice-alert {
-  margin-bottom: 16px;
-}
-
-.alert-text {
-  font-size: 13px;
-  line-height: 1.6;
-}
-
 /* 复选框折行：窄屏下长句子能正常换行，勾选框对齐第一行 */
 .confirm-item :deep(.el-form-item__content) {
   line-height: 1.5;
