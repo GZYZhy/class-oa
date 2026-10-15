@@ -1547,12 +1547,13 @@ console.log('\n▶ 三个办件的顶部说明：办件详情、提交材料、�
     '组件什么都不传时，五个位置都落「未指定」')
 }
 
-console.log('\n▶ 三个办件页面铺满工作区，宽度口径一致')
+console.log('\n▶ 页面铺满工作区：不套定宽的壳，宽屏不留空')
 {
-  // 请假页从第一版起就多套了一层 max-width: 860px 的壳（.leave-apply），后来加的电动车、
-  // 证明则是裸 <div> 直接放 page-card —— 都是「办件」，点进去三个页面宽度却不一样，
-  // 宽屏上请假两边空一大块。根节点上挂类，十有八九就是想给这一页单独定宽，这里钉死。
-  const PAGES = ['LeaveApply', 'EvPass', 'Certificate']
+  // 早先几个页面各自在根节点上套了一层 max-width（请假 860、意见反馈 800、
+  // 办事中心 720），后来加的页面都是裸 <div> 直接放 page-card —— 同一个工作区，
+  // 点进去有的铺满、有的两边空一大块。根节点上挂类，十有八九就是想给这一页
+  // 单独定宽，这里一并钉住。
+  const PAGES = ['LeaveApply', 'EvPass', 'Certificate', 'Feedback', 'ServiceCenter']
   for (const name of PAGES) {
     const lines = readFileSync(`${ROOT}/src/views/${name}.vue`, 'utf8').split('\n')
     // <template> 的下一行就是根节点
@@ -1561,6 +1562,15 @@ console.log('\n▶ 三个办件页面铺满工作区，宽度口径一致')
     check(lines[2].includes('<div class="page-card"'),
       `${name}：page-card 直接铺在根节点里，宽度跟着工作区走`)
   }
+
+  // 办事中心那四张服务卡：铺满之后若还是 flex 竖着排，宽屏上每张都拉成一条横幅
+  //（左边图标、右边箭头，中间一片空白）。得用 auto-fit 的网格，宽屏分列、窄屏一列
+  const sc = readFileSync(`${ROOT}/src/views/ServiceCenter.vue`, 'utf8')
+  const grid = /\.service-grid\s*\{[^}]*\}/.exec(sc)?.[0] || ''
+  check(/display:\s*grid/.test(grid) && /repeat\(auto-fit, minmax\(/.test(grid),
+    '办事中心：服务卡是自适应网格，宽屏自动分列')
+  check(/@media \(max-width: 768px\)[\s\S]*?\.service-grid\s*\{[^}]*grid-template-columns:\s*1fr/.test(sc),
+    '办事中心：手机上定死一列，不挤成两列')
 }
 
 console.log('\n▶ 系统管理：水印溯源认得电动车申请表与承诺书')

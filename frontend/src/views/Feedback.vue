@@ -1,5 +1,5 @@
 <template>
-  <div class="feedback-page">
+  <div>
     <div class="page-card">
       <h3 class="page-title">意见反馈</h3>
 
@@ -271,11 +271,6 @@ onMounted(fetchList)
 </script>
 
 <style scoped>
-.feedback-page {
-  max-width: 800px;
-  margin: 0 auto;
-}
-
 .detail-header {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--el-border-color-lighter);

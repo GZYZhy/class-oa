@@ -1,5 +1,5 @@
 <template>
-  <div class="service-center">
+  <div>
     <div class="page-card">
       <h3 class="page-title">办事中心</h3>
 
@@ -77,11 +77,6 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
 </script>
 
 <style scoped>
-.service-center {
-  max-width: 720px;
-  margin: 0 auto;
-}
-
 .center-intro {
   margin: 0 0 18px 0;
   font-size: 13px;
@@ -89,9 +84,13 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
   line-height: 1.6;
 }
 
+/* 自适应网格：宽屏自动排成多列，窄屏自然退回一列。
+   删掉原先那层 720px 的壳之后，若还按 flex 竖着一列排，四张卡在宽屏上
+   会各自拉成一条横幅 —— 左边一个图标、右边一个箭头，中间一大片空白。
+   auto-fit（而不是 auto-fill）会把空轨道收掉，卡片正好把宽度匀开 */
 .service-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 12px;
 }
 
@@ -176,6 +175,12 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
 }
 
 @media (max-width: 768px) {
+  /* 手机上定死一列：320px 的下限在 700 出头的宽度里正好挤下两列，
+     但那时卡片只剩图标和标题，两列并排反而更难扫 */
+  .service-grid {
+    grid-template-columns: 1fr;
+  }
+
   .service-card {
     padding: 14px 16px;
     gap: 12px;
