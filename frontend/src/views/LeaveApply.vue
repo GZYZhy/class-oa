@@ -3,10 +3,11 @@
     <div class="page-card">
       <h3 class="page-title">请假申请</h3>
 
-      <el-alert type="info" :closable="false" show-icon style="margin-bottom: 20px;">
-        <template #title>温馨提示</template>
-        本网办事项仅用于简化流程、避免材料递交繁琐，请假审批是否通过由学校决定。
-      </el-alert>
+      <ServiceIntro
+        notice="本网办事项仅用于简化流程、避免材料递交繁琐，请假审批是否通过由学校决定。"
+        submitted="请假辅助证明（病假条、诊断证明等），支持 PDF 或图片，单个不超过 20MB，必填"
+        finished="请假审批表（PDF），审核通过后可下载"
+      />
 
       <el-tabs v-model="activeTab">
         <!-- 提交申请 -->
@@ -195,6 +196,7 @@ import { ElMessage } from 'element-plus'
 import { getMyLeaves, submitLeave, downloadLeavePdf } from '@/api/leave'
 import { formatDate, formatDateTime } from '@/utils/format'
 import FileViewer from '@/components/FileViewer.vue'
+import ServiceIntro from '@/components/ServiceIntro.vue'
 
 const activeTab = ref('apply')
 const submitting = ref(false)

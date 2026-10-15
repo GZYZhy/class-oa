@@ -1482,6 +1482,62 @@ console.log('\n▶ 请假与电动车：承诺语照抄表上原话，各加一�
   check(hasWrap(E, 'confirm-item'), 'confirm-item 放开了 nowrap 和固定高度')
 }
 
+console.log('\n▶ 三个办件的顶部说明：办件详情、提交材料、办结材料一套写法')
+{
+  const PAGES = [
+    {
+      path: '/src/views/LeaveApply.vue',
+      name: '请假',
+      notice: '本网办事项仅用于简化流程、避免材料递交繁琐，请假审批是否通过由学校决定。',
+      submitted: '请假辅助证明',
+      finished: '请假审批表（PDF）'
+    },
+    {
+      path: '/src/views/EvPass.vue',
+      name: '电动车',
+      notice: '本网络办件仅提供信息表生成',
+      submitted: '行驶证（图片或 PDF）',
+      finished: '电动车通行证申请表'
+    },
+    {
+      path: '/src/views/Certificate.vue',
+      name: '证明开具',
+      notice: '班委会开具的介绍信公信力有限',
+      submitted: '申请依据材料',
+      finished: '证明成品（PDF）'
+    }
+  ]
+
+  for (const p of PAGES) {
+    const { html, warns } = await render(p.path)
+    const h = stripComments(html)
+    check(h.includes('办件详情') && h.includes('提交材料') && h.includes('办结材料'),
+      `${p.name}：三段名目都在`)
+    check(h.includes(p.notice), `${p.name}：原来那条提示语搬进了「注意事项」—— 没丢`)
+    check(h.includes(p.submitted) && h.includes(p.finished),
+      `${p.name}：提交材料、办结材料都按实际流程写上了`)
+    // 办件介绍和办结时限眼下没内容，占位正好两处；多一处少一处都说明哪里写漏了
+    check((h.match(/未指定/g) || []).length === 2,
+      `${p.name}：只有办件介绍、办结时限两项是「未指定」`)
+    check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)),
+      `${p.name}：没有未解析的组件/指令`)
+  }
+
+  // 三页共用同一个组件：各写一份的话，改一次措辞得动三处、还容易漏
+  for (const p of PAGES) {
+    const src = readFileSync(`${ROOT}${p.path}`, 'utf8')
+    check(src.includes("import ServiceIntro from '@/components/ServiceIntro.vue'") &&
+      src.includes('<ServiceIntro'),
+      `${p.name}：用的是公共组件，不是自己再写一份`)
+    check(!/el-alert/.test(src), `${p.name}：原先那条 alert 已经撤干净`)
+  }
+
+  // 组件本身：什么都不传时五项全是「未指定」
+  const { html: bare } = await render('/src/components/ServiceIntro.vue')
+  check((stripComments(bare).match(/未指定/g) || []).length === 5,
+    '组件什么都不传时，五个位置都落「未指定」')
+}
+
 console.log('\n▶ 系统管理：水印溯源认得电动车申请表与承诺书')
 {
   // 同上一节：这块在 tab 正文里，SSR 下不渲染，走源码断言

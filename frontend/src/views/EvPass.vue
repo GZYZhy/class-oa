@@ -1,13 +1,11 @@
 <template>
   <div>
     <div class="page-card" v-loading="loading">
-      <!-- 重要提示 -->
-      <el-alert type="warning" :closable="false" show-icon class="notice-alert">
-        <div class="alert-text">
-          本网络办件仅提供信息表生成，具体向安全稳定工作部（处）报送的工作需要您自行完成。
-          操作此办件前请务必与班委联系。
-        </div>
-      </el-alert>
+      <ServiceIntro
+        :notice="'本网络办件仅提供信息表生成，具体向安全稳定工作部（处）报送的工作需要您自行完成。\n操作此办件前请务必与班委联系。'"
+        submitted="行驶证（图片或 PDF），不超过 20MB，必填"
+        finished="电动车通行证申请表、电动自行车使用承诺书（两份 PDF），审核通过后可下载"
+      />
 
       <el-tabs v-model="activeTab">
         <!-- ============ 申请补办 ============ -->
@@ -119,6 +117,7 @@ import { getMyEvPasses, submitEvPass, downloadEvPassPdf, downloadEvPromisePdf } 
 import { formatDate, formatDateTime } from '@/utils/format'
 import { blobErrorDetail } from '@/utils/download'
 import FileViewer from '@/components/FileViewer.vue'
+import ServiceIntro from '@/components/ServiceIntro.vue'
 
 const activeTab = ref('apply')
 const loading = ref(false)
@@ -262,15 +261,6 @@ onMounted(fetchList)
 </script>
 
 <style scoped>
-.notice-alert {
-  margin-bottom: 16px;
-}
-
-.alert-text {
-  font-size: 13px;
-  line-height: 1.6;
-}
-
 /* 确认框这段字在手机上会顶出屏幕右边：el-checkbox 的文本默认
    white-space: nowrap（左右两栏的表单里这是对的，可这里是一整句话）。
    放开折行，并把勾选框留在第一行的位置，而不是垂直居中到两行中间。
