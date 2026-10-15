@@ -37,6 +37,36 @@ export function submitCertificate(data, onProgress) {
 }
 
 /**
+ * 修改自己的证明申请（待受理、待补正时）
+ * @param {number} id
+ * @param {Object} data - { title, recipient, content, extra_request, files }
+ *   files 不传 = 原来那批附件不动；传了就整批换掉
+ * @param {Function} [onProgress] - 上传进度回调（重传附件时看得到进度）
+ */
+export function updateCertificate(id, data, onProgress) {
+  const formData = new FormData()
+  formData.append('title', data.title)
+  formData.append('recipient', data.recipient || '')
+  formData.append('content', data.content || '')
+  formData.append('extra_request', data.extra_request || '')
+  if (data.files && data.files.length) {
+    data.files.forEach((f) => formData.append('attachments', f))
+  }
+  return request({
+    url: `/certificates/${id}`,
+    method: 'put',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
+  })
+}
+
+/** 撤销自己的证明申请（只有待受理时能撤，记录和附件一起删掉） */
+export function deleteCertificate(id) {
+  return request({ url: `/certificates/${id}`, method: 'delete' })
+}
+
+/**
  * 证明申请列表（班委及以上）
  * @param {string} [status] - pending/approved/rejected
  */
@@ -46,6 +76,27 @@ export function getCertificateList(status) {
     method: 'get',
     params: status ? { status } : {}
   })
+}
+
+/**
+ * 受理（管理员）：看过材料了，可以进入审批。已受理的重复调用无副作用
+ */
+export function acceptCertificate(id) {
+  return request({ url: `/certificates/${id}/accept`, method: 'post' })
+}
+
+/**
+ * 撤回受理（管理员）：受理点错了的回头路
+ */
+export function unacceptCertificate(id) {
+  return request({ url: `/certificates/${id}/unaccept`, method: 'post' })
+}
+
+/**
+ * 退回补正（管理员）：材料不对，打回让申请人补齐（理由必填，会通知申请人）
+ */
+export function correctCertificate(id, reason) {
+  return request({ url: `/certificates/${id}/correcting`, method: 'post', data: { reason } })
 }
 
 /**

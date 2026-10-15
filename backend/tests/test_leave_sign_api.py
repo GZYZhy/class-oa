@@ -97,8 +97,17 @@ def submit(client) -> int:
     return r.json()["id"]
 
 
+def accept(b, lid):
+    """受理。审批的前置动作（没受理过一律 400），所以 approve 里先替所有用例做掉"""
+    return b.client.post(f"/api/leaves/{lid}/accept")
+
+
 def approve(b, lid, **body):
-    """带 body 就传，不带就一个字节都不发 —— 老前端那句 approveLeave(id) 正是后者"""
+    """先受理再批（审批的硬前置，见 review_flow.require_accepted）
+
+    带 body 就传，不带就一个字节都不发 —— 老前端那句 approveLeave(id) 正是后者
+    """
+    accept(b, lid)
     if body:
         return b.client.post(f"/api/leaves/{lid}/approve", json=body)
     return b.client.post(f"/api/leaves/{lid}/approve")
@@ -259,10 +268,14 @@ def test_a_failed_approve_leaves_no_orphan(sp):
     """
     lid = submit(sp.applicant_client)
     before = sorted(p.name for p in sp.leaves.glob("*"))
+    # 受理是审批的前置动作，它先成功；失败的是审批那一步
+    assert accept(sp.b, lid).status_code == 200
     assert approve(sp.b, lid, advisor_sign_no=CM).status_code == 400
 
     assert sorted(p.name for p in sp.leaves.glob("*")) == before
-    assert row_of(sp.b, lid)[0] == "pending", "签字没落成，状态也不该改"
+    # 审批那一步没留下痕迹：状态还停在受理后的「已受理」，没变成 approved。
+    # 受理本身不作废 —— 管理员确实看过材料了，只是签字没落成批不了
+    assert row_of(sp.b, lid)[0] == "accepted", "签字没落成，审批那一步就不该留下痕迹"
 
 
 # ---------- 批准 / 补签字的边界 ----------

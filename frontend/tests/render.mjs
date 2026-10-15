@@ -2561,6 +2561,273 @@ console.log('\n▶ 选项字母单占一格：名字的起点才对得齐')
     '名字就跟在那一格后面（单选和多选共用这条写法）—— 学生作答时看见的也是齐的')
 }
 
+console.log('\n▶ 审核页：受理环节 —— 没受理审批按钮是灰的，受理过才敢批')
+{
+  const REVIEW = '/src/views/Review.vue'
+  const src = readFileSync(`${ROOT}${REVIEW}`, 'utf8')
+
+  // 默认档必须是「待处理」（待受理 + 已受理，就是红点数那一档）：受理会把状态改成
+  // accepted，还停在「待受理」档的话这一行当场从眼前消失 —— 管理员会以为「受理把
+  // 申请弄没了」，而 tab 红点数照样挂着
+  for (const v of ['leaveStatus', 'evPassStatus', 'certificateStatus']) {
+    check(new RegExp(`const ${v} = ref\\('open'\\)`).test(src), `${v} 默认停在「待处理」档`)
+  }
+  const radios = (v) => (src.match(new RegExp(`<el-radio-button value="${v}">`, 'g')) || []).length
+  check(radios('open') === 3 && radios('accepted') === 3 && radios('correcting') === 3,
+    '三个办件都能筛「待处理」和「已受理 / 待补正」（漏一个的话收尾时没法只看未办结的）')
+  check((src.match(/<el-radio-button value="pending">待受理<\/el-radio-button>/g) || []).length === 3,
+    '原先那档还在，只是改叫「待受理」（信息修改那档还是「待审核」，它没有受理环节）')
+
+  // 打开材料即受理：不 await（别让网络拖慢预览）、出错静默（管理员只是想看眼材料，
+  // 不该因为已被别人审掉就弹红条）。显式的「受理」按钮是兜底
+  const auto = src.match(
+    /if \(userStore\.isAdmin\) accept\w+\(row\.id\)\.then\(fetch\w+List\)\.catch\(\(\) => \{\}\)/g) || []
+  check(auto.length === 3, '三个预览函数各顺手受理一次，且不阻塞、出错静默')
+  // 受理、撤回受理、退回补正这三件套收在一个工厂里：三个办件的动作逐字一样，
+  // 抄三遍就是三次各写各的漂移机会（各自那个接口按办件传进去）
+  check(src.includes('function makeReviewActions({ accept, unaccept, correct, reload })') &&
+    (src.match(/= makeReviewActions\(\{/g) || []).length === 3,
+    '受理三件套只有一份实现，三个办件各自调一次')
+  for (const fn of ['accept', 'unaccept', 'correct']) {
+    check((src.match(new RegExp(`\\b${fn}: ${fn}\\w+`, 'g')) || []).length === 3,
+      `三个办件各自接下自己的 ${fn} 接口（接错一家就是给请假调证明的接口）`)
+  }
+  check((src.match(/correct\(row\.id, value\.trim\(\)\)/g) || []).length === 1 &&
+    src.includes('请写清楚要补什么'),
+    '退回补正带着理由提交（理由要通知给申请人，空的不让交）')
+
+  // ---------- 真渲染：同一行在四种状态下长什么样 ----------
+  const who = (role) => `const userStore = useUserStore()
+  userStore.info = { student_no: '2024000001', name: '甲', role: '${role}', is_external: false }`
+  // 表桩对每行跑 default 插槽，所以行里那几个按钮能真断到
+  const buttons = (html) =>
+    [...stripComments(html).matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].map((m) => m[0])
+  const label = (b) => b.replace(/<[^>]+>/g, '').trim()
+  // ⚠️ 别拿 /disabled/ 直接扫整个标签：Element 渲出来的按钮里还有 class 的
+  // is-disabled 和 aria-disabled="false"，两处都含「disabled」六个字母，
+  // 于是「灰的」永远为真、「亮的」永远为假。只认那个真的布尔属性
+  const isDisabled = (b) => /<button[^>]*\sdisabled(?=[\s>=])/.test(b)
+
+  const WORKFLOWS = [
+    {
+      name: '请假', tab: 'leave', listRef: 'leaveList',
+      row: (o) => ({
+        id: 1, student_name: '丙', student_no: '2024000003', leave_type: '事假',
+        start_at: '2026-10-15 08:00', end_at: '2026-10-17 18:00', reason: '家里有事',
+        status: 'pending', has_advisor_sign: false, advisor_sign_name: '',
+        advisor_opinion: '', correction_reason: '', created_at: '2026-10-12 09:00', ...o
+      })
+    },
+    {
+      name: '电动车', tab: 'evpass', listRef: 'evPassList',
+      row: (o) => ({
+        id: 1, student_name: '戊', student_no: '2024000005', brand: '雅迪',
+        plate_number: '京A1234567', status: 'pending', sign_name: '', has_sign: false,
+        correction_reason: '', created_at: '2026-10-12 09:00', ...o
+      })
+    },
+    {
+      name: '证明', tab: 'certificate', listRef: 'certificateList',
+      row: (o) => ({
+        id: 1, student_name: '己', student_no: '2024000006', title: '在读证明',
+        recipient: '某某公司', status: 'pending', attachments: [{ name: 'basis.png' }],
+        correction_reason: '', created_at: '2026-10-12 09:00', ...o
+      })
+    }
+  ]
+
+  /** 把一行灌进对应 tab 的列表，渲一遍，回那一行里的按钮与整页文字 */
+  const renderRow = async (w, role, status) => {
+    const { html } = await renderPatchedMany(REVIEW, [
+      ['const userStore = useUserStore()', who(role)],
+      ["const activeTab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'change')",
+        `const activeTab = ref('${w.tab}')`],
+      [`const ${w.listRef} = ref([])`,
+        `const ${w.listRef} = ref(${JSON.stringify([w.row({ status })])})`]
+    ])
+    const bs = buttons(html)
+    return { text: stripComments(html), buttons: bs, labels: bs.map(label) }
+  }
+
+  for (const w of WORKFLOWS) {
+    // 待受理：能受理，但审批按钮亮着点不动 —— 逼着人先看过材料
+    const pending = await renderRow(w, 'admin', 'pending')
+    check(pending.labels.includes('受理'), `${w.name}：待受理的单子有「受理」按钮`)
+    check(!pending.labels.includes('撤回受理'), `${w.name}：还没受理就没有「撤回受理」`)
+    const pass = pending.buttons.find((b) => label(b) === '通过')
+    const reject = pending.buttons.find((b) => label(b) === '驳回')
+    check(pass && isDisabled(pass) && reject && isDisabled(reject),
+      `${w.name}：待受理时「通过」「驳回」是灰的`)
+    check(pending.text.includes('需先受理'), `${w.name}：旁边写明了为什么点不动`)
+    check(pending.text.includes('待受理'), `${w.name}：状态 tag 写着「待受理」`)
+
+    // 已受理：按钮亮起来，并给出「撤回受理」「退回补正」两条回头路
+    const accepted = await renderRow(w, 'admin', 'accepted')
+    check(accepted.labels.includes('撤回受理') && accepted.labels.includes('退回补正'),
+      `${w.name}：已受理的给了「撤回受理」和「退回补正」（点错了能回头）`)
+    check(!accepted.labels.includes('受理'), `${w.name}：受理过的没有「受理」按钮`)
+    const apass = accepted.buttons.find((b) => label(b) === '通过')
+    check(apass && !isDisabled(apass), `${w.name}：已受理之后「通过」才点得动`)
+    check(accepted.text.includes('已受理'), `${w.name}：状态 tag 写着「已受理」`)
+
+    // 待补正：球在申请人那边，管理员这里不摆审批也不摆受理
+    const correcting = await renderRow(w, 'admin', 'correcting')
+    check(!correcting.labels.includes('通过') && !correcting.labels.includes('驳回') &&
+      !correcting.labels.includes('受理'),
+      `${w.name}：待补正时不摆审批和受理按钮（这时候在等申请人补齐材料）`)
+    check(correcting.text.includes('待补正'), `${w.name}：状态 tag 写着「待补正」`)
+
+    // 班委：列表看得到，受理和审批都轮不到他
+    const asCm = await renderRow(w, 'committee', 'accepted')
+    check(!asCm.labels.includes('受理') && !asCm.labels.includes('撤回受理') &&
+      !asCm.labels.includes('通过'),
+      `${w.name}：班委的列表里没有受理和审批按钮`)
+  }
+}
+
+console.log('\n▶ 学生端三页：待受理/待补正能改，撤只有待受理能撤')
+{
+  // 三页的「我的记录」那个 tab 名和列表变量各不一样，其余断言逐字一样
+  const PAGES = [
+    {
+      path: '/src/views/LeaveApply.vue', name: '请假',
+      tabPatches: (rows) => [
+        ["const activeTab = ref('apply')", "const activeTab = ref('history')"],
+        ['const leaves = ref([])', `const leaves = ref(${JSON.stringify(rows)})`]
+      ],
+      row: (o) => ({
+        id: 1, leave_type: '事假', start_at: '2026-10-15 08:00', end_at: '2026-10-17 18:00',
+        reason: '家里有事', status: 'pending', reviewer_name: '', reject_reason: '',
+        advisor_opinion: '', correction_reason: '', created_at: '2026-10-12 09:00', ...o
+      })
+    },
+    {
+      path: '/src/views/EvPass.vue', name: '电动车',
+      tabPatches: (rows) => [
+        ["const activeTab = ref('apply')", "const activeTab = ref('mine')"],
+        ['const list = ref([])', `const list = ref(${JSON.stringify(rows)})`]
+      ],
+      row: (o) => ({
+        id: 1, brand: '雅迪', plate_number: '京A1234567', status: 'pending',
+        sign_name: '', reject_reason: '', correction_reason: '',
+        created_at: '2026-10-12 09:00', ...o
+      })
+    },
+    {
+      path: '/src/views/Certificate.vue', name: '证明',
+      tabPatches: (rows) => [
+        ["const activeTab = ref('apply')", "const activeTab = ref('mine')"],
+        ['const list = ref([])', `const list = ref(${JSON.stringify(rows)})`]
+      ],
+      row: (o) => ({
+        id: 1, title: '在读证明', recipient: '某某公司', status: 'pending',
+        attachments: [], result_original_name: '', reject_reason: '',
+        correction_reason: '', created_at: '2026-10-12 09:00', ...o
+      })
+    }
+  ]
+
+  const buttons = (html) =>
+    [...stripComments(html).matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)]
+      .map((m) => m[1].replace(/<[^>]+>/g, '').trim())
+
+  for (const p of PAGES) {
+    const show = async (row) => {
+      const { html } = await renderPatchedMany(p.path, p.tabPatches([row]))
+      return { text: stripComments(html), labels: buttons(html) }
+    }
+
+    const pending = await show(p.row({}))
+    check(pending.labels.includes('修改') && pending.labels.includes('撤销'),
+      `${p.name}：待受理的单子能改也能撤`)
+    check(pending.text.includes('待受理'), `${p.name}：状态 tag 写着「待受理」`)
+
+    const accepted = await show(p.row({ status: 'accepted' }))
+    check(!accepted.labels.includes('修改') && !accepted.labels.includes('撤销'),
+      `${p.name}：受理之后改不了也撤不了（要改得先找管理员撤回受理）`)
+    check(accepted.text.includes('已受理'), `${p.name}：状态 tag 写着「已受理」`)
+
+    const correcting = await show(p.row({ status: 'correcting' }))
+    check(correcting.labels.includes('修改') && !correcting.labels.includes('撤销'),
+      `${p.name}：待补正能改，但撤不掉（撤掉就没人知道这条要补什么了）`)
+    check(correcting.text.includes('待补正'), `${p.name}：状态 tag 写着「待补正」`)
+
+    const approved = await show(p.row({ status: 'approved', reviewer_name: '甲' }))
+    check(!approved.labels.includes('修改') && !approved.labels.includes('撤销'),
+      `${p.name}：办结的单子改不了也撤不了`)
+  }
+
+  // 退回补正的理由是让申请人照办的话，得看得见才补得对。请假那页有一列「审核意见」
+  // 直接摊开写；另两页挂在「补正说明」的悬浮提示上（提示内容是 prop，SSR 渲不出来，
+  // 那两页只能断源码）
+  const APPLY = '/src/views/LeaveApply.vue'
+  const leaveRow = (o) => ({
+    id: 1, leave_type: '事假', start_at: '2026-10-15 08:00', end_at: '2026-10-17 18:00',
+    reason: '家里有事', status: 'correcting', reviewer_name: '', reject_reason: '',
+    advisor_opinion: '', created_at: '2026-10-12 09:00', ...o
+  })
+  const history = (r) => [
+    ["const activeTab = ref('apply')", "const activeTab = ref('history')"],
+    ['const leaves = ref([])', `const leaves = ref(${JSON.stringify([r])})`]
+  ]
+  const { html: correcting } = await renderPatchedMany(APPLY,
+    history(leaveRow({ correction_reason: '照片反光看不清车牌' })))
+  check(stripComments(correcting).includes('需补正：照片反光看不清车牌'),
+    '请假：退回补正的理由跟状态一起看得见')
+
+  // ⚠️ 这条是修的一个自相矛盾：tag 写着「已受理」，旁边那列却还写「待审核」
+  const { html: accepted } = await renderPatchedMany(APPLY, history(leaveRow({ status: 'accepted' })))
+  check(stripComments(accepted).includes('已受理，等待审批'),
+    '请假：已受理那一行的「审核意见」列不写「待审核」（同一行两句话得对得上）')
+
+  for (const p of ['/src/views/EvPass.vue', '/src/views/Certificate.vue']) {
+    const src = readFileSync(`${ROOT}${p}`, 'utf8')
+    check(/:content="row\.correction_reason"/.test(src),
+      `${p.slice(p.lastIndexOf('/') + 1)}：补正理由挂在悬浮提示上`)
+    check(src.includes('补正说明'), `${p.slice(p.lastIndexOf('/') + 1)}：那一处有可点的说明`)
+  }
+}
+
+console.log('\n▶ 待办口径：红点、删学生拦截、状态名与状态机同源')
+{
+  const be = (p) => readFileSync(`${ROOT}/../backend/app/${p}`, 'utf8')
+
+  // 五个状态字面量散在三个 api、badges、students、workspace 里各写一遍的话，写错
+  // 一处不报错、只会静默计数为 0 —— 所以口径统一由这一个模块出
+  const flow = be('services/review_flow.py')
+  check(/ADMIN_TODO = \(STATUS_PENDING, STATUS_ACCEPTED\)/.test(flow),
+    '待办 = 待受理 + 已受理')
+  check(/UNFINISHED = \(STATUS_PENDING, STATUS_ACCEPTED, STATUS_CORRECTING\)/.test(flow),
+    '未办结比待办多一个待补正（那种单子在等申请人，管理端不催它）')
+
+  const badges = be('api/badges.py')
+  check((badges.match(/_count\(db, \w+, ADMIN_TODO\)/g) || []).length === 3,
+    '三个办件的红点数的是 ADMIN_TODO（已受理未审批的也得进红点）')
+  check(!/_count\(db, (LeaveRequest|EvPassRequest|CertificateRequest), "pending"\)/.test(badges),
+    '没有哪个办件还在数裸 "pending" —— 那样写的红点会在受理那一刻凭空少一个')
+
+  const students = be('api/students.py')
+  const blockers = students.slice(students.indexOf('checks = ('),
+    students.indexOf('for model, belongs, label, statuses'))
+  const blocks = blockers.split(/\n(?=        \()/).map((s) => s.trim())
+  const blockOf = (model) => blocks.find((s) => s.includes(`${model},`)) || ''
+  for (const m of ['LeaveRequest', 'CertificateRequest', 'EvPassRequest']) {
+    check(blockOf(m).endsWith('UNFINISHED),'),
+      `删学生拦得住没办结的${m}（已受理、待补正的都算没办结，不然那些待办没人收尾）`)
+  }
+  // 信息修改和签字查看没有受理环节，只认 pending —— 整组套 UNFINISHED 会让这两类
+  // 永远删不掉学生
+  for (const m of ['ChangeRequest', 'SignPhotoRequest']) {
+    check(blockOf(m).includes('(STATUS_PENDING,)'), `${m} 没有受理环节，仍只认 pending`)
+  }
+
+  const ws = be('api/workspace.py')
+  for (const label of ['待受理', '已受理', '待补正']) {
+    check((ws.match(new RegExp(`\\("${label}", "\\w+"\\)`, 'g')) || []).length === 3,
+      `「我提交的」里三个办件都认得「${label}」（漏一档就把英文状态名直接显示给学生）`)
+  }
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

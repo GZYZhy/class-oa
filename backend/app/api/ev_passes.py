@@ -21,7 +21,12 @@ from sqlalchemy.orm import Session
 from ..config import BASE_DIR, settings
 from ..database import get_db
 from ..models import EvPassRequest, Student, User
-from ..schemas import EvPassRejectRequest, EvPassRequestResponse, EvPassSignature
+from ..schemas import (
+    EvPassCorrectRequest,
+    EvPassRejectRequest,
+    EvPassRequestResponse,
+    EvPassSignature,
+)
 from ..services import (
     TOKEN_SOURCE_EV_APPLY,
     TOKEN_SOURCE_EV_PROMISE,
@@ -32,6 +37,16 @@ from ..services import (
     make_watermark_token,
     notify,
     recipients,
+)
+from ..services.review_flow import (
+    ADMIN_TODO,
+    STATUS_CORRECTING,
+    STATUS_PENDING,
+    accept,
+    correct,
+    require_accepted,
+    resubmit,
+    unaccept,
 )
 from ..services.signer_service import copy_signature, signer_options
 from ..services.student_photo_service import sign_photo_path
@@ -75,6 +90,22 @@ def _safe_license_name(original: str) -> str:
     return f"{uuid.uuid4().hex}{ext}"
 
 
+async def _save_license(license_file: UploadFile) -> str:
+    """校验并落盘一份行驶证，返回存盘文件名（提交与修改共用）"""
+    if not license_file.filename:
+        raise HTTPException(status_code=400, detail="请上传行驶证")
+    safe_name = _safe_license_name(license_file.filename)
+    content = await license_file.read()
+    if len(content) > MAX_LICENSE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"行驶证文件超过 {MAX_LICENSE_SIZE // 1024 // 1024}MB",
+        )
+    with open(EV_PASS_DIR / safe_name, "wb") as f:
+        f.write(content)
+    return safe_name
+
+
 def student_files(db: Session, student_id: int) -> list[Path]:
     """该生全部通行证申请占用的行驶证与签字副本
 
@@ -110,6 +141,7 @@ def _to_response(db: Session, req: EvPassRequest) -> dict:
         "reviewer_name": req.reviewer_name,
         "reviewed_at": req.reviewed_at,
         "reject_reason": req.reject_reason,
+        "correction_reason": req.correction_reason,
         # 经办班委签字：只要「签没签、谁签的」。签字图**副本的文件名**不进响应 ——
         # 前端拿不到它，也就拼不出别的下载地址
         "sign_name": req.sign_name or "",
@@ -174,19 +206,7 @@ async def submit_application(
     if not student:
         raise HTTPException(status_code=400, detail="未找到学生信息")
 
-    # 校验行驶证
-    if not license_file.filename:
-        raise HTTPException(status_code=400, detail="请上传行驶证")
-    safe_name = _safe_license_name(license_file.filename)
-    content = await license_file.read()
-    if len(content) > MAX_LICENSE_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"行驶证文件超过 {MAX_LICENSE_SIZE // 1024 // 1024}MB",
-        )
-    save_path = EV_PASS_DIR /safe_name
-    with open(save_path, "wb") as f:
-        f.write(content)
+    safe_name = await _save_license(license_file)
 
     req = EvPassRequest(
         student_id=student.id,
@@ -245,6 +265,98 @@ def my_license(
         filename=req.license_original_name or req.license_file,
         content_disposition_type="inline",
     )
+
+
+@router.put("/{req_id}", response_model=EvPassRequestResponse, summary="修改申请（未办结时）")
+async def update_application(
+    req_id: int,
+    brand: str = Form(..., min_length=1, max_length=100, description="电动车品牌"),
+    plate_number: str = Form(..., min_length=1, max_length=50, description="车牌号"),
+    # 不传就是「行驶证不动」；传了就把旧的换成新的（旧文件提交成功后删掉）
+    license_file: UploadFile | None = File(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """申请人自己改：待受理、待补正这两种状态能改，其余一律 400
+
+    字段是**整套覆盖**，跟重新提交一次一样 —— 少传一个就等于清空它，所以前端
+    编辑时必须把原值都带上。
+
+    改完的落点分两种（见 review_flow.resubmit）：原本待补正的回到「已受理」——
+    待补正也算已受理，受理没被撤销，只是材料要补齐，补完不必让班委再看一遍；
+    原本待受理的仍是待受理，它本来就还没人看过。
+    """
+    req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="申请不存在")
+    student = db.query(Student).filter(Student.student_no == user.student_no).first()
+    if not student or req.student_id != student.id:
+        raise HTTPException(status_code=403, detail="无权修改")
+    if req.status not in (STATUS_PENDING, STATUS_CORRECTING):
+        raise HTTPException(
+            status_code=400,
+            detail="该申请已受理，需要修改请联系班委先撤回受理",
+        )
+
+    old_license = req.license_file
+    if license_file is not None:
+        req.license_file = await _save_license(license_file)
+        req.license_original_name = license_file.filename
+
+    req.brand = brand.strip()
+    req.plate_number = plate_number.strip()
+    resubmit(req)
+
+    log_operation(
+        db, user, "修改电动车通行证申请",
+        target=f"{student.student_no} {student.name}",
+        detail=f"品牌：{req.brand}，车牌：{req.plate_number}",
+        ip=ip,
+    )
+    db.commit()
+    # 提交成功了再删旧行驶证：反过来的话 commit 一失败，学生手里就只剩一条指着
+    # 不存在文件的记录（照 approve 里「先落签字再改状态」的次序）
+    if license_file is not None and old_license and old_license != req.license_file:
+        (EV_PASS_DIR / Path(old_license).name).unlink(missing_ok=True)
+    db.refresh(req)
+    return _to_response(db, req)
+
+
+@router.delete("/{req_id}", summary="撤销申请（待受理时）")
+def delete_application(
+    req_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """申请人自己撤：**只有「待受理」能撤**，直接删掉记录和盘上的行驶证
+
+    已受理的不给撤（那是班委看过、正在走流程的单子，要撤得先让班委撤回受理）；
+    待补正的不给撤（是让补材料，不是让放弃，真不想办了跟班委说一声）。
+    撤销**不留档、不通知**：撤回一条自己刚交的东西，不需要惊动谁。
+    """
+    req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="申请不存在")
+    student = db.query(Student).filter(Student.student_no == user.student_no).first()
+    if not student or req.student_id != student.id:
+        raise HTTPException(status_code=403, detail="无权撤销")
+    if req.status != STATUS_PENDING:
+        raise HTTPException(status_code=400, detail="该申请已进入受理流程，不能撤销")
+
+    log_operation(
+        db, user, "撤销电动车通行证申请",
+        target=f"{student.student_no} {student.name}",
+        detail=f"品牌：{req.brand}，车牌：{req.plate_number}",
+        ip=ip,
+    )
+    license_name = req.license_file
+    db.delete(req)
+    db.commit()
+    if license_name:
+        (EV_PASS_DIR / Path(license_name).name).unlink(missing_ok=True)
+    return {"ok": True}
 
 
 def _pdf_target(db: Session, req_id: int, user: User) -> tuple[EvPassRequest, Student]:
@@ -353,15 +465,129 @@ def download_promise_pdf(
     summary="电动车通行证申请列表（班委及以上）",
 )
 def list_applications(
-    status: str | None = Query(None, description="按状态筛选：pending/approved/rejected"),
+    status: str | None = Query(
+        None,
+        description="按状态筛选：pending/accepted/correcting/approved/rejected；"
+                    "open = 待处理（待受理+已受理）",
+    ),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
     query = db.query(EvPassRequest)
-    if status:
+    if status == "open":
+        # 管理端默认那一档：受理后状态会从 pending 变成 accepted，只看 pending 的话
+        # 「受理」看起来像把申请弄丢了，而菜单红点还照数它（见 review_flow.ADMIN_TODO）
+        query = query.filter(EvPassRequest.status.in_(ADMIN_TODO))
+    elif status:
         query = query.filter(EvPassRequest.status == status)
     rows = query.order_by(EvPassRequest.id.desc()).all()
     return [_to_response(db, r) for r in rows]
+
+
+@router.post("/{req_id}/accept", response_model=EvPassRequestResponse, summary="受理申请（管理员）")
+def accept_application(
+    req_id: int,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """受理：这份材料看过了，可以进入审批
+
+    前端在管理员打开行驶证时顺手发一个，另有一个「受理」按钮兜底（没附件的单子
+    只看是受理不了的）。已经受理过的原样返回（幂等）—— 反复打开材料不该报错。
+
+    **不发通知**（用户口径）：受理只是审批人自己的一步，学生那边只看到状态变了；
+    也不碰 reviewer_no / reviewed_at —— 那是审批结果的一部分。
+    """
+    req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="申请不存在")
+    if accept(req):
+        student = db.query(Student).filter(Student.id == req.student_id).first()
+        log_operation(
+            db, user, "受理电动车通行证申请",
+            target=student.name if student else f"id={req.student_id}",
+            detail=f"车牌：{req.plate_number}",
+            ip=ip,
+        )
+        db.commit()
+        db.refresh(req)
+    return _to_response(db, req)
+
+
+@router.post("/{req_id}/unaccept", response_model=EvPassRequestResponse, summary="撤回受理（管理员）")
+def unaccept_application(
+    req_id: int,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """受理点错了的回头路：已受理 → 待受理
+
+    只退受理，不动审批结果 —— 已办结（通过/驳回）的单子本来就退不回来：审批一旦
+    发出（通知已推送、PDF 已生成、签字图已快照），静默改写等于篡改已发出的正式单据
+    （与「补签字不重审」同一条口径）。
+    """
+    req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="申请不存在")
+    if not unaccept(req):
+        raise HTTPException(status_code=400, detail="该申请不在「已受理」状态，撤回不了")
+    student = db.query(Student).filter(Student.id == req.student_id).first()
+    log_operation(
+        db, user, "撤回受理电动车通行证申请",
+        target=student.name if student else f"id={req.student_id}",
+        detail=f"车牌：{req.plate_number}",
+        ip=ip,
+    )
+    db.commit()
+    db.refresh(req)
+    return _to_response(db, req)
+
+
+@router.post(
+    "/{req_id}/correcting",
+    response_model=EvPassRequestResponse,
+    summary="退回补正（管理员）",
+)
+def correcting_application(
+    req_id: int,
+    body: EvPassCorrectRequest,
+    background: BackgroundTasks,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """材料不对，打回让申请人补齐（带理由，申请人看得见）
+
+    和驳回分开：驳回是「这件事不批了」，补正是「补齐了还能批」。学生改完重交会回到
+    「已受理」—— 受理没被撤销，不必让班委再看一遍。
+
+    退回补正**要发通知**：这是一句需要学生动手的交代，不喊一声他不会知道材料被退回来了。
+    """
+    req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="申请不存在")
+    if not correct(req, body.reason):
+        raise HTTPException(status_code=400, detail="只有已受理的申请才能退回补正")
+    student = db.query(Student).filter(Student.id == req.student_id).first()
+    log_operation(
+        db, user, "退回补正电动车通行证申请",
+        target=student.name if student else f"id={req.student_id}",
+        detail=f"理由：{body.reason.strip()}",
+        ip=ip,
+    )
+    targets = recipients(db, only_no=student.student_no) if student else None
+    db.commit()
+    db.refresh(req)
+
+    if targets:
+        notify(
+            db, background, targets, "电动车通行证申请需要补交材料",
+            f"车牌 {req.plate_number}，理由：{clip(req.correction_reason)}",
+            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+        )
+    return _to_response(db, req)
 
 
 @router.post("/{req_id}/approve", response_model=EvPassRequestResponse, summary="通过申请（管理员）")
@@ -380,11 +606,10 @@ def approve_application(
     req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="申请不存在")
-    # 只允许批「待审核」的：能在已批准的单子上再点一次「通过」，会重新快照签字、
+    # 得先受理过；已办结的也不能再批一次（在已批准的单子上再点「通过」会重新快照签字、
     # **覆盖掉当初那张副本**，「用批准当时那张」这句承诺当场作废，外加把已发出的通知
-    # 再来一遍。这条同时兜住了重复提交（请假也是这条）
-    if req.status != "pending":
-        raise HTTPException(status_code=400, detail="该申请已处理过")
+    # 再来一遍）。两条都在这一句里
+    require_accepted(req)
 
     # 先把签字副本落盘再改状态：复制失败时这条还是 pending，管理员能重试；
     # 反过来的话就会出现「状态已通过、签字丢了」的单子，而签字是批的时候才定的，
@@ -497,10 +722,7 @@ def reject_application(
     req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="申请不存在")
-    # 只允许驳「待审核」的：已批准 / 已驳回的单子再点一次会把 reject_reason 覆盖掉，
-    # 状态也跟着来回翻（请假的 reject_leave 有这条，两边口径对齐）
-    if req.status != "pending":
-        raise HTTPException(status_code=400, detail="该申请已处理过")
+    require_accepted(req)
     req.status = "rejected"
     req.reviewer_no = user.student_no
     req.reviewer_name = account_name(db, user)

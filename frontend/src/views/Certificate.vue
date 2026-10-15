@@ -9,7 +9,12 @@
 
       <el-tabs v-model="activeTab">
         <!-- ============ 申请开具 ============ -->
-        <el-tab-pane label="申请开具" name="apply">
+        <el-tab-pane :label="editingId ? '修改申请' : '申请开具'" name="apply">
+          <!-- 修改这条申请时把表单预填成它的内容，提交走 PUT 覆盖原记录 -->
+          <div v-if="editingId" class="edit-hint">
+            正在修改这条申请，改完点「保存修改」；不重选附件就沿用原来那批。
+          </div>
+
           <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" style="max-width: 640px;">
             <el-form-item label="证明标题" prop="title">
               <el-input v-model="form.title" placeholder="如：在读证明 / 实习介绍信" maxlength="200" />
@@ -39,6 +44,7 @@
             </el-form-item>
             <el-form-item label="申请依据" prop="attachments">
               <el-upload
+                ref="uploadRef"
                 :auto-upload="false"
                 :limit="3"
                 :on-change="handleFileChange"
@@ -52,7 +58,12 @@
                   选择文件
                 </el-button>
                 <template #tip>
-                  <div class="el-upload__tip">支持 PDF / 图片 / Word，每个文件不超过 20MB，最多 3 个</div>
+                  <div v-if="editingId" class="el-upload__tip">
+                    支持 PDF / 图片 / Word，每个文件不超过 20MB，最多 3 个。不重选就沿用当前那批
+                  </div>
+                  <div v-else class="el-upload__tip">
+                    支持 PDF / 图片 / Word，每个文件不超过 20MB，最多 3 个
+                  </div>
                 </template>
               </el-upload>
             </el-form-item>
@@ -63,8 +74,9 @@
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="submitting" @click="handleSubmit">
-                提交申请{{ submitting && uploadProgress ? ` ${uploadProgress}%` : '' }}
+                {{ editingId ? '保存修改' : '提交申请' }}{{ submitting && uploadProgress ? ` ${uploadProgress}%` : '' }}
               </el-button>
+              <el-button v-if="editingId" @click="cancelEdit">取消修改</el-button>
             </el-form-item>
           </el-form>
         </el-tab-pane>
@@ -79,12 +91,14 @@
             </el-table-column>
             <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
-                <el-tag v-if="row.status === 'pending'" type="warning" size="small">待审核</el-tag>
+                <el-tag v-if="row.status === 'pending'" type="warning" size="small">待受理</el-tag>
+                <el-tag v-else-if="row.status === 'accepted'" type="primary" size="small">已受理</el-tag>
+                <el-tag v-else-if="row.status === 'correcting'" type="warning" size="small">待补正</el-tag>
                 <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
                 <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" min-width="280" align="center">
+            <el-table-column label="操作" min-width="340" align="center">
               <template #default="{ row }">
                 <template v-if="row.attachments?.length">
                   <el-button
@@ -114,6 +128,33 @@
                     <span style="color: #f56c6c; font-size: 12px; cursor: help;">驳回原因</span>
                   </el-tooltip>
                 </template>
+                <!-- 退回补正的理由是让申请人照办的话，得看得见才补得对 -->
+                <el-tooltip
+                  v-if="row.status === 'correcting' && row.correction_reason"
+                  :content="row.correction_reason"
+                  placement="top"
+                >
+                  <span style="color: #e6a23c; font-size: 12px; cursor: help;">补正说明</span>
+                </el-tooltip>
+                <!-- 待受理、待补正都能改；撤只有待受理能撤（受理过的要撤得找班委先撤回受理） -->
+                <el-button
+                  v-if="row.status === 'pending' || row.status === 'correcting'"
+                  type="warning"
+                  link
+                  size="small"
+                  @click="startEdit(row)"
+                >
+                  修改
+                </el-button>
+                <el-button
+                  v-if="row.status === 'pending'"
+                  type="danger"
+                  link
+                  size="small"
+                  @click="handleDelete(row)"
+                >
+                  撤销
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -134,11 +175,13 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import {
   getMyCertificates,
   submitCertificate,
+  updateCertificate,
+  deleteCertificate,
   downloadCertificateAttachment,
   downloadCertificateResult
 } from '@/api/certificate'
@@ -154,6 +197,9 @@ const uploadProgress = ref(0)
 const downloadingId = ref(null)
 const list = ref([])
 const formRef = ref(null)
+const uploadRef = ref(null)
+// 正在修改的那条记录（null = 新建）。改完走 PUT 覆盖原记录，不会又多出一条
+const editingId = ref(null)
 
 const form = reactive({
   title: '',
@@ -169,7 +215,8 @@ const fileList = ref([])
 const selectedFiles = ref([])
 
 const validateAttachments = (_rule, _value, callback) => {
-  if (selectedFiles.value.length === 0) {
+  // 修改时可以不重选：不选就沿用原来那批（后端 PUT 的 attachments 字段就是这么定的）
+  if (selectedFiles.value.length === 0 && !editingId.value) {
     callback(new Error('请至少上传一个申请依据附件'))
   } else {
     callback()
@@ -207,7 +254,42 @@ function handleFileRemove(file) {
   formRef.value?.validateField('attachments')
 }
 
-// 提交
+/** 清空表单，回到「新建」状态 */
+function resetForm() {
+  form.title = ''
+  form.recipient = ''
+  form.content = ''
+  form.extra_request = ''
+  form.confirmed = false
+  fileList.value = []
+  selectedFiles.value = []
+  editingId.value = null
+  uploadRef.value?.clearFiles()
+}
+
+/** 修改：把这条记录预填进表单并切回申请那一栏 */
+function startEdit(row) {
+  editingId.value = row.id
+  form.title = row.title
+  form.recipient = row.recipient
+  form.content = row.content
+  form.extra_request = row.extra_request || ''
+  // 附件不预填（拿不到原来的 File 对象），不重选后端就沿用原来那批
+  fileList.value = []
+  selectedFiles.value = []
+  // 「信息真实有效、已与班委联系」是每次提交都要认一遍的话，不替申请人预勾
+  form.confirmed = false
+  uploadRef.value?.clearFiles()
+  activeTab.value = 'apply'
+  formRef.value?.clearValidate()
+}
+
+function cancelEdit() {
+  resetForm()
+  activeTab.value = 'mine'
+}
+
+// 提交 / 保存修改
 async function handleSubmit() {
   if (!formRef.value) return
   try {
@@ -216,34 +298,54 @@ async function handleSubmit() {
     return
   }
 
+  const data = {
+    title: form.title.trim(),
+    recipient: form.recipient.trim(),
+    content: form.content.trim(),
+    extra_request: form.extra_request.trim(),
+    files: selectedFiles.value
+  }
+  const onProgress = (loaded, total) => {
+    uploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+  }
+
   submitting.value = true
   uploadProgress.value = 0
   try {
-    await submitCertificate({
-      title: form.title.trim(),
-      recipient: form.recipient.trim(),
-      content: form.content.trim(),
-      extra_request: form.extra_request.trim(),
-      files: selectedFiles.value
-    }, (loaded, total) => {
-      uploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
-    })
-    ElMessage.success('提交成功，等待管理员审核')
-    // 重置表单
-    form.title = ''
-    form.recipient = ''
-    form.content = ''
-    form.extra_request = ''
-    form.confirmed = false
-    fileList.value = []
-    selectedFiles.value = []
+    if (editingId.value) {
+      await updateCertificate(editingId.value, data, onProgress)
+      ElMessage.success('已保存修改')
+    } else {
+      await submitCertificate(data, onProgress)
+      ElMessage.success('提交成功，等待管理员审核')
+    }
     activeTab.value = 'mine'
     fetchList()
+    resetForm()
   } catch (e) {
     ElMessage.error('提交失败：' + (e.response?.data?.detail || e.message))
   } finally {
     submitting.value = false
   }
+}
+
+/** 撤销：只有待受理能撤，撤了就真删掉了（连附件） */
+function handleDelete(row) {
+  ElMessageBox.confirm(
+    '撤销后这条申请和附件都会被删掉，不能恢复。',
+    '撤销申请',
+    { confirmButtonText: '撤销', cancelButtonText: '再想想', type: 'warning' }
+  ).then(async () => {
+    try {
+      await deleteCertificate(row.id)
+      ElMessage.success('已撤销')
+      // 撤的正好是正在改的那条，就别让表单还停在「修改」上
+      if (editingId.value === row.id) resetForm()
+      fetchList()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '撤销失败')
+    }
+  }).catch(() => {})
 }
 
 // 附件预览
@@ -293,6 +395,17 @@ onMounted(fetchList)
 </script>
 
 <style scoped>
+/* 修改模式的提示条。用 Element 的调色板变量，深色模式跟着一起变 */
+.edit-hint {
+  max-width: 640px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+}
+
 /* 复选框折行：窄屏下长句子能正常换行，勾选框对齐第一行 */
 .confirm-item :deep(.el-form-item__content) {
   line-height: 1.5;

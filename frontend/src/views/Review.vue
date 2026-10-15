@@ -106,7 +106,11 @@
         <template #label>请假申请<span v-if="tabBadge('leave')" class="tab-badge">{{ tabBadge('leave') }}</span></template>
         <div class="tab-toolbar">
           <el-radio-group v-model="leaveStatus" size="small" @change="fetchLeaveList">
-            <el-radio-button value="pending">待审核</el-radio-button>
+            <!-- 「待处理」= 待受理 + 已受理，即红点数的那一档；默认选中，否则受理完这行就从眼前消失了 -->
+            <el-radio-button value="open">待处理</el-radio-button>
+            <el-radio-button value="pending">待受理</el-radio-button>
+            <el-radio-button value="accepted">已受理</el-radio-button>
+            <el-radio-button value="correcting">待补正</el-radio-button>
             <el-radio-button value="approved">已通过</el-radio-button>
             <el-radio-button value="rejected">已驳回</el-radio-button>
             <el-radio-button value="">全部</el-radio-button>
@@ -131,7 +135,9 @@
           <el-table-column prop="reason" label="事由" min-width="160" show-overflow-tooltip />
           <el-table-column label="状态" width="110" align="center">
             <template #default="{ row }">
-              <el-tag v-if="row.status === 'pending'" type="warning" size="small">待审核</el-tag>
+              <el-tag v-if="row.status === 'pending'" type="warning" size="small">待受理</el-tag>
+              <el-tag v-else-if="row.status === 'accepted'" type="primary" size="small">已受理</el-tag>
+              <el-tag v-else-if="row.status === 'correcting'" type="warning" size="small">待补正</el-tag>
               <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
               <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
             </template>
@@ -149,7 +155,7 @@
           <el-table-column label="申请时间" width="150" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="330" align="center">
+          <el-table-column label="操作" width="400" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewLeaveProof(row)">
                 证明材料
@@ -174,12 +180,29 @@
               >
                 补签字
               </el-button>
-              <template v-if="row.status === 'pending'">
+              <!-- 受理 = 管理员看过这份材料了。打开「证明材料」预览也会自动受理一次，这个按钮是兜底 -->
+              <el-button
+                v-if="userStore.isAdmin && row.status === 'pending'"
+                size="small"
+                link
+                type="primary"
+                @click="handleAcceptLeave(row)"
+              >
+                受理
+              </el-button>
+              <!-- 受理点错了的回头路；退回补正是「材料不对，打回让申请人补齐」 -->
+              <template v-if="userStore.isAdmin && row.status === 'accepted'">
+                <el-button size="small" link type="warning" @click="handleUnacceptLeave(row)">撤回受理</el-button>
+                <el-button size="small" link type="warning" @click="handleCorrectLeave(row)">退回补正</el-button>
+              </template>
+              <!-- 待受理时按钮亮着但点不动，逼着人先看过材料 -->
+              <template v-if="row.status === 'pending' || row.status === 'accepted'">
                 <el-button
                   v-if="userStore.isAdmin"
                   size="small"
                   link
                   type="success"
+                  :disabled="row.status === 'pending'"
                   @click="openLeaveDialog('approve', row)"
                 >
                   通过
@@ -189,11 +212,13 @@
                   size="small"
                   link
                   type="danger"
+                  :disabled="row.status === 'pending'"
                   @click="handleRejectLeave(row)"
                 >
                   驳回
                 </el-button>
-                <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">需管理员审批</span>
+                <span v-if="userStore.isAdmin && row.status === 'pending'" style="color: var(--el-text-color-secondary); font-size: 12px;">需先受理</span>
+                <span v-if="!userStore.isAdmin" style="color: var(--el-text-color-secondary); font-size: 12px;">需管理员审批</span>
               </template>
             </template>
           </el-table-column>
@@ -207,7 +232,10 @@
         <template #label>电动车通行证<span v-if="tabBadge('evpass')" class="tab-badge">{{ tabBadge('evpass') }}</span></template>
         <div class="tab-toolbar">
           <el-radio-group v-model="evPassStatus" size="small" @change="fetchEvPassList">
-            <el-radio-button value="pending">待审核</el-radio-button>
+            <el-radio-button value="open">待处理</el-radio-button>
+            <el-radio-button value="pending">待受理</el-radio-button>
+            <el-radio-button value="accepted">已受理</el-radio-button>
+            <el-radio-button value="correcting">待补正</el-radio-button>
             <el-radio-button value="approved">已通过</el-radio-button>
             <el-radio-button value="rejected">已驳回</el-radio-button>
             <el-radio-button value="">全部</el-radio-button>
@@ -228,7 +256,9 @@
           </el-table-column>
           <el-table-column label="状态" width="100" align="center">
             <template #default="{ row }">
-              <el-tag v-if="row.status === 'pending'" type="warning" size="small">待审核</el-tag>
+              <el-tag v-if="row.status === 'pending'" type="warning" size="small">待受理</el-tag>
+              <el-tag v-else-if="row.status === 'accepted'" type="primary" size="small">已受理</el-tag>
+              <el-tag v-else-if="row.status === 'correcting'" type="warning" size="small">待补正</el-tag>
               <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
               <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
             </template>
@@ -241,7 +271,7 @@
               <span v-else style="color: var(--el-text-color-secondary);">暂不签署</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="400" align="center">
+          <el-table-column label="操作" width="470" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewEvLicense(row)">行驶证</el-button>
               <!-- 生成的文档：班委和管理员都能下（留档、报学院盖章用）。
@@ -260,10 +290,38 @@
               >
                 补签字
               </el-button>
-              <!-- 审批仅管理员；班委只读 -->
-              <template v-if="userStore.isAdmin && row.status === 'pending'">
-                <el-button size="small" link type="success" @click="openEvPassDialog('approve', row)">通过</el-button>
-                <el-button size="small" link type="danger" @click="handleRejectEvPass(row)">驳回</el-button>
+              <!-- 受理 = 管理员看过这份材料了。打开「行驶证」预览也会自动受理一次，这个按钮是兜底 -->
+              <el-button
+                v-if="userStore.isAdmin && row.status === 'pending'"
+                size="small"
+                link
+                type="primary"
+                @click="handleAcceptEvPass(row)"
+              >
+                受理
+              </el-button>
+              <template v-if="userStore.isAdmin && row.status === 'accepted'">
+                <el-button size="small" link type="warning" @click="handleUnacceptEvPass(row)">撤回受理</el-button>
+                <el-button size="small" link type="warning" @click="handleCorrectEvPass(row)">退回补正</el-button>
+              </template>
+              <!-- 审批仅管理员；班委只读。待受理时按钮置灰，逼着人先看过材料 -->
+              <template v-if="userStore.isAdmin && (row.status === 'pending' || row.status === 'accepted')">
+                <el-button
+                  size="small"
+                  link
+                  type="success"
+                  :disabled="row.status === 'pending'"
+                  @click="openEvPassDialog('approve', row)"
+                >通过</el-button>
+                <el-button
+                  size="small"
+                  link
+                  type="danger"
+                  :disabled="row.status === 'pending'"
+                  @click="handleRejectEvPass(row)"
+                >驳回</el-button>
+                <!-- 灰按钮得说一句为什么点不动（与请假那边同一句话） -->
+                <span v-if="row.status === 'pending'" style="color: var(--el-text-color-secondary); font-size: 12px;">需先受理</span>
               </template>
             </template>
           </el-table-column>
@@ -277,7 +335,10 @@
         <template #label>证明开具<span v-if="tabBadge('certificate')" class="tab-badge">{{ tabBadge('certificate') }}</span></template>
         <div class="tab-toolbar">
           <el-radio-group v-model="certificateStatus" size="small" @change="fetchCertificateList">
-            <el-radio-button value="pending">待审核</el-radio-button>
+            <el-radio-button value="open">待处理</el-radio-button>
+            <el-radio-button value="pending">待受理</el-radio-button>
+            <el-radio-button value="accepted">已受理</el-radio-button>
+            <el-radio-button value="correcting">待补正</el-radio-button>
             <el-radio-button value="approved">已通过</el-radio-button>
             <el-radio-button value="rejected">已驳回</el-radio-button>
             <el-radio-button value="">全部</el-radio-button>
@@ -298,12 +359,14 @@
           </el-table-column>
           <el-table-column label="状态" width="100" align="center">
             <template #default="{ row }">
-              <el-tag v-if="row.status === 'pending'" type="warning" size="small">待审核</el-tag>
+              <el-tag v-if="row.status === 'pending'" type="warning" size="small">待受理</el-tag>
+              <el-tag v-else-if="row.status === 'accepted'" type="primary" size="small">已受理</el-tag>
+              <el-tag v-else-if="row.status === 'correcting'" type="warning" size="small">待补正</el-tag>
               <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
               <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" min-width="340" align="center">
+          <el-table-column label="操作" min-width="420" align="center">
             <template #default="{ row }">
               <template v-if="row.attachments?.length">
                 <el-button size="small" link type="primary" @click="viewCertAttachment(row)">
@@ -325,10 +388,39 @@
                   待上传成品
                 </span>
               </template>
-              <!-- 审批仅管理员；班委只读 -->
-              <template v-if="userStore.isAdmin && row.status === 'pending'">
-                <el-button size="small" link type="success" @click="handleApproveCertificate(row)">通过</el-button>
-                <el-button size="small" link type="danger" @click="handleRejectCertificate(row)">驳回</el-button>
+              <!-- 受理 = 管理员看过这份材料了。证明的附件是可选的，没有附件的单子
+                   只能靠这个按钮受理，所以它不是装饰 -->
+              <el-button
+                v-if="userStore.isAdmin && row.status === 'pending'"
+                size="small"
+                link
+                type="primary"
+                @click="handleAcceptCertificate(row)"
+              >
+                受理
+              </el-button>
+              <template v-if="userStore.isAdmin && row.status === 'accepted'">
+                <el-button size="small" link type="warning" @click="handleUnacceptCertificate(row)">撤回受理</el-button>
+                <el-button size="small" link type="warning" @click="handleCorrectCertificate(row)">退回补正</el-button>
+              </template>
+              <!-- 审批仅管理员；班委只读。待受理时按钮置灰，逼着人先看过材料 -->
+              <template v-if="userStore.isAdmin && (row.status === 'pending' || row.status === 'accepted')">
+                <el-button
+                  size="small"
+                  link
+                  type="success"
+                  :disabled="row.status === 'pending'"
+                  @click="handleApproveCertificate(row)"
+                >通过</el-button>
+                <el-button
+                  size="small"
+                  link
+                  type="danger"
+                  :disabled="row.status === 'pending'"
+                  @click="handleRejectCertificate(row)"
+                >驳回</el-button>
+                <!-- 灰按钮得说一句为什么点不动（与请假那边同一句话） -->
+                <span v-if="row.status === 'pending'" style="color: var(--el-text-color-secondary); font-size: 12px;">需先受理</span>
               </template>
             </template>
           </el-table-column>
@@ -753,6 +845,9 @@ import {
 import {
   getAdvisorSigners,
   getLeaveList,
+  acceptLeave,
+  unacceptLeave,
+  correctLeave,
   approveLeave,
   advisorSign,
   rejectLeave,
@@ -768,6 +863,9 @@ import {
 } from '@/api/feedback'
 import {
   getEvPassList,
+  acceptEvPass,
+  unacceptEvPass,
+  correctEvPass,
   approveEvPass,
   signEvPass,
   getEvPassSigners,
@@ -790,6 +888,9 @@ import {
 } from '@/api/export'
 import {
   getCertificateList,
+  acceptCertificate,
+  unacceptCertificate,
+  correctCertificate,
   approveCertificate,
   rejectCertificate,
   uploadCertificateResult,
@@ -899,9 +1000,39 @@ async function handleRejectChange(row) {
   }
 }
 
+// 受理三件套。三个办件的动作逐字一样（受理、撤回受理、退回补正），
+// 差别只在「调哪个接口」「刷新哪个列表」，所以收成一份，免得三处各写一遍再各自漂移
+function makeReviewActions({ accept, unaccept, correct, reload }) {
+  const run = async (fn, okText) => {
+    try {
+      await fn()
+      ElMessage.success(okText)
+      reload()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }
+  return {
+    accept: (row) => run(() => accept(row.id), '已受理'),
+    unaccept: (row) => ElMessageBox.confirm(
+      '撤回后回到「待受理」。已经发出的审批结果不受影响。',
+      '撤回受理',
+      { confirmButtonText: '撤回受理', cancelButtonText: '取消', type: 'warning' }
+    ).then(() => run(() => unaccept(row.id), '已撤回受理')).catch(() => {}),
+    // 理由必填（会通知申请人），跟驳回同一个写法
+    correct: (row) => ElMessageBox.prompt('请写清楚要补什么，会通知申请人', '退回补正', {
+      inputPlaceholder: '如：证明材料上的日期看不清，麻烦重传一张',
+      inputValidator: (v) => (v && v.trim() ? true : '请写清楚要补什么'),
+      confirmButtonText: '退回补正',
+      cancelButtonText: '取消'
+    }).then(({ value }) => run(() => correct(row.id, value.trim()), '已退回补正')).catch(() => {})
+  }
+}
+
 // —— 请假申请 ——
 const leaveList = ref([])
-const leaveStatus = ref('pending')
+// 默认「待处理」（待受理 + 已受理）：受理完的行得留在眼前，不然会被当成「受理把申请弄没了」
+const leaveStatus = ref('open')
 
 async function fetchLeaveList() {
   loading.value = true
@@ -915,6 +1046,14 @@ async function fetchLeaveList() {
   }
 }
 
+const {
+  accept: handleAcceptLeave,
+  unaccept: handleUnacceptLeave,
+  correct: handleCorrectLeave
+} = makeReviewActions({
+  accept: acceptLeave, unaccept: unacceptLeave, correct: correctLeave, reload: fetchLeaveList
+})
+
 // 请假证明预览
 const proofViewerVisible = ref(false)
 const proofFileUrl = ref('')
@@ -922,6 +1061,9 @@ const proofFileName = ref('')
 const proofDownloadName = ref('')
 
 function viewLeaveProof(row) {
+  // 打开材料即受理。不 await：别让网络拖慢预览；出错也静默，管理员只是想看眼材料，
+  // 不该因为已被别人审掉之类的缘故弹红条（显式的「受理」按钮是兜底）
+  if (userStore.isAdmin) acceptLeave(row.id).then(fetchLeaveList).catch(() => {})
   // 预览用的文件路径（后端接口）
   proofFileUrl.value = `/api/leaves/${row.id}/proof/admin`
   proofFileName.value = row.proof_original_name || '证明材料'
@@ -1025,7 +1167,7 @@ function handleDownloadLeavePdf(row) {
 // 但通过/驳回只有管理员能点 —— 和后端 ev_passes.py 里
 // committee_required / admin_required / _pdf_target 的划分一致
 const evPassList = ref([])
-const evPassStatus = ref('pending')
+const evPassStatus = ref('open')
 
 async function fetchEvPassList() {
   loading.value = true
@@ -1039,6 +1181,14 @@ async function fetchEvPassList() {
   }
 }
 
+const {
+  accept: handleAcceptEvPass,
+  unaccept: handleUnacceptEvPass,
+  correct: handleCorrectEvPass
+} = makeReviewActions({
+  accept: acceptEvPass, unaccept: unacceptEvPass, correct: correctEvPass, reload: fetchEvPassList
+})
+
 // 行驶证预览（班委和管理员走 /license/admin 这个口）
 const evLicenseViewerVisible = ref(false)
 const evLicenseFileUrl = ref('')
@@ -1046,6 +1196,8 @@ const evLicenseFileName = ref('')
 const evLicenseDownloadName = ref('')
 
 function viewEvLicense(row) {
+  // 打开行驶证即受理（不 await、出错静默，理由同请假那边）
+  if (userStore.isAdmin) acceptEvPass(row.id).then(fetchEvPassList).catch(() => {})
   evLicenseFileUrl.value = `/api/ev-passes/${row.id}/license/admin`
   evLicenseFileName.value = row.license_original_name || '行驶证'
   // 下载命名沿用请假证明的模式：姓名_材料名_日期
@@ -1147,7 +1299,7 @@ function handleRejectEvPass(row) {
 // —— 证明开具 ——
 // 班委能看列表、看附件，但不能下载成品 PDF、不能审批
 const certificateList = ref([])
-const certificateStatus = ref('pending')
+const certificateStatus = ref('open')
 
 async function fetchCertificateList() {
   loading.value = true
@@ -1161,6 +1313,17 @@ async function fetchCertificateList() {
   }
 }
 
+const {
+  accept: handleAcceptCertificate,
+  unaccept: handleUnacceptCertificate,
+  correct: handleCorrectCertificate
+} = makeReviewActions({
+  accept: acceptCertificate,
+  unaccept: unacceptCertificate,
+  correct: correctCertificate,
+  reload: fetchCertificateList
+})
+
 // 证明附件预览
 const certAttachViewerVisible = ref(false)
 const certAttachFileUrl = ref('')
@@ -1169,6 +1332,8 @@ const certAttachDownloadName = ref('')
 
 function viewCertAttachment(row) {
   if (!row.attachments?.length) return
+  // 打开附件即受理（不 await、出错静默，理由同请假那边）
+  if (userStore.isAdmin) acceptCertificate(row.id).then(fetchCertificateList).catch(() => {})
   const item = row.attachments[0]
   // 班委及以上走 admin 路径
   certAttachFileUrl.value = `/api/certificates/${row.id}/attachment/0/admin`
