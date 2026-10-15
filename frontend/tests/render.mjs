@@ -1433,6 +1433,55 @@ console.log('\n▶ 电动车：两份都改成 PDF，批准时选经办班委签
     '弹窗里没有意见输入框 —— 这份表上没有意见栏')
 }
 
+console.log('\n▶ 请假与电动车：承诺语照抄表上原话，各加一条「确认签字」')
+{
+  // 两个页面默认就停在「提交申请」那个 tab，表单本来就在页面上，不用灌数据
+  const { html: leave, warns: lw } = await render('/src/views/LeaveApply.vue')
+  const lh = stripComments(leave)
+  check(lh.includes('本人承诺：'), '请假表单上多了「本人承诺」')
+  check(lh.includes('1、请假期间保持与班导师和辅导员的联系，请假期满按时返校并办理销假手续。'),
+    '第一条与《请假审批表》上的一致（保持联系、期满销假）')
+  check(lh.includes('2、请假期间个人人身安全及财产安全责任自负。'),
+    '第二条与《请假审批表》上的一致（安全责任自负）')
+  check(lh.includes('我确认在请假审批表上签字'), '有「确认在请假审批表上签字」这一项')
+
+  const { html: ev, warns: ew } = await render('/src/views/EvPass.vue')
+  const eh = stripComments(ev)
+  check(eh.includes('本人承诺申请通行证所对应车辆为本人实际使用') &&
+    eh.includes('绝不进行代办、伪造、线上买卖通行证等违反校规的行为'),
+    '电动车那句换成了《承诺书》上的原话')
+  check(!eh.includes('提交前已与班委联系'), '原来那句自拟措辞已经撤掉')
+  check(eh.includes('我确认在承诺书上签字'), '有「确认在承诺书上签字」这一项')
+
+  // 漏挂校验的勾选框等于白摆：不勾也能交上去
+  const L = readFileSync(`${ROOT}/src/views/LeaveApply.vue`, 'utf8')
+  const E = readFileSync(`${ROOT}/src/views/EvPass.vue`, 'utf8')
+  for (const f of ['agreed', 'promised', 'signConfirmed']) {
+    check(new RegExp(`${f}: mustCheck\\(`).test(L), `请假：${f} 挂了校验`)
+  }
+  for (const f of ['confirmed', 'signConfirmed']) {
+    check(new RegExp(`${f}: \\[\\{ validator: validate`).test(E), `电动车：${f} 挂了校验`)
+  }
+  check(L.includes('请确认会在请假审批表上签字') && E.includes('请确认会在承诺书上签字'),
+    '没勾时提示的是缺哪一项，不是笼统的「请勾选」')
+
+  check(![...lw, ...ew].some((w) => /Failed to resolve (component|directive)/.test(w)),
+    '没有未解析的组件/指令')
+
+  // 这几句在手机上都超过一行，而 Element 的复选框默认 nowrap + 死高 32px：
+  // 不带上放开折行的那套 class，第二行会被直接裁掉
+  const hasWrap = (src, cls) => {
+    const blocks = src.match(new RegExp(`\\.${cls}[^{]*\\{[^}]*\\}`, 'g')) || []
+    return blocks.some((b) => /white-space:\s*normal/.test(b) && /height:\s*auto/.test(b))
+  }
+  check((L.match(/class="agree-checkbox"/g) || []).length === 3,
+    '请假三个勾选项都挂着 agree-checkbox')
+  check(hasWrap(L, 'agree-checkbox'), 'agree-checkbox 放开了 nowrap 和固定高度')
+  check((E.match(/class="confirm-item"/g) || []).length === 2,
+    '电动车两个勾选项都挂着 confirm-item')
+  check(hasWrap(E, 'confirm-item'), 'confirm-item 放开了 nowrap 和固定高度')
+}
+
 console.log('\n▶ 系统管理：水印溯源认得电动车申请表与承诺书')
 {
   // 同上一节：这块在 tab 正文里，SSR 下不渲染，走源码断言
