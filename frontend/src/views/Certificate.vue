@@ -2,6 +2,8 @@
   <div>
     <div class="page-card" v-loading="loading">
       <ServiceIntro
+        intro="开具在读证明、实习介绍信等由班委出具的文书。"
+        deadline="7 个工作日（仅供参考）"
         :notice="'班委会开具的介绍信公信力有限，如需学院或学校证明、各类导师签字的文件，请勿在此提交。\n提交前请与班委联系。'"
         submitted="申请依据材料，支持 PDF / 图片 / Word，单个不超过 20MB，最多 3 个，必填"
         finished="由班委上传的证明成品（PDF），审核通过后可下载"

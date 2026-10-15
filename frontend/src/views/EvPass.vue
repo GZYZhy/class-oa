@@ -2,6 +2,8 @@
   <div>
     <div class="page-card" v-loading="loading">
       <ServiceIntro
+        intro="为在校内使用的电动自行车办理通行证。"
+        deadline="7 个工作日（仅供参考）"
         :notice="'本网络办件仅提供信息表生成，具体向安全稳定工作部（处）报送的工作需要您自行完成。\n操作此办件前请务必与班委联系。'"
         submitted="行驶证（图片或 PDF），不超过 20MB，必填"
         finished="电动车通行证申请表、电动自行车使用承诺书（两份 PDF），审核通过后可下载"

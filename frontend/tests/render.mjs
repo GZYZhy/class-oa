@@ -1488,6 +1488,8 @@ console.log('\n▶ 三个办件的顶部说明：办件详情、提交材料、�
     {
       path: '/src/views/LeaveApply.vue',
       name: '请假',
+      intro: '因病因事无法参加课程或集体活动时',
+      deadline: '3 个工作日（仅供参考）',
       notice: '本网办事项仅用于简化流程、避免材料递交繁琐，请假审批是否通过由学校决定。',
       submitted: '请假辅助证明',
       finished: '请假审批表（PDF）'
@@ -1495,6 +1497,8 @@ console.log('\n▶ 三个办件的顶部说明：办件详情、提交材料、�
     {
       path: '/src/views/EvPass.vue',
       name: '电动车',
+      intro: '为在校内使用的电动自行车办理通行证',
+      deadline: '7 个工作日（仅供参考）',
       notice: '本网络办件仅提供信息表生成',
       submitted: '行驶证（图片或 PDF）',
       finished: '电动车通行证申请表'
@@ -1502,6 +1506,8 @@ console.log('\n▶ 三个办件的顶部说明：办件详情、提交材料、�
     {
       path: '/src/views/Certificate.vue',
       name: '证明开具',
+      intro: '开具在读证明、实习介绍信等由班委出具的文书',
+      deadline: '7 个工作日（仅供参考）',
       notice: '班委会开具的介绍信公信力有限',
       submitted: '申请依据材料',
       finished: '证明成品（PDF）'
@@ -1516,9 +1522,12 @@ console.log('\n▶ 三个办件的顶部说明：办件详情、提交材料、�
     check(h.includes(p.notice), `${p.name}：原来那条提示语搬进了「注意事项」—— 没丢`)
     check(h.includes(p.submitted) && h.includes(p.finished),
       `${p.name}：提交材料、办结材料都按实际流程写上了`)
-    // 办件介绍和办结时限眼下没内容，占位正好两处；多一处少一处都说明哪里写漏了
-    check((h.match(/未指定/g) || []).length === 2,
-      `${p.name}：只有办件介绍、办结时限两项是「未指定」`)
+    check(h.includes(p.intro) && h.includes(p.deadline),
+      `${p.name}：办件介绍与办结时限都写上了`)
+    // 办结时限是承诺不是规矩（实际快慢看班委什么时候看到），三处都得带这四个字
+    check(p.deadline.endsWith('（仅供参考）'), `${p.name}：办结时限标了「仅供参考」`)
+    // 五项都填齐了，页面上就不该再落占位
+    check(!h.includes('未指定'), `${p.name}：办件详情三项 + 两份材料都填齐，无占位`)
     check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)),
       `${p.name}：没有未解析的组件/指令`)
   }
