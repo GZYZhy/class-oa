@@ -1,5 +1,5 @@
 <template>
-  <div class="leave-apply">
+  <div>
     <div class="page-card">
       <h3 class="page-title">请假申请</h3>
 
@@ -496,11 +496,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.leave-apply {
-  max-width: 860px;
-  margin: 0 auto;
-}
-
 .form-tip {
   font-size: 12px;
   color: var(--el-text-color-secondary);
