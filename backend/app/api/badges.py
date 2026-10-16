@@ -47,7 +47,7 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
     三个办件（leave / evpass / certificate）数的是 **ADMIN_TODO**（待受理 + 已受理），
     不是单单一档 pending：办件多了「受理」这一步，受理后状态就变成 accepted 了，
     只数 pending 的话管理员一受理，红点当场减一、而这件事其实还等着他批。
-    这个口径和审核页默认那一档（列表接口的 status=open）、
+    这个口径和审核页「待处理」那一档（列表接口的 status=open）、
     以及「删学生时的未办结拦截」同源，见 services/review_flow.py。
 
     review_pending 是 review_tabs 的和，不再单独算一遍 —— 菜单上的数字和
