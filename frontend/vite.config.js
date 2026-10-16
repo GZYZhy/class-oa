@@ -1,5 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 import { readFileSync } from 'node:fs'
 
@@ -81,8 +83,39 @@ function siteBrand() {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [vue(), siteBrand()],
+// 用函数形式是为了能看 mode：tests/render.mjs 起服务时传 mode: 'test'，
+// 那时要跳过下面的 Element Plus 按需插件（理由写在 plugins 里）。
+export default defineConfig(({ mode }) => ({
+  plugins: [
+    vue(),
+
+    // Element Plus **按需引入**：模板里真正写到的组件（含 v-loading 这类指令）才进产物。
+    //
+    // 原来是 main.js 里 `app.use(ElementPlus)` 全量注册，那会把八十来个组件连同样式
+    // 整个塞进首屏 —— 实测入口因此多出 838KB（gzip 267KB）JS + 354KB 样式，
+    // 弱网下光这一份就是十几秒。改成按需之后走哪页带哪些组件。
+    //
+    // importStyle 用 'css'：直接吃 Element Plus 预编译好的 CSS，不必再装 sass。
+    // dirs 置空：**只**管 Element Plus，本项目的组件一律显式 import ——
+    // 少一层「这个名字是哪来的」的谜题，跳转和搜索都还认。
+    //
+    // 跑 SSR 回归测试时不装：那个测试让表格/弹窗出内容靠的是「全局注册的桩组件」
+    // （tests/render.mjs 里的 ElTableStub 等），而这个插件会让 SFC 直接 import
+    // 真组件、绕过全局注册 —— 桩就白替了，一百多条断言会一起红。
+    // 所以测试态仍按老办法走全局解析。**按需本身是否真的生效，由构建产物体积和
+    // 真浏览器回归来保证，不靠这个测试。**
+    ...(mode === 'test'
+      ? []
+      : [
+          Components({
+            resolvers: [ElementPlusResolver({ importStyle: 'css' })],
+            dirs: [],
+            dts: false
+          })
+        ]),
+
+    siteBrand()
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
@@ -102,4 +135,4 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets'
   }
-})
+}))

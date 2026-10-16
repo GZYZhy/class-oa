@@ -17,7 +17,11 @@ from .config import (
     smtp_security,
     smtp_sender,
 )
-from .middleware import RejectEarlyDataMiddleware, RememberMeMiddleware
+from .middleware import (
+    RejectEarlyDataMiddleware,
+    RememberMeMiddleware,
+    DefaultCacheControlMiddleware,
+)
 from .api import api_router
 from .database import Base, database_kind, engine, SessionLocal
 from .database_migrate import backfill_notice_reads, run_migrations
@@ -325,6 +329,11 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+
+# 缓存默认值。和注册顺序无关（别的中间件都不碰这个头），放最前只是好读。
+# 原来这句 no-store 写在前端 nginx 里，但 add_header 是追加不是覆盖，
+# 会把「照片缓存一年」这类后端特意设的策略顶掉 —— 搬迁的完整理由见中间件的注释。
+app.add_middleware(DefaultCacheControlMiddleware)
 
 # CORS 中间件
 app.add_middleware(

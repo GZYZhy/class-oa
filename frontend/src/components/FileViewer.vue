@@ -31,7 +31,13 @@
           </el-button>
           <el-button size="small" @click="fitWidth">适应窗口</el-button>
         </div>
-        <div class="image-canvas-wrap">
+        <!-- 慢网络下这几秒是空白一片，得让人看见在下东西 —— 材料和签字图
+             常有几 MB 的扫描件，不显示进度会让人以为点坏了、反复重点 -->
+        <div
+          v-loading="loadingImage"
+          :element-loading-text="loadingText"
+          class="image-canvas-wrap"
+        >
           <img
             v-if="imageUrl"
             :src="imageUrl"
@@ -133,6 +139,23 @@ const fileType = computed(() => {
 const imageUrl = ref('')
 const scale = ref(1)
 const rotate = ref(0)
+const loadingImage = ref(false)
+
+// 正在取文件的那次请求。关窗时要掐掉：慢网络下一张扫描件要传好几分钟，
+// 不掐的话它会一直占着带宽，用户重开一次就是两份在下
+let inFlight = null
+
+function abortInFlight() {
+  if (inFlight) {
+    inFlight.abort()
+    inFlight = null
+  }
+}
+
+/** axios 主动取消时抛的不是「加载失败」，别当成错误弹提示（关窗时必然发生） */
+function isCanceled(e) {
+  return e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError'
+}
 
 // ---- PDF 预览 ----
 const pdfContainerRef = ref(null)
@@ -157,7 +180,11 @@ const loadingText = computed(() => {
 
 // 监听弹框打开
 watch(() => props.modelValue, async (val) => {
-  if (!val) return
+  if (!val) {
+    // 关窗就把还在传的那份停掉，别让它占着带宽传完没人要的字节
+    abortInFlight()
+    return
+  }
   // 重置状态
   scale.value = 1
   rotate.value = 0
@@ -177,23 +204,44 @@ watch(() => props.modelValue, async (val) => {
 
 // ---- 加载图片 ----
 async function loadImage() {
+  abortInFlight()
+  inFlight = new AbortController()
+  loadingImage.value = true
+  progress.value = null
   try {
-    const blob = await fetchBlob(props.fileUrl)
+    const blob = await fetchBlob(
+      props.fileUrl,
+      (loaded, total) => {
+        progress.value = { loaded, total }
+      },
+      inFlight.signal
+    )
     imageUrl.value = URL.createObjectURL(blob)
   } catch (e) {
-    ElMessage.error(await blobErrorDetail(e, '加载失败'))
-    emit('update:modelValue', false)
+    if (!isCanceled(e)) {
+      ElMessage.error(await blobErrorDetail(e, '加载失败'))
+      emit('update:modelValue', false)
+    }
+  } finally {
+    loadingImage.value = false
+    inFlight = null
   }
 }
 
 // ---- 加载 PDF ----
 async function loadPdf() {
+  abortInFlight()
+  inFlight = new AbortController()
   loadingPdf.value = true
   progress.value = null
   try {
-    const blob = await fetchBlob(props.fileUrl, (loaded, total) => {
-      progress.value = { loaded, total }
-    })
+    const blob = await fetchBlob(
+      props.fileUrl,
+      (loaded, total) => {
+        progress.value = { loaded, total }
+      },
+      inFlight.signal
+    )
     const arrayBuffer = await blob.arrayBuffer()
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
     pdfDoc = await loadingTask.promise
@@ -201,10 +249,14 @@ async function loadPdf() {
     await nextTick()
     await fitWidth()
   } catch (e) {
-    ElMessage.error('PDF 加载失败：' + (e.message || '未知错误'))
-    emit('update:modelValue', false)
+    // 关窗掐掉的那次不算失败，同样不弹提示
+    if (!isCanceled(e)) {
+      ElMessage.error('PDF 加载失败：' + (e.message || '未知错误'))
+      emit('update:modelValue', false)
+    }
   } finally {
     loadingPdf.value = false
+    inFlight = null
   }
 }
 
@@ -289,6 +341,8 @@ async function handleDownload() {
 
 // ---- 清理 ----
 function handleClosed() {
+  abortInFlight()
+  loadingImage.value = false
   if (imageUrl.value) {
     URL.revokeObjectURL(imageUrl.value)
     imageUrl.value = ''
@@ -303,6 +357,7 @@ function handleClosed() {
 }
 
 onBeforeUnmount(() => {
+  abortInFlight()
   if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
   if (pdfDoc) pdfDoc = null
 })

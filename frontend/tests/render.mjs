@@ -15,6 +15,22 @@ import ElementPlus, { ID_INJECTION_KEY, ZINDEX_INJECTION_KEY } from 'element-plu
 import * as Icons from '@element-plus/icons-vue'
 import { createPinia } from 'pinia'
 import { routeLocationKey, routerKey } from 'vue-router'
+import { registerHooks } from 'node:module'
+
+// Node 原生不认 .css 这个扩展名。Vite 的 SSR 会把 node_modules 里的依赖「外部化」，
+// 交回给 Node 自己 import —— 而 element-plus 的按需样式入口
+// （element-plus/es/components/*/style/css.mjs，由 vite.config.js 的按需插件注入）
+// 正是一串 import '...css'，于是整条管道在这里断掉：
+//   TypeError [ERR_UNKNOWN_FILE_EXTENSION]: Unknown file extension ".css"
+// 样式在 SSR 里本来就没用（产出的是字符串，不带 <style>），统一吞掉即可。
+// 用同步的 registerHooks（Node 22.15+）而不是异步的 register：不引入额外线程，
+// 也不用额外写一个 loader 文件。
+registerHooks({
+  load(url, context, nextLoad) {
+    if (/\.css(\?|$)/.test(url)) return { format: 'module', source: '', shortCircuit: true }
+    return nextLoad(url, context)
+  }
+})
 
 const ROOT = new URL('..', import.meta.url).pathname
 let failed = 0
@@ -46,6 +62,10 @@ globalThis.window = {
 
 const server = await createServer({
   root: ROOT,
+  // mode: 'test' 让 vite.config.js 跳过 Element Plus 按需插件 —— 这个测试靠全局
+  // 注册的桩组件让表格出内容，按需插件会让 SFC 直接 import 真组件、绕过全局注册。
+  // 详见 vite.config.js 里 Components 那段注释。
+  mode: 'test',
   server: { middlewareMode: true },
   appType: 'custom',
   logLevel: 'silent'
@@ -3195,6 +3215,208 @@ console.log('\n▶ 待办口径：红点、删学生拦截、状态名与状态�
   for (const label of ['待受理', '已受理', '待补正']) {
     check((ws.match(new RegExp(`\\("${label}", "\\w+"\\)`, 'g')) || []).length === 3,
       `「我提交的」里三个办件都认得「${label}」（漏一档就把英文状态名直接显示给学生）`)
+  }
+}
+
+console.log('\n▶ 材料预览小窗：慢网络下要看得见在加载，关了就别再传')
+{
+  const src = readFileSync(`${ROOT}/src/components/FileViewer.vue`, 'utf8')
+
+  // 图片分支原来既不显示进度、也没有遮罩：点开请假证明材料是一整片空白，
+  // 而这些材料常有几 MB 的扫描件，慢网络下要等好一会儿，看着像点坏了
+  check(src.includes('v-loading="loadingImage"'), '图片分支挂了加载遮罩')
+  check(/:element-loading-text="loadingText"/.test(src.slice(0, src.indexOf('<!-- PDF -->'))),
+    '遮罩上带进度文字（和 PDF 分支共用同一句）')
+
+  const loadImage = src.slice(src.indexOf('async function loadImage()'))
+  const body = loadImage.slice(0, loadImage.indexOf('\n}'))
+  check(body.includes('progress.value = { loaded, total }'),
+    '取图片时报进度 —— 不报的话遮罩上只能写「正在加载…」')
+  check(body.includes('inFlight.signal'), '把取消信号递给请求')
+  check(body.includes('isCanceled(e)'), '关窗掐掉的请求不弹「加载失败」')
+
+  // 关掉小窗时在传的那份要停：不掐的话它会一直占着带宽传完没人要的字节，
+  // 用户重开一次就是两份在下
+  check(/if \(!val\) \{[\s\S]{0,160}abortInFlight\(\)/.test(src), '关窗就把还在传的那份停掉')
+
+  // PDF 那条路同样处理（大 PDF 比图片更占带宽）
+  const loadPdf = src.slice(src.indexOf('async function loadPdf()'))
+  check(loadPdf.slice(0, loadPdf.indexOf('\n}')).includes('inFlight.signal'), 'PDF 也递了取消信号')
+}
+
+console.log('\n▶ 弱网首屏：图表库按需且不挡首页，图标不整包进产物')
+{
+  const iconNames = new Set(Object.keys(Icons))
+
+  /** 遍历 src 下每个 .vue/.js（main.js 除外），把源码交给回调 */
+  function eachSource(fn) {
+    ;(function walk(dir) {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = `${dir}/${e.name}`
+        if (e.isDirectory()) { walk(p); continue }
+        if (!/\.(vue|js)$/.test(e.name) || p.endsWith('/src/main.js')) continue
+        fn(p, readFileSync(p, 'utf8'))
+      }
+    })(`${ROOT}/src`)
+  }
+
+  // ---- 图表库 ----
+  // 全站体积最大的一件就是它：裸 `import * as echarts from 'echarts'` 会把整个图表库
+  // 打进产物（实测 1.04MB / gzip 343KB）。首页是落地页、还非要画两张饼图，于是每个访客、
+  // 每台新设备头一屏都得先下完这一份。这一节盯的就是「别再引全量」「首屏别等它」。
+  const chartSrc = readFileSync(`${ROOT}/src/utils/chart.js`, 'utf8')
+  check(/from 'echarts\/core'/.test(chartSrc), '按需入口用 echarts/core，不是全量 echarts')
+
+  // 用到的图表类型和交互组件都得在 use() 里注册。**漏一个不会报错** ——
+  // echarts.init 照常成功，只是那张图一片空白，属于最难查的那种
+  const useBlock = chartSrc.slice(chartSrc.indexOf('echarts.use(['), chartSrc.indexOf('])'))
+  const modules = ['PieChart', 'BarChart', 'TooltipComponent', 'LegendComponent', 'GridComponent', 'CanvasRenderer']
+  check(modules.every((m) => useBlock.includes(m)),
+    `图表类型与交互组件都注册了（缺：${modules.filter((m) => !useBlock.includes(m)).join(', ') || '无'}）`)
+
+  const dashSrc = readFileSync(`${ROOT}/src/views/Dashboard.vue`, 'utf8')
+  check(/await import\('@\/utils\/chart'\)/.test(dashSrc),
+    '首页动态引入图表库 —— 人数、生日条幅、最新通知不必等它')
+  check(!/^\s*import .*'echarts/m.test(dashSrc), '首页顶部没有静态引图表库（那样整页都得等它下完）')
+
+  // 分类统计页是懒加载路由，静态引入没有代价；但也得从同一个按需模块拿
+  const statSrc = readFileSync(`${ROOT}/src/views/Statistics.vue`, 'utf8')
+  check(/^import echarts from '@\/utils\/chart'$/m.test(statSrc), '分类统计页也从 utils/chart 拿图表库')
+
+  // 兜底：除了 utils/chart.js 自己，全站不许再有第二处直接引 echarts ——
+  // 绕过去一处，上面那些按需注册就全白做了，而且体积要到发版看产物才发现
+  const bypass = []
+  eachSource((p, s) => {
+    if (p.endsWith('/src/utils/chart.js')) return
+    if (/from\s+'echarts(\/|')/.test(s)) bypass.push(p.replace(ROOT, ''))
+  })
+  check(bypass.length === 0, `没有别处绕过 utils/chart 直接引 echarts（现在：${bypass.join(', ') || '无'}）`)
+
+  // ---- 图标 ----
+  // 原来写的是 `import * as ElementPlusIconsVue` + 循环注册，那会让打包器的 tree-shaking
+  // 完全失效：图标包 293 个图标整包进首屏，而全站真正用到的只有六十来个。
+  const mainSrc = readFileSync(`${ROOT}/src/main.js`, 'utf8')
+  // 锚在行首：main.js 的注释里也写着「原来写的是 import * as ...」，不锚的话自己把自己判红
+  check(!/^import \* as/m.test(mainSrc), '图标不再整包 import *（那会废掉 tree-shaking）')
+  check(/} from '@element-plus\/icons-vue'/.test(mainSrc), '图标改为具名引入')
+
+  // 注册表就是 main.js 里那份 ICONS 对象。漏登记**不会报错**，Vue 只在控制台留一句
+  // "Failed to resolve component"，页面上那个位置就是空的 —— 图标本来就小，很难发现。
+  // 所以反向扫一遍全站：用到哪些图标名，必须都在清单里。
+  const at = mainSrc.indexOf('const ICONS = {')
+  const registry = new Set(
+    [...mainSrc.slice(at, mainSrc.indexOf('}', at)).matchAll(/[A-Z][A-Za-z0-9]*/g)].map((m) => m[0])
+  )
+  check(registry.size >= 40, `main.js 里登记着 ${registry.size} 个图标`)
+
+  // 两种写法都要覆盖：模板里的 <el-icon><Bell /></el-icon> 与 :icon="Bell"，
+  // 以及 App.vue 侧边菜单、首页快捷入口那种 `icon: 'Bell'` 字符串（最后走 <component :is>）。
+  // 串里的假阳性（'Service' 之类）靠 iconNames 过滤掉
+  const referenced = new Map()
+  eachSource((p, s) => {
+    for (const re of [/<([A-Z][A-Za-z0-9]*)\s*\/>/g, /:icon="([A-Z][A-Za-z0-9]*)"/g, /'([A-Z][A-Za-z0-9]*)'/g]) {
+      for (const m of s.matchAll(re)) if (iconNames.has(m[1])) referenced.set(m[1], p.replace(ROOT, ''))
+    }
+  })
+  const missing = [...referenced].filter(([name]) => !registry.has(name))
+  check(missing.length === 0,
+    `用到的 ${referenced.size} 个图标都登记了（缺：${missing.map(([n, p]) => `${n}@${p}`).join(', ') || '无'}）`)
+
+  // 首页顺势改成真渲染了：图表库动态引入之后，SSR 这条路上根本不会去加载它，
+  // 于是这一页原先「只能断源码」的限制没了，能断到真渲染出来的文案
+  const { html, warns } = await render('/src/views/Dashboard.vue')
+  const body = stripComments(html)
+  check(body.includes('class="dashboard"'), '首页真渲染出来了（图表库动态引入之前这一页渲染不了）')
+  // 两个饼图容器：SSR 里当然是空的（数据要等接口，图要等图表库），
+  // 但容器在不在决定了图有没有地方画 —— 容器被 v-if 掉的话客户端也补不回来
+  check((body.match(/chart-container/g) || []).length === 2, '性别/政治面貌两个饼图容器都渲染出来了')
+  // 只盯图标：这个桩环境没装 vue-router，router-link 解析不到是桩的事，和图标无关
+  const unresolved = warns
+    .map((w) => (w.match(/Failed to resolve component: (\w+)/) || [])[1])
+    .filter((n) => n && iconNames.has(n))
+  check(unresolved.length === 0, `首页没有解析不到的图标（现在：${unresolved.join(', ') || '无'}）`)
+}
+
+console.log('\n▶ 首屏瘦身：Element Plus 改按需，弹窗文案还得是中文')
+{
+  // 断「源码里不再有 X」时得先把行注释去掉：解释这件事为什么要改的注释里
+  // 恰恰会写着原来那句 —— 不断的话，注释自己把自己判红（这份文件里踩过）。
+  // 只管整行的 //，本文件要断的几句都写在整行注释里
+  const noLineComments = (s) => s.replace(/^\s*\/\/.*$/gm, '')
+
+  const viteSrc = readFileSync(`${ROOT}/vite.config.js`, 'utf8')
+  const mainSrc = noLineComments(readFileSync(`${ROOT}/src/main.js`, 'utf8'))
+
+  // 全量 app.use(ElementPlus) 会把八十来个组件连同样式整个塞进首屏 ——
+  // 实测入口因此多出 838KB JS（gzip 267KB）和 354KB 样式。改成按需之后，
+  // 走哪页带哪些组件，入口的 gzip 从 468.9KB 掉到 234.6KB。
+  check(!/app\.use\(ElementPlus\b/.test(mainSrc), 'main.js 不再整包 app.use(ElementPlus)')
+  check(!/element-plus\/dist\/index\.css/.test(mainSrc), '也不再整包引 dist 那份样式')
+  check(/ElementPlusResolver\(\{\s*importStyle:\s*'css'\s*\}\)/.test(viteSrc),
+    'vite.config.js 挂着 Element Plus 的按需解析器')
+  // dirs 置空是刻意的：本项目的组件一律显式 import，少一层「这个名字从哪来」的谜题，
+  // 代码跳转和全局搜索都还认。填上 src/components 会让插件替我们隐式注册
+  check(/dirs:\s*\[\]/.test(viteSrc), '按需插件只管 Element Plus（dirs 置空）')
+
+  // 深色主题变量挂在 .dark 类下，不属于任何一个组件，按需插件带不上它。
+  // 删掉不会报错，只是切到深色模式时颜色全不对
+  check(/element-plus\/theme-chalk\/dark\/css-vars\.css/.test(mainSrc),
+    '深色主题的 css-vars 还留着（按需插件不管它）')
+
+  // 这三样按需插件看不见：ElMessage / ElMessageBox 是当函数调出来的（模板里没有
+  // 对应标签），ElLoading 是全局指令 v-loading 的本体（全站 49 处在用）。
+  // 装它们不只是「能用」—— install 里那句 fn._context = app._context 是这些
+  // 脱离组件树的弹窗/遮罩认出自己属于哪个应用、从而拿到全局配置的唯一途径
+  for (const name of ['ElMessage', 'ElMessageBox', 'ElLoading']) {
+    check(new RegExp(`app\\.use\\(${name}\\)`).test(mainSrc), `${name} 自己装了（按需插件看不见它）`)
+  }
+
+  // 中文文案。原来是 `app.use(ElementPlus, { locale: zhCn })` 顺手带的，
+  // 现在靠 provideGlobalConfig 的第三个参数：它除了 provide 给整棵组件树，
+  // 还把这配置写进模块级的**后备值** —— 函数调出来的弹窗并不在组件树上，
+  // 拿不到 provide，走的正是这条后备路。少了那个 true，按钮会退回英文 OK / Cancel
+  check(/provideGlobalConfig\(\s*\{\s*locale:\s*zhCn\s*\},\s*app,\s*true\s*\)/.test(mainSrc),
+    'provideGlobalConfig 传了第三个参数 true（少了它弹窗按钮就是英文）')
+
+  // SSR 回归测试靠全局注册的桩组件让表格出内容（本文件开头的 ElTableStub 那几件）。
+  // 按需插件会让 SFC 直接 import 真组件、绕过全局注册，一百多条断言会一起红 ——
+  // 所以测试态必须能把它关掉。这个口子没了，整个测试套件就废了
+  check(/mode === 'test'/.test(viteSrc), "vite.config.js 留着 mode === 'test' 这个逃生口")
+}
+
+console.log('\n▶ 缓存：接口的默认值搬到了后端，压给上游的 Vary 不能少')
+{
+  /**
+   * 取 `/api/` 那个 location 块的正文（到下一个 4 空格缩进的右花括号为止），
+   * 并去掉 `#` 注释 —— 解释「这里原来有那句 add_header」的注释里正好写着那几个字，
+   * 不去掉的话注释自己就把断言判红
+   */
+  function apiBlock(src) {
+    const start = src.indexOf('location ^~ /api/')
+    if (start < 0) return ''
+    return src.slice(start, src.indexOf('\n    }', start)).replace(/^\s*#.*$/gm, '')
+  }
+
+  // 三份配置内容基本重合，改功能项三份都要改（这个仓库里踩过「只改一份、
+  // 镜像里那份没动」的坑），所以这里三份一起断
+  for (const file of ['nginx.conf', 'nginx.conf.template', 'docker-entrypoint.sh']) {
+    const src = readFileSync(`${ROOT}/${file}`, 'utf8')
+
+    // add_header 是**追加**不是覆盖：写在这儿会把后端特意给照片设的
+    // 「private, max-age=31536000」顶成两个 Cache-Control，而 no-store 只要
+    // 出现一个就生效 —— 学生名单页三十多张照片每进一次就重下一遍。
+    // 那句默认值现在在后端 DefaultCacheControlMiddleware 里（它只补默认值、
+    // 不覆盖已表态的），配套断言在 backend/tests/test_cache_control.py
+    check(!/add_header\s+Cache-Control/.test(apiBlock(src)), `${file}: /api/ 里没有 add_header Cache-Control`)
+
+    // 少这一句，中间任何一层共享缓存（宝塔反代的 proxy_cache、CDN）都可能把
+    // 压缩过的响应发给不支持压缩的客户端 —— 那是乱码级的故障
+    check(/gzip_vary on;/.test(src), `${file}: 开了 gzip_vary`)
+
+    // 带哈希的产物名是唯一能安全长缓存的东西，这条规则本身别被删掉。
+    // docker-entrypoint.sh 里那份包在 shell 双引号串里，引号是转义的（\"），
+    // 所以引号位置得容许一个反斜杠
+    check(/Cache-Control \\?"public, immutable\\?"/.test(src), `${file}: 带哈希的产物仍然长缓存`)
   }
 }
 
