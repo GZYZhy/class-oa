@@ -1239,11 +1239,20 @@ async def extract_watermark_from_pdf(
         ip = None
         log_matched = False
 
+    # 令牌写着来源是公告，公告表里却查不到那一行 —— 这份文件已经从「文件公开」里
+    # 删掉了（删除时连它的访问记录一起清，所以动作和 IP 必然也核不到，file_title
+    # 还是空的）。认来源段就够了：写着 ann 时上面那三支查询都不会去查别的表，
+    # 落到 else 只可能是公告查不到。老令牌没有来源段，公告和导出都查不到时分不清
+    # 是哪一种，那种情形不算「已删除」，照旧报「动作未知」
+    file_deleted = file_row is None and source_code == TOKEN_SOURCE_ANNOUNCEMENT
+
     # 「没写访问日志」是**按设计**来的，不是「日志丢了」，这行字就是给管理员看的说明
     if source_type == "leave":
         message = "请假审批表按设计不写访问日志，凭水印即可确定下载人"
     elif source_type == "evpass":
         message = "电动车两份表按设计不写访问日志，凭水印即可确定下载人"
+    elif file_deleted:
+        message = "该文件已从「文件公开」中删除，它的访问记录也已一并清理"
     else:
         message = "水印提取成功"
 
@@ -1263,6 +1272,7 @@ async def extract_watermark_from_pdf(
         "action": action,
         "ip": ip,
         "log_matched": log_matched,
+        "file_deleted": file_deleted,
         "message": message,
     }
 

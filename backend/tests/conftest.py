@@ -146,6 +146,9 @@ def backend(tmp_path):
                 # 所以是后补的，见 certificates.py 里 ATTACH_DIR / RESULT_DIR 的注释）
                 "CERT_ATTACH_DIR": str(tmp_path / "cert_attachments"),
                 "CERT_RESULT_DIR": str(tmp_path / "cert_results"),
+                # 公告 PDF 同理：上传接口会把文件写进 ANNOUNCEMENT_DIR，
+                # 不隔离的话用例一上传就落进本机演示库的真目录
+                "ANNOUNCEMENT_DIR": str(tmp_path / "announcements"),
                 # 显式置空：不给的话会从仓库根或 backend/.env 里漏进来
                 "BOOTSTRAP_PASSWORD": "",
                 **env,

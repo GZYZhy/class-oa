@@ -13,6 +13,10 @@ class FileAccessLog(Base):
     2. 查看是高频动作，混进去会把操作日志冲没
     3. 需要独立的筛选维度（按文件、按动作类型）
     4. 审计记录不应被「清空日志」操作抹掉
+
+    **但它有保留期**（30 天，见 services/log_service.py）：这条链路记的是
+    「谁看了哪个公开文件」，用于水印溯源和排查，不是需要永久留档的台账。
+    过了保留期自行清理；所记的那个文件被删除时，记录也跟着删。
     """
     __tablename__ = "file_access_logs"
 
@@ -23,7 +27,10 @@ class FileAccessLog(Base):
     user_no = Column(String(20), index=True, comment="访问人学号")
     user_name = Column(String(50), comment="访问人姓名")
     file_id = Column(Integer, index=True, comment="文件 ID（announcement.id）")
-    # 冗余存一份标题：文件被删了记录里也能看到是什么
+    # 冗余存一份标题：列表页显示标题不用回头 join 公告表，公告后来改了名
+    # 也不影响这条历史记录（它记的是「当时取的是哪份」）。
+    # 注意别指望它来给已删除的文件留底：文件被删时这条记录本身也会被删
+    # （见 services/log_service.delete_file_access_logs）
     file_title = Column(String(200), comment="文件标题")
     action = Column(String(20), index=True, comment="动作：view / download")
     ip = Column(String(45), nullable=True, comment="客户端 IP")

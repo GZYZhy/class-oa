@@ -39,8 +39,10 @@ from .user_service import (
 from .log_service import (
     account_events,
     account_operations,
+    delete_file_access_logs,
     display_name,
     log_operation,
+    purge_file_access_logs,
 )
 from .export_service import scope_label
 from .login_guard import clear_failures, needs_captcha, record_failure

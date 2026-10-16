@@ -25,6 +25,7 @@ from .services import (
     ensure_bootstrap_account,
     ensure_default_users,
     purge_expired,
+    purge_file_access_logs,
     seed_from_catalog,
 )
 from .services.birthday_service import ensure_settings
@@ -282,6 +283,27 @@ def purge_ip_bans() -> None:
 
 
 purge_ip_bans()
+
+
+def purge_expired_file_access_logs() -> None:
+    """启动时清掉超过保留期的文件访问记录
+
+    平时靠「每记一条访问记录顺手清一次」保持（api/announcements.py）—— 那才是
+    真正管用的那一处；这里只是兜个底：服务连着跑几个月、期间没人看过任何文件时，
+    至少重启那一刻列表是干净的。和 purge_ip_bans 一样只能放在启动时，
+    放进 GET 接口就成了「写库还忘了提交」的静默无效。
+    """
+    db = SessionLocal()
+    try:
+        n = purge_file_access_logs(db)
+        db.commit()
+        if n:
+            print(f"[初始化] 已清理 {n} 条过期的文件访问记录")
+    finally:
+        db.close()
+
+
+purge_expired_file_access_logs()
 
 # 每日生日任务：进程内起一个守护线程。
 # 后端是单进程（Dockerfile 的 uvicorn 没带 --workers），所以进程内定时是安全的。

@@ -1614,6 +1614,41 @@ console.log('\n▶ 系统管理：水印溯源认得请假审批表')
   check(at > 0 && fallback > at, '通用那一支（带 log_matched 的）排在它后面')
 }
 
+console.log('\n▶ 文件公开：删掉的文件，水印溯源要说得出「它已经没了」')
+{
+  // 文件公开里的文件被删时，它的查看/下载记录也一并清了。这时再拿一份流出去的
+  // PDF 溯源，公告表里查不到那一行、日志里也核不到 —— 若还照旧显示成
+  // 「动作未知 + 文件#5」，那个编号此刻已经指不回任何东西了，得换个说法。
+  const admin = readFileSync(`${ROOT}/src/views/Admin.vue`, 'utf8')
+
+  const generic = admin.indexOf('动作未知')
+  check(generic > 0, '通用那一支还在（「动作未知」那个兜底）')
+  // 通用分支那一段（到这一支收尾为止，够长就行）
+  const branch = admin.slice(generic, generic + 1200)
+  check(admin.includes('watermarkResult.file_deleted'), '通用那一支里分了「文件已删除」')
+  check(branch.includes('已从「文件公开」里删除'),
+    '明说这份文件是从「文件公开」删掉的，不是「查无此人」')
+  check(branch.includes('一并清理'),
+    '顺带说明记录也一并清了 —— 否则会被当成「日志丢了」')
+
+  // 顺序要紧：这一支得排在「动作未知」**之后**，也就是落在通用分支内部。
+  // 提到前面（比如做成 leave / evpass 那几支的兄弟节点）不会报错，
+  // 但会把正常文件也拦下来，连标题都不显示了
+  check(admin.indexOf('watermarkResult.file_deleted') > generic,
+    '「已删除」这一支落在通用分支里，没拦在正常文件前面')
+
+  // 通用分支里那句「核不到」的解释也要跟上新的保留期口径
+  check(branch.includes('只保留最近一个月'),
+    '把「记录只留一个月」写出来，管理员才知道为什么更早的核不到')
+
+  // 删确认框：删完之后「文件访问日志」里再也查不到这份文件，管理员溯源时只会看到
+  // 「已删除」—— 先说清楚，免得事后翻旧账
+  const ann = readFileSync(`${ROOT}/src/views/Announcements.vue`, 'utf8')
+  const handle = ann.slice(ann.indexOf('async function handleDelete'))
+  check(handle.slice(0, 600).includes('查看/下载记录也会一并清理'),
+    '删确认框里写明「查看/下载记录也会一并清理」')
+}
+
 console.log('\n▶ 首页统计卡：iPad 竖屏下两位数不折行')
 {
   // 折行是布局算出来的，SSR 出来的 HTML 里没有宽度 —— 所以这一节断的是**样式表**：

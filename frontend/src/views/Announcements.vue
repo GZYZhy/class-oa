@@ -321,16 +321,19 @@ async function handleDownload(row) {
 
 async function handleDelete(row) {
   try {
-    await ElMessageBox.confirm(`确定删除「${row.title}」吗？`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-    })
+    // 说明里写上访问记录一并清理：删完之后「文件访问日志」里再也查不到这份文件，
+    // 管理员水印溯源时也只能看到「已删除」—— 先说清楚，免得事后翻旧账
+    await ElMessageBox.confirm(
+      `确定删除「${row.title}」吗？它的查看/下载记录也会一并清理。`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
     await deleteAnnouncement(row.id)
     ElMessage.success('已删除')
     fetchList()
   } catch (e) {
-    // 用户点取消时不提示
+    // 取消时静默；真删失败（无权限、已被别人删掉）要把后端的原话放出来
+    if (e?.response) ElMessage.error(e.response.data?.detail || '删除失败')
   }
 }
 

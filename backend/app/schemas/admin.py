@@ -120,6 +120,11 @@ class WatermarkExtractResponse(BaseModel):
     电动车的申请表与承诺书（source_type = "evpass"，两份共用这一个值，
     靠 file_title 区分是哪一份）和请假表一模一样：不写访问日志、accessed_at
     是真的下载时间、没有 action / ip。措辞照请假那支写即可。
+
+    公告文件这一支另有一种情况：令牌说是公告，公告表里却已经查不到那一行
+    （file_deleted = True）—— 这份文件已经从「文件公开」里删掉了，而删除时会
+    连它的访问记录一起清掉，所以动作和 IP 必然核不到、file_title 也是空的。
+    能确定的只有水印里那三样：谁、何时、取的是哪一号文件。
     """
     found: bool
     token: Optional[str] = None
@@ -141,6 +146,11 @@ class WatermarkExtractResponse(BaseModel):
     ip: Optional[str] = None
     # 有没有在日志里核到。核不到就不能说人家「下载」了，只能如实说不确定
     log_matched: bool = False
+    # 这份文件已经从「文件公开」里删掉了（令牌写着来源是公告，公告表里却没有
+    # 那一行）。文件被删时它的访问记录也一并清了，所以动作、IP 必然核不到，
+    # file_title 也是空的 —— 前端据此换个说法，别让管理员对着一份查无此物、
+    # 只写着「文件#5」的结果发懵
+    file_deleted: bool = False
     message: Optional[str] = None
 
 

@@ -7,13 +7,17 @@
 不记查询，也不记登录：免得日志被浏览量和高频事件淹没。
 **登录和「本人自行改密」记在另一张表 account_events**（见 models/account_event.py），
 由「按账号查日志」按 7 天窗口单独展示。两张表各管一类，不合并。
+
+还有第三张记录表 file_access_logs（谁看了/下载了哪个公开文件），写入在
+api/announcements.py —— 它**有保留期**（见下面 FILE_ACCESS_KEEP_DAYS 一段），
+那张表的清理逻辑放在本模块，因为「留多久」是记录本身的属性，不该散在接口里。
 """
 
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from ..models import AccountEvent, OperationLog, User
+from ..models import AccountEvent, FileAccessLog, OperationLog, User
 from .user_service import account_name
 
 # 「按账号查日志」里登录/改密事件的展示窗口，以及 account_events() 的默认页大小。
@@ -24,6 +28,12 @@ from .user_service import account_name
 # 200 条」；「我的日志」（api/auth.py）显式传 20 并翻页。改这个值会同时影响两边。
 ACCOUNT_EVENT_DAYS = 7
 ACCOUNT_EVENT_LIMIT = 200
+
+# 文件访问记录的保留期（天）。与上面那个「展示窗口」是两码事：
+# ACCOUNT_EVENT_DAYS 是只过滤不删（account_events 只增不删），
+# 而这里**超过就真删** —— 这条链路记的是「谁看了哪个公开文件」，
+# 用于水印溯源和排查，留一个月足够；再往前的既没人翻，也没必要一直存着。
+FILE_ACCESS_KEEP_DAYS = 30
 
 
 def display_name(db: Session, user: User) -> str:
@@ -130,4 +140,47 @@ def log_operation(
             ip=ip,
             target_student_nos=nos_json,
         )
+    )
+
+
+# ---------- 文件访问记录的两条归宿 ----------
+# 一条记录只有两种消失方式：到点自己过期（purge_file_access_logs），
+# 或者它记的那个文件被删了（delete_file_access_logs）。两种都在这儿实现，
+# 免得「留多久」「删文件时怎么办」这两个口径散到各个接口里去。
+
+def purge_file_access_logs(db: Session) -> int:
+    """删掉超过保留期的文件访问记录，返回删掉的条数
+
+    两个调用点：**每次写入新记录时顺手清一次**（api/announcements.py，那是全项目
+    唯一的写入点；来一条新的就清一次旧的，不需要定时任务），以及**服务启动时**
+    清一次兜底（main.py，照 purge_ip_bans 的先例）。
+
+    唯独不放进 GET 列表接口：在 GET 里写库、又忘了 commit 就是静默无效，
+    这个坑 ban_service.purge_expired 的注释里已经写过一次了。
+    """
+    deadline = datetime.now() - timedelta(days=FILE_ACCESS_KEEP_DAYS)
+    return (
+        db.query(FileAccessLog)
+        .filter(FileAccessLog.created_at < deadline)
+        .delete(synchronize_session=False)
+    )
+
+
+def delete_file_access_logs(db: Session, file_id: int) -> int:
+    """删掉某个文件的全部访问记录，返回删掉的条数
+
+    文件公开里的文件被删掉时调（api/announcements.py 的删除接口）：文件都没了，
+    「谁看过它」就没人能再点开核对，留着的只是一批 file_id 指向空处的孤儿行。
+
+    只 add/delete 不 commit，由调用方连同业务改动一起提交 —— 与 log_operation 一致。
+
+    file_id 是公告的主键（announcement.id），**不是外键**，所以不会有级联删除这一说 ——
+    只能像现在这样由删除接口显式调一次。别被水印令牌里那个来源段带偏：导出、请假、
+    电动车那几份**根本不写这张表**，这一列里从头到尾只有公告 id（见
+    api/announcements.py 的 _log_file_access，那是全项目唯一的写入点）。
+    """
+    return (
+        db.query(FileAccessLog)
+        .filter(FileAccessLog.file_id == file_id)
+        .delete(synchronize_session=False)
     )

@@ -27,8 +27,10 @@ from ..services import (
     list_announcements,
     create_announcement,
     delete_announcement,
+    delete_file_access_logs,
     get_announcement,
     log_operation,
+    purge_file_access_logs,
 )
 from .deps import (
     get_current_user,
@@ -39,8 +41,10 @@ from .deps import (
 
 router = APIRouter(prefix="/api/announcements", tags=["文件公开"])
 
-# 公告 PDF 存放目录
-ANNOUNCEMENT_DIR = BASE_DIR / "data" / "announcements"
+# 公告 PDF 存放目录。
+# 吃环境变量是为了测试能隔离 —— 不给的话，接口测试一上传公告就把 PDF 写进本机
+# 真实的数据目录，而且事后没人清得掉（照 PHOTO_DIR / LEAVE_DIR / CERT_*_DIR 的先例）
+ANNOUNCEMENT_DIR = Path(os.environ.get("ANNOUNCEMENT_DIR") or BASE_DIR / "data" / "announcements")
 ANNOUNCEMENT_DIR.mkdir(parents=True, exist_ok=True)
 # 文件经带鉴权的接口下发，不再走公开静态目录
 URL_PREFIX = "/api/announcements/file"
@@ -175,6 +179,11 @@ def _log_file_access(
         action=action,
         ip=ip,
     ))
+    # 顺手把超过保留期的旧记录清掉（保留期见 log_service.FILE_ACCESS_KEEP_DAYS）。
+    # 挂在这里是因为这是全项目**唯一**的写入点：每来一条新记录就清一次旧的，
+    # 不用起定时任务，服务连着跑几个月也不会攒下一堆陈年记录。
+    # 新记录的时间戳就是此刻，绝不会被这次 DELETE 波及
+    purge_file_access_logs(db)
     db.commit()
 
 
@@ -250,7 +259,16 @@ def remove_announcement(
     if file_full_path.exists():
         file_full_path.unlink()
 
+    # 连同它的访问记录一起删：文件都没了，「谁看过它」既没人能再点开核对，
+    # 留着也只是「文件访问日志」里一批 file_id 指向空处的孤儿行。
+    # 记在本条操作日志的 detail 里，是为了删完之后还说得清「当时有几个人看过」
+    deleted_logs = delete_file_access_logs(db, announcement_id)
+
     delete_announcement(db, announcement_id)
-    log_operation(db, user, "删除文件", target=title, ip=ip)
+    log_operation(
+        db, user, "删除文件", target=title,
+        detail=f"连带清理 {deleted_logs} 条访问记录" if deleted_logs else "",
+        ip=ip,
+    )
     db.commit()
     return {"message": "删除成功"}
