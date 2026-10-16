@@ -1759,9 +1759,92 @@ console.log('\n▶ 首页统计卡：iPad 竖屏下两位数不折行')
 
   // 这一页**渲染不了**（顶部 import echarts，而 zrender 在模块顶层就摸 document），
   // 四张卡还在不在只能断源码
-  const cards = ['总人数', '女生人数', '男生人数', '班委人数']
+  const cards = ['总人数', '女生', '男生', '班委']
   check(cards.every((label) => src.includes(`<div class="stat-label">${label}</div>`)),
     `四张统计卡都还在（${cards.join(' / ')}）`)
+  // 标签一律短词：四字短语（「女生人数」）在窄屏上会被卡片宽度挤成两行，
+  // 而那是卡片里唯一不会自己收窄的东西
+  check(cards.every((label) => label.length <= 3),
+    `标签都不超过三个字（${cards.join(' / ')}）`)
+}
+
+console.log('\n▶ 首页：品牌标签、快捷入口、最新通知')
+{
+  const src = readFileSync(`${ROOT}/src/views/Dashboard.vue`, 'utf8')
+
+  // 学院 / 专业两个品牌标签各自判空。**不是拼成一句话再过滤**：SITE 里没配就是空字符串
+  // （utils/site.js 明确不做兜底），拼的话两个都空会渲染出一句孤零零的「 · 」
+  check(/<span v-if="SITE\.college" class="brand-chip">/.test(src), '学院配了才渲染那个标签')
+  check(/<span v-if="SITE\.major" class="brand-chip">/.test(src), '专业配了才渲染那个标签')
+
+  // 快捷入口：从源码里解析出这份清单，然后两件事都用它来断 ——
+  // 一是每项的可见性和路由 meta 对不对得上，二是那份判据本身跑起来对不对
+  const shortcuts = [...src.matchAll(
+    /\{ path: '(\/[^']+)', title: '([^']+)', icon: '[^']+', theme: '[^']+'([^}]*)\}/g
+  )].map(([, path, title, tail]) => ({
+    path,
+    title,
+    public: /public: true/.test(tail),
+    studentOnly: /studentOnly: true/.test(tail),
+    role: (tail.match(/role: '(\w+)'/) || [])[1]
+  }))
+  check(shortcuts.length >= 6, `从首页源码里解析出 ${shortcuts.length} 个快捷入口`)
+
+  // 首页摆得出来、点进去被路由守卫弹回首页，是最难发现的那种错（界面上只是「点了没反应」）。
+  // 所以逐项比着 router/index.js 的 meta 断：可见性条件必须**一模一样**，多一条少一条都不行
+  const router = readFileSync(`${ROOT}/src/router/index.js`, 'utf8')
+  const flags = (text) => ({
+    public: /public: true/.test(text),
+    studentOnly: /studentOnly: true/.test(text),
+    role: (text.match(/role: '(\w+)'/) || [])[1] || null
+  })
+  for (const item of shortcuts) {
+    const at = router.indexOf(`path: '${item.path}'`)
+    check(at >= 0, `${item.path}（${item.title}）在路由表里`)
+    if (at < 0) continue
+    const meta = (router.slice(at).match(/meta: \{([^}]*)\}/) || ['', ''])[1]
+    const own = { public: item.public, studentOnly: item.studentOnly, role: item.role || null }
+    const want = flags(meta)
+    check(JSON.stringify(own) === JSON.stringify(want),
+      `${item.path} 的可见性和路由 meta 一致（首页 ${JSON.stringify(own)} / 路由 ${JSON.stringify(want)}）`)
+  }
+
+  // 判据本体真跑一遍 —— 首页渲染不出来，但这份纯函数能。同一份 canSee 侧边菜单也在用
+  const { canSee } = await server.ssrLoadModule('/src/utils/roles.js')
+  const seen = (user) => shortcuts.filter((i) => canSee(i, user)).map((i) => i.path)
+  const guy = (role, extra = {}) => ({ isLogin: true, isExternal: false, info: { role }, ...extra })
+
+  check(seen({ isLogin: false, isExternal: false, info: null }).join() === '/notices',
+    '游客只剩「通知公告」（它本来就是公开页）')
+  check(seen(guy('student')).join() === '/notices,/service,/leave,/schedule,/downloads',
+    `普通学生看得见那五项（实际 ${seen(guy('student')).join(' / ')}）`)
+  check(!seen(guy('student', { isExternal: true })).includes('/service'),
+    '域外账号看不见学生用的那几项（域外账号没有学生记录，点进去也会被弹回）')
+  check(!seen(guy('student')).includes('/students'),
+    '普通学生看不见「学生信息」（那是班委及以上才有的页）')
+  check(seen(guy('committee')).length === shortcuts.length,
+    '班委/管理员八项全看得见')
+
+  // 整块只给登录用户：游客看得见的那一项在侧边菜单里已经有了，
+  // 为它单摆一块卡片没意义
+  check(/v-if="userStore\.resolved && userStore\.isLogin" class="page-card quick-card"/.test(src),
+    '快捷入口整块只给登录用户（且等 resolved，别闪一下）')
+
+  // 最新通知
+  check(/getNotices\(\{ limit: NOTICE_COUNT \}\)/.test(src),
+    '通知按条数取，不是取回来再切片（每条都带整篇 Markdown 正文）')
+  check(/v-if="notices\.length"/.test(src), '没有通知就整块不显示')
+  check(/v-if="userStore\.isLogin && !item\.is_read"/.test(src),
+    '未读圆点只在登录时渲染 —— 后端对游客恒返回未读，不判断就是整列红点')
+  check(src.includes('/notices?id=${item.id}'),
+    '点一条直接定位到那一篇（通知页认 ?id=，见 utils/notice.js）')
+  check(/Promise\.allSettled\(/.test(src),
+    '生日和通知两路一起发、各自兜异常，不串着等也不连累首页统计')
+
+  // 判据只有一份：App.vue 的侧边菜单改成 import 了，不许再抄回去一份
+  const app = readFileSync(`${ROOT}/src/App.vue`, 'utf8')
+  check(/import \{ canSee \} from '@\/utils\/roles'/.test(app), 'App.vue 用的是公共那份 canSee')
+  check(!/function canSee\(/.test(app), 'App.vue 里没有第二份 canSee 实现')
 }
 
 console.log('\n▶ 分类统计：概览卡点开是哪些人')

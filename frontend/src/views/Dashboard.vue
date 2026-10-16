@@ -1,13 +1,18 @@
 <template>
   <div class="dashboard">
-    <!-- 欢迎横幅 -->
+    <!-- 欢迎横幅：品牌信息都集中在这一块 —— 班级简称 + 一句副标题 + 学院/专业两个标签。
+         配色是写死的紫蓝渐变，**刻意不跟深色模式**（同顶栏那个白底校徽） -->
     <div class="welcome-banner">
-      <div class="banner-content">
-        <div>
-          <h1>欢迎来到{{ SITE.shortName }}</h1>
-          <p>{{ SITE.subtitle }} · 共{{ stats?.total || 0 }}名同学</p>
+      <img src="/logo.png" class="banner-logo" alt="校徽" />
+      <div class="banner-text">
+        <h1>欢迎来到{{ SITE.shortName }}</h1>
+        <p v-if="SITE.subtitle" class="banner-subtitle">{{ SITE.subtitle }}</p>
+        <!-- 学院、专业：各自判空，**不是拼成一句话再过滤** —— SITE 里没配就是空字符串、
+             代码刻意不做兜底（utils/site.js 的口径），拼的话两个都空会渲染出一句孤零零的「 · 」 -->
+        <div v-if="SITE.college || SITE.major" class="banner-chips">
+          <span v-if="SITE.college" class="brand-chip">{{ SITE.college }}</span>
+          <span v-if="SITE.major" class="brand-chip">{{ SITE.major }}</span>
         </div>
-        <img src="/logo.png" class="banner-logo" alt="校徽" />
       </div>
     </div>
 
@@ -31,13 +36,15 @@
       </div>
     </el-alert>
 
-    <!-- 顶部统计卡片 -->
+    <!-- 顶部统计卡片。
+         标签一律用短词（「女生」而不是「女生人数」）：四字短语在窄屏上会被卡片宽度
+         挤成两行，而这两行是卡片里唯一不会自己收窄的东西 -->
     <el-row :gutter="20">
       <el-col :xs="12" :sm="6">
         <div class="stat-card card-blue">
           <div class="stat-icon"><el-icon><User /></el-icon></div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats?.total || 0 }}</div>
+            <div class="stat-value">{{ stats?.total || 0 }}<span class="stat-unit">人</span></div>
             <div class="stat-label">总人数</div>
           </div>
         </div>
@@ -46,8 +53,8 @@
         <div class="stat-card card-pink">
           <div class="stat-icon"><el-icon><Female /></el-icon></div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats?.gender?.['女'] || 0 }}</div>
-            <div class="stat-label">女生人数</div>
+            <div class="stat-value">{{ stats?.gender?.['女'] || 0 }}<span class="stat-unit">人</span></div>
+            <div class="stat-label">女生</div>
           </div>
         </div>
       </el-col>
@@ -55,8 +62,8 @@
         <div class="stat-card card-cyan">
           <div class="stat-icon"><el-icon><Male /></el-icon></div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats?.gender?.['男'] || 0 }}</div>
-            <div class="stat-label">男生人数</div>
+            <div class="stat-value">{{ stats?.gender?.['男'] || 0 }}<span class="stat-unit">人</span></div>
+            <div class="stat-label">男生</div>
           </div>
         </div>
       </el-col>
@@ -64,12 +71,54 @@
         <div class="stat-card card-green">
           <div class="stat-icon"><el-icon><Medal /></el-icon></div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats?.class_committee_count || 0 }}</div>
-            <div class="stat-label">班委人数</div>
+            <div class="stat-value">{{ stats?.class_committee_count || 0 }}<span class="stat-unit">人</span></div>
+            <div class="stat-label">班委</div>
           </div>
         </div>
       </el-col>
     </el-row>
+
+    <!-- 快捷入口：登录后才有（游客点进去也是被弹回来，不如不摆）。
+         判据和侧边菜单同一份（utils/roles.js 的 canSee），所以这里的 role / studentOnly
+         写法和路由 meta 逐字一致，改一处就得三处一起改 -->
+    <div v-if="userStore.resolved && userStore.isLogin" class="page-card quick-card">
+      <h3 class="page-title">快捷入口</h3>
+      <div class="quick-grid">
+        <router-link
+          v-for="item in visibleShortcuts"
+          :key="item.path"
+          :to="item.path"
+          class="quick-tile"
+        >
+          <div class="quick-icon" :class="item.theme">
+            <el-icon><component :is="item.icon" /></el-icon>
+          </div>
+          <span class="quick-name">{{ item.title }}</span>
+        </router-link>
+      </div>
+    </div>
+
+    <!-- 最新通知：接口本来就公开，游客也看得见。
+         未读圆点必须绑在登录态上 —— 后端对游客恒返回 is_read=false，
+         不判断的话游客页会整列都是红点 -->
+    <div v-if="notices.length" class="page-card notice-card">
+      <div class="card-head">
+        <h3 class="page-title">最新通知</h3>
+        <router-link to="/notices" class="more-link">
+          更多<el-icon><ArrowRight /></el-icon>
+        </router-link>
+      </div>
+      <ul class="notice-list">
+        <li v-for="item in notices" :key="item.id">
+          <!-- 点一条直接定位到那一篇（通知页认 ?id=，见 utils/notice.js） -->
+          <router-link :to="`/notices?id=${item.id}`" class="notice-item">
+            <span v-if="userStore.isLogin && !item.is_read" class="notice-dot" title="未读" />
+            <span class="notice-title">{{ item.title }}</span>
+            <span class="notice-date">{{ item.publish_date }}</span>
+          </router-link>
+        </li>
+      </ul>
+    </div>
 
     <!-- 保留的两个图表：性别 + 政治面貌 -->
     <el-row :gutter="20" style="margin-top: 20px;">
@@ -95,7 +144,9 @@ import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { getPublicSummary } from '@/api/auth'
 import { getBirthdayToday } from '@/api/birthday'
+import { getNotices } from '@/api/notice'
 import { useUserStore } from '@/store/user'
+import { canSee } from '@/utils/roles'
 import { SITE } from '@/utils/site'
 
 const router = useRouter()
@@ -112,6 +163,34 @@ function goLogin() {
 const stats = ref(null)
 // 今日生日条幅数据；null 表示还没取到或今天没人过生日（两种情况都不显示）
 const birthday = ref(null)
+// 首页只放最新几条；空数组时整块不渲染
+const notices = ref([])
+
+/** 首页「最新通知」要几条。
+ *
+ * 后端列表接口有 limit 参数，**只取这么多、不是取回来再切片** —— 每条通知都带着
+ * 整篇 Markdown 正文，首页为 5 行标题拉回全班历来通知的全文不划算 */
+const NOTICE_COUNT = 5
+
+/** 快捷入口。
+ *
+ * 字段口径（public / studentOnly / role）和侧边菜单、路由 meta **完全一致**，
+ * 就是为了能直接套用 utils/roles.js 那份 canSee —— 判据只剩一份，
+ * 不会出现「首页摆得出来、点进去被守卫弹回首页」。
+ * render.mjs 有一节比着 router/index.js 的 meta 逐条断，加项时照着改。
+ */
+const SHORTCUTS = [
+  { path: '/notices', title: '通知公告', icon: 'Bell', theme: 'tile-blue', public: true },
+  { path: '/service', title: '办事中心', icon: 'Postcard', theme: 'tile-cyan', studentOnly: true },
+  { path: '/leave', title: '请假申请', icon: 'Document', theme: 'tile-green', studentOnly: true },
+  { path: '/schedule', title: '我的日程', icon: 'Calendar', theme: 'tile-purple', studentOnly: true },
+  { path: '/downloads', title: '资料下载', icon: 'Download', theme: 'tile-orange' },
+  { path: '/students', title: '学生信息', icon: 'List', theme: 'tile-pink', role: 'committee' },
+  { path: '/review', title: '审核审批', icon: 'Checked', theme: 'tile-indigo', role: 'committee' },
+  { path: '/statistics', title: '分类统计', icon: 'PieChart', theme: 'tile-teal', role: 'committee' }
+]
+
+const visibleShortcuts = computed(() => SHORTCUTS.filter((item) => canSee(item, userStore)))
 
 const genderChartRef = ref(null)
 const politicalChartRef = ref(null)
@@ -140,12 +219,16 @@ function renderPie(refEl, data, colors) {
 async function loadData() {
   // 首页走公开摘要接口：无需登录，且不含任何敏感字段
   stats.value = await getPublicSummary()
-  // 生日条幅另起一路、单独兜异常：接口不通就不显示，不连累首页统计
-  try {
-    birthday.value = await getBirthdayToday()
-  } catch (e) {
-    /* 锦上添花的功能，后端没升级到有这条接口时静默跳过 */
-  }
+
+  // 生日条幅和最新通知都属于锦上添花：各自兜各自的异常，谁挂了都不连累首页统计
+  // （后端没升级到有生日接口时也走这条）。两路一起发，别串着等
+  const [today, list] = await Promise.allSettled([
+    getBirthdayToday(),
+    getNotices({ limit: NOTICE_COUNT })
+  ])
+  if (today.status === 'fulfilled') birthday.value = today.value
+  if (list.status === 'fulfilled') notices.value = list.value
+
   await nextTick()
   genderChart = renderPie(genderChartRef.value, stats.value.gender || {}, ['#409EFF', '#F56C6C'])
   politicalChart = renderPie(politicalChartRef.value, stats.value.political_status || {}, ['#E6A23C', '#909399'])
@@ -164,13 +247,17 @@ onMounted(() => {
 .welcome-banner {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 12px;
-  padding: 28px 32px;
+  padding: 26px 32px;
   color: #fff;
   margin-bottom: 20px;
   position: relative;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 20px;
 }
 
+/* 右上角那团光斑是装饰：横幅是深色底，浅色圆斑能把它从「一块色块」变成有层次的版面 */
 .welcome-banner::before {
   content: '';
   position: absolute;
@@ -182,24 +269,40 @@ onMounted(() => {
   border-radius: 50%;
 }
 
-.banner-content {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.banner-text {
   position: relative;
   z-index: 1;
+  min-width: 0;
 }
 
-.banner-content h1 {
+.banner-text h1 {
   font-size: 26px;
   margin: 0 0 8px 0;
   font-weight: 600;
+  letter-spacing: 0.5px;
 }
 
-.banner-content p {
+.banner-subtitle {
   font-size: 14px;
   margin: 0;
   opacity: 0.9;
+}
+
+/* 学院 / 专业：两个半透明小胶囊。用半透明白而不是固定色，横幅换配色时不用跟着改 */
+.banner-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.brand-chip {
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
 }
 
 .banner-logo {
@@ -212,6 +315,7 @@ onMounted(() => {
   box-sizing: border-box;
   object-fit: cover;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
 }
 
 /* 生日条幅：跟在欢迎横幅后面，用暖色和它区分开。
@@ -288,10 +392,154 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+/* 「人」跟在数字后面，小一号、淡一档：标签已经说明了是什么人，
+   这个字只是把「36」从裸数字变成量词 */
+.stat-unit {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--el-text-color-secondary);
+  margin-left: 3px;
+}
+
 .stat-label {
   font-size: 14px;
   color: var(--el-text-color-secondary);
   margin-top: 4px;
+}
+
+/* 快捷入口 / 最新通知这两块都跟在统计卡后面，间距和图表那行保持一致 */
+.quick-card,
+.notice-card {
+  margin-top: 20px;
+}
+
+/* 磁贴的列数按屏宽分三档：手机两列、平板四列、宽屏一行八块。
+   试过 auto-fill + 最小宽度那种「不用写媒体查询」的写法，但在 1280 的桌面上
+   算下来是 7 列 —— 八块磁贴排成 7+1，最后一块孤零零占一整行，很难看。
+   八块是上限（普通学生只有五块），一行八块、一行四块都不会有零头溢出来。 */
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.quick-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 8px;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  color: var(--el-text-color-primary);
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.quick-tile:hover {
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary);
+  transform: translateY(-2px);
+}
+
+.quick-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 21px;
+  /* 白字压在彩色渐变上，明暗两种模式下都清晰，所以这几个色值写死、不跟深色模式 */
+  color: #fff;
+}
+
+.quick-name {
+  font-size: 13px;
+}
+
+/* 每个入口一个色，和卡片图标用的是同一套渐变 */
+.tile-blue { background: linear-gradient(135deg, #409EFF, #66b1ff); }
+.tile-cyan { background: linear-gradient(135deg, #1abc9c, #48c9b0); }
+.tile-green { background: linear-gradient(135deg, #67C23A, #85ce61); }
+.tile-purple { background: linear-gradient(135deg, #8e6bd6, #ab8ee0); }
+.tile-orange { background: linear-gradient(135deg, #E6A23C, #ebb563); }
+.tile-pink { background: linear-gradient(135deg, #F56C6C, #f89898); }
+.tile-indigo { background: linear-gradient(135deg, #5b6ee0, #7d8ce8); }
+.tile-teal { background: linear-gradient(135deg, #2f9fb5, #52b8cb); }
+
+/* 卡片标题 + 右侧「更多」：标题自带的 margin-bottom 会把这一行撑高，
+   这里交给 flex 对齐，margin 压掉 */
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card-head .page-title {
+  margin-bottom: 0;
+}
+
+.more-link {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.more-link:hover {
+  color: var(--el-color-primary);
+}
+
+.notice-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.notice-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: 6px;
+  color: var(--el-text-color-primary);
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.notice-item:hover {
+  background: var(--el-fill-color-light);
+}
+
+.notice-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--el-color-danger);
+  flex-shrink: 0;
+}
+
+/* 标题占满剩下的宽度、超长省略；日期固定不缩，否则长标题会把日期挤没 */
+.notice-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice-date {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
 }
 
 .chart-container {
@@ -330,19 +578,28 @@ onMounted(() => {
 @media (max-width: 768px) {
   .welcome-banner {
     padding: 18px 16px;
+    gap: 14px;
   }
 
-  .banner-content h1 {
+  .banner-text h1 {
     font-size: 18px;
   }
 
-  .banner-content p {
+  .banner-subtitle {
     font-size: 12px;
   }
 
-  /* 横幅右侧校徽在窄屏上会把标题挤到换行，直接不显示 */
+  /* 校徽在窄屏上收小而不是藏起来：它现在在标题**左边**，
+     和文字抢的那点宽度收一号就够，没必要把品牌整个拿掉 */
   .banner-logo {
-    display: none;
+    width: 44px;
+    height: 44px;
+    padding: 4px;
+  }
+
+  .brand-chip {
+    font-size: 11px;
+    padding: 4px 8px;
   }
 
   .birthday-banner {
@@ -372,8 +629,32 @@ onMounted(() => {
     font-size: 12px;
   }
 
+  .quick-grid {
+    gap: 10px;
+  }
+
+  .quick-tile {
+    padding: 12px 6px;
+    gap: 8px;
+  }
+
   .chart-container {
     height: 220px;
+  }
+}
+
+/* 快捷入口的列数（配合上面 .quick-grid 那条基础规则里的注释看）：
+   768 以下两列、768~1199 四列、1200 以上一行八块。
+   断点跟着侧边栏走 —— 1200 减去侧栏和两边留白，八块每块还有 105px 左右 */
+@media (min-width: 769px) {
+  .quick-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 1200px) {
+  .quick-grid {
+    grid-template-columns: repeat(8, 1fr);
   }
 }
 </style>
