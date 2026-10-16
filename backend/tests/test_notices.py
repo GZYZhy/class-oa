@@ -224,3 +224,39 @@ def test_markdown_to_text_joins_with_space():
     assert markdown_to_text("第一句\n\n第二句") == "第一句 第二句"
     assert markdown_to_text("") == ""
     assert markdown_to_text(None) == ""
+
+
+# ---------- 列表接口的 limit（首页「最新通知」用） ----------
+
+def _titles(resp) -> list[str]:
+    assert resp.status_code == 200, resp.text
+    return [item["title"] for item in resp.json()]
+
+
+def test_notice_list_limit_keeps_the_newest(b):
+    """limit=N 只返回最新的 N 条
+
+    首页只要 5 条标题，但它**必须在 SQL 里限**：每条通知都带着整篇 Markdown 正文，
+    取回来再切片等于为 5 行标题把全班历来通知的全文拉一遍。
+    顺序也要对：按发布时间降序，所以截断留下的该是「最新那几条」，不是最早那几条。
+    """
+    for i in range(5):
+        b.run(_INSERT, f"通知{i}", "甲", f"2026-10-{i + 1:02d}", f"正文{i}", "")
+
+    assert _titles(b.client.get("/api/notices?limit=2")) == ["通知4", "通知3"]
+    assert _titles(b.client.get("/api/notices?limit=1")) == ["通知4"]
+
+
+def test_notice_list_without_limit_returns_all(b):
+    """不传 limit = 全都要：通知页那一整页靠的就是这条，行为一个字都不能变"""
+    for i in range(5):
+        b.run(_INSERT, f"通知{i}", "甲", f"2026-10-{i + 1:02d}", f"正文{i}", "")
+
+    assert len(_titles(b.client.get("/api/notices"))) == 5
+
+
+def test_notice_list_limit_out_of_range_422(b):
+    """limit 是 1~100 的正整数：0 和超上限都当参数错误，别悄悄返回空表"""
+    assert b.client.get("/api/notices?limit=0").status_code == 422
+    assert b.client.get("/api/notices?limit=101").status_code == 422
+    assert b.client.get("/api/notices?limit=abc").status_code == 422

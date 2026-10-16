@@ -101,10 +101,13 @@ def get_list(
     title: str | None = Query(None, description="按标题搜索（模糊）"),
     start_date: str | None = Query(None, description="发布时间起始"),
     end_date: str | None = Query(None, description="发布时间截止"),
+    limit: int | None = Query(None, ge=1, le=100, description="只返回最新 N 条（首页用）"),
     user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
-    notices = list_notices(db, title=title, start_date=start_date, end_date=end_date)
+    notices = list_notices(
+        db, title=title, start_date=start_date, end_date=end_date, limit=limit
+    )
 
     # 给每条通知挂上 is_read（NoticeResponse 按属性读这个名字）。
     # 直接挂在 ORM 对象上的确有点取巧，但省掉了把整个响应体复制一遍；

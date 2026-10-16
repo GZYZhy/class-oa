@@ -142,7 +142,7 @@ import IosInstallGuide from '@/components/IosInstallGuide.vue'
 import SetupWizard from '@/components/SetupWizard.vue'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
-import { rankOf } from '@/utils/roles'
+import { canSee } from '@/utils/roles'
 import { SITE, COPYRIGHT_HTML } from '@/utils/site'
 import { saveWebpushSubscription } from '@/api/webpush'
 import { captureInstallPrompt, currentSubscription, unsubscribe } from '@/utils/webpush'
@@ -227,18 +227,14 @@ function badgeOf(item) {
   return count > 99 ? '99+' : String(count)
 }
 
-/** 一个菜单项对当前账号可不可见 */
-function canSee(item) {
-  if (item.public) return true
-  if (!userStore.isLogin) return false
-  if (item.studentOnly && userStore.isExternal) return false
-  return rankOf(userStore.info?.role) >= rankOf(item.role || 'student')
-}
-
-// 先按账号过滤组内各项，再把空组整个丢掉（连标题一起）
+// 先按账号过滤组内各项，再把空组整个丢掉（连标题一起）。
+// 判据本体在 utils/roles.js —— 首页的快捷入口用的是同一份
 const visibleGroups = computed(() =>
   MENU_GROUPS
-    .map((group) => ({ title: group.title, items: group.items.filter(canSee) }))
+    .map((group) => ({
+      title: group.title,
+      items: group.items.filter((item) => canSee(item, userStore))
+    }))
     .filter((group) => group.items.length > 0)
 )
 
