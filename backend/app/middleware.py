@@ -105,3 +105,29 @@ class RejectEarlyDataMiddleware(BaseHTTPMiddleware):
                 content={"detail": "请求需在完整握手后重发，请重试"},
             )
         return await call_next(request)
+
+
+class DefaultCacheControlMiddleware(BaseHTTPMiddleware):
+    """给**没有自己表态**的接口补一句 Cache-Control: no-store。
+
+    这件事以前是 nginx 干的（前端 nginx.conf 里 location ^~ /api/ 那句
+    add_header Cache-Control "no-store"）。问题在于 add_header 是**追加**而不是覆盖：
+    后端特意给照片设的「private, max-age=31536000」会被它顶成两个 Cache-Control 头，
+    而 no-store 只要出现一个就生效 —— 于是那张一年的缓存白设了，
+    学生名单页三十多张照片每进一次就重下一遍（弱网下这是几 MB 的白流量）。
+
+    规矩挪到这一层，只补默认值、不覆盖已经表过态的：
+      · 绝大多数接口什么也没设 → 补 no-store，和原来一样，隐私数据进不了任何缓存；
+      · 照片、课表订阅源这类自己设了的 → 原样放行（照片是靠 URL 里的文件名做版本号，
+        换图后地址会变，所以敢缓存一年）。
+
+    注意是加在**响应阶段**：那会儿 FileResponse 已经把自己的头写好了，
+    才判断得出「有没有表态」。BaseHTTPMiddleware 会把内层响应的头原样带上来
+    （starlette 的 response.raw_headers = message["headers"]），所以这里看得见。
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if "cache-control" not in response.headers:
+            response.headers["Cache-Control"] = "no-store"
+        return response

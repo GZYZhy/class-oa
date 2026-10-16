@@ -69,7 +69,10 @@ if [ -n "$NGINX_SSL_CERT" ] && [ -n "$NGINX_SSL_KEY" ]; then
         client_body_timeout 300s;
         send_timeout 300s;
 
-        add_header Cache-Control \"no-store\";
+        # 这里原来有一句 add_header Cache-Control \"no-store\"。**不要加回来**：
+        # add_header 是追加不是覆盖，会把后端特意设的照片缓存顶成两个头、
+        # no-store 生效。完整理由见 nginx.conf.template 里的同名注释。
+        # 那句已经搬进后端 middleware.DefaultCacheControlMiddleware。
     }
 
     location / {
@@ -134,7 +137,10 @@ if [ -n "$NGINX_SSL_CERT" ] && [ -n "$NGINX_SSL_KEY" ]; then
     gzip on;
     gzip_min_length 1k;
     gzip_comp_level 6;
-    gzip_types text/plain text/css text/javascript application/json application/javascript application/xml;
+    # Vary: Accept-Encoding，理由见 nginx.conf.template 里同名那一句
+    gzip_vary on;
+    # application/rss+xml 得单独列，只写 application/xml 匹配不上它
+    gzip_types text/plain text/css text/javascript application/json application/javascript application/xml application/rss+xml;
 }"
 fi
 export SSL_SERVER_BLOCK

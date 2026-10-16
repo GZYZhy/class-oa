@@ -196,7 +196,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import * as echarts from 'echarts'
+import echarts from '@/utils/chart'
 import { ElMessage } from 'element-plus'
 import { useStudentStore } from '@/store/student'
 import { errText } from '@/utils/request'
