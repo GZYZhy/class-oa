@@ -100,6 +100,20 @@
             </template>
           </el-dropdown>
 
+          <!-- 点名：独立弹窗承载「选范围 → 逐个叫 → 汇总」三步。
+               这两个是天天要按的，别顺手收进「更多」——1.11.4 收低频操作时
+               把这两个按钮删了却忘了放进下拉，等于直接消失，1.11.7 补回来 -->
+          <el-button @click="rollCallRef?.open()">
+            <el-icon><Pointer /></el-icon>
+            点名
+          </el-button>
+
+          <!-- 抽签：独立弹窗，权限与页面一致（班委及以上） -->
+          <el-button v-if="userStore.isCommittee" @click="drawRef?.open()">
+            <el-icon><Aim /></el-icon>
+            抽签
+          </el-button>
+
           <!-- 低频操作都收进「更多」：全摆出来窄屏就排不开了。可见性逐项跟着
                原来那个按钮走 —— 普通学生只有「近期生日」，班委多一个「导出」，
                管理员还有下面那四项 -->
