@@ -290,13 +290,26 @@
                 <template v-else>
                   <el-tag type="info" size="small">动作未知</el-tag>
                 </template>
-                「{{ watermarkResult.file_title || '文件#' + watermarkResult.file_id }}」
-                <span v-if="watermarkResult.ip" class="extract-ip">IP {{ watermarkResult.ip }}</span>
-                <!-- 核不到就直说核不到，别让人以为是「查无此人」 -->
-                <div v-if="!watermarkResult.log_matched" class="extract-hint">
-                  访问日志里没找到对应的记录（日志可能已被清理，或是本功能上线前取的文件），
-                  只能确定「谁、何时、取了哪个文件」，不能确定是查看还是下载
-                </div>
+                <!-- 文件已从「文件公开」里删掉：公告表查不到那一行，令牌里的
+                     「谁、何时、取了哪一号文件」还说得清，但标题没处取，也不能
+                     再拿「文件#5」搪塞 —— 那个编号此刻已经指不回任何东西了 -->
+                <template v-if="watermarkResult.file_deleted">
+                  取过一份已删除的公开文件
+                  <div class="extract-hint">
+                    这份文件（编号 {{ watermarkResult.file_id }}）已从「文件公开」里删除，
+                    它的查看/下载记录也一并清理了，所以不能确定是查看还是下载
+                  </div>
+                </template>
+                <template v-else>
+                  「{{ watermarkResult.file_title || '文件#' + watermarkResult.file_id }}」
+                  <span v-if="watermarkResult.ip" class="extract-ip">IP {{ watermarkResult.ip }}</span>
+                  <!-- 核不到就直说核不到，别让人以为是「查无此人」 -->
+                  <div v-if="!watermarkResult.log_matched" class="extract-hint">
+                    访问日志里没找到对应的记录（记录只保留最近一个月，更早的已清理；
+                    也可能是本功能上线前取的文件），只能确定「谁、何时、取了哪个文件」，
+                    不能确定是查看还是下载
+                  </div>
+                </template>
               </template>
             </template>
             <template v-else>
