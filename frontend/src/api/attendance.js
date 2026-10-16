@@ -25,6 +25,15 @@ export function createAttendance(data) {
   return request({ url: '/attendance', method: 'post', data })
 }
 
+/**
+ * 写某次点名的备注
+ *
+ * 整条替换：传什么存什么，传空串 = 清掉（后端就是这么理解的，没有单独的删除接口）
+ */
+export function updateAttendanceRemark(id, remark) {
+  return request({ url: `/attendance/${id}`, method: 'patch', data: { remark } })
+}
+
 /** 改某人状态 */
 export function updateAttendanceItem(recordId, studentNo, status) {
   return request({
