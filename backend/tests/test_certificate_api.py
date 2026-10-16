@@ -272,3 +272,33 @@ def test_a_legacy_row_has_an_empty_correction_reason(cp):
     assert cp.b.rows(
         "SELECT correction_reason FROM certificate_requests WHERE id = ?", rid)[0][0] == ""
     assert Path(cp.attach_dir).exists()
+
+
+# ---------- 列表筛选的四档 ----------
+
+def _at(cp, status) -> int:
+    """提交一条，再把库里的状态直接改成目标值（理由见 test_leave_sign_api.py 同名帮手）"""
+    rid = submit(cp)
+    cp.b.run("UPDATE certificate_requests SET status = ? WHERE id = ?", status, rid)
+    return rid
+
+
+def test_the_status_filter_has_a_closed_bucket(cp):
+    """筛选器就四档：待处理 / 待补正 / 已办结 / 全部（默认「全部」）
+
+    「已办结」要把通过和驳回都收进来，漏一个就永远筛不全 —— 三个办件的列表接口
+    各写了一遍这个分支，所以三个文件里各有一条同样的用例
+    """
+    made = {s: _at(cp, s) for s in
+            ("pending", "accepted", "correcting", "approved", "rejected")}
+
+    def ids(status):
+        url = f"/api/certificates?status={status}" if status else "/api/certificates"
+        r = cp.b.client.get(url)
+        assert r.status_code == 200, r.text
+        return {row["id"] for row in r.json()}
+
+    assert ids("open") == {made["pending"], made["accepted"]}, "待处理 = 待受理 + 已受理"
+    assert ids("correcting") == {made["correcting"]}
+    assert ids("closed") == {made["approved"], made["rejected"]}, "已办结 = 已通过 + 已驳回"
+    assert ids("") == set(made.values()), "不传 status 就是全部"

@@ -1014,6 +1014,54 @@ const subscribeUrl = ref('http://oa.example.com/api/notices/rss/cafebabe.xml')`,
     '同标签内换到另一条时跟着切（组件不会重建）')
 }
 
+console.log('\n▶ 学生信息页：低频操作收进「更多」，年龄排序的方向没反')
+{
+  const src = readFileSync(`${ROOT}/src/views/StudentList.vue`, 'utf8')
+
+  // 「更多」原来挂着 v-if="isAdmin"：近期生日（所有人都能看）和导出（班委及以上）
+  // 塞进去就不能再整块只给管理员。改成整块都显示、可见性逐项跟着原来那个按钮走
+  check(!/el-dropdown v-if="userStore\.isAdmin" @command="handleMore"/.test(src),
+    '「更多」不再整块只给管理员看（否则班委点不到导出、学生点不到近期生日）')
+  const more = src.slice(src.indexOf('<el-dropdown @command="handleMore">'))
+  const menu = more.slice(0, more.indexOf('</el-dropdown>'))
+  check(menu.includes('command="birthday"'), '「近期生日」收进了「更多」')
+  check(menu.includes('command="export"'), '「导出」收进了「更多」')
+  check(/<el-dropdown-item v-if="userStore\.isCommittee" command="export">/.test(menu),
+    '导出那一项跟着班委及以上走（和原来那个按钮的权限一致）')
+  check((menu.match(/<el-dropdown-item v-if="userStore\.isAdmin" command="(import|photo-import|create)">/g) || []).length === 3,
+    '管理员那三项仍只给管理员')
+
+  // 近期生日改成了弹窗：下拉项里再套一层 popover 的话，点一下两层浮层一起关，
+  // 天数根本填不进去
+  check(!src.includes('<el-popover'), '近期生日不再是个挂在工具栏上的 popover')
+  check(src.includes('<el-dialog v-model="birthdayDialogVisible"') &&
+    src.includes('const birthdayDialogVisible = ref(false)'), '它改成一个弹窗')
+  check(/command === 'birthday'\) birthdayDialogVisible\.value = true/.test(src),
+    '「更多」里那一项打开这个弹窗')
+  check(/function applyBirthday\(\) \{[\s\S]{0,120}birthdayDialogVisible\.value = false/.test(src) &&
+    /function clearBirthday\(\) \{[\s\S]{0,120}birthdayDialogVisible\.value = false/.test(src),
+    '点「筛选」和「清除筛选」都把弹窗关掉（不然筛完还杵在那儿）')
+
+  // 排的是 birth_date 这个生日列，方向和年龄相反：生日升序（早的在前）才是年龄大的在前。
+  // 这两行原先正好标反了
+  const age = src.match(/<el-dropdown-item command="birth_date_(?:asc|desc)">按年龄[^<]*<\/el-dropdown-item>/g) || []
+  check(age.length === 2 && age[0].includes('birth_date_asc') && age[0].includes('从大到小') &&
+    age[1].includes('birth_date_desc') && age[1].includes('从小到大'),
+    '「按年龄从大到小」挂在 birth_date_asc 上（生日早 = 年龄大）')
+
+  // 筛选区的控件宽度都是写死的（关键词 240px、下拉 100~130px），窄屏上放不下两个，
+  // 一行一个把半屏占满 —— 媒体查询里得把宽度交回容器
+  check(/@media \(max-width: 768px\)[\s\S]{0,1200}\.filter-card :deep\(\.el-form--inline \.el-form-item\)/.test(src) &&
+    src.includes('width: 100% !important'), '窄屏下筛选区两列自适应，控件不再写死宽度')
+
+  // 前两列只留够放内容的宽度：窄屏横向滚动时先露出来的就是这几列，省下几十像素
+  // 正好把「姓名」带进可视区（断上限而不钉死数值，以后微调宽度不该红）
+  const selW = Number((src.match(/type="selection"[\s\S]{0,160}?width="(\d+)"/) || [])[1])
+  const idxW = Number((src.match(/type="index" label="序号" width="(\d+)"/) || [])[1])
+  check(selW > 0 && selW <= 40 && idxW > 0 && idxW <= 45,
+    `复选框列（${selW}）和序号列（${idxW}）都收窄了`)
+}
+
 console.log('\n▶ 学生名单：签字图（管理员传、班委申请、学生看不见）')
 {
   const LIST = '/src/views/StudentList.vue'
@@ -2636,17 +2684,24 @@ console.log('\n▶ 审核页：受理环节 —— 没受理审批按钮是灰�
   const REVIEW = '/src/views/Review.vue'
   const src = readFileSync(`${ROOT}${REVIEW}`, 'utf8')
 
-  // 默认档必须是「待处理」（待受理 + 已受理，就是红点数那一档）：受理会把状态改成
-  // accepted，还停在「待受理」档的话这一行当场从眼前消失 —— 管理员会以为「受理把
-  // 申请弄没了」，而 tab 红点数照样挂着
+  // 筛选器就四档（待处理 / 待补正 / 已办结 / 全部），默认停在「全部」—— 进来先看见
+  // 所有的，要收窄再自己点。待受理与已受理合在「待处理」里（都要同一个人动手），
+  // 已通过和已驳回合在「已办结」里（谁都不用再动手）：具体是哪个状态看行上的 tag，
+  // 不靠筛选按钮一个个摆出来（原来五个状态各占一个，一排按钮占掉半条工具栏）
   for (const v of ['leaveStatus', 'evPassStatus', 'certificateStatus']) {
-    check(new RegExp(`const ${v} = ref\\('open'\\)`).test(src), `${v} 默认停在「待处理」档`)
+    check(new RegExp(`const ${v} = ref\\(''\\)`).test(src), `${v} 默认停在「全部」档`)
   }
-  const radios = (v) => (src.match(new RegExp(`<el-radio-button value="${v}">`, 'g')) || []).length
-  check(radios('open') === 3 && radios('accepted') === 3 && radios('correcting') === 3,
-    '三个办件都能筛「待处理」和「已受理 / 待补正」（漏一个的话收尾时没法只看未办结的）')
-  check((src.match(/<el-radio-button value="pending">待受理<\/el-radio-button>/g) || []).length === 3,
-    '原先那档还在，只是改叫「待受理」（信息修改那档还是「待审核」，它没有受理环节）')
+  // 逐块断，不整个文件数按钮：「已通过」「已驳回」这几个词在信息修改、导出申请那几个
+  // tab 里也有（那些办件没有受理环节，该留的留着），整个文件数会数到别人身上
+  for (const v of ['leaveStatus', 'evPassStatus', 'certificateStatus']) {
+    const i = src.indexOf(`v-model="${v}"`)
+    const block = src.slice(i, src.indexOf('</el-radio-group>', i))
+    check(block.includes('value="open"') && block.includes('value="correcting"') &&
+      block.includes('value="closed"') && block.includes('value=""'),
+      `${v}：就四档 —— 待处理 / 待补正 / 已办结 / 全部`)
+    check(!/value="(pending|accepted|approved|rejected)"/.test(block),
+      `${v}：五个状态不再各占一个按钮（收进状态 tag 和这两档合称里了）`)
+  }
 
   // 打开材料即受理：不 await（别让网络拖慢预览）、出错静默（管理员只是想看眼材料，
   // 不该因为已被别人审掉就弹红条）。显式的「受理」按钮是兜底

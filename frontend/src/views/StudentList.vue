@@ -90,60 +90,20 @@
                 <el-dropdown-item command="student_no_asc">按学号 ↑</el-dropdown-item>
                 <el-dropdown-item command="student_no_desc">按学号 ↓</el-dropdown-item>
                 <el-dropdown-item command="name_asc">按姓名 ↑</el-dropdown-item>
-                <el-dropdown-item command="birth_date_desc">按年龄从大到小</el-dropdown-item>
-                <el-dropdown-item command="birth_date_asc">按年龄从小到大</el-dropdown-item>
+                <!-- 排的是 birth_date 这个**生日**，方向和年龄正好相反：生日升序（早的在前）
+                     才是年龄大的在前。所以这两行看着别扭是应该的，别顺手对调回来 -->
+                <el-dropdown-item command="birth_date_asc">按年龄从大到小</el-dropdown-item>
+                <el-dropdown-item command="birth_date_desc">按年龄从小到大</el-dropdown-item>
                 <el-dropdown-item command="gaokao_score_desc">按高考分数 ↓</el-dropdown-item>
                 <el-dropdown-item command="gaokao_score_asc">按高考分数 ↑</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
 
-          <!-- 近期生日筛选：弹出输入天数 -->
-          <el-popover :width="240" trigger="click" placement="bottom-end">
-            <template #reference>
-              <el-button :type="birthdayFilter ? 'warning' : ''">
-                <!-- Element Plus 没有 Cake 这个图标，写了会渲染成未知元素、什么都不显示。
-                     最贴近「生日」的是 Present（礼物盒） -->
-                <el-icon><Present /></el-icon>
-                近期生日
-              </el-button>
-            </template>
-            <div class="birthday-pop">
-              <p style="margin: 0 0 10px 0; font-size: 13px; color: var(--el-text-color-regular);">
-                筛选未来 N 天内过生日的同学
-              </p>
-              <el-input-number v-model="birthdayDays" :min="1" :max="365" style="width: 100%;" />
-              <div style="margin-top: 10px; text-align: right;">
-                <el-button size="small" @click="clearBirthday">清除</el-button>
-                <el-button size="small" type="primary" @click="applyBirthday">筛选</el-button>
-              </div>
-            </div>
-          </el-popover>
-
-          <!-- 点名：独立弹窗承载「选范围 → 逐个叫 → 汇总」三步 -->
-          <el-button @click="rollCallRef?.open()">
-            <el-icon><Pointer /></el-icon>
-            点名
-          </el-button>
-
-          <!-- 抽签：独立弹窗，权限与页面一致（班委及以上） -->
-          <el-button v-if="userStore.isCommittee" @click="drawRef?.open()">
-            <el-icon><Aim /></el-icon>
-            抽签
-          </el-button>
-
-          <!-- 导出：班委及以上可用，提交申请后管理员审批 -->
-          <el-button
-            v-if="userStore.isCommittee"
-            type="success"
-            @click="exportDialogVisible = true"
-          >
-            <el-icon><Download /></el-icon>
-            导出
-          </el-button>
-
-          <!-- 管理员专属的三个低频操作收进「更多」：都摆出来窄屏就排不开了 -->
-          <el-dropdown v-if="userStore.isAdmin" @command="handleMore">
+          <!-- 低频操作都收进「更多」：全摆出来窄屏就排不开了。可见性逐项跟着
+               原来那个按钮走 —— 普通学生只有「近期生日」，班委多一个「导出」，
+               管理员还有下面那四项 -->
+          <el-dropdown @command="handleMore">
             <el-button>
               <el-icon><MoreFilled /></el-icon>
               更多
@@ -151,18 +111,27 @@
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="import">
+                <el-dropdown-item command="birthday">
+                  <!-- Element Plus 没有 Cake 这个图标，写了会渲染成未知元素、什么都不显示。
+                       最贴近「生日」的是 Present（礼物盒） -->
+                  <el-icon><Present /></el-icon>近期生日
+                </el-dropdown-item>
+                <!-- 导出：班委及以上可用，提交申请后管理员审批 -->
+                <el-dropdown-item v-if="userStore.isCommittee" command="export">
+                  <el-icon><Download /></el-icon>导出
+                </el-dropdown-item>
+                <el-dropdown-item v-if="userStore.isAdmin" command="import">
                   <el-icon><Upload /></el-icon>导入 Excel
                 </el-dropdown-item>
-                <el-dropdown-item command="photo-import">
+                <el-dropdown-item v-if="userStore.isAdmin" command="photo-import">
                   <el-icon><Picture /></el-icon>批量导入照片
                 </el-dropdown-item>
-                <el-dropdown-item command="create">
+                <el-dropdown-item v-if="userStore.isAdmin" command="create">
                   <el-icon><Plus /></el-icon>添加学生
                 </el-dropdown-item>
                 <!-- 批量删除：勾了人才出现 -->
                 <el-dropdown-item
-                  v-if="selectedStudents.length"
+                  v-if="userStore.isAdmin && selectedStudents.length"
                   command="batch-delete"
                   divided
                 >
@@ -201,10 +170,12 @@
           v-if="userStore.isCommittee || userStore.isAdmin"
           type="selection"
           :reserve-selection="true"
-          width="50"
+          width="38"
           align="center"
         />
-        <el-table-column type="index" label="序号" width="60" align="center" />
+        <!-- 复选框和序号这两列都收到刚好放得下内容：窄屏横向滚动时，省下的这几十
+             像素正好够把「姓名」挪进可视区（排在它们前面的就这两列） -->
+        <el-table-column type="index" label="序号" width="40" align="center" />
         <el-table-column label="照片" width="70" align="center">
           <template #default="{ row }">
             <div
@@ -284,6 +255,18 @@
         />
       </div>
     </div>
+
+    <!-- 近期生日弹窗（原来是工具栏上的一个 popover） -->
+    <el-dialog v-model="birthdayDialogVisible" title="近期生日" width="360px">
+      <p style="margin: 0 0 12px 0; font-size: 13px; color: var(--el-text-color-regular);">
+        筛选未来 N 天内过生日的同学
+      </p>
+      <el-input-number v-model="birthdayDays" :min="1" :max="365" style="width: 100%;" />
+      <template #footer>
+        <el-button @click="clearBirthday">清除筛选</el-button>
+        <el-button type="primary" @click="applyBirthday">筛选</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 详情弹窗 -->
     <el-dialog
@@ -1246,6 +1229,8 @@ const sortOrder = ref('asc')
 // 近期生日筛选
 const birthdayDays = ref(7)
 const birthdayFilter = ref(false)
+// 近期生日的输入框收在弹窗里（入口在「更多」下拉里）
+const birthdayDialogVisible = ref(false)
 
 const detailVisible = ref(false)
 const currentStudent = ref(null)
@@ -1441,12 +1426,14 @@ function handleSort(command) {
 
 function applyBirthday() {
   birthdayFilter.value = true
+  birthdayDialogVisible.value = false
   currentPage.value = 1
   fetchData()
 }
 
 function clearBirthday() {
   birthdayFilter.value = false
+  birthdayDialogVisible.value = false
   currentPage.value = 1
   fetchData()
 }
@@ -1492,7 +1479,9 @@ function resetEditForm() {
 
 /** 「更多」下拉：管理员那三个低频操作 */
 function handleMore(command) {
-  if (command === 'import') importDialogRef.value?.open()
+  if (command === 'birthday') birthdayDialogVisible.value = true
+  else if (command === 'export') exportDialogVisible.value = true
+  else if (command === 'import') importDialogRef.value?.open()
   else if (command === 'photo-import') photoImportRef.value?.open()
   else if (command === 'create') handleCreate()
   else if (command === 'batch-delete') handleBatchDelete()
@@ -2364,6 +2353,29 @@ watch(() => route.query.open, openFromQuery)
   .table-tools {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  /* 筛选区：控件宽度都是写死的（关键词 240px、几个下拉 100~130px），375px 的屏上
+     放不下两个，于是一行一个地把半屏占满。这里改成两列自适应 —— 关键词和按钮各占
+     一整行（一个要宽、一个本来就窄），中间那五个下拉两两一行；控件宽度一律交给容器
+     （行内的 style="width: 240px" 压过样式表，得 !important 才盖得住） */
+  .filter-card :deep(.el-form--inline .el-form-item) {
+    display: flex;
+    width: calc(50% - 5px);
+    margin-right: 0;
+    margin-bottom: 10px;
+  }
+  .filter-card :deep(.el-form--inline .el-form-item:first-child),
+  .filter-card :deep(.el-form--inline .el-form-item:last-child) {
+    width: 100%;
+  }
+  .filter-card :deep(.el-form-item__content) {
+    flex: 1;
+    min-width: 0;
+  }
+  .filter-card :deep(.el-input),
+  .filter-card :deep(.el-select) {
+    width: 100% !important;
   }
 }
 

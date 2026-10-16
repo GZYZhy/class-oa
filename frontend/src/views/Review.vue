@@ -106,13 +106,12 @@
         <template #label>请假申请<span v-if="tabBadge('leave')" class="tab-badge">{{ tabBadge('leave') }}</span></template>
         <div class="tab-toolbar">
           <el-radio-group v-model="leaveStatus" size="small" @change="fetchLeaveList">
-            <!-- 「待处理」= 待受理 + 已受理，即红点数的那一档；默认选中，否则受理完这行就从眼前消失了 -->
+            <!-- 四档：待处理（= 待受理 + 已受理，红点数的那一档）/ 待补正 / 已办结（通过 + 驳回）/
+                 全部。具体是哪个状态看行上的 tag，不靠筛选按钮一个个摆出来；默认「全部」，
+                 进来先看见所有的，要收窄再自己点 -->
             <el-radio-button value="open">待处理</el-radio-button>
-            <el-radio-button value="pending">待受理</el-radio-button>
-            <el-radio-button value="accepted">已受理</el-radio-button>
             <el-radio-button value="correcting">待补正</el-radio-button>
-            <el-radio-button value="approved">已通过</el-radio-button>
-            <el-radio-button value="rejected">已驳回</el-radio-button>
+            <el-radio-button value="closed">已办结</el-radio-button>
             <el-radio-button value="">全部</el-radio-button>
           </el-radio-group>
         </div>
@@ -233,11 +232,8 @@
         <div class="tab-toolbar">
           <el-radio-group v-model="evPassStatus" size="small" @change="fetchEvPassList">
             <el-radio-button value="open">待处理</el-radio-button>
-            <el-radio-button value="pending">待受理</el-radio-button>
-            <el-radio-button value="accepted">已受理</el-radio-button>
             <el-radio-button value="correcting">待补正</el-radio-button>
-            <el-radio-button value="approved">已通过</el-radio-button>
-            <el-radio-button value="rejected">已驳回</el-radio-button>
+            <el-radio-button value="closed">已办结</el-radio-button>
             <el-radio-button value="">全部</el-radio-button>
           </el-radio-group>
         </div>
@@ -336,11 +332,8 @@
         <div class="tab-toolbar">
           <el-radio-group v-model="certificateStatus" size="small" @change="fetchCertificateList">
             <el-radio-button value="open">待处理</el-radio-button>
-            <el-radio-button value="pending">待受理</el-radio-button>
-            <el-radio-button value="accepted">已受理</el-radio-button>
             <el-radio-button value="correcting">待补正</el-radio-button>
-            <el-radio-button value="approved">已通过</el-radio-button>
-            <el-radio-button value="rejected">已驳回</el-radio-button>
+            <el-radio-button value="closed">已办结</el-radio-button>
             <el-radio-button value="">全部</el-radio-button>
           </el-radio-group>
         </div>
@@ -1031,8 +1024,8 @@ function makeReviewActions({ accept, unaccept, correct, reload }) {
 
 // —— 请假申请 ——
 const leaveList = ref([])
-// 默认「待处理」（待受理 + 已受理）：受理完的行得留在眼前，不然会被当成「受理把申请弄没了」
-const leaveStatus = ref('open')
+// 默认「全部」（空串）：进来先看见所有的。上面那排按钮的四档见模板里的注释
+const leaveStatus = ref('')
 
 async function fetchLeaveList() {
   loading.value = true
@@ -1167,7 +1160,7 @@ function handleDownloadLeavePdf(row) {
 // 但通过/驳回只有管理员能点 —— 和后端 ev_passes.py 里
 // committee_required / admin_required / _pdf_target 的划分一致
 const evPassList = ref([])
-const evPassStatus = ref('open')
+const evPassStatus = ref('')
 
 async function fetchEvPassList() {
   loading.value = true
@@ -1299,7 +1292,7 @@ function handleRejectEvPass(row) {
 // —— 证明开具 ——
 // 班委能看列表、看附件，但不能下载成品 PDF、不能审批
 const certificateList = ref([])
-const certificateStatus = ref('open')
+const certificateStatus = ref('')
 
 async function fetchCertificateList() {
   loading.value = true

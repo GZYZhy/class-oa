@@ -44,6 +44,7 @@ from ..services import (
 )
 from ..services.review_flow import (
     ADMIN_TODO,
+    CLOSED,
     STATUS_CORRECTING,
     STATUS_PENDING,
     accept,
@@ -370,20 +371,27 @@ def my_proof(
 def list_leaves(
     status: str | None = Query(
         None,
-        description="pending/accepted/correcting/approved/rejected；open = 待处理（待受理+已受理），不传为全部",
+        description="pending/accepted/correcting/approved/rejected；open = 待处理（待受理+已受理），"
+                    "closed = 已办结（已通过+已驳回），不传为全部",
     ),
     _: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
     """班委可以看列表和详情，但只有管理员能审批（通过/驳回）和生成 Word
 
-    `open` 是管理端默认那一档：受理后状态会从 pending 变成 accepted，只看 pending
+    `open` 是「待处理」那一档：受理后状态会从 pending 变成 accepted，只看 pending
     的话「受理」这个动作看起来像把申请弄丢了，而菜单红点还照数它 —— 所以待办口径
-    必须是「还没办结且轮到我动手的」，见 services/review_flow.py 的 ADMIN_TODO
+    必须是「还没办结且轮到我动手的」，见 services/review_flow.py 的 ADMIN_TODO。
+    默认档是「全部」：进来先看见所有的，要收窄再自己点
     """
     query = db.query(LeaveRequest)
     if status == "open":
         query = query.filter(LeaveRequest.status.in_(ADMIN_TODO))
+    elif status == "closed":
+        # 「已办结」= 两个终态。筛选器上就四档：待处理 / 待补正 / 已办结 / 全部 ——
+        # 待受理与已受理合在「待处理」里（都要同一个人动手），已通过和已驳回合在
+        # 「已办结」里（谁都不用再动手），具体是哪个状态看行上的 tag
+        query = query.filter(LeaveRequest.status.in_(CLOSED))
     elif status:
         query = query.filter(LeaveRequest.status == status)
     rows = query.order_by(desc(LeaveRequest.id)).all()
