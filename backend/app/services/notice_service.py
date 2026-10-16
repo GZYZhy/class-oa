@@ -14,8 +14,14 @@ def list_notices(
     title: Optional[str] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
+    limit: Optional[int] = None,
 ) -> list[Notice]:
-    """通知列表：按发布时间降序，支持标题模糊、时间区间搜索"""
+    """通知列表：按发布时间降序，支持标题模糊、时间区间搜索
+
+    limit 是给首页用的（只要最新几条）。**一定要在 SQL 里限，不能取回来再切片** ——
+    content 是整篇 Markdown，首页为 5 条标题拉回全班历来通知的正文不划算。
+    不传 = 全都要，行为和加这个参数之前逐字一致。
+    """
     query = db.query(Notice)
 
     if title:
@@ -25,7 +31,10 @@ def list_notices(
     if end_date:
         query = query.filter(Notice.publish_date <= end_date)
 
-    return query.order_by(Notice.publish_date.desc(), Notice.id.desc()).all()
+    query = query.order_by(Notice.publish_date.desc(), Notice.id.desc())
+    if limit:
+        query = query.limit(limit)
+    return query.all()
 
 
 def notice_attachments(notice: Notice) -> list:
