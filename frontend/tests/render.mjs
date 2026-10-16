@@ -1171,6 +1171,18 @@ console.log('\n▶ 学生信息页：点名和抽签的入口还在工具栏上'
   check(!/点名|抽签/.test(moreMenu), '这两个没被塞进「更多」下拉（它们不是低频操作）')
 }
 
+console.log('\n▶ 点名：自动记的请假也得带上姓名（取错字段会静默写成空名）')
+{
+  const src = readFileSync(`${ROOT}/src/components/RollCallDialog.vue`, 'utf8')
+
+  // 自动记 leave 的那组人是从 roster 里筛出来的学生对象（字段叫 name），
+  // 不是请假记录（那套才叫 student_name）。取错字段不报错，只是往库里
+  // 塞一条没有姓名的请假记录 —— 页面上那行就只剩学号
+  check(!/name:\s*s\.student_name/.test(src), '没把学生对象当请假记录取姓名')
+  check((src.match(/name:\s*s\.name/g) || []).length === 2,
+    '点到的人和请假的人，两个分支都从学生对象取 name')
+}
+
 console.log('\n▶ 学生名单：签字图（管理员传、班委申请、学生看不见）')
 {
   const LIST = '/src/views/StudentList.vue'
