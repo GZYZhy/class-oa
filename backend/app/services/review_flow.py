@@ -27,6 +27,11 @@ ADMIN_TODO = (STATUS_PENDING, STATUS_ACCEPTED)
 # 但学生也不能就这么撒手：留一份挂在半路上的办件去删学生，班委回头就收不了尾了
 UNFINISHED = (STATUS_PENDING, STATUS_ACCEPTED, STATUS_CORRECTING)
 
+# 已办结的：两个终态合起来，就是列表里「已办结」那一档。
+# 和 UNFINISHED 刚好互补（五个状态一人一半），这也是列表筛选器那四档的来源：
+# 待处理 / 待补正 / 已办结 / 全部 —— 前两档分开是因为它们要办的人不同
+CLOSED = (STATUS_APPROVED, STATUS_REJECTED)
+
 
 def accept(row: Any) -> bool:
     """受理：待受理 → 已受理。已经受理过就原样不动，返回是否真的变了

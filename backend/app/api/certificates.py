@@ -30,6 +30,7 @@ from ..schemas import (
 from ..services import account_name, clip, log_operation, notify, recipients
 from ..services.review_flow import (
     ADMIN_TODO,
+    CLOSED,
     STATUS_CORRECTING,
     STATUS_PENDING,
     accept,
@@ -431,16 +432,21 @@ def list_applications(
     status: str | None = Query(
         None,
         description="按状态筛选：pending/accepted/correcting/approved/rejected；"
-                    "open = 待处理（待受理+已受理）",
+                    "open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回）",
     ),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
     query = db.query(CertificateRequest)
     if status == "open":
-        # 管理端默认那一档：受理后状态会从 pending 变成 accepted，只看 pending 的话
+        # 「待处理」那一档：受理后状态会从 pending 变成 accepted，只看 pending 的话
         # 「受理」看起来像把申请弄丢了，而菜单红点还照数它（见 review_flow.ADMIN_TODO）
         query = query.filter(CertificateRequest.status.in_(ADMIN_TODO))
+    elif status == "closed":
+        # 「已办结」= 两个终态。筛选器上就四档：待处理 / 待补正 / 已办结 / 全部 ——
+        # 待受理与已受理合在「待处理」里（都要同一个人动手），已通过和已驳回合在
+        # 「已办结」里（谁都不用再动手），具体是哪个状态看行上的 tag
+        query = query.filter(CertificateRequest.status.in_(CLOSED))
     elif status:
         query = query.filter(CertificateRequest.status == status)
     rows = query.order_by(CertificateRequest.id.desc()).all()
