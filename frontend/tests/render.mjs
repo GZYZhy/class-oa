@@ -1149,6 +1149,28 @@ console.log('\n▶ 学生信息页：低频操作收进「更多」，年龄排�
     `复选框列（${selW}）和序号列（${idxW}）都收窄了`)
 }
 
+console.log('\n▶ 学生信息页：点名和抽签的入口还在工具栏上')
+{
+  const src = readFileSync(`${ROOT}/src/views/StudentList.vue`, 'utf8')
+
+  // 1.11.4 收低频操作进「更多」时，顺手把这两个按钮删了却没放进下拉：弹窗组件还挂在
+  // 模板里、ref 也还声明着，**只是没有任何地方调 open()**，于是从界面上整个消失。
+  // 它们是天天要按的，得留在工具栏上。光断言「文案在不在」抓不住这个 ——
+  // 组件名和 ref 声明里也有这两个词，所以断言直接钉在调用点上
+  check(src.includes('@click="rollCallRef?.open()"'), '「点名」按钮在工具栏上，且有地方调它的 open()')
+  check(/<el-button v-if="userStore\.isCommittee" @click="drawRef\?\.open\(\)">/.test(src),
+    '「抽签」按钮在，权限与原来一致（班委及以上）')
+
+  // 弹窗本身也得还挂着，不然按钮点了没反应
+  check(src.includes('<RollCallDialog ref="rollCallRef" />'), '点名弹窗组件仍挂在模板里')
+  check(/<DrawDialog ref="drawRef"/.test(src), '抽签弹窗组件仍挂在模板里')
+
+  // 以后再收也不能收这儿：这两项不是低频操作（1.11.4 的提交信息里也这么写的）
+  const more = src.slice(src.indexOf('<el-dropdown @command="handleMore">'))
+  const moreMenu = more.slice(0, more.indexOf('</el-dropdown>'))
+  check(!/点名|抽签/.test(moreMenu), '这两个没被塞进「更多」下拉（它们不是低频操作）')
+}
+
 console.log('\n▶ 学生名单：签字图（管理员传、班委申请、学生看不见）')
 {
   const LIST = '/src/views/StudentList.vue'
