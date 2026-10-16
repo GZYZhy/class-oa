@@ -126,6 +126,9 @@ NEW_COLUMNS = [
     ("leave_requests", "correction_reason", "VARCHAR(500) NOT NULL DEFAULT ''"),
     ("ev_pass_requests", "correction_reason", "TEXT NOT NULL DEFAULT ''"),
     ("certificate_requests", "correction_reason", "TEXT NOT NULL DEFAULT ''"),
+    # ---------- 考勤记录的一句话备注 ----------
+    # 默认空串 = 这次点名没写备注，与补列前行为一致（页面上那格是空的），不需要回填
+    ("attendance_records", "remark", "VARCHAR(200) NOT NULL DEFAULT ''"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张邗语（班长）、赵梦婷（团支书）

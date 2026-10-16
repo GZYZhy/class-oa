@@ -89,6 +89,7 @@ from .attendance import (
     AttendanceItemUpdate,
     AttendanceListResponse,
     AttendanceRecordResponse,
+    AttendanceRemarkUpdate,
 )
 from .inbox import InboxListResponse, InboxMessageResponse
 from .poll import (
