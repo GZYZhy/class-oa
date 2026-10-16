@@ -655,6 +655,93 @@ console.log('\n▶ 我的日程：分配出去的日程能选改谁的表')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
 }
 
+console.log('\n▶ 我的日程：点卡片先看详情，详情里才能改')
+{
+  const MARKER = 'const editForm = ref(defaultForm())'
+  const EVT = (o) => ({
+    repeat_type: 'none', repeat_end_date: null, notify_enabled: false, notify_minutes_before: 10,
+    location: '', description: '', event_type: '', ...o
+  })
+  const detailWith = (evt, records = null) => `${MARKER}
+    userStore.info = { role: 'student' }
+    currentMonday.value = new Date(2026, 9, 5)
+    openDetail(${JSON.stringify(evt)}${records ? `, ${JSON.stringify(records)}` : ''})`
+  // 详情是 el-descriptions、不是 el-form-item，上面那个 labels(h) 断不到，按单元格断
+  const hasCell = (h, t) => h.includes(`>${t}<`)
+
+  // 入口：点卡片开的是详情。直接开编辑的话，只想看一眼教室在哪也得先进到表单里
+  const src = readFileSync(`${ROOT}/src/views/Schedule.vue`, 'utf8')
+  check((src.match(/@click\.stop="openDetail\(/g) || []).length === 2,
+    '全天条和定时块两处点击都开详情')
+  check(!src.includes('@click.stop="openEdit('),
+    '没有哪一处还直接弹编辑表单')
+  // 跨天全天条是靠 records 认出来的，详情里带没了它就退化成单天
+  check(/function editFromDetail\(\)[\s\S]{0,300}?openEdit\(evt, records\)/.test(src),
+    '详情里点「编辑」把整条的 records 带过去')
+  check(/function deleteFromDetail\(\)[\s\S]{0,400}?fillEditState\(evt, records\)[\s\S]{0,80}?handleDelete\(true\)/.test(src),
+    '详情里点「删除」先借编辑那套状态，再走 handleDelete')
+
+  const course = EVT({
+    id: 1, title: '高等数学', all_day: false, instance_date: '2026-10-08',
+    start_time: '2026-10-08T08:00:00', end_time: '2026-10-08T09:40:00',
+    event_type: '课程', location: '教学楼D 301', description: '带教材',
+    repeat_type: 'weekly', repeat_end_date: '2026-12-25',
+    notify_enabled: true, notify_minutes_before: 15
+  })
+  const { html, warns } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    detailWith(course), { ElDialog: ElDialogStub })
+
+  check(html.includes('高等数学'), '详情弹窗里是日程标题')
+  check(hasCell(html, '日期') && html.includes('2026-10-08'), '有日期')
+  check(html.includes('08:00 ~ 09:40'), '非全天给起止时刻')
+  check(html.includes('教学楼D 301'), '有地点')
+  check(html.includes('课程'), '有类型')
+  check(html.includes('带教材'), '有描述')
+  check(html.includes('每周（到 2026-12-25）'), '重复写明重复到哪天')
+  check(html.includes('提前 15 分钟'), '有提醒')
+  for (const t of ['编辑', '删除', '关闭']) {
+    check(html.includes(t), `详情弹窗底部有「${t}」`)
+  }
+  check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+
+  // 没填的字段不占行：弹出来是张干净的卡片，不是一个排满「-」的表
+  const bare = EVT({
+    id: 2, title: '自习', all_day: false, instance_date: '2026-10-09',
+    start_time: '2026-10-09T19:00:00', end_time: '2026-10-09T21:00:00'
+  })
+  const { html: plain } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    detailWith(bare), { ElDialog: ElDialogStub })
+  check(plain.includes('自习'), '对照组确实渲染出了详情弹窗')
+  for (const t of ['地点', '类型', '描述', '提醒', '重复', '分配']) {
+    check(!hasCell(plain, t), `没填${t}就不占一行`)
+  }
+
+  // 跨天的全天条：一条日程在日历上是一根连着几天的条，详情里要有起止
+  const day = (d) => EVT({
+    id: 3, title: '运动会', all_day: true, instance_date: d,
+    start_time: `${d}T00:00:00`, end_time: `${d}T23:59:00`
+  })
+  const { html: span } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    detailWith(day('2026-10-08'), [day('2026-10-08'), day('2026-10-09'), day('2026-10-10')]),
+    { ElDialog: ElDialogStub })
+  check(span.includes('2026-10-08 至 2026-10-10'), '跨天的全天条给「起 至 止」')
+  check(!hasCell(span, '时间'), '全天的不给时刻')
+  check(!span.includes('00:00'), '全天的不显示库里那对 00:00 / 23:59')
+
+  // 分配出去的那条：详情里先说清删它会不会动别人的表
+  const { html: shared } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    detailWith(EVT({ ...course, share_count: 3 })), { ElDialog: ElDialogStub })
+  check(shared.includes('已分配给 3 人（含你）'), '自己分配出去的在详情里点明人数')
+
+  // 负对照：没点卡片时详情弹窗压根不渲染 —— 没有它，上面那些断言也可能只是
+  // 「页面里本来就有这几个字」
+  const { html: none } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    `${MARKER}
+    userStore.info = { role: 'student' }
+    currentMonday.value = new Date(2026, 9, 5)`, { ElDialog: ElDialogStub })
+  check(!hasCell(none, '日期'), '没点卡片时没有详情弹窗')
+}
+
 console.log('\n▶ 系统管理：日程批次面板')
 {
   // 表桩对每行跑 default 插槽，所以这里能真断到行里的内容（见文件头）
