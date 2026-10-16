@@ -248,6 +248,9 @@ async function reportResult() {
   try {
     // 点到的每个人都要报（不只是缺席的）：考勤明细要能逐个改状态，
     // 后端也就存了全部人，两边的「应到」才是同一个数
+    // 两组人都是从 roster 出来的学生对象，姓名字段一律是 name。
+    // 别写成 student_name —— 那是请假记录那套字段名，这里取到的是 undefined，
+    // 会往库里写一条没有姓名的请假记录（页面上只剩学号）
     const records = [
       ...queue.value.map((s, i) => ({
         student_no: s.student_no,
@@ -256,7 +259,7 @@ async function reportResult() {
       })),
       ...leaveInScope.value.map((s) => ({
         student_no: s.student_no,
-        name: s.student_name,
+        name: s.name,
         status: 'leave'
       }))
     ]
