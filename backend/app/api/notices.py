@@ -290,10 +290,14 @@ def rss_feed(
 ):
     """RSS 订阅端点（通过 URL 里的 token 鉴权，无效一律 404）
 
-    这里**故意不设** Cache-Control：nginx 的 `location ^~ /api/` 里有一句
-    `add_header Cache-Control "no-store"`，而 add_header 是**追加**不是覆盖 ——
-    写了会变成两个 Cache-Control 头、no-store 生效，等于在代码里留一句假承诺。
-    刷新节奏交给 feed 里的 <ttl>。
+    这里**故意不设** Cache-Control，于是拿到的是默认的 no-store
+    （DefaultCacheControlMiddleware 那个）。刷新节奏交给 feed 里的 <ttl>，
+    不在这层做 HTTP 缓存 —— 订阅源本来体量就小，读者端也按自己的节奏轮询。
+
+    （2026-10 之前不设还有另一层原因：当时的 no-store 写在前端 nginx 里，
+    而 add_header 是追加不是覆盖，这里就算写了也会被顶掉。那句已经搬进后端，
+    现在「设了就生效」—— 哪天要给订阅源加缓存，直接写就行，不用再绕。
+    课表订阅源 /api/schedules/.../ical 就是自己设了 max-age=3600 的例子。）
     """
     if not ss.get_student_by_ical_token(db, token):
         # 不区分「不存在」和「已失效」：不泄露这个 token 曾经存在

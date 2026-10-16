@@ -59,9 +59,16 @@ server {
         client_body_timeout 300s;
         send_timeout 300s;
 
-        # 含隐私数据的接口一律不缓存
-        add_header Cache-Control "no-store";
-        # 本 location 有自己的 add_header，server 级的安全头在这里会被整份顶掉
+        # 这里原来有一句 add_header Cache-Control "no-store"（「含隐私数据的接口
+        # 一律不缓存」）。**不要加回来**：add_header 是**追加**不是覆盖，它会把后端
+        # 特意设的策略顶成两个 Cache-Control 头，而 no-store 只要出现一个就生效 ——
+        # 学生照片那句「private, max-age=31536000」就是这么被顶掉的，
+        # 结果名单页三十多张照片每进一次重下一遍。
+        # 那句默认值已经搬进后端（middleware.DefaultCacheControlMiddleware），
+        # 规矩一样、但只补默认值、不覆盖已表态的。改缓存策略请去后端改。
+
+        # 本 location 一旦出现 add_header，server 级的安全头就会被整份顶掉，
+        # 所以这一句留着 —— 是给「以后谁又往这里加 add_header」兜底的
         include /etc/nginx/security-headers.conf;
     }
 
@@ -151,6 +158,11 @@ server {
     gzip on;
     gzip_min_length 1k;
     gzip_comp_level 6;
+    # 让响应带上 Vary: Accept-Encoding。没有这一句，中间任何一层共享缓存
+    # （宝塔反代的 proxy_cache、CDN）都可能把压缩过的响应发给不支持压缩的客户端，
+    # 或者反过来把没压缩的那份发给支持压缩的 —— 前者是乱码级的故障。
+    # 服务端自己不发缓存，但这层 Vary 是压给上游看的。
+    gzip_vary on;
     # application/rss+xml 要单独列：只写 application/xml 匹配不上它，
     # 通知公告的订阅源就不会被压缩
     gzip_types text/plain text/css text/javascript application/json application/javascript application/xml application/rss+xml;

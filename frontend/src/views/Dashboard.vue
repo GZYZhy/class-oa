@@ -141,7 +141,6 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import * as echarts from 'echarts'
 import { getPublicSummary } from '@/api/auth'
 import { getBirthdayToday } from '@/api/birthday'
 import { getNotices } from '@/api/notice'
@@ -198,6 +197,11 @@ const politicalChartRef = ref(null)
 let genderChart = null
 let politicalChart = null
 
+// 图表库本身。**故意不在文件顶部 import** —— 它是首屏最重的一件，
+// 动态引进来才能让统计数字先出来（见下面 loadData 里那段注释）。
+// 初始化赋值就是在这里，别在别处再用它
+let echarts = null
+
 // 渲染环形饼图
 function renderPie(refEl, data, colors) {
   const inst = echarts.init(refEl)
@@ -230,6 +234,15 @@ async function loadData() {
   if (list.status === 'fulfilled') notices.value = list.value
 
   await nextTick()
+
+  // 图表库单独**动态**取一次（按需之后的体积说明见 utils/chart.js）。
+  // 上面那几个 await 一到手，人数、生日条幅、最新通知就已经渲染出来了，
+  // 不必等图表库；弱网下这几秒的差别就是「首页能看了」和「整页白等着」的差别
+  echarts = (await import('@/utils/chart')).default
+
+  // 取库的这段时间里用户可能已经离开首页、容器被卸载了，这时 init 会拿到 null
+  if (!genderChartRef.value || !politicalChartRef.value) return
+
   genderChart = renderPie(genderChartRef.value, stats.value.gender || {}, ['#409EFF', '#F56C6C'])
   politicalChart = renderPie(politicalChartRef.value, stats.value.political_status || {}, ['#E6A23C', '#909399'])
 }
