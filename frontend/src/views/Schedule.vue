@@ -62,7 +62,7 @@
               class="all-day-item"
               :class="'theme-' + evtTheme(bar.evt.event_type)"
               :style="bar.style"
-              @click.stop="openEdit(bar.evt, bar.evts)"
+              @click.stop="openDetail(bar.evt, bar.evts)"
             >
               <span class="all-day-title">{{ bar.evt.title }}</span>
             </div>
@@ -100,7 +100,7 @@
               class="cal-event"
               :class="['theme-' + evtTheme(evt.event_type), { 'evt-narrow': evt.narrow }]"
               :style="evt.style"
-              @click.stop="openEdit(evt)"
+              @click.stop="openDetail(evt)"
             >
               <div class="evt-title">{{ evt.title }}</div>
               <div v-if="evt.event_type" class="evt-type">{{ evt.event_type }}</div>
@@ -112,6 +112,23 @@
       </div>
 
     </div>
+
+    <!-- 日程详情：点卡片先看到内容，要改再点「编辑」 -->
+    <el-dialog v-model="detailDialog.visible" title="日程详情" width="480px">
+      <!-- 日程标题放正文里、不放弹窗的 title：长了能折行，也不必挤在头部 -->
+      <div class="detail-title">{{ detailDialog.evt?.title }}</div>
+      <el-descriptions :column="1" border>
+        <el-descriptions-item v-for="row in detailRows" :key="row.label" :label="row.label">
+          {{ row.value }}
+        </el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button type="danger" @click="deleteFromDetail">删除</el-button>
+        <span style="flex: 1"></span>
+        <el-button @click="detailDialog.visible = false">关闭</el-button>
+        <el-button type="primary" @click="editFromDetail">编辑</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 新建/编辑弹窗 -->
     <el-dialog
@@ -251,7 +268,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button v-if="editDialog.isEdit" type="danger" @click="handleDelete">删除</el-button>
+        <el-button v-if="editDialog.isEdit" type="danger" @click="handleDelete()">删除</el-button>
         <span style="flex: 1"></span>
         <el-button @click="editDialog.visible = false">取消</el-button>
         <el-button type="primary" @click="handleSave" :loading="saving">保存</el-button>
@@ -885,6 +902,69 @@ function handleCellClick(date, time) {
   openCreate(date, time)
 }
 
+// ---------- 详情弹窗 ----------
+// 点卡片先看内容，要改再点「编辑」—— 在这之前是直接弹编辑表单，
+// 想看一眼「这节什么课、在哪个教室」也得先进到表单里
+const detailDialog = ref({ visible: false, evt: null, records: [] })
+
+/** ISO 时刻取「HH:MM」 */
+const clockText = (iso) => (iso || '').split('T')[1]?.substring(0, 5) || ''
+
+function openDetail(evt, records = null) {
+  // 全天事件在库里一天一条，日历上一根条可能压着好几条：传进来就按整条看
+  detailDialog.value = { visible: true, evt, records: records?.length ? records : [evt] }
+}
+
+/** 详情里的信息行。空字段不占行 —— 弹出来是一张干净的卡片，不是一个排满「-」的表 */
+const detailRows = computed(() => {
+  const { evt, records } = detailDialog.value
+  if (!evt) return []
+  const first = records[0]
+  const last = records[records.length - 1]
+  const rows = []
+  if (evt.all_day) {
+    // 跨天的一条是「起 至 止」，和日历上连着的那根条对得上
+    rows.push({
+      label: '日期',
+      value: first.instance_date === last.instance_date
+        ? first.instance_date
+        : `${first.instance_date} 至 ${last.instance_date}`
+    })
+  } else {
+    rows.push({ label: '日期', value: evt.instance_date })
+    rows.push({ label: '时间', value: `${clockText(evt.start_time)} ~ ${clockText(evt.end_time)}` })
+  }
+  if (evt.event_type) rows.push({ label: '类型', value: evt.event_type })
+  if (evt.location) rows.push({ label: '地点', value: evt.location })
+  if (evt.repeat_type && evt.repeat_type !== 'none') {
+    rows.push({
+      label: '重复',
+      value: repeatLabel(evt.repeat_type) + (evt.repeat_end_date ? `（到 ${evt.repeat_end_date}）` : '')
+    })
+  }
+  if (evt.notify_enabled) rows.push({ label: '提醒', value: `提前 ${evt.notify_minutes_before} 分钟` })
+  if (evt.description) rows.push({ label: '描述', value: evt.description })
+  // >1 才说明是我发出去的：删它会把别人的表一起动，先在这儿讲明白
+  if (evt.share_count > 1) rows.push({ label: '分配', value: `已分配给 ${evt.share_count} 人（含你）` })
+  return rows
+})
+
+function editFromDetail() {
+  // records 照传：跨天的全天条丢了它就退化成单天了（见 allDayBars）
+  const { evt, records } = detailDialog.value
+  detailDialog.value.visible = false
+  openEdit(evt, records)
+}
+
+function deleteFromDetail() {
+  const { evt, records } = detailDialog.value
+  detailDialog.value.visible = false
+  // 借编辑弹窗那套状态（不打开它）：整条删除、分享范围、403 提示都是现成的。
+  // 不能先 openEdit —— 那样编辑弹窗会闪现在确认框后面
+  fillEditState(evt, records)
+  handleDelete(true)
+}
+
 // ---------- 新建/编辑弹窗 ----------
 const editDialog = ref({
   visible: false,
@@ -946,7 +1026,8 @@ function openCreate(date = null, time = null) {
   }
 }
 
-function openEdit(evt, records = null) {
+/** 把一条日程灌进编辑表单（不开窗）—— 详情弹窗的「删除」也要借这份状态 */
+function fillEditState(evt, records = null) {
   const allDay = !!evt.all_day
   // 全天事件在库里是一天一条（导入的跨天事件、自己新建跨天的都是这么存的），
   // 日历上一根条可能压着好几条。传进来就按一整条来编辑，见 allDayBars
@@ -972,7 +1053,7 @@ function openEdit(evt, records = null) {
     share: true,   // 默认「所有人的」，要只改自己那份得手动改
   }
   editDialog.value = {
-    visible: true,
+    visible: false,   // 开窗是 openEdit 的事，详情页只要这份状态
     isEdit: true,
     isRepeat: evt.repeat_type !== 'none',
     currentId: evt.id,
@@ -981,6 +1062,11 @@ function openEdit(evt, records = null) {
     shareCount: evt.share_count || 1,
     shareFrom: run[0].id,
   }
+}
+
+function openEdit(evt, records = null) {
+  fillEditState(evt, records)
+  editDialog.value.visible = true
 }
 
 // 表单里那些与「有没有时刻」无关的字段
@@ -1152,7 +1238,8 @@ function saveToast() {
   return `已更新，同时改掉了其他 ${editDialog.value.shareCount - 1} 人的表`
 }
 
-async function handleDelete() {
+/** fromDetail：从详情弹窗点的删除（那边没有范围选择器，重复日程按「全部」算） */
+async function handleDelete(fromDetail = false) {
   // 跨天的全天事件是「一天一条」，日历上看着是一根条。删就整条一起删 ——
   // 只删点中的那一天，条会缺一块、剩下的还在
   const records = editDialog.value.records || []
@@ -1166,7 +1253,12 @@ async function handleDelete() {
     await ElMessageBox.confirm(
       (whole
         ? `确定删除这条跨 ${whole.length} 天的全天事件？`
-        : (editDialog.value.isRepeat ? '确定删除？可选范围：仅本次 / 本次及以后 / 全部' : '确定删除此日程？')
+        : (editDialog.value.isRepeat
+            // 详情弹窗里选不了范围，照搬编辑弹窗那句「可选范围」就是骗人
+            ? (fromDetail
+                ? '这是重复日程，将删除它的全部日期。确定？'
+                : '确定删除？可选范围：仅本次 / 本次及以后 / 全部')
+            : '确定删除此日程？')
       ) + extra,
       '删除确认',
       { type: 'warning' }
@@ -1921,5 +2013,14 @@ async function handleResetToken() {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   margin-top: 8px;
+}
+
+/* 详情弹窗里的日程标题 */
+.detail-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--el-text-color-primary);
+  word-break: break-word;
 }
 </style>
