@@ -1144,7 +1144,8 @@ console.log('\n▶ 学生信息页：低频操作收进「更多」，年龄排�
   // 前两列只留够放内容的宽度：窄屏横向滚动时先露出来的就是这几列，省下几十像素
   // 正好把「姓名」带进可视区（断上限而不钉死数值，以后微调宽度不该红）
   const selW = Number((src.match(/type="selection"[\s\S]{0,160}?width="(\d+)"/) || [])[1])
-  const idxW = Number((src.match(/type="index" label="序号" width="(\d+)"/) || [])[1])
+  // 属性之间允许换行：序号列带上 class-name 之后是多行写法
+  const idxW = Number((src.match(/type="index"[\s\S]{0,160}?width="(\d+)"/) || [])[1])
   check(selW > 0 && selW <= 40 && idxW > 0 && idxW <= 45,
     `复选框列（${selW}）和序号列（${idxW}）都收窄了`)
 }
@@ -1169,6 +1170,46 @@ console.log('\n▶ 学生信息页：点名和抽签的入口还在工具栏上'
   const more = src.slice(src.indexOf('<el-dropdown @command="handleMore">'))
   const moreMenu = more.slice(0, more.indexOf('</el-dropdown>'))
   check(!/点名|抽签/.test(moreMenu), '这两个没被塞进「更多」下拉（它们不是低频操作）')
+}
+
+console.log('\n▶ 学生信息页：列表缩略图进视口才下载（别把点名/抽签挤在后面）')
+{
+  const src = readFileSync(`${ROOT}/src/views/StudentList.vue`, 'utf8')
+  const thumb = src.slice(src.indexOf('class="thumb-photo"'))
+  // 从 <img 开始切：它上面那几行注释里也写着 loading="lazy"（说明为什么不用它）
+  const imgStart = thumb.indexOf('<img')
+  const thumbImg = thumb.slice(imgStart, thumb.indexOf('/>', imgStart))
+
+  // 一页 20 行，原生 loading="lazy" 的预加载距离有好几屏，等于 20 张原图同时开跑，
+  // 把浏览器对本站的并发连接占满 —— 这时候点「点名」，要拉的名单就排在图片后面，
+  // 看起来像按钮坏了
+  check(thumbImg.includes('v-photo-src='), '列表缩略图走 v-photo-src（进视口才下载）')
+  check(!/loading=/.test(thumbImg), '缩略图身上没有留着原来的 loading="lazy"')
+
+  // 指令只写在模板上、忘了在 script 里定义的话，Vue 只会警告一句就跳过，
+  // <img> 连 src 都不会有 —— 照片全空，而且不是报错
+  check(src.includes('const vPhotoSrc = {'), 'v-photo-src 指令有定义（只写模板等于照片全空）')
+  const dir = src.slice(src.indexOf('const vPhotoSrc = {'))
+  const dirBody = dir.slice(0, dir.indexOf('\n}'))
+  check(dirBody.includes('IntersectionObserver'), '靠 IntersectionObserver 判定是否可见')
+  check(dirBody.includes('el.src = binding.value'), '没有 IntersectionObserver 时退回直接加载，不至于不显示')
+}
+
+console.log('\n▶ 学生信息页：序号列不折行（两位数挤在 40px 里会断成两截）')
+{
+  const src = readFileSync(`${ROOT}/src/views/StudentList.vue`, 'utf8')
+
+  // 40px 减掉 Element 默认左右各 12px 的内边距只剩 16px，两位数就折行了。
+  // 靠 class-name 把这一列挑出来单独收内边距 —— Element 的列属性写错了不报错，
+  // 只是样式落不到格子上，页面上看起来就像没改过
+  check(/type="index"[\s\S]{0,120}class-name="col-index"/.test(src), '序号列带 col-index')
+  check(/label-class-name="col-index"/.test(src), '表头的「序号」两个字同样收窄（它也会折）')
+
+  check(src.includes(':deep(.col-index .cell)'), '样式里有 .col-index 这一条')
+  const css = src.slice(src.indexOf(':deep(.col-index .cell)'))
+  const rule = css.slice(0, css.indexOf('}'))
+  check(rule.includes('white-space: nowrap'), '这一列不换行')
+  check(/padding:\s*0 2px/.test(rule), '内边距收窄，40px 里放得下两位数')
 }
 
 console.log('\n▶ 点名：自动记的请假也得带上姓名（取错字段会静默写成空名）')

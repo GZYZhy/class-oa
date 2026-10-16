@@ -30,6 +30,11 @@ class AttendanceRecord(Base):
     operator_no = Column(String(20), comment="操作人学号")
     operator_name = Column(String(50), comment="操作人姓名")
 
+    # 给这一次点名写一句话（「学院临时集合，迟到 5 人」这种）。
+    # 挂在记录上而不是明细上：要说明的是「这次点名为什么长这样」，
+    # 全班共用一句；空串 = 没写
+    remark = Column(String(200), default="", comment="备注")
+
 
 class AttendanceItem(Base):
     """一次点名里某个人的状态

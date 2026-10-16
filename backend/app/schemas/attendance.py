@@ -40,6 +40,7 @@ class AttendanceRecordResponse(BaseModel):
     called_at: datetime | None = None
     operator_no: str = ""
     operator_name: str = ""
+    remark: str = Field("", description="这次点名的一句话备注，空串 = 没写")
 
     total: int = Field(0, description="应到")
     present: int = 0
@@ -58,3 +59,12 @@ class AttendanceListResponse(BaseModel):
 class AttendanceItemUpdate(BaseModel):
     """改某人状态"""
     status: str = Field(..., pattern=STATUS_PATTERN)
+
+
+class AttendanceRemarkUpdate(BaseModel):
+    """写某次点名的备注
+
+    整条替换：传什么存什么，传空串（或只传空格）就是把这段备注清掉 ——
+    不另设「删除备注」的接口，空即没有。
+    """
+    remark: str = Field("", max_length=200, description="备注，空串表示清掉")

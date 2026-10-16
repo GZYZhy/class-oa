@@ -58,9 +58,18 @@
             <span :class="{ 'at-danger': row.absent }">{{ row.absent }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="130" fixed="right">
+        <!-- 一次点名一句话。写得下的会长，所以给整行省略 + 悬浮看全文；
+             没写就是「—」，比空格子好认 -->
+        <el-table-column label="备注" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.remark">{{ row.remark }}</span>
+            <span v-else class="at-empty">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="190" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">明细</el-button>
+            <el-button link type="primary" @click="handleRemark(row)">备注</el-button>
             <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -81,6 +90,8 @@
 
     <!-- 明细：逐个改状态。当天点错了、事后有人说「我其实到了」都在这儿改 -->
     <el-dialog v-model="detailVisible" :title="detailTitle" width="560px">
+      <!-- 这次点名的备注也带进来：翻明细时看得到「为什么这次状态长这样」 -->
+      <div v-if="detail.remark" class="at-remark">{{ detail.remark }}</div>
       <el-table v-loading="detailLoading" :data="detail.items" max-height="420">
         <el-table-column prop="student_name" label="姓名" />
         <el-table-column prop="student_no" label="学号" width="130" />
@@ -114,7 +125,8 @@ import {
   deleteAttendance,
   getAttendance,
   getAttendanceList,
-  updateAttendanceItem
+  updateAttendanceItem,
+  updateAttendanceRemark
 } from '@/api/attendance'
 import { blobErrorDetail, downloadFile } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
@@ -198,6 +210,37 @@ async function changeStatus(item, status) {
   }
 }
 
+/**
+ * 给这次点名写一句备注
+ *
+ * 整条替换：填什么存什么，清空就没了（后端没有单独的「删备注」接口）。
+ * 不改明细里的任何状态，所以不用刷明细弹窗，只刷列表
+ */
+async function handleRemark(row) {
+  let value
+  try {
+    const res = await ElMessageBox.prompt('给这次点名写一句说明（留空即清掉）', '备注', {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputValue: row.remark || '',
+      inputPlaceholder: '例如：学院临时集合，迟到 5 人',
+      inputValidator: (v) => (v || '').trim().length <= 200 || '最多 200 字'
+    })
+    value = res.value
+  } catch {
+    // 取消：ElMessageBox 用 reject 表达取消，不是错误
+    return
+  }
+  const remark = (value || '').trim()
+  try {
+    await updateAttendanceRemark(row.id, remark)
+    ElMessage.success(remark ? '备注已保存' : '备注已清掉')
+    fetchList()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '保存备注失败')
+  }
+}
+
 async function handleDelete(row) {
   try {
     await ElMessageBox.confirm(
@@ -260,5 +303,18 @@ onMounted(fetchList)
 .at-danger {
   color: var(--el-color-danger);
   font-weight: 600;
+}
+
+.at-empty {
+  color: var(--el-text-color-placeholder);
+}
+
+.at-remark {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-regular);
+  line-height: 1.5;
 }
 </style>

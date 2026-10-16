@@ -25,6 +25,7 @@ from ..schemas import (
     AttendanceItemUpdate,
     AttendanceListResponse,
     AttendanceRecordResponse,
+    AttendanceRemarkUpdate,
 )
 from ..services import display_name, log_operation
 from .deps import committee_required, get_client_ip
@@ -34,8 +35,8 @@ router = APIRouter(prefix="/api/attendance", tags=["考勤记录"])
 # 状态的中文名。库里存的是英文枚举（present/absent/leave），页面和导出都显示中文
 STATUS_LABELS = {"present": "到", "absent": "无应答", "leave": "请假"}
 
-# 导出时写在列上的顺序
-EXPORT_COLUMNS = ["日期", "范围", "点名时刻", "操作人", "学号", "姓名", "状态"]
+# 导出时写在列上的顺序。备注是这次点名上的一句话，同一批明细的每一行都带同一个值
+EXPORT_COLUMNS = ["日期", "范围", "点名时刻", "操作人", "学号", "姓名", "状态", "备注"]
 
 
 def _counts(items: list[AttendanceItem]) -> dict[str, int]:
@@ -62,6 +63,7 @@ def _to_response(
         called_at=record.called_at,
         operator_no=record.operator_no or "",
         operator_name=record.operator_name or "",
+        remark=record.remark or "",
         total=data["total"],
         present=data["present"],
         leave=data["leave"],
@@ -141,15 +143,18 @@ def export_attendance(
                 item.student_no,
                 item.student_name or "",
                 STATUS_LABELS.get(item.status, item.status),
+                record.remark or "",
             ]
             for col_idx, value in enumerate(values, 1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=value)
                 cell.alignment = Alignment(vertical="center")
             row_idx += 1
 
-    # 列宽按表头估就够了：内容是学号/姓名/日期这类定长，没有长文本
+    # 列宽按表头估就够了：内容是学号/姓名/日期这类定长
     for col_idx, label in enumerate(EXPORT_COLUMNS, 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = min(len(label) * 2 + 6, 24)
+    # 除了备注 —— 它是唯一的长文本列，按表头估出来的宽度只够显示两三个字
+    ws.column_dimensions[get_column_letter(len(EXPORT_COLUMNS))].width = 30
     ws.freeze_panes = "A2"
 
     buf = io.BytesIO()
@@ -211,6 +216,7 @@ def list_attendance(
                 called_at=record.called_at,
                 operator_no=record.operator_no or "",
                 operator_name=record.operator_name or "",
+                remark=record.remark or "",
                 total=sum(counts.values()),
                 present=counts.get("present", 0),
                 leave=counts.get("leave", 0),
@@ -338,6 +344,50 @@ def update_item(
         detail=f"{item.student_name or ''}({student_no})：{before} → {after}",
         ip=get_client_ip(request),
         target_student_nos=[student_no],
+    )
+    db.commit()
+    return _to_response(record, _items_of(db, record_id))
+
+
+@router.patch("/{record_id}", response_model=AttendanceRecordResponse, summary="写某次点名的备注（班委及以上）")
+def update_remark(
+    record_id: int,
+    data: AttendanceRemarkUpdate,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """给这一次点名补一句话说明，例如「学院临时集合，迟到 5 人」。
+
+    整条替换、传空即清掉，所以不另开「删除备注」的接口。
+    """
+    record = db.query(AttendanceRecord).filter(AttendanceRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="考勤记录不存在")
+
+    remark = data.remark.strip()
+    before = record.remark or ""
+    if remark == before:
+        # 没变就不写日志，免得日志里全是一模一样的两句话
+        return _to_response(record, _items_of(db, record_id))
+
+    if not remark:
+        detail = f"清掉「{before}」"
+    elif before:
+        detail = f"「{before}」→「{remark}」"
+    else:
+        detail = f"写上「{remark}」"
+
+    record.remark = remark
+    log_operation(
+        db,
+        user,
+        action="考勤备注",
+        target=f"{record.call_date} {record.scope}",
+        detail=detail,
+        ip=get_client_ip(request),
+        # 不挂 target_student_nos：备注是记在这次点名上的，不属于任何一个学生，
+        # 挂上去会让每个人的「被操作记录」里凭空多一条和他无关的事
     )
     db.commit()
     return _to_response(record, _items_of(db, record_id))

@@ -189,18 +189,29 @@
         />
         <!-- 复选框和序号这两列都收到刚好放得下内容：窄屏横向滚动时，省下的这几十
              像素正好够把「姓名」挪进可视区（排在它们前面的就这两列） -->
-        <el-table-column type="index" label="序号" width="40" align="center" />
+        <!-- 序号列带个 col-index：40px 里再扣掉左右各 12px 的默认内边距，两位数
+             （第 10 行往后）就挤到折行了。宽度不能再加，所以收的是内边距，见样式 -->
+        <el-table-column
+          type="index"
+          label="序号"
+          width="40"
+          align="center"
+          class-name="col-index"
+          label-class-name="col-index"
+        />
         <el-table-column label="照片" width="70" align="center">
           <template #default="{ row }">
             <div
               class="thumb-photo"
               @click.stop="row.gaokao_photo && openRowPhotos(row)"
             >
+              <!-- 列表缩略图走 v-photo-src：进视口才下载。
+                   别换回 :src + loading="lazy" —— 见 script 里那段注释 -->
               <img
                 v-if="row.gaokao_photo"
-                :src="getPhotoUrl(row, 'gaokao')"
+                v-photo-src="getPhotoUrl(row, 'gaokao')"
                 class="thumb-img"
-                loading="lazy"
+                decoding="async"
                 fetchpriority="low"
                 @error="handleImgError($event)"
               />
@@ -300,6 +311,7 @@
               v-if="currentStudent.gaokao_photo"
               :src="getPhotoUrl(currentStudent, 'gaokao')"
               class="detail-photo-img"
+              decoding="async"
               @error="handleImgError($event)"
             />
             <div v-else class="no-photo">
@@ -445,7 +457,7 @@
                 v-if="currentStudent[p.field]"
                 @click="openStudentPhotos(currentStudent, p.type)"
               >
-                <img :src="getPhotoUrl(currentStudent, p.type)" class="photo-item-img" @error="handleImgError($event)" />
+                <img :src="getPhotoUrl(currentStudent, p.type)" class="photo-item-img" decoding="async" @error="handleImgError($event)" />
                 <span class="photo-label">{{ p.label }}</span>
               </div>
             </template>
@@ -556,6 +568,7 @@
                           v-if="editForm[p.field]"
                           :src="getPhotoUrl(editForm, p.type)"
                           class="edit-photo-img"
+                          decoding="async"
                           @error="handleImgError($event)"
                         />
                         <div v-else class="edit-photo-empty">
@@ -610,6 +623,7 @@
                           v-if="signEdit.has"
                           :src="editSignUrl"
                           class="edit-photo-img"
+                          decoding="async"
                           @error="handleImgError($event)"
                         />
                         <div v-else class="edit-photo-empty">
@@ -1343,6 +1357,55 @@ function studentPhotos(student) {
   return PHOTO_TYPES
     .filter((p) => student?.[p.field])
     .map((p) => ({ type: p.type, url: getPhotoUrl(student, p.type) }))
+}
+
+/**
+ * 列表里那张缩略图：**进了视口才开始下载**（v-photo-src）
+ *
+ * 为什么不用原生的 loading="lazy"：它的预加载距离有好几屏，一页 20 行等于 20 张
+ * 原图（每张 60KB 上下，这个项目没有缩略图）一起开跑，把浏览器对本站的并发连接
+ * 和服务器上行全占了。而被挤在后面的正是点名/抽签要拉的名单 —— 用户看到的是
+ * 「点下去半天不出东西」，还以为按钮坏了。
+ *
+ * 这里只认真正的可见：没滚到的行一个字节都不下载。
+ * 浏览器没有 IntersectionObserver 时退化成直接加载 —— 功能不受影响，只是失去优化。
+ */
+let photoObserver = null
+
+function loadPhotoWhenVisible(entries) {
+  for (const entry of entries) {
+    if (!entry.isIntersecting) continue
+    entry.target.src = entry.target.dataset.photoSrc || ''
+    photoObserver.unobserve(entry.target)
+  }
+}
+
+const vPhotoSrc = {
+  // 服务端渲染时 mounted 不会跑，得在这里把 src 直接写出来，
+  // 否则渲染出来的 <img> 没有 src（渲染测试就是靠 SSR 跑模板的）
+  getSSRProps(binding) {
+    return { src: binding.value }
+  },
+  mounted(el, binding) {
+    el.dataset.photoSrc = binding.value
+    if (typeof IntersectionObserver === 'undefined') {
+      el.src = binding.value
+      return
+    }
+    // rootMargin 给一点点提前量，滚到位时图已经在了；再大就又回到「一屏外也在下」
+    photoObserver ||= new IntersectionObserver(loadPhotoWhenVisible, { rootMargin: '120px' })
+    photoObserver.observe(el)
+  },
+  updated(el, binding) {
+    // 换页、换排序时行会被复用，地址跟着变 —— 这时得重新观察一次
+    if (binding.value === binding.oldValue) return
+    el.dataset.photoSrc = binding.value
+    if (photoObserver) photoObserver.observe(el)
+    else el.src = binding.value
+  },
+  unmounted(el) {
+    photoObserver?.unobserve(el)
+  }
 }
 
 function handleImgError(e) {
@@ -2187,6 +2250,13 @@ watch(() => route.query.open, openFromQuery)
   display: flex;
   justify-content: flex-end;
   margin-top: 20px;
+}
+
+/* 序号列：整列就是几个数字居中，不需要 Element 默认的那圈内边距。
+   不收窄的话 40px 里只剩 16px 可用，两位数一挤就折行（表头「序号」同理） */
+:deep(.col-index .cell) {
+  padding: 0 2px;
+  white-space: nowrap;
 }
 
 .thumb-photo {
