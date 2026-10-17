@@ -880,6 +880,7 @@ import {
   resetUserPassword,
   freezeUser,
   unfreezeUser,
+  clearUserPasskeys,
   revokeUserSessions,
   getUserLogs,
   createExternalUser,
@@ -975,6 +976,7 @@ function rowActions(row) {
       run: () => (row.is_external ? handleExtResetPassword(row) : handleStudentReset(row))
     },
     { label: '日志', type: 'primary', run: () => openUserLogs(row) },
+    { label: '清除通行密钥', type: 'warning', run: () => handleClearPasskeys(row) },
     { label: '吊销会话', type: 'warning', run: () => handleRevokeSessions(row) },
     {
       label: frozen ? '解冻' : '冻结',
@@ -1046,6 +1048,27 @@ async function handleToggleFreeze(row) {
     fetchUsers()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || (freezing ? '冻结失败' : '解冻失败'))
+  }
+}
+
+// 清除通行密钥：学生换了手机、旧钥匙丢了，或怀疑账号被冒用时用。
+// 密码不受影响，清完照样能用密码登录，所以确认框里要说清楚
+async function handleClearPasskeys(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定清除「${row.name}」名下的全部通行密钥吗？清除后那些设备不能再免密登录，密码登录不受影响。`,
+      '清除通行密钥',
+      { type: 'warning', confirmButtonText: '清除' }
+    )
+  } catch (e) {
+    return // 取消
+  }
+
+  try {
+    const res = await clearUserPasskeys(row.student_no)
+    ElMessage.success(res.message || '已清除')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '清除失败')
   }
 }
 

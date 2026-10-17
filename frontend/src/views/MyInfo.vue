@@ -243,6 +243,10 @@
                    所以和修改密码放同一个 tab。组件自己是折叠的，平时不占地方 -->
               <el-divider />
               <AccessTokenSetting />
+
+              <!-- 通行密钥：同样是账号安全的范畴，和访问令牌并列 -->
+              <el-divider />
+              <PasskeySetting />
             </el-tab-pane>
 
             <!-- ==================== 通知设置 ==================== -->
@@ -600,6 +604,7 @@ import { getMyGrades } from '@/api/grade'
 import { getWebhookSetting } from '@/api/notifyChannels'
 import WebhookSetting from '@/components/WebhookSetting.vue'
 import AccessTokenSetting from '@/components/AccessTokenSetting.vue'
+import PasskeySetting from '@/components/PasskeySetting.vue'
 import EmailNotifySetting from '@/components/EmailNotifySetting.vue'
 import {
   isSupported,
