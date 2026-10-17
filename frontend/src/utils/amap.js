@@ -36,10 +36,11 @@ export function loadAmap() {
       window._AMapSecurityConfig = { securityJsCode: SITE.amapSecurityCode }
     }
     const script = document.createElement('script')
-    // Geocoder 是地址反查用的插件，跟着主脚本一起拉，省一次异步插件加载
+    // Geocoder 反查地址、PlaceSearch 搜地点、Scale 比例尺，
+    // 都跟着主脚本一起拉，省异步插件加载
     script.src =
       `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(SITE.amapKey)}` +
-      '&plugin=AMap.Geocoder'
+      '&plugin=AMap.Geocoder,AMap.PlaceSearch,AMap.Scale'
     script.async = true
     script.onload = () => {
       if (window.AMap) {

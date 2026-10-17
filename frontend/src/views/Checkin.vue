@@ -130,13 +130,40 @@
                 @change="onFileChange"
               />
               <div class="ck-line">
-                <span class="ck-tip">
-                  {{ file ? `已选择：${file.name}` : '请拍照或从相册选一张' }}
+                <span class="ck-tip" :class="{ 'ck-warn': uploadError }">
+                  <template v-if="compressing">正在压缩照片…</template>
+                  <template v-else-if="uploading">正在上传照片…</template>
+                  <template v-else-if="uploadError">{{ uploadError }}</template>
+                  <template v-else-if="photoToken">已上传：{{ photoName }}</template>
+                  <template v-else-if="photoFile">照片还没有上传成功</template>
+                  <template v-else>请拍照或从相册选一张</template>
                 </span>
-                <el-button link type="primary" :loading="compressing" @click="fileInput?.click()">
-                  {{ file ? '重新选择' : '选择照片' }}
+                <el-button
+                  v-if="uploadError && photoFile && !uploading"
+                  link
+                  type="primary"
+                  @click="uploadPhoto"
+                >
+                  重试上传
+                </el-button>
+                <el-button
+                  link
+                  type="primary"
+                  :loading="compressing"
+                  :disabled="uploading"
+                  @click="fileInput?.click()"
+                >
+                  {{ photoFile ? '重新选择' : '选择照片' }}
                 </el-button>
               </div>
+              <!-- 选中就传，进度条立刻出现；传完之前「确认签到」点不了 -->
+              <el-progress
+                v-if="uploading"
+                class="ck-upload"
+                :percentage="uploadPercent ?? 0"
+                :indeterminate="uploadPercent === null"
+                :stroke-width="6"
+              />
             </div>
 
             <p v-if="!info.location && !info.require_photo" class="ck-tip">
@@ -144,7 +171,13 @@
             </p>
             <!-- 唯一的主按钮居中，和登录、已签到两个状态的按钮对齐 -->
             <div class="ck-center">
-              <el-button type="primary" size="large" :loading="submitting" @click="handleSubmit">
+              <el-button
+                type="primary"
+                size="large"
+                :loading="submitting"
+                :disabled="compressing || uploading"
+                @click="handleSubmit"
+              >
                 确认签到
               </el-button>
             </div>
@@ -175,7 +208,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
-import { getCheckinPublic, signCheckin } from '@/api/checkin'
+import { getCheckinPublic, signCheckin, uploadCheckinPhoto } from '@/api/checkin'
 import { useUserStore } from '@/store/user'
 import { compressImage } from '@/utils/imageCompress'
 import { distanceMeters, getCurrentLocation } from '@/utils/geolocation'
@@ -195,8 +228,14 @@ const info = ref(null)
 // 签到表单的状态。签到成功后整块被「已签到」替换，这些值不用再清
 const position = ref(null)
 const locating = ref(false)
-const file = ref(null)
+// 照片选中就上传：photoFile 是压缩后的文件，photoToken 是上传成功拿到的凭证
+const photoFile = ref(null)
+const photoName = ref('')
+const photoToken = ref('')
 const compressing = ref(false)
+const uploading = ref(false)
+const uploadPercent = ref(null)
+const uploadError = ref('')
 const submitting = ref(false)
 const fileInput = ref(null)
 
@@ -258,16 +297,45 @@ async function locate() {
   }
 }
 
+/** 把压缩好的照片立刻传上去。失败时保留 photoFile，可以点「重试上传」 */
+async function uploadPhoto() {
+  if (!photoFile.value || !info.value) return
+  uploading.value = true
+  uploadPercent.value = null
+  uploadError.value = ''
+  photoToken.value = ''
+  try {
+    const res = await uploadCheckinPhoto(info.value.code, photoFile.value, {
+      onProgress: (loaded, total) => {
+        uploadPercent.value = total ? Math.min(100, Math.round((loaded / total) * 100)) : null
+      }
+    })
+    photoToken.value = res.token
+  } catch (e) {
+    uploadError.value = errText(e, '照片上传失败，请重试')
+    ElMessage.error(uploadError.value)
+  } finally {
+    uploading.value = false
+  }
+}
+
 async function onFileChange(event) {
   const picked = event.target.files?.[0]
   if (!picked) return
+  // 清空 value：再选同一张图时 change 才会重新触发
+  event.target.value = ''
   compressing.value = true
+  uploadError.value = ''
+  photoToken.value = ''
   try {
     // 手机直出的照片好几 MB，压缩是优化；失败时原样上传（见 imageCompress.js）
-    file.value = await compressImage(picked)
+    photoFile.value = await compressImage(picked)
+    photoName.value = photoFile.value.name || picked.name
   } finally {
     compressing.value = false
   }
+  // 选完立即传，不等点「签到」—— 传完可能已经过截止，后端按「开始上传」的时刻算
+  await uploadPhoto()
 }
 
 async function handleSubmit() {
@@ -278,7 +346,10 @@ async function handleSubmit() {
   if (loc && !withinRadius.value) {
     return ElMessage.warning('你不在允许的签到范围内')
   }
-  if (info.value?.require_photo && !file.value) {
+  if (compressing.value || uploading.value) {
+    return ElMessage.warning('照片还在上传，请稍候')
+  }
+  if (info.value?.require_photo && !photoToken.value) {
     return ElMessage.warning('本次签到需要上传一张照片')
   }
 
@@ -288,7 +359,7 @@ async function handleSubmit() {
     info.value = await signCheckin(info.value.code, {
       lat: position.value?.lat,
       lng: position.value?.lng,
-      photo: file.value
+      photoToken: photoToken.value
     })
     ElMessage.success('签到成功')
   } catch (e) {
@@ -459,6 +530,10 @@ onMounted(load)
 /* 原生的文件选择框藏起来，用按钮去触发它 */
 .ck-file {
   display: none;
+}
+
+.ck-upload {
+  margin-top: 8px;
 }
 
 .ck-tip {

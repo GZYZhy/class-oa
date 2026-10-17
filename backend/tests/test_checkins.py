@@ -15,6 +15,7 @@
 第三个坑是路由顺序：`/public/{code}` 必须排在 `/{checkin_id}` 前面，
 不然公开页会撞上数字解析直接 422（本文件第一条用例就用未登录请求兜住它）。
 """
+import time
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -104,7 +105,17 @@ def _create(b, targets, *, minutes=30, title="晚点名", remark="宿舍区集�
     return r.json()
 
 
-def _sign(b, code, *, lat=None, lng=None, photo=None):
+def _upload_photo(b, code, photo=PNG):
+    """先在选照片时上传，拿回签到用的令牌"""
+    r = b.client.post(
+        f"/api/checkins/public/{code}/photo",
+        files={"photo": ("签到.png", photo, "image/png")},
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["token"]
+
+
+def _sign(b, code, *, lat=None, lng=None, photo_token=None):
     """提交签到。
 
     总带一个占位表单字段：Starlette 在 Content-Type 不是表单时会抛断言，
@@ -116,10 +127,9 @@ def _sign(b, code, *, lat=None, lng=None, photo=None):
         data["lat"] = str(lat)
     if lng is not None:
         data["lng"] = str(lng)
-    files = {"photo": ("签到.png", photo, "image/png")} if photo is not None else None
-    return b.client.post(
-        f"/api/checkins/public/{code}/sign", data=data, files=files
-    )
+    if photo_token:
+        data["photo_token"] = photo_token
+    return b.client.post(f"/api/checkins/public/{code}/sign", data=data)
 
 
 def _add_leave(b, student_no, start, end, status="approved"):
@@ -345,7 +355,8 @@ def test_photo_required_and_photo_access(cb):
     assert r.status_code == 400
     assert "需要上传一张照片" in r.json()["detail"]
 
-    r = _sign(cb, code, photo=PNG)
+    token = _upload_photo(cb, code)
+    r = _sign(cb, code, photo_token=token)
     assert r.status_code == 200, r.text
 
     # 照片确实落进了 CHECKIN_DIR（conftest 把它指到临时目录的 checkins 下）
@@ -366,6 +377,80 @@ def test_photo_required_and_photo_access(cb):
     _login(cb, PEOPLE[1][0])
     r = cb.client.get(f"/api/checkins/{checkin['id']}/targets/{PEOPLE[0][0]}/photo")
     assert r.status_code == 403
+
+
+def test_photo_uploaded_before_deadline_still_signs_after(cb):
+    """照片选中就先传；截止前开始传的，传完过点也能签上，并改回「到」
+
+    真实场景：19:59 开始传一张大照片，20:00 才传完、点签到。服务端收到
+    「签到」时已经过点，但照片令牌签着 19:59 的上传开始时间，应当接受。
+    """
+    checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]], require_photo=True)
+    code = checkin["code"]
+
+    _login(cb, PEOPLE[0][0])
+    token = _upload_photo(cb, code)
+
+    # 别人的照片令牌不能用（学号对不上）
+    _login(cb, PEOPLE[1][0])
+    r = _sign(cb, code, photo_token=token)
+    assert r.status_code == 400
+    assert "照片凭证无效" in r.json()["detail"]
+
+    # 改过令牌的签名也不行
+    _login(cb, PEOPLE[0][0])
+    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+    assert _sign(cb, code, photo_token=tampered).status_code == 400
+
+    # 把截止时间挪到「上传开始之后、现在之前」，再读一次考勤触发结算：
+    # 这一刻本人还没签，结算会把他记成「无应答」
+    end_at = datetime.now() + timedelta(seconds=1)
+    cb.run(
+        "UPDATE checkins SET end_at=? WHERE id=?",
+        end_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        checkin["id"],
+    )
+    time.sleep(1.2)
+    _as_admin(cb)
+    assert _attendance_of(cb, "签到·2人") is not None
+    # 列表里签到行的 id 不是考勤记录 id，明细要用 checkins 表里记的那个
+    record_id = cb.rows(
+        "SELECT attendance_record_id FROM checkins WHERE id=?", checkin["id"]
+    )[0][0]
+    assert record_id
+
+    # 过了点，但照片是截止前开始传的：仍可签到，状态是「到」
+    _login(cb, PEOPLE[0][0])
+    r = _sign(cb, code, photo_token=token)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["status"] == "ended"
+    assert data["signed_at"] is not None
+
+    # 结算生成的考勤明细跟着改回来，不能签到页说到、明细里却还是无应答
+    _as_admin(cb)
+    detail = cb.client.get(f"/api/attendance/{record_id}").json()
+    items = {i["student_no"]: i["status"] for i in detail["items"]}
+    assert items[PEOPLE[0][0]] == "present"
+    assert items[PEOPLE[1][0]] == "absent"
+
+    # 没带照片令牌的人，过了点就是不能签
+    _login(cb, PEOPLE[1][0])
+    r = _sign(cb, code)
+    assert r.status_code == 400
+    assert "已经结束" in r.json()["detail"]
+
+    # 截止后才开始选照片上传，同样拒绝
+    _as_admin(cb)
+    ended = _create(cb, [PEOPLE[2][0]], require_photo=True)
+    _force_end(cb, ended["id"])
+    _login(cb, PEOPLE[2][0])
+    r = cb.client.post(
+        f"/api/checkins/public/{ended['code']}/photo",
+        files={"photo": ("签到.png", PNG, "image/png")},
+    )
+    assert r.status_code == 400
+    assert "已经结束" in r.json()["detail"]
 
 
 # ---------- 结算 ----------
@@ -560,7 +645,8 @@ def test_deleting_generated_attendance_also_removes_checkin(cb):
     """
     checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]], require_photo=True)
     _login(cb, PEOPLE[0][0])
-    assert _sign(cb, checkin["code"], photo=PNG).status_code == 200
+    token = _upload_photo(cb, checkin["code"])
+    assert _sign(cb, checkin["code"], photo_token=token).status_code == 200
     _as_admin(cb)
     assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 200
     record = _attendance_of(cb, "签到·2人")
@@ -594,7 +680,8 @@ def test_batch_delete_selected_records(cb):
     """
     checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]], require_photo=True)
     _login(cb, PEOPLE[0][0])
-    assert _sign(cb, checkin["code"], photo=PNG).status_code == 200
+    token = _upload_photo(cb, checkin["code"])
+    assert _sign(cb, checkin["code"], photo_token=token).status_code == 200
     _as_admin(cb)
     assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 200
     generated = _attendance_of(cb, "签到·2人")

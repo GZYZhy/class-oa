@@ -1,5 +1,37 @@
 <template>
   <div class="map-picker">
+    <!-- 发布端可以直接搜地点：地图上点选毕竟不好找，知道名字搜一下最快。
+         只读页不搜（访问者不用改发布人定的地点） -->
+    <div v-if="!readonly && useMap" class="mp-search">
+      <el-input
+        v-model="keyword"
+        size="small"
+        clearable
+        placeholder="搜索地点，例如：图书馆"
+        :disabled="loading"
+        @keyup.enter="searchPlace"
+        @clear="clearSearch"
+      >
+        <template #append>
+          <el-button :loading="searching" :disabled="loading" @click="searchPlace">
+            搜索
+          </el-button>
+        </template>
+      </el-input>
+    </div>
+    <div v-if="searchResults.length" class="mp-results">
+      <div
+        v-for="poi in searchResults"
+        :key="poi.id"
+        class="mp-result"
+        @click="choosePlace(poi)"
+      >
+        <div class="mp-result-name">{{ poi.name }}</div>
+        <div v-if="poi.address" class="mp-result-addr">{{ poi.address }}</div>
+      </div>
+    </div>
+    <p v-if="searchTip" class="mp-tip">{{ searchTip }}</p>
+
     <!-- 配了高德 Key：地图点选（或拖动标记），半径用圆实时预览 -->
     <div v-if="useMap" ref="mapEl" class="mp-map" :class="{ 'mp-map-readonly': readonly }"></div>
 
@@ -73,6 +105,11 @@ const locating = ref(false)
 const accuracy = ref(0)
 const latInput = ref(null)
 const lngInput = ref(null)
+// 地点搜索：关键词、结果列表、正在搜、搜索提示（没结果或出错）
+const keyword = ref('')
+const searching = ref(false)
+const searchResults = ref([])
+const searchTip = ref('')
 
 /** 地图可用 = 配了 Key 且真的加载成功；失败后自动落到手填那一路 */
 const useMap = computed(() => hasAmap() && !mapError.value)
@@ -87,6 +124,7 @@ let AMapRef = null
 let map = null
 let marker = null
 let circle = null
+let placeSearch = null
 
 function round6(value) {
   return Number(Number(value).toFixed(6))
@@ -144,6 +182,72 @@ async function applyPoint(lat, lng, geocode) {
     const name = await reverseGeocode(AMapRef, point.lat, point.lng)
     if (name) emit('place', name)
   }
+}
+
+/** 高德的坐标有时是 LngLat 对象、有时是普通对象，统一成 { lat, lng } */
+function poiLatLng(loc) {
+  return {
+    lat: typeof loc?.getLat === 'function' ? loc.getLat() : Number(loc?.lat),
+    lng: typeof loc?.getLng === 'function' ? loc.getLng() : Number(loc?.lng)
+  }
+}
+
+/** 按关键词搜地点（AMap.PlaceSearch），结果列在搜索框下面 */
+async function searchPlace() {
+  const text = keyword.value.trim()
+  if (!text) return
+  if (!AMapRef || !map) {
+    return ElMessage.warning('地图还没加载好，请稍后再试')
+  }
+
+  searching.value = true
+  searchTip.value = ''
+  try {
+    placeSearch ||= new AMapRef.PlaceSearch({ pageSize: 10 })
+    // 回调式接口包成 Promise；no_data 不是错误，只是没搜到
+    const result = await new Promise((resolve, reject) => {
+      placeSearch.search(text, (status, data) => {
+        if (status === 'complete') resolve(data)
+        else if (status === 'no_data') resolve(null)
+        else reject(new Error(typeof data === 'string' ? data : '搜索失败，请重试'))
+      })
+    })
+    const pois = (result?.poiList?.pois || [])
+      .map((poi) => {
+        const { lat, lng } = poiLatLng(poi.location)
+        return {
+          id: poi.id,
+          name: poi.name,
+          address: poi.address || [poi.pname, poi.cityname, poi.adname].filter(Boolean).join(''),
+          lat,
+          lng
+        }
+      })
+      .filter((poi) => Number.isFinite(poi.lat) && Number.isFinite(poi.lng))
+    searchResults.value = pois
+    if (!pois.length) searchTip.value = '没有找到匹配的地点，换个关键词试试'
+  } catch (e) {
+    searchResults.value = []
+    searchTip.value = e?.message || '搜索失败，请重试'
+  } finally {
+    searching.value = false
+  }
+}
+
+/** 选中一个搜索结果：落点、移地图，并把地点名抛给父组件 */
+async function choosePlace(poi) {
+  searchResults.value = []
+  searchTip.value = ''
+  keyword.value = poi.name
+  await applyPoint(poi.lat, poi.lng, false)
+  // 搜索结果自带名称，比反查更准，不再调逆地理编码
+  emit('place', poi.name)
+  centerOn(poi)
+}
+
+function clearSearch() {
+  searchResults.value = []
+  searchTip.value = ''
 }
 
 async function useCurrent() {
@@ -220,9 +324,11 @@ onMounted(async () => {
       map = new AMapRef.Map(mapEl.value, {
         zoom: point ? 16 : 11,
         center: point ? [point.lng, point.lat] : [116.397, 39.909],
-        // 只读场景把缩放控件也收掉，页面上就是个安静的小地图
-        zoomControl: !props.readonly
+        // 缩放按钮两种模式都留：公开页看地点也要能放大看清周边
+        zoomControl: true
       })
+      // 比例尺也一直显示，方便判断「100 米范围」大概有多大
+      map.addControl(new AMapRef.Scale({ position: 'LB' }))
       if (!props.readonly) {
         map.on('click', (e) => applyPoint(e.lnglat.getLat(), e.lnglat.getLng(), true))
       }
@@ -257,6 +363,38 @@ onUnmounted(() => {
   height: 260px;
   border-radius: 4px;
   overflow: hidden;
+}
+
+/* 搜索结果最多占几行高，剩下的滚动看，不把地图挤走 */
+.mp-results {
+  max-height: 168px;
+  overflow-y: auto;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+
+.mp-result {
+  padding: 6px 10px;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.mp-result + .mp-result {
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.mp-result:hover {
+  background: var(--el-fill-color-light);
+}
+
+.mp-result-name {
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+}
+
+.mp-result-addr {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .mp-map-readonly {

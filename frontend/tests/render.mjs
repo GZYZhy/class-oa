@@ -4633,7 +4633,22 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   // 后端只收公开 code，登录后由接口告诉前端能不能签
   const apiSrc = readFileSync(`${ROOT}/src/api/checkin.js`, 'utf8')
   check(apiSrc.includes("url: `/checkins/public/${code}/sign`"), '签到走公开 code + 登录态接口')
-  check(apiSrc.includes("headers: { 'Content-Type': 'multipart/form-data' }"), '签到可以带照片（multipart）')
+  check(apiSrc.includes("url: `/checkins/public/${code}/photo`"), '照片先单独上传，换到凭证再签到')
+  check(/export function uploadCheckinPhoto\(code, photo, \{ onProgress \}/.test(apiSrc),
+    '照片上传接口带进度回调')
+  check(apiSrc.includes("form.append('photo_token', photoToken)"), '签到只回传照片凭证，不再带文件')
+
+  // 选中就上传：大照片传得慢，等到点「签到」再传容易正好错过截止
+  const checkinVueSrc = readFileSync(`${ROOT}/src/views/Checkin.vue`, 'utf8')
+  check(/photoFile\.value = await compressImage\(picked\)[\s\S]{0,300}await uploadPhoto\(\)/.test(checkinVueSrc),
+    '照片压缩完立即上传，不等点签到')
+  check(checkinVueSrc.includes(':indeterminate="uploadPercent === null"'),
+    '拿不到总大小时进度条走不确定态，不是卡在 0%')
+  check(checkinVueSrc.includes(':disabled="compressing || uploading"'),
+    '照片还在压缩或上传时「确认签到」点不了')
+  check(checkinVueSrc.includes('重试上传'), '上传失败保留照片，可以重试')
+  check(/if \(info\.value\?\.require_photo && !photoToken\.value\)/.test(checkinVueSrc),
+    '要求照片时以拿到凭证为准，不是选过文件就行')
 
   // 进行中的签到，明细里可以延长截止时间、催还没签的人
   check(apiSrc.includes('url: `/checkins/${id}/extend`')
@@ -4660,6 +4675,18 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
   check(picker.includes("marker.on('dragend'"), '也可以拖动标记微调')
   check(picker.includes("'地图加载失败，可直接填写经纬度'"),
     '配了 Key 但地图加载失败时，提示与「未配置」区分开')
+
+  // 发布端可以按名字搜地点（地图上点点找太费劲）；只读页不出现搜索
+  check(picker.includes('new AMapRef.PlaceSearch'), '发布端用高德 PlaceSearch 搜地点')
+  check(/placeSearch\.search\(text/.test(picker), '输入关键词真的去搜（Enter 与按钮都走它）')
+  check(/v-if="!readonly && useMap"/.test(picker), '搜索框只在可编辑的地图上出现')
+  check(picker.includes("emit('place', poi.name)"), '选中搜索结果后把地点名交给发布人')
+  check(picker.includes('centerOn(poi)'), '选中后地图移到该地点')
+  const amapSrc = readFileSync(`${ROOT}/src/utils/amap.js`, 'utf8')
+  check(amapSrc.includes('plugin=AMap.Geocoder,AMap.PlaceSearch,AMap.Scale'),
+    '搜地点与比例尺插件跟主脚本一起加载，不在点击时再等')
+  check(picker.includes('zoomControl: true'), '缩放按钮在公开页也显示（只读也留着）')
+  check(picker.includes('new AMapRef.Scale'), '比例尺一直显示，方便看半径圈多大')
 
   // CSP 不放行高德，地图脚本会被浏览器拦掉、静默降级成手填
   const cspFile = readFileSync(`${ROOT}/security-headers.conf`, 'utf8')
