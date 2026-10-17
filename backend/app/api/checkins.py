@@ -354,13 +354,14 @@ def create_checkin(
     db.commit()
 
     # commit 之后才通知（见文件头第 2 条）。逐个人调 recipients：范围是任意子集，
-    # recipients 没有「批量学号」参数；班级几十人，循环最简单
+    # recipients 没有「批量学号」参数；班级几十人，循环最简单。
+    # 不排除发布人：发布人自己在范围内时同样要签到，也得收到这条信
     body = f"截止 {checkin.end_at:%m-%d %H:%M}，打开链接完成签到"
     for no in nos:
         notify(
             db,
             background,
-            recipients(db, only_no=no, exclude_no=user.student_no),
+            recipients(db, only_no=no),
             f"新签到：{title}",
             body,
             level="timeSensitive",
