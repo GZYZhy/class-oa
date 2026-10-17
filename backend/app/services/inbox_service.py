@@ -132,3 +132,18 @@ def mark_all_read(db: Session, student_no: str) -> int:
     )
     db.commit()
     return updated
+
+
+def delete_read(db: Session, student_no: str) -> int:
+    """删除自己的**全部**已读消息（不分页），返回删除条数。
+
+    判据只有 read_at 非空一条：未读的一条都不动，别人的消息也碰不到。
+    删除后不可恢复，接口那边有确认框兜着。
+    """
+    deleted = (
+        db.query(InboxMessage)
+        .filter(InboxMessage.student_no == student_no, InboxMessage.read_at.isnot(None))
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return deleted

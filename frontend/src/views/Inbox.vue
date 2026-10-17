@@ -9,13 +9,23 @@
             手机推送没开也漏不掉。
           </p>
         </div>
-        <el-button
-          v-if="unread > 0"
-          :loading="markingAll"
-          @click="readAll"
-        >
-          全部标为已读（{{ unread }}）
-        </el-button>
+        <div class="inbox-actions">
+          <el-button
+            v-if="unread > 0"
+            :loading="markingAll"
+            @click="readAll"
+          >
+            全部标为已读（{{ unread }}）
+          </el-button>
+          <!-- total - unread 就是全部已读条数（不分页）；没有已读的就不显示 -->
+          <el-button
+            v-if="total > unread"
+            :loading="deletingRead"
+            @click="deleteRead"
+          >
+            删除已读（{{ total - unread }}）
+          </el-button>
+        </div>
       </div>
 
       <el-empty v-if="!loading && !items.length" description="还没有收到任何消息" />
@@ -65,7 +75,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getInbox, markInboxRead, markAllInboxRead } from '@/api/inbox'
+import { getInbox, markInboxRead, markAllInboxRead, deleteReadInbox } from '@/api/inbox'
 import { formatDateTime } from '@/utils/format'
 import { useBadgeStore } from '@/store/badge'
 
@@ -79,6 +89,7 @@ const page = ref(1)
 const pageSize = 20
 const loading = ref(false)
 const markingAll = ref(false)
+const deletingRead = ref(false)
 // 当前展开的那条。一次只开一条：收件箱是流水，同时摊开一堆正文反而找不到刚看的那条
 const expandedId = ref(null)
 
@@ -153,6 +164,34 @@ async function readAll() {
   }
 }
 
+/** 删除全部已读（不分页）。未读的一条不动，所以红点数不受影响 */
+async function deleteRead() {
+  const count = total.value - unread.value
+  try {
+    await ElMessageBox.confirm(
+      `会删除 ${count} 条已读消息，未读消息保留。删除后不可恢复。`,
+      '删除已读消息',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch {
+    return // 点了取消
+  }
+
+  deletingRead.value = true
+  try {
+    const res = await deleteReadInbox()
+    ElMessage.success(`已删除 ${res.deleted} 条已读消息`)
+    // 已读的散在每一页，删完回到第一页最直观
+    page.value = 1
+    expandedId.value = null
+    await load()
+  } catch (e) {
+    ElMessage.error('删除失败')
+  } finally {
+    deletingRead.value = false
+  }
+}
+
 function go(item) {
   router.push(item.page)
 }
@@ -184,6 +223,19 @@ onMounted(load)
   font-size: 13px;
   line-height: 1.6;
   color: var(--el-text-color-secondary);
+}
+
+/* 两个操作按钮并排，窄屏时会换行（见下面的媒体查询） */
+.inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 按钮之间默认有 12px 左边距，和上面的 gap 叠起来会太宽 */
+.inbox-actions .el-button + .el-button {
+  margin-left: 0;
 }
 
 .msg-card {
