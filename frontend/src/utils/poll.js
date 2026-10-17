@@ -155,6 +155,19 @@ export function blankForm() {
   }
 }
 
+/**
+ * 表单里的题目是不是已经填过东西了
+ *
+ * 复用时拿它决定要不要先确认覆盖：刚打开的弹窗自带一道空题，这时直接填进去就行；
+ * 用户已经敲了题干或选项，覆盖掉就找不回来了，得先问一句。多一道题也算填过。
+ */
+export function hasQuestionContent(questions = []) {
+  if (questions.length > 1) return true
+  const q = questions[0]
+  if (!q) return false
+  return !!(q.title || '').trim() || (q.options || []).some((o) => (o || '').trim())
+}
+
 /** 详情里的一道题 → 表单里的一道题 */
 function toFormQuestion(q) {
   const options = (q.options || []).length ? [...q.options] : ['', '']
@@ -170,6 +183,21 @@ function toFormQuestion(q) {
 }
 
 /**
+ * 一场旧投票里的题目 → 表单题目（「复用之前的卷子」和「编辑」共用这一段）
+ *
+ * 只搬题目：标题、描述、起止时间、表决范围、记名方式都是这一场的新决定，
+ * 照抄上一场只会让人以为「沿用」了其实没有。
+ *
+ * 返回的是新数组、新对象，选项也复制了一份 —— 复用之后接着改，
+ * 不能改着改着把列表里那场投票的数据也动了。
+ * 一道题都没有的旧卷子回一道空题，和 blankForm 的口径一致。
+ */
+export function questionsFromPoll(poll) {
+  const questions = (poll.questions || []).map(toFormQuestion)
+  return questions.length ? questions : [blankQuestion()]
+}
+
+/**
  * 投票详情 → 编辑表单的一份值（GET /api/polls/{id} 的返回拿进来）
  *
  * **时间必须过一遍 formatDateTime**：详情回的是 ISO 串（2026-11-01T08:00:00），而两个
@@ -180,7 +208,6 @@ function toFormQuestion(q) {
  * 整块名单都不渲染，只显示一个从详情带过来的人数。
  */
 export function formFromPoll(poll) {
-  const questions = (poll.questions || []).map(toFormQuestion)
   // formatDateTime 对空值回的是 '-'，直接塞给 picker 会显示成一个破折号；空就给空串
   const toPicker = (value) => (value ? formatDateTime(value) : '')
   return {
@@ -190,6 +217,6 @@ export function formFromPoll(poll) {
     start_at: toPicker(poll.start_at),
     end_at: toPicker(poll.end_at),
     targets: [],
-    questions: questions.length ? questions : [blankQuestion()]
+    questions: questionsFromPoll(poll)
   }
 }

@@ -113,6 +113,29 @@
         <span class="pc-count">共 {{ form.questions.length }} 题</span>
         <span v-if="startedLocked" class="pc-count">已开始，题目不能改了</span>
       </h4>
+      <!-- 复用旧卷子：只搬题目。编辑时不出现 —— 那时题目本来就在表单里 -->
+      <div v-if="!isEdit" class="pc-reuse">
+        <el-select
+          v-model="reuseId"
+          filterable
+          clearable
+          :loading="reuseLoading"
+          placeholder="从之前的投票复制题目（可选）"
+          no-data-text="没有可复用的投票"
+          style="width: 100%;"
+          @change="reuseQuestions"
+        >
+          <el-option
+            v-for="p in reusePolls"
+            :key="p.id"
+            :value="p.id"
+            :label="`${p.title}（${p.question_count} 题）`"
+          />
+        </el-select>
+        <div class="pc-tip">
+          只复制题目，标题、时间、表决范围和记名方式仍按本次填写。复制后照常修改
+        </div>
+      </div>
       <div v-if="startedLocked" class="pc-tip">
         投票已经开始，题目就锁住了：作答存的是选项的序号，这时候删掉一个选项，
         已经投过的人那张票就对不上了。标题和描述还能改
@@ -206,8 +229,8 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { createPoll, getRoster, updatePoll } from '@/api/vote'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { createPoll, getPoll, getPolls, getRoster, updatePoll } from '@/api/vote'
 import { errText } from '@/utils/request'
 import {
   POLL_LETTERS,
@@ -216,6 +239,8 @@ import {
   canEditBeforeStart,
   canEditTimes,
   formFromPoll,
+  hasQuestionContent,
+  questionsFromPoll,
 } from '@/utils/poll'
 // 「仅团员」的判据与点名、分类统计共用一份，见 utils/roster.js
 import { isLeagueMember } from '@/utils/roster'
@@ -229,6 +254,12 @@ const visible = ref(false)
 const submitting = ref(false)
 const rosterLoading = ref(false)
 const roster = ref([])
+
+/** 可复用的旧投票（只留题目数 > 0 的），每次打开出卷弹窗时重拉 */
+const reusePolls = ref([])
+const reuseLoading = ref(false)
+/** 选中的旧卷子 ID。复制完留着，让人看得见这一卷是从哪份抄来的 */
+const reuseId = ref(null)
 
 /** 正在编辑的投票 ID；null = 出卷（新建）。标题、按钮文案、只读与否都看它 */
 const editingId = ref(null)
@@ -265,8 +296,10 @@ function open() {
   Object.assign(form, blankForm())
   editingId.value = null
   editingStatus.value = 'pending'
+  reuseId.value = null
   visible.value = true
   fetchRoster()
+  fetchReusePolls()
 }
 
 /**
@@ -286,6 +319,8 @@ function openForEdit(poll) {
 function reset() {
   Object.assign(form, blankForm())
   roster.value = []
+  reusePolls.value = []
+  reuseId.value = null
   editingId.value = null
   editingStatus.value = 'pending'
   editTargetCount.value = 0
@@ -303,6 +338,60 @@ async function fetchRoster() {
     ElMessage.error(errText(e, '读取学生名单失败'))
   } finally {
     rosterLoading.value = false
+  }
+}
+
+/**
+ * 拉可复用的旧卷子（我看见的那些）
+ *
+ * 失败不提示、也不拦着出卷：这只是个捷径，手填照样能发。拉最近 100 场
+ * （列表接口的上限），更早的不在这个下拉里。
+ */
+async function fetchReusePolls() {
+  reuseLoading.value = true
+  try {
+    const { items } = await getPolls({ page: 1, page_size: 100 })
+    reusePolls.value = (items || []).filter((p) => p.question_count > 0)
+  } catch {
+    reusePolls.value = []
+  } finally {
+    reuseLoading.value = false
+  }
+}
+
+/**
+ * 选中一份旧卷子 → 只替换题目
+ *
+ * **只搬题目**：标题、时间、范围和记名方式都是这一场的新决定。列表行里没有题目，
+ * 所以选中后要再拉一次详情。
+ */
+async function reuseQuestions(id) {
+  if (!id) return
+
+  // 覆盖掉就找不回了；刚打开时的空题不算「填过」
+  if (hasQuestionContent(form.questions)) {
+    try {
+      await ElMessageBox.confirm(
+        `当前已有 ${form.questions.length} 道题，复制会全部覆盖。继续吗？`,
+        '覆盖现有题目？',
+        { type: 'warning', confirmButtonText: '覆盖', cancelButtonText: '取消' }
+      )
+    } catch {
+      reuseId.value = null
+      return
+    }
+  }
+
+  reuseLoading.value = true
+  try {
+    const detail = await getPoll(id)
+    form.questions = questionsFromPoll(detail)
+    ElMessage.success(`已复制「${detail.title || '这场投票'}」的 ${form.questions.length} 道题`)
+  } catch (e) {
+    reuseId.value = null
+    ElMessage.error(errText(e, '读取这场投票的题目失败'))
+  } finally {
+    reuseLoading.value = false
   }
 }
 
@@ -485,6 +574,14 @@ defineExpose({ open, openForEdit })
 
 .pc-warn {
   color: var(--el-color-warning);
+}
+
+.pc-reuse {
+  margin-bottom: 12px;
+}
+
+.pc-reuse .pc-tip {
+  margin-top: 6px;
 }
 
 .pc-tip-inline {
