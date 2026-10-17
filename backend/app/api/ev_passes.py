@@ -1,7 +1,7 @@
 """电动车通行证补办 API"""
 import os
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -16,6 +16,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR, settings
@@ -38,6 +39,7 @@ from ..services import (
     notify,
     recipients,
 )
+from ..services.list_filters import created_between, keyword_like
 from ..services.review_flow import (
     ADMIN_TODO,
     CLOSED,
@@ -474,6 +476,9 @@ def list_applications(
         description="按状态筛选：pending/accepted/correcting/approved/rejected/revoked；"
                     "open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销）",
     ),
+    keyword: str | None = Query(None, description="按提交人姓名或学号模糊搜索"),
+    start: date | None = Query(None, description="提交日期起始，含当天"),
+    end: date | None = Query(None, description="提交日期结束，含当天"),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
@@ -489,6 +494,15 @@ def list_applications(
         query = query.filter(EvPassRequest.status.in_(CLOSED))
     elif status:
         query = query.filter(EvPassRequest.status == status)
+
+    # 这个表里没有姓名/学号列，提交人信息在学生表 —— 用子查询圈 id，不要逐条 join
+    person_match = keyword_like(keyword, Student.name, Student.student_no)
+    if person_match is not None:
+        query = query.filter(
+            EvPassRequest.student_id.in_(select(Student.id).where(person_match))
+        )
+    query = created_between(query, EvPassRequest.created_at, start, end)
+
     rows = query.order_by(EvPassRequest.id.desc()).all()
     return [_to_response(db, r) for r in rows]
 

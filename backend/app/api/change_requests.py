@@ -8,7 +8,7 @@
 """
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -19,6 +19,7 @@ from ..database import get_db
 from ..models import ChangeRequest, Student, User
 from ..schemas import ChangeRequestCreate, ChangeRequestResponse, RejectRequest
 from ..services import clip, display_name, log_operation, notify, recipients
+from ..services.list_filters import created_between, keyword_like
 # 照片的落盘 / 删除 / 取文件三件事与 api/students.py 共用同一份实现
 from ..services.student_photo_service import photo_path, photo_response, remove_photo, save_photo
 from ..utils.student_fields import describe_changes
@@ -204,11 +205,18 @@ def my_requests(
 def list_requests(
     _: User = Depends(committee_required),
     status: str | None = Query(None, description="pending|approved|rejected，不传为全部"),
+    keyword: str | None = Query(None, description="按提交人姓名或学号模糊搜索"),
+    start: date | None = Query(None, description="提交日期起始，含当天"),
+    end: date | None = Query(None, description="提交日期结束，含当天"),
     db: Session = Depends(get_db),
 ):
     query = db.query(ChangeRequest)
     if status:
         query = query.filter(ChangeRequest.status == status)
+    person_match = keyword_like(keyword, ChangeRequest.student_name, ChangeRequest.student_no)
+    if person_match is not None:
+        query = query.filter(person_match)
+    query = created_between(query, ChangeRequest.created_at, start, end)
     rows = query.order_by(ChangeRequest.id.desc()).all()
 
     # 一次把涉及的学生查出来，避免逐条查（N+1）

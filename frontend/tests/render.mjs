@@ -4159,6 +4159,107 @@ unread.value = 0
   check(src.includes('page.value = 1'), '删完回到第一页（已读散在各页）')
 }
 
+console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审核')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+
+  // ---------- 四个页面顶上都有标题行 ----------
+  for (const [path, title] of [
+    ['/src/views/Vote.vue', '投票表决'],
+    ['/src/views/StudentList.vue', '学生信息'],
+    ['/src/views/Attendance.vue', '考勤记录'],
+    ['/src/views/Grade.vue', '成绩管理']
+  ]) {
+    const { html } = await render(path)
+    check(
+      new RegExp(`class="page-title"[^>]*>\\s*${title}\\s*<`).test(stripComments(html)),
+      `${title}页有标题行`
+    )
+  }
+
+  // ---------- 投票：按标题搜 ----------
+  const { html: voteHtml } = await render('/src/views/Vote.vue')
+  check(stripComments(voteHtml).includes('搜索投票标题'), '投票页有标题搜索框')
+  const voteSrc = src('/src/views/Vote.vue')
+  check(/if \(keyword\.value\.trim\(\)\) params\.keyword = keyword\.value\.trim\(\)/.test(voteSrc),
+    '投票列表把标题关键词带给后端')
+  check(/function handleReset\(\) \{[\s\S]{0,80}?keyword\.value = ''/.test(voteSrc),
+    '重置会清掉标题关键词')
+  const pollsPy = src('/../backend/app/api/polls.py')
+  check(/keyword: str \| None = Query\(None, description="按标题模糊搜索"\)/.test(pollsPy),
+    '后端投票列表收 keyword')
+  check(/keyword_like\(keyword, Poll\.title\)/.test(pollsPy), '投票按 Poll.title 过滤')
+
+  // ---------- 考勤：按备注搜 ----------
+  const { html: attendanceHtml } = await render('/src/views/Attendance.vue')
+  check(stripComments(attendanceHtml).includes('搜索点名备注'), '考勤页有备注搜索框')
+  const attendanceSrc = src('/src/views/Attendance.vue')
+  check(/if \(keyword\.value\.trim\(\)\) params\.keyword = keyword\.value\.trim\(\)/
+    .test(attendanceSrc), '考勤列表把备注关键词带给后端')
+  check(/function handleReset\(\) \{[\s\S]{0,80}?keyword\.value = ''/.test(attendanceSrc),
+    '重置会清掉备注关键词')
+  const attendancePy = src('/../backend/app/api/attendance.py')
+  check(/keyword: str \| None = Query\(None, description="按备注模糊搜索"\)/.test(attendancePy),
+    '后端考勤列表收 keyword')
+  check(/keyword_like\(keyword, AttendanceRecord\.remark\)/.test(attendancePy),
+    '考勤按 AttendanceRecord.remark 过滤')
+
+  // ---------- 成绩：按考试名搜 ----------
+  const { html: gradeHtml } = await render('/src/views/Grade.vue')
+  check(stripComments(gradeHtml).includes('搜索考试名称'), '成绩页有考试名称搜索框')
+  const gradeSrc = src('/src/views/Grade.vue')
+  check(/if \(keyword\.value\.trim\(\)\) params\.keyword = keyword\.value\.trim\(\)/.test(gradeSrc),
+    '成绩列表把关键词带给后端')
+  check(/function handleReset\(\) \{[\s\S]{0,80}?keyword\.value = ''/.test(gradeSrc),
+    '重置会清掉考试名称关键词')
+  const gradesPy = src('/../backend/app/api/grades.py')
+  check(/keyword: str \| None = Query\(None, description="按考试名称模糊搜索"\)/.test(gradesPy),
+    '后端成绩列表收 keyword')
+  check(/keyword_like\(keyword, GradeTest\.name\)/.test(gradesPy), '成绩按 GradeTest.name 过滤')
+
+  // ---------- 审核审批：七个 tab 都能按提交人 / 提交时间搜 ----------
+  // 懒加载的 tab 在 SSR 下只渲第一个，所以「七处都在」从源码断言，渲染只验证
+  // 当前这个 tab 的搜索栏真的长出来了
+  const reviewHtml = stripComments((await render('/src/views/Review.vue')).html)
+  check(reviewHtml.includes('提交人姓名或学号'), '审核页渲染出了提交人搜索框')
+  check(reviewHtml.includes('提交开始'), '审核页渲染出了提交日期范围')
+
+  const reviewSrc = src('/src/views/Review.vue')
+  check((reviewSrc.match(/<ReviewSearch/g) || []).length === 7,
+    '七个 tab 各挂一个搜索栏')
+  const fetchFns = [
+    'fetchChangeList', 'fetchLeaveList', 'fetchEvPassList', 'fetchCertificateList',
+    'fetchSignList', 'fetchExportList', 'fetchFeedbackList'
+  ]
+  for (const fn of fetchFns) {
+    const at = reviewSrc.indexOf(`async function ${fn}`)
+    const block = reviewSrc.slice(at, reviewSrc.indexOf('\n}', at))
+    check(at >= 0 && block.includes('reviewParams('), `${fn} 带上提交人 / 提交日期筛选`)
+  }
+  check(/if \(range\?\.length === 2\) \{\s*params\.start = range\[0\]\s*params\.end = range\[1\]/
+    .test(reviewSrc), '日期范围拆成 start / end 两个参数')
+  check(/params\.keyword = kw/.test(reviewSrc), '关键词去空白后才发给后端')
+
+  const searchSrc = src('/src/components/ReviewSearch.vue')
+  check(searchSrc.includes('value-format="YYYY-MM-DD"'), '搜索栏的日期是 YYYY-MM-DD')
+  check(searchSrc.includes('@clear="emit(\'search\')"'), '清空关键词立即重查')
+
+  // 后端七个列表接口都得收下这三项，少一个那个 tab 就会「搜了没反应」
+  for (const file of ['leaves', 'ev_passes', 'certificates', 'change_requests',
+                      'sign_photos', 'exports', 'feedback']) {
+    const py = src(`/../backend/app/api/${file}.py`)
+    check(/keyword: str \| None = Query\(None, description="按提交人姓名或学号模糊搜索"\)/
+      .test(py), `${file} 接收 keyword`)
+    check(/created_between\((query|q), \w+\.created_at, start, end\)/.test(py),
+      `${file} 按 created_at 与日期范围过滤`)
+  }
+
+  // ---------- 文件公开：文号列加宽、不再有发布人列 ----------
+  const annSrc = src('/src/views/Announcements.vue')
+  check(/label="文号" width="220"/.test(annSrc), '文号列加宽到 220')
+  check(!/label="发布人"/.test(annSrc), '发布人列已去掉')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

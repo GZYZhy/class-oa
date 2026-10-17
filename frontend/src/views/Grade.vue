@@ -1,7 +1,26 @@
 <template>
   <div class="grade">
     <div class="page-card">
+      <h3 class="page-title">成绩管理</h3>
       <div class="gd-bar">
+        <el-form :inline="true" size="default" class="gd-filter" @submit.prevent>
+          <el-form-item label="考试名称">
+            <el-input
+              v-model="keyword"
+              placeholder="搜索考试名称"
+              clearable
+              style="width: 200px"
+              @keyup.enter="handleSearch"
+              @clear="handleSearch"
+            >
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="handleSearch">查询</el-button>
+            <el-button @click="handleReset">重置</el-button>
+          </el-form-item>
+        </el-form>
         <span class="gd-tip">
           上传一次成绩后全班可查，学生在「我的信息 → 我的成绩」里看自己的分数
         </span>
@@ -98,6 +117,8 @@ const rows = ref([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
+// 考试名称关键词。空串 = 不过滤
+const keyword = ref('')
 const importRef = ref(null)
 const detailRef = ref(null)
 const statsRef = ref(null)
@@ -111,7 +132,9 @@ onMounted(fetchList)
 async function fetchList() {
   loading.value = true
   try {
-    const res = await getGradeList({ page: currentPage.value, page_size: pageSize.value })
+    const params = { page: currentPage.value, page_size: pageSize.value }
+    if (keyword.value.trim()) params.keyword = keyword.value.trim()
+    const res = await getGradeList(params)
     rows.value = res.items || []
     total.value = res.total || 0
   } catch (e) {
@@ -119,6 +142,16 @@ async function fetchList() {
   } finally {
     loading.value = false
   }
+}
+
+function handleSearch() {
+  currentPage.value = 1
+  fetchList()
+}
+
+function handleReset() {
+  keyword.value = ''
+  handleSearch()
 }
 
 function handleSizeChange() {
@@ -181,7 +214,13 @@ async function handleDelete(row) {
 .gd-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
+}
+
+/* 搜索表单自己带下边距，在横排里会把上传按钮顶歪 */
+.gd-filter {
+  margin-bottom: 0;
 }
 
 .gd-tip {
@@ -189,7 +228,8 @@ async function handleDelete(row) {
   color: var(--el-text-color-secondary);
 }
 
-.gd-bar .el-button {
+/* 只推上传按钮，别把搜索框里的查询/重置也推到右边 */
+.gd-bar > .el-button {
   margin-left: auto;
 }
 

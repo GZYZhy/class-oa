@@ -11,7 +11,7 @@ PDF 自动打不可见水印，溯源是谁导出的。
 
 import json
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -37,6 +37,7 @@ from ..services import (
     recipients,
     scope_label,
 )
+from ..services.list_filters import created_between, keyword_like
 from ..services.export_service import (
     DEFAULT_FIELDS,
     FIELD_MAP,
@@ -339,6 +340,9 @@ def download_file(
 @router.get("", response_model=ExportRequestListResponse, summary="导出申请列表")
 def list_requests(
     status: str = Query("", description="按状态筛选，空=全部"),
+    keyword: str | None = Query(None, description="按提交人姓名或学号模糊搜索"),
+    start: date | None = Query(None, description="提交日期起始，含当天"),
+    end: date | None = Query(None, description="提交日期结束，含当天"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -352,6 +356,10 @@ def list_requests(
     q = db.query(ExportRequest)
     if status:
         q = q.filter(ExportRequest.status == status)
+    person_match = keyword_like(keyword, ExportRequest.student_name, ExportRequest.student_no)
+    if person_match is not None:
+        q = q.filter(person_match)
+    q = created_between(q, ExportRequest.created_at, start, end)
     total = q.count()
     items = (
         q.order_by(desc(ExportRequest.created_at))

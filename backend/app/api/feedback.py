@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import (
@@ -23,6 +23,7 @@ from ..database import get_db
 from ..models import Feedback, Student, User
 from ..schemas import FeedbackReply, FeedbackResponse
 from ..services import display_name
+from ..services.list_filters import created_between, keyword_like
 from ..utils.media_type import guess_media_type
 from .deps import (
     committee_required,
@@ -251,12 +252,19 @@ def download_attachment(
 @router.get("", response_model=list[FeedbackResponse], summary="反馈列表（班委及以上）")
 def list_feedback(
     status: str | None = Query(None, description="unread/read/replied，不传为全部"),
+    keyword: str | None = Query(None, description="按提交人姓名或学号模糊搜索"),
+    start: date | None = Query(None, description="提交日期起始，含当天"),
+    end: date | None = Query(None, description="提交日期结束，含当天"),
     _: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
     query = db.query(Feedback)
     if status and status in VALID_STATUSES:
         query = query.filter(Feedback.status == status)
+    person_match = keyword_like(keyword, Feedback.student_name, Feedback.student_no)
+    if person_match is not None:
+        query = query.filter(person_match)
+    query = created_between(query, Feedback.created_at, start, end)
     rows = query.order_by(desc(Feedback.id)).all()
     return [_to_response(r) for r in rows]
 

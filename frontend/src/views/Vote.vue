@@ -3,30 +3,45 @@
     <!-- 整页都是表决内容（谁投了什么、谁还没投），盖一层「谁在看」的水印 -->
     <Watermark :text="watermarkText" />
 
-    <!-- 筛选 + 发起 -->
-    <div class="page-card vt-bar">
-      <el-form :inline="true" size="default" class="vt-filter">
-        <el-form-item label="状态">
-          <el-select v-model="status" style="width: 130px" @change="handleSearch">
-            <el-option label="全部" value="" />
-            <el-option label="未开始" value="pending" />
-            <el-option label="进行中" value="open" />
-            <el-option label="已结束" value="closed" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">
-            <el-icon><Search /></el-icon>查询
-          </el-button>
-          <el-button @click="handleReset">
-            <el-icon><Refresh /></el-icon>重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-      <!-- 权限在按钮一级：普通学生进来只有表决和看结果，后端 committee_required 兜底 -->
-      <el-button v-if="userStore.isCommittee" type="primary" @click="createRef.open()">
-        <el-icon><Plus /></el-icon>发起投票
-      </el-button>
+    <!-- 标题 + 筛选 + 发起 -->
+    <div class="page-card">
+      <h3 class="page-title">投票表决</h3>
+      <div class="vt-bar">
+        <el-form :inline="true" size="default" class="vt-filter">
+          <el-form-item label="标题">
+            <el-input
+              v-model="keyword"
+              placeholder="搜索投票标题"
+              clearable
+              style="width: 200px"
+              @keyup.enter="handleSearch"
+              @clear="handleSearch"
+            >
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select v-model="status" style="width: 130px" @change="handleSearch">
+              <el-option label="全部" value="" />
+              <el-option label="未开始" value="pending" />
+              <el-option label="进行中" value="open" />
+              <el-option label="已结束" value="closed" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="handleSearch">
+              <el-icon><Search /></el-icon>查询
+            </el-button>
+            <el-button @click="handleReset">
+              <el-icon><Refresh /></el-icon>重置
+            </el-button>
+          </el-form-item>
+        </el-form>
+        <!-- 权限在按钮一级：普通学生进来只有表决和看结果，后端 committee_required 兜底 -->
+        <el-button v-if="userStore.isCommittee" type="primary" @click="createRef.open()">
+          <el-icon><Plus /></el-icon>发起投票
+        </el-button>
+      </div>
     </div>
 
     <!-- 列表 -->
@@ -371,6 +386,8 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const status = ref('')
+// 标题搜索。空串 = 不过滤（后端把空关键词当作没传）
+const keyword = ref('')
 const createRef = ref(null)
 
 const submitting = ref(false)
@@ -400,6 +417,7 @@ async function fetchList() {
   try {
     const params = { page: currentPage.value, page_size: pageSize.value }
     if (status.value) params.status = status.value
+    if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await getPolls(params)
     rows.value = res.items || []
     total.value = res.total || 0
@@ -417,6 +435,7 @@ function handleSearch() {
 
 function handleReset() {
   status.value = ''
+  keyword.value = ''
   handleSearch()
 }
 

@@ -1,8 +1,21 @@
 <template>
   <div class="attendance">
-    <!-- 筛选区域 -->
+    <!-- 标题 + 筛选区域 -->
     <div class="page-card">
+      <h3 class="page-title">考勤记录</h3>
       <el-form :inline="true" size="default">
+        <el-form-item label="备注">
+          <el-input
+            v-model="keyword"
+            placeholder="搜索点名备注"
+            clearable
+            style="width: 200px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          >
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </el-input>
+        </el-form-item>
         <el-form-item label="日期">
           <el-date-picker
             v-model="dateRange"
@@ -138,6 +151,8 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const dateRange = ref(null)
+// 备注关键词。和日期范围是「并且」的关系，可以只给一个
+const keyword = ref('')
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -156,6 +171,7 @@ async function fetchList() {
       params.start = dateRange.value[0]
       params.end = dateRange.value[1]
     }
+    if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await getAttendanceList(params)
     rows.value = res.items || []
     total.value = res.total || 0
@@ -173,6 +189,7 @@ function handleSearch() {
 
 function handleReset() {
   dateRange.value = null
+  keyword.value = ''
   handleSearch()
 }
 

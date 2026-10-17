@@ -35,6 +35,7 @@ from ..schemas import (
     PollVoteIn,
 )
 from ..services import account_name, log_operation, notify, recipients
+from ..services.list_filters import keyword_like
 from ..services.poll_service import (
     STATUS_CLOSED,
     STATUS_LOCKED,
@@ -225,6 +226,7 @@ def _target_nos(db: Session, poll_id: int) -> list[str]:
 @router.get("", response_model=PollListResponse, summary="投票列表")
 def list_polls(
     status: str | None = Query(None, description="按状态筛选：pending / open / closed"),
+    keyword: str | None = Query(None, description="按标题模糊搜索"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE),
     user: User = Depends(get_current_user),
@@ -236,6 +238,11 @@ def list_polls(
     """
     admin = is_admin(user)
     query = filter_visible(db, db.query(Poll), user.student_no, admin)
+
+    # 标题搜索也必须落在 SQL 里，理由同下面的状态筛选（分页要先算对 total）
+    title_match = keyword_like(keyword, Poll.title)
+    if title_match is not None:
+        query = query.filter(title_match)
 
     # 状态筛选必须落在 SQL 里，否则分页会算错（先取一页再在 Python 里滤，
     # 每页条数就不是 page_size 了）。**这三档不等于状态的四种取值**：STATUS_OPEN

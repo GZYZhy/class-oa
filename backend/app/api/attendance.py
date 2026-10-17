@@ -28,6 +28,7 @@ from ..schemas import (
     AttendanceRemarkUpdate,
 )
 from ..services import display_name, log_operation
+from ..services.list_filters import keyword_like
 from .deps import committee_required, get_client_ip
 
 router = APIRouter(prefix="/api/attendance", tags=["考勤记录"])
@@ -177,6 +178,7 @@ def export_attendance(
 def list_attendance(
     start: date | None = Query(None, description="起始日期，含当天"),
     end: date | None = Query(None, description="结束日期，含当天"),
+    keyword: str | None = Query(None, description="按备注模糊搜索"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     _: User = Depends(committee_required),
@@ -184,6 +186,9 @@ def list_attendance(
 ):
     """列表只带聚合计数，不带明细（明细走 GET /{record_id}）"""
     query = _date_range(db.query(AttendanceRecord), start, end)
+    remark_match = keyword_like(keyword, AttendanceRecord.remark)
+    if remark_match is not None:
+        query = query.filter(remark_match)
     total = query.count()
     records = (
         query.order_by(AttendanceRecord.call_date.desc(), AttendanceRecord.id.desc())

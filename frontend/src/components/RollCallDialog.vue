@@ -186,7 +186,7 @@ async function fetchRoster() {
       getStudentList({ page: 1, page_size: 500, sort_by: 'student_no', sort_order: 'asc' }),
       // 请假列表是班委及以上才看得到，点名本来就只有班委点得了，权限对得上。
       // 复用现成接口，不另开一个「查谁在请假」的接口 —— 那要把区间比较写两遍
-      getLeaveList('approved')
+      getLeaveList({ status: 'approved' })
     ])
     // 过滤只在这里做一次，roster 只装能点名的人。counts 和 queue 都是从 roster
     // 出来的，所以按钮上的数字和实际叫到的人不会对不上

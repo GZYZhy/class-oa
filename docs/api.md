@@ -1082,6 +1082,9 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `status` | query | 否 | string，可空 | pending|approved|rejected，不传为全部 |
+| `keyword` | query | 否 | string，可空 | 按提交人姓名或学号模糊搜索 |
+| `start` | query | 否 | string，可空 | 提交日期起始，含当天 |
+| `end` | query | 否 | string，可空 | 提交日期结束，含当天 |
 
 **响应**
 
@@ -1183,6 +1186,9 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `status` | query | 否 | string，可空 | pending/accepted/correcting/approved/rejected/revoked；open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销），不传为全部 |
+| `keyword` | query | 否 | string，可空 | 按提交人姓名或学号模糊搜索 |
+| `start` | query | 否 | string，可空 | 提交日期起始，含当天 |
+| `end` | query | 否 | string，可空 | 提交日期结束，含当天 |
 
 **响应**
 
@@ -1486,6 +1492,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | --- | --- | --- | --- | --- |
 | `start` | query | 否 | string，可空 | 起始日期，含当天 |
 | `end` | query | 否 | string，可空 | 结束日期，含当天 |
+| `keyword` | query | 否 | string，可空 | 按备注模糊搜索 |
 | `page` | query | 否 | integer（≥1，默认 1） | 默认 `1` |
 | `page_size` | query | 否 | integer（≥1，≤100，默认 20） | 默认 `20` |
 
@@ -1620,6 +1627,9 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `status` | query | 否 | string，可空 | unread/read/replied，不传为全部 |
+| `keyword` | query | 否 | string，可空 | 按提交人姓名或学号模糊搜索 |
+| `start` | query | 否 | string，可空 | 提交日期起始，含当天 |
+| `end` | query | 否 | string，可空 | 提交日期结束，含当天 |
 
 **响应**
 
@@ -1766,6 +1776,9 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `status` | query | 否 | string，可空 | 按状态筛选：pending/accepted/correcting/approved/rejected/revoked；open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销） |
+| `keyword` | query | 否 | string，可空 | 按提交人姓名或学号模糊搜索 |
+| `start` | query | 否 | string，可空 | 提交日期起始，含当天 |
+| `end` | query | 否 | string，可空 | 提交日期结束，含当天 |
 
 **响应**
 
@@ -2063,6 +2076,9 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `status` | query | 否 | string | 按状态筛选，空=全部 |
+| `keyword` | query | 否 | string，可空 | 按提交人姓名或学号模糊搜索 |
+| `start` | query | 否 | string，可空 | 提交日期起始，含当天 |
+| `end` | query | 否 | string，可空 | 提交日期结束，含当天 |
 | `page` | query | 否 | integer（≥1，默认 1） | 默认 `1` |
 | `page_size` | query | 否 | integer（≥1，≤100，默认 20） | 默认 `20` |
 
@@ -2177,6 +2193,9 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `status` | query | 否 | string，可空 | 按状态筛选：pending/accepted/correcting/approved/rejected/revoked；open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销） |
+| `keyword` | query | 否 | string，可空 | 按提交人姓名或学号模糊搜索 |
+| `start` | query | 否 | string，可空 | 提交日期起始，含当天 |
+| `end` | query | 否 | string，可空 | 提交日期结束，含当天 |
 
 **响应**
 
@@ -2578,6 +2597,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `status` | query | 否 | string，可空 | 按状态筛选：pending / open / closed |
+| `keyword` | query | 否 | string，可空 | 按标题模糊搜索 |
 | `page` | query | 否 | integer（≥1，默认 1） | 默认 `1` |
 | `page_size` | query | 否 | integer（≥1，≤100，默认 20） | 默认 `20` |
 
@@ -2860,6 +2880,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
+| `keyword` | query | 否 | string，可空 | 按考试名称模糊搜索 |
 | `page` | query | 否 | integer（≥1，默认 1） | 默认 `1` |
 | `page_size` | query | 否 | integer（≥1，≤100，默认 20） | 默认 `20` |
 
@@ -3297,6 +3318,9 @@ iCal 订阅端点（公开接口，通过 URL 中的 token 鉴权） 返回标�
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `status` | query | 否 | string，可空 | 按状态筛选：pending / approved / rejected |
+| `keyword` | query | 否 | string，可空 | 按提交人姓名或学号模糊搜索 |
+| `start` | query | 否 | string，可空 | 提交日期起始，含当天 |
+| `end` | query | 否 | string，可空 | 提交日期结束，含当天 |
 | `page` | query | 否 | integer（≥1，默认 1） | 默认 `1` |
 | `page_size` | query | 否 | integer（≥1，≤100，默认 20） | 默认 `20` |
 
