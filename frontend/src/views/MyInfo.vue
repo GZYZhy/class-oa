@@ -161,6 +161,20 @@
         <!-- 我的成绩：只有学生账号才有。**必须是顶层 tab** ——
              「办件空间」那一层的二级 tab 被 ?sub= 占着，塞进去就没法从站内信直接跳过来 -->
         <el-tab-pane v-if="!userStore.isExternal" label="我的成绩" name="grades">
+          <!-- 考过的试会一直攒下去，翻起来累；按考试名称筛一下最省事 -->
+          <div class="grades-bar">
+            <el-input
+              v-model="gradesKeyword"
+              placeholder="搜索考试名称"
+              clearable
+              style="max-width: 240px"
+              @keyup.enter="fetchMyGrades"
+              @clear="fetchMyGrades"
+            >
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <el-button @click="fetchMyGrades">查询</el-button>
+          </div>
           <div v-loading="gradesLoading" class="workspace-list">
             <div v-if="gradesList.length" class="case-list">
               <div v-for="item in gradesList" :key="item.test_id" class="case-item">
@@ -195,7 +209,7 @@
             </div>
             <el-empty
               v-if="!gradesLoading && !gradesList.length"
-              description="还没有成绩记录"
+              :description="gradesKeyword.trim() ? '没有找到相关成绩' : '还没有成绩记录'"
               style="margin-top: 20px;"
             />
           </div>
@@ -586,6 +600,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search } from '@element-plus/icons-vue'
 import { getMyInfo } from '@/api/student'
 import { changePassword, getMyLogs } from '@/api/auth'
 import { submitChangeRequest, getMyChangeRequests } from '@/api/changeRequest'
@@ -801,6 +816,7 @@ watch(workspaceTab, (val) => {
 
 const gradesList = ref([])
 const gradesLoading = ref(false)
+const gradesKeyword = ref('')
 
 /** 这格是分数还是标记词（缺考/免修…）。空串永远不会走到这里，调用处已经挡了 */
 function isScore(value) {
@@ -815,7 +831,7 @@ async function fetchMyGrades() {
   gradesLoading.value = true
   try {
     // 同下面几个：接口返回 null 时退化成空数组，否则模板里的 .length 会白屏
-    gradesList.value = (await getMyGrades()) || []
+    gradesList.value = (await getMyGrades(gradesKeyword.value.trim())) || []
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '加载失败')
   } finally {
@@ -1443,6 +1459,13 @@ onMounted(async () => {
 /* ---------- 办件空间 ---------- */
 .workspace-list {
   min-height: 200px;
+}
+
+/* 我的成绩顶上的搜索条 */
+.grades-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
 .case-list {

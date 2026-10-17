@@ -1,6 +1,7 @@
 import os
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
@@ -82,7 +83,28 @@ router = APIRouter(prefix="/api/auth", tags=["认证"])
 
 # 头像目录：域外账号的头像存这里，学生账号的照片在 data/photos（见 students.py）
 AVATAR_DIR = BASE_DIR / "data" / "avatars"
-PHOTO_DIR = BASE_DIR / "data" / "photos"
+# 测试跑的是真后端进程，照片目录也得能像其它文件目录一样被环境变量换走，
+# 否则这里会去读本机演示库的 photos
+PHOTO_DIR = Path(os.environ.get("PHOTO_DIR") or (BASE_DIR / "data" / "photos"))
+
+# 学生账号头像的照片优先级：自备证件照 > 高考照片 > 实地采集照片。
+# 三种都没有时才轮到前端画姓名首字。
+_STUDENT_AVATAR_FIELDS = ("id_photo", "gaokao_photo", "on_site_photo")
+
+
+def _student_avatar_name(student: Student | None) -> str | None:
+    """按优先级挑一张学生头像，返回文件名
+
+    库里记着路径、文件却不在的（换库、手工清理过）不算数 —— 跳过它继续往后找，
+    全都没有就返回 None，让前端画姓名首字，而不是一个裂图。
+    """
+    if student is None:
+        return None
+    for field in _STUDENT_AVATAR_FIELDS:
+        name = getattr(student, field, None)
+        if name and (PHOTO_DIR / os.path.basename(name)).exists():
+            return os.path.basename(name)
+    return None
 
 # 头像文件后缀 → 响应类型。认不出来的按 jpeg 兜底（上传时已经卡过后缀白名单）
 _AVATAR_MEDIA_TYPES = {
@@ -166,7 +188,8 @@ def build_user_info(db: Session, user: User, student: Student | None) -> UserInf
     """组装返回给前端的用户信息
 
     姓名：域外账号用自定义展示名，学生账号用学生姓名（见 account_name）。
-    头像：域外账号用自己上传的那张，学生账号用高考照片。
+    头像：域外账号用自己上传的那张；学生账号按「自备证件照 > 高考照片 >
+    实地采集照片」的顺序取第一张在的（见 _student_avatar_name）。
 
     头像 URL 带登录名后缀，避免切换账号后浏览器命中缓存 ——
     所有账号的头像都叫同一个地址，浏览器会以为是同一张。
@@ -174,7 +197,7 @@ def build_user_info(db: Session, user: User, student: Student | None) -> UserInf
     否则管理员刚换的图会被浏览器缓存里的旧图盖住。
     """
     # 学生账号没有学生记录时（理论上不会发生）student 为 None，这里一并兜住
-    file_name = user.avatar if user.is_external else (student.gaokao_photo if student else None)
+    file_name = user.avatar if user.is_external else _student_avatar_name(student)
     return UserInfoResponse(
         student_no=user.student_no,
         name=account_name(db, user),
@@ -390,11 +413,11 @@ def my_avatar(
             raise HTTPException(status_code=404, detail="头像不存在")
         file_path = AVATAR_DIR / os.path.basename(user.avatar)
     else:
-        # 学生账号：仍用高考照片
-        student = _student_of(db, user)
-        if not student or not student.gaokao_photo:
+        # 学生账号：自备证件照 > 高考照片 > 实地采集照片
+        name = _student_avatar_name(_student_of(db, user))
+        if not name:
             raise HTTPException(status_code=404, detail="头像不存在")
-        file_path = PHOTO_DIR / os.path.basename(student.gaokao_photo)
+        file_path = PHOTO_DIR / name
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="头像文件丢失")

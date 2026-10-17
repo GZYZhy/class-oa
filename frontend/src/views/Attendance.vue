@@ -1,6 +1,6 @@
 <template>
   <div class="attendance">
-    <!-- 标题 + 筛选区域 -->
+    <!-- 和审核审批一样整页一张卡片：标题、筛选和列表都在里面 -->
     <div class="page-card">
       <h3 class="page-title">考勤记录</h3>
       <el-form :inline="true" size="default">
@@ -39,14 +39,13 @@
           </el-button>
         </el-form-item>
       </el-form>
-    </div>
 
-    <!-- 列表 -->
-    <div class="page-card">
+      <!-- 列表 -->
       <el-table
         v-loading="loading"
         :data="rows"
         stripe
+        style="margin-top: 16px;"
         empty-text="这段时间还没有点名记录，在学生信息页点一次名就会出现在这里"
       >
         <el-table-column prop="call_date" label="日期" width="120" />

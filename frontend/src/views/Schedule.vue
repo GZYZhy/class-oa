@@ -8,10 +8,17 @@
           {{ weekLabel }}<template v-if="weekOfSemester">（第{{ weekOfSemester }}周）</template>
         </span>
         <el-button :icon="ArrowRight" circle @click="nextWeek" />
-        <el-button size="small" @click="goToday">今天</el-button>
-        <el-button size="small" @click="openGoDialog">前往</el-button>
+        <!-- 这两个必须包在一起：窄屏换行时若各自是独立项，「今天」留在上一行、
+             「前往」掉到下一行，两个同类操作就被拆散了 -->
+        <span class="quick-jump">
+          <el-button size="small" @click="goToday">今天</el-button>
+          <el-button size="small" @click="openGoDialog">前往</el-button>
+        </span>
       </div>
       <div class="actions">
+        <el-button @click="openSearch">
+          <el-icon><Search /></el-icon>搜索
+        </el-button>
         <el-button v-if="userStore.isCommittee" @click="importDialog.open = true">
           <el-icon><Upload /></el-icon>导入
         </el-button>
@@ -490,6 +497,45 @@
       </template>
     </el-dialog>
 
+    <!-- 按名称搜日程。同名日程可能有很多条（导入的课表里几乎天天有「晚自习」），
+         所以结果在弹窗里按日期列开，点一条就跳到那一天并打开详情 -->
+    <el-dialog v-model="searchDialog.open" title="搜索日程" width="480px">
+      <el-input
+        v-model="searchDialog.keyword"
+        placeholder="输入日程名称，如「晚自习」"
+        clearable
+        :prefix-icon="Search"
+      />
+      <div v-loading="searchDialog.loading" class="search-results">
+        <div v-if="!searchDialog.keyword.trim()" class="search-tip">
+          输入名称后列出相关日程
+        </div>
+        <el-empty
+          v-else-if="!searchDialog.loading && !searchDialog.results.length"
+          description="没有找到相关日程"
+          :image-size="64"
+        />
+        <div
+          v-for="item in searchDialog.results"
+          :key="`${item.template_id}-${item.instance_date}`"
+          class="search-item"
+          @click="jumpToResult(item)"
+        >
+          <div class="search-item-main">
+            <span class="search-item-title">{{ item.title }}</span>
+            <span class="search-item-time">
+              {{ item.instance_date }}
+              {{ item.all_day ? '全天' : `${clockText(item.start_time)} ~ ${clockText(item.end_time)}` }}
+            </span>
+          </div>
+          <div v-if="item.location || item.repeat_type !== 'none'" class="search-item-meta">
+            {{ item.location }}<template v-if="item.location && item.repeat_type !== 'none'"> · </template>
+            <template v-if="item.repeat_type !== 'none'">{{ repeatLabel(item.repeat_type) }}</template>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
+
     <!-- 订阅弹窗 -->
     <el-dialog v-model="subscribeDialog.open" title="日历订阅" width="520px">
       <div v-loading="subscribeLoading">
@@ -541,11 +587,11 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ArrowLeft, ArrowRight, Plus, Upload, Link, Bell,
+  ArrowLeft, ArrowRight, Plus, Upload, Link, Bell, Search,
   UploadFilled, Refresh, Warning, CopyDocument
 } from '@element-plus/icons-vue'
 import {
-  listSchedules, createSchedule, updateSchedule, deleteSchedule,
+  listSchedules, createSchedule, updateSchedule, deleteSchedule, searchSchedules,
   importPreview as apiImportPreview, importConfirm as apiImportConfirm,
   getIcalToken, resetIcalToken, getSemesterInfo
 } from '@/api/schedule'
@@ -693,6 +739,57 @@ function goToDate() {
   nextTick(() => centerDay(goDate.value))
 }
 
+// ---------- 按名称搜索 ----------
+const searchDialog = ref({ open: false, keyword: '', loading: false, results: [] })
+let searchTimer = null
+// 慢请求可能后到：只认最后一次查询的结果，别让上一次的列表盖掉这一次的
+let searchSeq = 0
+
+function openSearch() {
+  searchDialog.value.open = true
+  // 上次搜过的词还在，重新拉开弹窗时直接把结果刷新一遍（同名日程可能刚改过）
+  if (searchDialog.value.keyword.trim()) runSearch()
+}
+
+async function runSearch() {
+  const kw = searchDialog.value.keyword.trim()
+  const seq = ++searchSeq
+  if (!kw) {
+    searchDialog.value.results = []
+    // 上一次请求可能还在路上；序号已经变了，它的 finally 不会再替我们关掉转圈
+    searchDialog.value.loading = false
+    return
+  }
+  searchDialog.value.loading = true
+  try {
+    const data = (await searchSchedules(kw)) || []
+    if (seq === searchSeq) searchDialog.value.results = data
+  } catch (e) {
+    if (seq === searchSeq) ElMessage.error(errText(e, '搜索失败'))
+  } finally {
+    if (seq === searchSeq) searchDialog.value.loading = false
+  }
+}
+
+// 停手 300ms 再查：每敲一个字发一次请求太浪费，中文输入法还会按拼音逐字触发
+watch(
+  () => searchDialog.value.keyword,
+  () => {
+    clearTimeout(searchTimer)
+    searchTimer = setTimeout(runSearch, 300)
+  }
+)
+
+/** 点搜索结果：跳到那一天所在的周，并把这次的详情直接打开 */
+function jumpToResult(item) {
+  searchDialog.value.open = false
+  currentMonday.value = getMonday(parseDay(item.instance_date))
+  nextTick(() => {
+    centerDay(item.instance_date)
+    openDetail(item)
+  })
+}
+
 // 窄屏上表格比屏幕宽（见 .calendar-grid 的 min-width），「今天」默认摆在正中间
 const calendarWrapper = ref(null)
 
@@ -771,7 +868,10 @@ onMounted(() => {
   clockTimer = setInterval(() => { now.value = new Date() }, 30000)
 })
 
-onUnmounted(() => clearInterval(clockTimer))
+onUnmounted(() => {
+  clearInterval(clockTimer)
+  clearTimeout(searchTimer)
+})
 
 // ---------- 定位日程块 ----------
 // 定时日程的块：先按天分组，同一天里时间上撞在一起的并排（columnizeDay）
@@ -1596,11 +1696,78 @@ async function handleResetToken() {
   margin-left: auto;
 }
 
+/* 「今天」「前往」放在同一个盒子里，窄屏换行时它们不会被拆到两行 */
+.quick-jump {
+  display: inline-flex;
+  gap: 8px;
+}
+
 /* 窄屏：180px 的日期栏太占地方，让它跟着内容收缩 */
 @media (max-width: 560px) {
   .week-label {
     min-width: 0;
   }
+
+  /* 手机上整条工具栏只有一行的宽度，间距收到 6px 才塞得下
+     「上一周 + 日期 + 下一周 + 今天 + 前往」；实在塞不下时，
+     今天/前往作为整体一起换行 */
+  .week-nav {
+    gap: 6px;
+  }
+
+  .quick-jump {
+    gap: 6px;
+  }
+}
+
+/* ---------- 搜索结果弹窗 ---------- */
+.search-results {
+  margin-top: 12px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.search-tip {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.search-item {
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.search-item:hover {
+  background: var(--el-fill-color-light);
+}
+
+.search-item-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.search-item-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-item-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.search-item-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 /* 日历网格 */
