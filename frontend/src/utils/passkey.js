@@ -15,6 +15,25 @@ export function isPasskeySupported() {
   )
 }
 
+/**
+ * 能不能用条件式 UI（账号框的自动填充）
+ *
+ * 支持时页面加载后可以挂起一次 get({mediation:'conditional'})：
+ * 用户聚焦账号框，浏览器就把本机的钥匙列进自动填充，选中后才弹生物识别。
+ * Safari 16+ / Chrome 108+ 支持；老浏览器返回 false，照常走按钮。
+ */
+export async function isConditionalPasskeyAvailable() {
+  if (!isPasskeySupported()) return false
+  if (typeof window.PublicKeyCredential.isConditionalMediationAvailable !== 'function') {
+    return false
+  }
+  try {
+    return await window.PublicKeyCredential.isConditionalMediationAvailable()
+  } catch (e) {
+    return false
+  }
+}
+
 function b64urlToBytes(value) {
   const pad = '='.repeat((4 - (value.length % 4)) % 4)
   const bin = atob(value.replace(/-/g, '+').replace(/_/g, '/') + pad)
@@ -85,8 +104,14 @@ export async function createPasskey(options) {
   return credentialToJSON(cred)
 }
 
-/** 用已有钥匙登录：后端已经按学号点名了允许的凭据 */
-export async function getPasskey(options) {
+/**
+ * 用已有钥匙登录：allowCredentials 为空，由浏览器列出本机属于本站的钥匙。
+ *
+ * - mediation: 'conditional' —— 不弹窗，只把钥匙放进账号框的自动填充；
+ * - signal —— 用于中止挂起的自动填充（用户改用按钮时必须先停掉它，
+ *   两条流程同时跑会互相覆盖服务端会话里的挑战）。
+ */
+export async function getPasskey(options, { mediation, signal } = {}) {
   const publicKey = {
     ...options,
     challenge: b64urlToBytes(options.challenge),
@@ -95,7 +120,10 @@ export async function getPasskey(options) {
       id: b64urlToBytes(c.id)
     }))
   }
-  const cred = await navigator.credentials.get({ publicKey })
+  const request = { publicKey }
+  if (mediation) request.mediation = mediation
+  if (signal) request.signal = signal
+  const cred = await navigator.credentials.get(request)
   return credentialToJSON(cred)
 }
 
