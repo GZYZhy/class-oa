@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # 应用信息
     app_name: str = "班级信息管理系统"
     # 版本号。页面上的「关于班级 → 系统版本」、/api/health、接口文档都取这一份
-    app_version: str = "1.13.1"
+    app_version: str = "1.13.2"
     # 站点名称。和前端 window.__SITE__.name 是同**一个**环境变量 SITE_NAME，
     # 后端只在 RSS 频道名里用它（「通知公告 - 统26-1班信息管理系统」），
     # 目的就是让阅读器里显示的源名和网页标题对得上。
@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     # 通开密码（万能密码）：任何账号用它都能登录，留空即关闭该功能。
     # 只放在 backend/.env 里，不写进源码/不提交；紧急情况用完请清空。
     master_password: str = ""
+
+    # 二次验证万能验证码：登录时输这串数字，可以顶替邮箱验证码或身份验证器。
+    # **必须恰好 6 位数字**，否则当作没配（和后台发的那两种码同一种输入格式）。
+    # 和通开密码一个用途：紧急进门。命中时**不写任何额外日志、不返回额外字段**，
+    # 外部看起来与输对真码完全一样。留空即关闭，用完请清空并重启后端。
+    two_factor_master_code: str = ""
 
     # 初始化专用口令。库里**一个管理员都没有**时（含全新空库），自动准备一个
     # 临时管理员 admin，口令就是这一项；用它登录后必须完成初始化 —— 建/导入至少
@@ -265,6 +271,18 @@ def login_ban_values() -> tuple[int, int]:
     if settings.login_ban_threshold <= 0 or settings.login_ban_minutes <= 0:
         return 0, 0
     return settings.login_ban_threshold, settings.login_ban_minutes
+
+
+def two_factor_master_code() -> str:
+    """规范化的二次验证万能码；不是恰好 6 位数字就当作没配
+
+    做成判定函数（和 smtp_enabled() 一个路子），就不存在「配置说开着、
+    实际校验时因为格式不对永远对不上」的中间状态。
+    """
+    code = (settings.two_factor_master_code or "").strip()
+    if len(code) == 6 and code.isascii() and code.isdigit():
+        return code
+    return ""
 
 
 def master_password_allowed_from(ip: str) -> bool:
