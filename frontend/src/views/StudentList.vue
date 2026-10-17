@@ -997,7 +997,7 @@
     />
 
     <!-- 导入 Excel 弹框（与初始化浮层共用同一个组件） -->
-    <StudentImportDialog ref="importDialogRef" @done="fetchList" />
+    <StudentImportDialog ref="importDialogRef" @done="fetchData" />
 
     <!-- 导出弹框 -->
     <el-dialog
@@ -1159,7 +1159,7 @@
 
     <!-- 点名弹窗 -->
     <RollCallDialog ref="rollCallRef" />
-    <PhotoImportDialog ref="photoImportRef" @done="fetchList" />
+    <PhotoImportDialog ref="photoImportRef" @done="fetchData" />
 
     <!-- 抽签弹窗。勾选要实时反映到「从表格里选（N）」上，所以走 prop 而不是 open 传参 -->
     <DrawDialog ref="drawRef" :selected="selectedStudents" />

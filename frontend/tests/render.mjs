@@ -263,7 +263,9 @@ console.log('\n▶ 身份只认 is_bootstrap 列，不认登录名')
 console.log('\n▶ 学生名单页的导入弹窗已抽成公共组件')
 {
   const list = readFileSync(`${ROOT}/src/views/StudentList.vue`, 'utf8')
-  check(list.includes('<StudentImportDialog ref="importDialogRef" @done="fetchList" />'), '模板里挂的是公共组件')
+  // @done 上挂的必须是个真存在的函数：这条断言以前写的是 fetchList，
+  // 而组件里只有 fetchData —— 测试等于把错字本身钉成了正确答案。
+  check(list.includes('<StudentImportDialog ref="importDialogRef" @done="fetchData" />'), '模板里挂的是公共组件，导入完叫得应刷新')
   check(list.includes('importDialogRef.value?.open()'), '「更多 → 导入 Excel」走组件的 open()')
   check(!/importPreview|importConfirm/.test(list), '旧的 api 直接调用已清干净')
 
@@ -788,13 +790,17 @@ console.log('\n▶ 系统管理：日程批次面板')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
 }
 
-console.log('\n▶ 带默认参数的处理器不能裸挂在 @事件 上')
+console.log('\n▶ 裸挂在 @事件 上的处理器：名字要真有，带默认参数的还得加括号')
 {
   // 裸挂（@click="openCreate"）时 Vue 会把 MouseEvent 当第一个实参传进去。openCreate(date = null)
   // 就是这么把事件对象写进 editForm.date / end_date 的：点「新建日程」→ 选个开始日期（结束日期
   // 没动，还是那个事件对象）→ 保存全天事件，daysInRange 里 (endStr || startStr).split 直接炸。
   // 单看 `@click="xxx"` 分不出对错（@row-click / @change 本来就该收到各自的载荷），所以判据是
   // 「这个名字在本文件里的声明，第一个参数带默认值」—— 带默认值就等于「可以不给」。
+  //
+  // 同一个正则还顺带管另一件事：**裸挂的名字在本文件里得真有**。
+  // StudentList.vue 的 @done="fetchList" 就是这么坏掉很久没人发现的 —— 组件里根本没这个名字
+  // （真名 fetchData），页面不报错、控制台也只留一句提示，结果导入学生/照片后列表一直是旧的。
   const files = []
   const walk = (dir) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -805,19 +811,32 @@ console.log('\n▶ 带默认参数的处理器不能裸挂在 @事件 上')
   walk(`${ROOT}src`)
 
   const bad = []
+  const undeclared = []
   for (const f of files) {
     const src = readFileSync(f, 'utf-8')
     for (const m of src.matchAll(/@[a-z:.-]+="([A-Za-z_$][\w$]*)"/g)) {
+      const name = m[1]
       // 同名函数在本文件里声明过、且第一个参数有默认值 → 裸挂必然把事件对象喂进去
-      if (new RegExp(`function\\s+${m[1]}\\(\\s*\\w+\\s*=`).test(src)) {
-        bad.push(`${f.slice(ROOT.length)} @…="${m[1]}"`)
+      if (new RegExp(`function\\s+${name}\\(\\s*\\w+\\s*=`).test(src)) {
+        bad.push(`${f.slice(ROOT.length)} @…="${name}"`)
       }
+      // 声明可能是 function / const / let / var / import，也可能是解构赋值
+      const declared = new RegExp(
+        `(?:function\\s+${name}\\b)|(?:\\b(?:const|let|var)\\s+${name}\\b)|(?:import\\s[^;]*\\b${name}\\b)|(?:\\{[^}]*\\b${name}\\b[^}]*\\}\\s*=)`
+      ).test(src)
+      if (!declared) undeclared.push(`${f.slice(ROOT.length)} @…="${name}"`)
     }
   }
   check(bad.length === 0, `没有裸挂的处理器${bad.length ? `（${bad.join('；')}）` : ''}`)
+  check(undeclared.length === 0, `裸挂的名字都能在本文件里找到声明${undeclared.length ? `（找不到：${undeclared.join('；')}）` : ''}`)
 
   const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
   check(src.includes('@click="openCreate()"'), '「新建日程」写的是 openCreate()，不是裸挂')
+
+  // 这次修的那一处：两个导入弹窗做完都叫调用方刷新列表
+  const listSrc = readFileSync(`${ROOT}src/views/StudentList.vue`, 'utf-8')
+  check((listSrc.match(/@done="fetchData"/g) || []).length === 2,
+    '学生导入、照片导入两个弹窗，导入完都去刷新列表')
 }
 
 console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没反应」')
