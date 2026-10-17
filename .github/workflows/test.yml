@@ -1,0 +1,83 @@
+name: 全量测试
+
+# 前后端两套回归测试都在这里跑：
+#   backend/tests    pytest 为每个用例起一次真后端进程 + 一个全新临时库，很慢
+#   frontend/tests   npm test，用 Vite 的 SSR 管道真渲染 SFC
+#
+# 单独成一份、并且带 workflow_call，是为了让发版流程能把它整个调起来当门禁：
+# 构建镜像必须等这两套测试都过了才开始（见 build-images.yml）。
+# 测试口径只有这一处，CI 和本地 ./runTest.sh 跑的是同一批文件。
+on:
+  push:
+    branches: [main]
+    # 纯文档改动不影响测试结果，不占这十几分钟
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".env.example"
+      - ".gitignore"
+  pull_request:
+    branches: [main]
+  workflow_call:
+  workflow_dispatch:
+
+# 连续推两次时把前一次取消掉：全量测试时间长，没必要让过期的提交占着跑。
+#
+# group 用固定的 tests- 前缀而不是 ${{ github.workflow }}：这份 workflow 被
+# build-images.yml 调起来时，github.workflow 会变成调用方的名字，两边撞进
+# 同一个并发组就会互相等待（调用方正占着组等测试结束）。
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: 后端 pytest
+    runs-on: ubuntu-latest
+    # 本机全量约 8 分钟，CI 上每个用例都要起停后端进程，留足余量
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # 和 backend/Dockerfile 保持同一个大版本：测试跑在生产实际使用的 Python 上
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: 安装依赖
+        run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: 全量测试
+        working-directory: backend
+        # conftest 为每个用例起一个真后端进程、连一个全新临时库，
+        # 不读也不写仓库 data/ 里的真实数据
+        run: python -m pytest tests -q
+
+  frontend:
+    name: 前端渲染测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 和 frontend/Dockerfile 的 node:20 对齐
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        working-directory: frontend
+        run: npm ci
+
+      - name: 渲染测试
+        working-directory: frontend
+        run: npm test

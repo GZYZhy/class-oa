@@ -91,7 +91,7 @@ curl -s http://127.0.0.1:8000/api/health
 - **前端**：Vue 3、Element Plus（按需引入）、Vite
 - **后端**：FastAPI、SQLAlchemy 2.0、SQLite（可选 MySQL）
 - **部署**：Docker Compose，nginx 托管静态资源并反代 `/api`
-- **发布**：GitHub Actions 构建镜像并推送 GHCR，服务器 `pull` 即更新
+- **发布**：推送版本标签后 GitHub Actions 先跑测试再构建镜像并推送 GHCR，服务器 `pull` 即更新
 
 ## 测试
 
@@ -101,6 +101,7 @@ curl -s http://127.0.0.1:8000/api/health
 
 后端用 pytest 为每个用例启动真实后端进程与临时数据库；前端用 Vite 的 SSR 管道
 真实渲染组件并断言页面文案。两套测试都不会读写 `data/` 里的真实数据。
+CI 在提交到 `main` 或发起合并请求时跑同一套测试；推送 `vX.Y.Z` 标签时先过测试再构建镜像。
 
 ## License
 

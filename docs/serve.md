@@ -195,8 +195,9 @@ PWA 图标先用 `python3 scripts/make_pwa_icons.py <新校徽.png> data/fronten
 
 ![发布流程](images/deploy-flow.svg)
 
-代码推到 `main` 后 GitHub Actions 自动构建并推送镜像；HEAD 上打了 `vX.Y.Z` 标签时，
-还会额外推送同名的语义版本标签。服务器上：
+推送 `vX.Y.Z` 标签后，GitHub Actions 先跑前后端全量测试，全部通过才构建并推送镜像
+（同时带 `latest`、日期、提交和同名的语义版本标签）。普通提交只跑测试，不出镜像，
+`latest` 也不会被未发版的提交覆盖。服务器上：
 
 ```bash
 docker compose pull
