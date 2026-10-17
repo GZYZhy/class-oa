@@ -61,10 +61,10 @@
                 </el-button>
                 <template #tip>
                   <div v-if="editingId" class="el-upload__tip">
-                    支持 PDF / 图片 / Word，每个文件不超过 20MB，最多 3 个。不重选就沿用当前那批
+                    支持 PDF / 图片 / Word，每个文件不超过 20MB，最多 3 个。超过 1MB 的图片会自动压缩；不重选就沿用当前那批
                   </div>
                   <div v-else class="el-upload__tip">
-                    支持 PDF / 图片 / Word，每个文件不超过 20MB，最多 3 个
+                    支持 PDF / 图片 / Word，每个文件不超过 20MB，最多 3 个。超过 1MB 的图片会自动压缩
                   </div>
                 </template>
               </el-upload>
@@ -118,10 +118,11 @@
                     type="success"
                     link
                     size="small"
-                    :loading="downloadingId === row.id"
+                    :loading="isDownloading(`cert-${row.id}`)"
                     @click="downloadResult(row)"
                   >
-                    下载证明
+                    {{ isDownloading(`cert-${row.id}`) && downloadPercent
+                      ? `${downloadPercent}%` : '下载证明' }}
                   </el-button>
                   <span v-else style="color: #e6a23c; font-size: 12px;">成品上传中…</span>
                 </template>
@@ -188,7 +189,9 @@ import {
   downloadCertificateResult
 } from '@/api/certificate'
 import { formatDateTime, formatFileSize } from '@/utils/format'
+import { compressImage } from '@/utils/imageCompress'
 import { blobErrorDetail, downloadFile } from '@/utils/download'
+import { useDownloadProgress } from '@/composables/useDownloadProgress'
 import FileViewer from '@/components/FileViewer.vue'
 import ServiceIntro from '@/components/ServiceIntro.vue'
 
@@ -196,7 +199,8 @@ const activeTab = ref('apply')
 const loading = ref(false)
 const submitting = ref(false)
 const uploadProgress = ref(0)
-const downloadingId = ref(null)
+// 下载成品证明的进度（同一时间只跑一个）
+const { percent: downloadPercent, isDownloading, run: runDownload } = useDownloadProgress()
 const list = ref([])
 const formRef = ref(null)
 const uploadRef = ref(null)
@@ -238,17 +242,28 @@ const rules = {
 }
 
 function handleFileChange(file) {
-  const raw = file.raw
-  if (!raw) return
-  if (raw.size > 20 * 1024 * 1024) {
-    ElMessage.error(`文件「${file.name}」超过 20MB`)
-    // 从 fileList 里移除
-    fileList.value = fileList.value.filter(f => f.uid !== file.uid)
-    return
-  }
-  // 保持顺序
-  selectedFiles.value = fileList.value.map(f => f.raw).filter(Boolean)
-  formRef.value?.validateField('attachments')
+  if (!file.raw) return
+  // 图片附件先压小（PDF / Word 原样，规则见 utils/imageCompress.js）。
+  // 任务挂在文件上，提交时会等它
+  file.__compressTask = (async () => {
+    const compressed = await compressImage(file.raw)
+    if (compressed === file.raw) return
+    file.raw = compressed
+    file.name = compressed.name
+    file.size = compressed.size
+  })()
+
+  file.__compressTask.then(() => {
+    if (file.raw.size > 20 * 1024 * 1024) {
+      ElMessage.error(`文件「${file.name}」超过 20MB`)
+      // 从 fileList 里移除
+      fileList.value = fileList.value.filter(f => f.uid !== file.uid)
+      return
+    }
+    // 保持顺序
+    selectedFiles.value = fileList.value.map(f => f.raw).filter(Boolean)
+    formRef.value?.validateField('attachments')
+  })
 }
 
 function handleFileRemove(file) {
@@ -294,6 +309,9 @@ function cancelEdit() {
 // 提交 / 保存修改
 async function handleSubmit() {
   if (!formRef.value) return
+  // 刚选的图可能还在压：等它们落地再校验、再取文件，别把原图或空列表交上去
+  await Promise.all(fileList.value.map((f) => f.__compressTask).filter(Boolean))
+  selectedFiles.value = fileList.value.map((f) => f.raw).filter(Boolean)
   try {
     await formRef.value.validate()
   } catch {
@@ -369,16 +387,16 @@ function viewAttachment(row, index) {
 
 // 下载成品
 async function downloadResult(row) {
-  downloadingId.value = row.id
   try {
-    await downloadFile(
-      `/api/certificates/${row.id}/result`,
-      row.result_original_name || `证明_${row.title}.pdf`
+    await runDownload(`cert-${row.id}`, (onProgress) =>
+      downloadFile(
+        `/api/certificates/${row.id}/result`,
+        row.result_original_name || `证明_${row.title}.pdf`,
+        onProgress
+      )
     )
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
-  } finally {
-    downloadingId.value = null
   }
 }
 

@@ -1683,6 +1683,104 @@ console.log('\n▶ 电动车：两份都改成 PDF，批准时选经办班委签
     '弹窗里没有意见输入框 —— 这份表上没有意见栏')
 }
 
+console.log('\n▶ 办件下载按钮：慢网络下显示百分比，与其他下载按钮一致')
+{
+  // 直接跑 composable：ref 在组件外也能用，不必为了三个断言去搭一个组件
+  const { useDownloadProgress } = await server.ssrLoadModule('/src/composables/useDownloadProgress.js')
+  const d = useDownloadProgress()
+  let midPercent = 0
+  const ret = await d.run('leave-1', async (onProgress) => {
+    onProgress(30, 100)
+    midPercent = d.percent.value
+    return 'ok'
+  })
+  check(ret === 'ok', 'run 把 task 的返回值交回调用方')
+  check(midPercent === 30, '进度按 loaded / total 算成百分比')
+  check(d.isDownloading('leave-1') === false && d.percent.value === 0,
+    '下载完清掉 key 和百分比（按钮回到原文案）')
+
+  // total 为 0 = 后端没给 Content-Length，这时只能显示原文案，不能除以 0
+  let zeroPercent = -1
+  await d.run('a', async (onProgress) => {
+    onProgress(500, 0)
+    zeroPercent = d.percent.value
+  })
+  check(zeroPercent === 0, '拿不到总大小时百分比保持 0（不除以 0、也不显示 NaN）')
+
+  // 同一时间只跑一个：第二个按钮点了也不发请求，免得两份一起下
+  let secondRan = false
+  let release
+  const first = d.run('a', () => new Promise((resolve) => { release = resolve }))
+  const second = await d.run('b', async () => { secondRan = true })
+  check(second === undefined && !secondRan, '下载中的第二次点击直接被忽略')
+  release()
+  await first
+
+  // 出错也要复位，否则按钮会永远转圈
+  try {
+    await d.run('x', async () => { throw new Error('boom') })
+  } catch (e) { /* 预期内 */ }
+  check(!d.isDownloading('x') && d.percent.value === 0, '下载失败也复位')
+
+  // 接口层：onProgress 一律经 progressHandler 交给 axios，没传回调时是 undefined
+  const reads = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const apis = {
+    '/src/api/leave.js': ['export function downloadLeavePdf(id, onProgress)'],
+    '/src/api/certificate.js': ['export function downloadCertificateResult(id, admin = false, onProgress)'],
+    '/src/api/feedback.js': ['export function downloadFeedbackAttachment(feedbackId, index, onProgress)']
+  }
+  for (const [p, sigs] of Object.entries(apis)) {
+    const src = reads(p)
+    for (const sig of sigs) check(src.includes(sig), `${p} 的下载函数收 onProgress`)
+    check(src.includes('onDownloadProgress: progressHandler(onProgress)'),
+      `${p} 把进度回调挂到 onDownloadProgress`)
+  }
+  const evApi = reads('/src/api/evPass.js')
+  check(evApi.includes('export function downloadEvPassPdf(id, onProgress)') &&
+    evApi.includes('export function downloadEvPromisePdf(id, onProgress)'),
+    '申请表、承诺书两个下载函数都收 onProgress')
+  check((evApi.match(/onDownloadProgress: progressHandler\(onProgress\)/g) || []).length === 2,
+    '两个地址都挂了进度回调')
+
+  // 页面层：key 区分「哪一行、哪个按钮」，按钮 loading 与百分比都用同一个 key
+  const keys = {
+    '/src/views/LeaveApply.vue': ['leave'],
+    '/src/views/Certificate.vue': ['cert'],
+    '/src/views/Feedback.vue': ['feedback']
+  }
+  for (const [p, list] of Object.entries(keys)) {
+    const src = reads(p)
+    for (const k of list) {
+      check(src.includes(`isDownloading(\`${k}-\${`) && src.includes(`runDownload(\`${k}-\${`),
+        `${p}：「${k}」这个下载入口接了进度`)
+    }
+    check(src.includes("import { useDownloadProgress } from '@/composables/useDownloadProgress'"),
+      `${p} 用的是同一个下载进度实现（不是各写一套）`)
+  }
+  // 电动车两个入口的 key 是拼好后传进 savePdf / downloadEvPassDoc 的，
+  // 断言 key 的拼法，再断言那个函数里确实走了 runDownload
+  const evStu = reads('/src/views/EvPass.vue')
+  check(evStu.includes('savePdf(downloadEvPassPdf, row,') &&
+    evStu.includes('`pass-${row.id}`') && evStu.includes('savePdf(downloadEvPromisePdf, row,') &&
+    evStu.includes('`promise-${row.id}`') && evStu.includes('await runDownload(key,'),
+    '学生端：申请表、承诺书两个入口各自带 key 走进度')
+
+  const review = reads('/src/views/Review.vue')
+  for (const k of ['leave', 'cert', 'feedback']) {
+    check(review.includes(`isDownloading(\`${k}-\${`) && review.includes(`runDownload(\`${k}-\${`),
+      `审核页：「${k}」这个下载入口接了进度`)
+  }
+  check(review.includes('`evpass-pass-${row.id}`') && review.includes('`evpass-promise-${row.id}`') &&
+    review.includes('await runDownload(key,'),
+    '审核页：申请表、承诺书也各自带 key 走进度')
+  // 百分比为 0（后端没给总大小）时保留原文案，别把按钮变成空白
+  for (const p of ['/src/views/LeaveApply.vue', '/src/views/EvPass.vue',
+    '/src/views/Certificate.vue', '/src/views/Review.vue']) {
+    check(/isDownloading\([^)]*\) && downloadPercent\s*\n?\s*\? `\$\{downloadPercent\}%`/.test(reads(p)),
+      `${p}：没有百分比时显示原文案`)
+  }
+}
+
 console.log('\n▶ 请假与电动车：承诺语照抄表上原话，各加一条「确认签字」')
 {
   // 两个页面默认就停在「提交申请」那个 tab，表单本来就在页面上，不用灌数据
@@ -3625,6 +3723,77 @@ console.log('\n▶ 通行密钥：没有浏览器的环境要安静降级')
   check(usable.html.includes('添加通行密钥'), '支持时可以添加')
   check(usable.html.includes('登录密码'), '添加前要再确认一次密码')
   check(usable.html.includes('服务器只保存公钥'), '说明了私钥不离开设备')
+}
+
+console.log('\n▶ 账户设置：子 tab 栏末尾有退出登录')
+{
+  const { html, warns } = await render('/src/views/MyInfo.vue')
+  const logsAt = html.indexOf('我的日志')
+  const logoutAt = html.indexOf('退出登录')
+  check(logsAt > 0 && logoutAt > logsAt, '退出登录排在「我的日志」之后')
+  check(html.includes('el-tabs__new-tab'), '它挂在子 tab 栏上，不是另起一块')
+  check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+
+  const src = readFileSync(`${ROOT}/src/views/MyInfo.vue`, 'utf8')
+  check(
+    /<el-tabs\s+v-model="accountTab"[\s\S]{0,100}@tab-add="handleLogout"/.test(src),
+    '点它走的是退出登录，不是切换 tab'
+  )
+  check(src.includes('<template #add-icon>'), '按钮内容放在 add-icon 槽里')
+  check(src.includes('await userStore.logout()'), '确认后真的清会话')
+  check(src.includes("router.push('/dashboard')"), '退出后回首页（和左侧菜单一致）')
+}
+
+console.log('\n▶ 上传前压缩：证明材料、证件照、签字图与附件')
+{
+  const { fitSize, needsCompress, jpegName, COMPRESS_THRESHOLD, MAX_EDGE } =
+    await server.ssrLoadModule('/src/utils/imageCompress.js')
+
+  check(MAX_EDGE === 2000, '长边上限 2000px（纸面小字仍看得清）')
+  check(COMPRESS_THRESHOLD === 1024 * 1024, '超过 1MB 才压')
+
+  const wide = fitSize(4000, 3000)
+  check(wide.width === 2000 && wide.height === 1500, '横图等比缩到长边 2000')
+  const tall = fitSize(1200, 3000)
+  check(tall.width === 800 && tall.height === 2000, '竖图也按长边缩')
+  check(fitSize(800, 600).width === 800, '本来就不大的图不放大')
+
+  check(needsCompress({ type: 'image/jpeg', size: 2 * 1024 * 1024 }), '大图要压')
+  check(!needsCompress({ type: 'image/jpeg', size: 900 * 1024 }), '小于阈值不压')
+  check(!needsCompress({ type: 'application/pdf', size: 9 * 1024 * 1024 }), 'PDF 原样放行')
+  check(!needsCompress({ type: 'image/gif', size: 5 * 1024 * 1024 }), 'GIF 不压（转 JPEG 会只剩一帧）')
+  check(jpegName('证明照片.PNG') === '证明照片.jpg', '压成 JPEG 后文件名跟着换后缀')
+
+  const pages = [
+    'LeaveApply.vue', 'EvPass.vue', 'MyInfo.vue',
+    'StudentList.vue', 'Feedback.vue', 'Certificate.vue', 'Notices.vue'
+  ]
+  for (const page of pages) {
+    const src = readFileSync(`${ROOT}/src/views/${page}`, 'utf8')
+    check(src.includes("from '@/utils/imageCompress'"), `${page} 接上了压缩工具`)
+  }
+
+  // 单图 / 表单附件：选完当场 await，压完再校验、再上传
+  for (const page of ['LeaveApply.vue', 'EvPass.vue', 'MyInfo.vue', 'StudentList.vue', 'Feedback.vue', 'Certificate.vue']) {
+    const src = readFileSync(`${ROOT}/src/views/${page}`, 'utf8')
+    check(/await compressImage\(/.test(src), `${page} 在上传前真的等它压完`)
+  }
+
+  // 公告附件一次能选多个：先登记全部压缩任务，提交时等齐
+  const notices = readFileSync(`${ROOT}/src/views/Notices.vue`, 'utf8')
+  check(notices.includes('const task = compressImage(raw)'), '公告图片走压缩')
+  check(notices.includes('await Promise.all([...compressTasks])'), '发布前等压缩任务落地')
+
+  // 学生照片、签字图、反馈、证明附件都各接了一处
+  const student = readFileSync(`${ROOT}/src/views/StudentList.vue`, 'utf8')
+  check(/async function handlePhotoPicked[\s\S]{0,300}await compressImage\(/.test(student),
+    '学生照片（高考 / 实地 / 证件照）上传前压缩')
+  check(/async function handleSignPicked[\s\S]{0,300}await compressImage\(/.test(student),
+    '签字图上传前压缩')
+  const feedback = readFileSync(`${ROOT}/src/views/Feedback.vue`, 'utf8')
+  check(/file\.__compressTask[\s\S]{0,200}compressImage\(/.test(feedback), '反馈附件里的图片压缩')
+  const certificate = readFileSync(`${ROOT}/src/views/Certificate.vue`, 'utf8')
+  check(/file\.__compressTask[\s\S]{0,200}compressImage\(/.test(certificate), '证明附件里的图片压缩')
 }
 
 console.log('\n▶ 账号安全：三块折叠面板之间不再叠分割线')

@@ -106,7 +106,7 @@
                             <el-button>{{ photoFile ? '重新选择' : '选择照片' }}</el-button>
                           </el-upload>
                           <div class="photo-pick-tip">
-                            支持 JPG / PNG 等图片，最大 10MB；不选就是不改。
+                            支持 JPG / PNG 等图片，最大 10MB；超过 1MB 会自动压缩；不选就是不改。
                             <el-button v-if="photoFile" link type="danger" @click="clearPhoto">
                               取消
                             </el-button>
@@ -205,7 +205,19 @@
         <el-tab-pane label="账户设置" name="account">
           <!-- 账户设置内部再分三个子 tab。原来是一长条滚动页，加了 webhook 和邮件
                两个渠道之后太长，而且「改密 / 通知 / 日志」本来也是各不相干的三件事 -->
-          <el-tabs v-model="accountTab">
+          <el-tabs
+            v-model="accountTab"
+            addable
+            class="account-tabs"
+            @tab-add="handleLogout"
+          >
+            <!-- 「退出登录」借 addable 的 add-icon 槽放进 tab 栏末尾：
+                 Element Plus 没有表头右侧插槽，这个槽正好渲染在导航的兄弟位置，
+                 窄屏时 tab 会自己出现滚动箭头，按钮不会被压住。点击由 @tab-add 接管 -->
+            <template #add-icon>
+              <el-icon><SwitchButton /></el-icon>
+              <span>退出登录</span>
+            </template>
             <!-- ==================== 账号安全 ==================== -->
             <el-tab-pane label="账号安全" name="security">
               <!-- 修改密码 -->
@@ -573,7 +585,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getMyInfo } from '@/api/student'
 import { changePassword, getMyLogs } from '@/api/auth'
 import { submitChangeRequest, getMyChangeRequests } from '@/api/changeRequest'
@@ -596,6 +608,7 @@ import {
   STATUS_TYPES
 } from '@/utils/changeFields'
 import { formatDate, formatDateTime } from '@/utils/format'
+import { compressImage } from '@/utils/imageCompress'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useUserStore } from '@/store/user'
 import { rankOf } from '@/utils/roles'
@@ -902,9 +915,10 @@ function describeChanges(changes) {
 }
 
 /** 选中一张新证件照：留文件、生成本地预览。不设 limit，再选一张就是替换 */
-function handlePhotoChange(file) {
-  // el-upload 的 raw 才是真实文件对象
-  photoFile.value = file.raw || file
+async function handlePhotoChange(file) {
+  // el-upload 的 raw 才是真实文件对象。大图先压：证件照只要看得清，
+  // 原图几 MB 传上去只是拖慢提交（压缩规则见 utils/imageCompress.js）
+  photoFile.value = await compressImage(file.raw || file)
   if (photoPreview.value) URL.revokeObjectURL(photoPreview.value)
   photoPreview.value = URL.createObjectURL(photoFile.value)
 }
@@ -974,6 +988,19 @@ async function handleChangePassword() {
   } finally {
     pwdLoading.value = false
   }
+}
+
+// ---------- 退出登录 ----------
+/** 和左侧菜单底部的退出按钮同一个口径：先确认，再清会话，回首页（免登录页） */
+async function handleLogout() {
+  try {
+    await ElMessageBox.confirm('确定退出登录吗？', '退出确认', { type: 'warning' })
+  } catch (e) {
+    return // 取消
+  }
+  await userStore.logout()
+  ElMessage.success('已退出登录')
+  router.push('/dashboard')
 }
 
 // ---------- 通知设置：浏览器通知 ----------
@@ -1247,6 +1274,25 @@ onMounted(async () => {
 .notify-channel :deep(.el-collapse) {
   border-top: 0;
   border-bottom: 0;
+}
+
+/* 「退出登录」复用 addable 的 add-icon 槽（见模板注释），把默认的 20×20 加号
+   方块改成 tab 栏末尾的文字按钮。尺寸按 40px 的 tab 头高居中 */
+.account-tabs :deep(.el-tabs__new-tab) {
+  width: auto;
+  height: 32px;
+  gap: 4px;
+  margin: 4px 0 4px 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--el-color-danger);
+}
+
+.account-tabs :deep(.el-tabs__new-tab:hover) {
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
 }
 
 /* tab 内的分节：外层 page-card 已经给了白底和内边距，这里只要间距 */

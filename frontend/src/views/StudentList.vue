@@ -1209,6 +1209,16 @@ import { useIsMobile } from '@/composables/useIsMobile'
 import { copyText } from '@/utils/clipboard'
 import { renderMarkdown, stripMarkdown, formatFileSize } from '@/utils/markdown'
 import { downloadFile } from '@/utils/download'
+import { compressImage } from '@/utils/imageCompress'
+
+// 选完图到压完之间有个空档：这期间点了保存，得等它们压完再提交，
+// 不然传上去的还是原图。压完就从这个集合里删掉
+const compressTasks = new Set()
+function trackCompress(raw) {
+  const task = compressImage(raw).finally(() => compressTasks.delete(task))
+  compressTasks.add(task)
+  return task
+}
 
 // 备注附件限制（与后端对应）
 const REMARK_MAX_NEW_ATTACHMENTS = 3
@@ -1600,6 +1610,8 @@ async function handleSave() {
     ElMessage.warning('姓名和学号不能为空')
     return
   }
+  // 刚选进来的图可能还在压，等它们落地再提交
+  await Promise.all([...compressTasks])
   saving.value = true
   try {
     if (editForm.id) {
@@ -1640,7 +1652,12 @@ function removeEditNewAttachment(idx) {
 }
 
 // 管理员弹窗：上传文件变更
-function handleEditAttachChange(file) {
+async function handleEditAttachChange(file) {
+  if (!file.raw) return
+  // 备注附件里的照片、截图也先压小（规则见 utils/imageCompress.js）。
+  // 校验放在压完之后：大图压小了可能就合格了；检查与 push 之间不留 await，
+  // 几份文件同时选进来也不会一起越过数量上限
+  const raw = await trackCompress(file.raw)
   const total = editAttachments.value.length + editNewAttachments.value.length + 1
   if (total > REMARK_MAX_TOTAL_ATTACHMENTS) {
     ElMessage.warning(`备注附件总共最多 ${REMARK_MAX_TOTAL_ATTACHMENTS} 个`)
@@ -1650,11 +1667,11 @@ function handleEditAttachChange(file) {
     ElMessage.warning(`每次最多上传 ${REMARK_MAX_NEW_ATTACHMENTS} 个新附件`)
     return
   }
-  if (file.size > REMARK_MAX_ATTACH_SIZE) {
-    ElMessage.warning(`文件「${file.name}」超过 ${REMARK_MAX_ATTACH_SIZE / 1024 / 1024}MB`)
+  if (raw.size > REMARK_MAX_ATTACH_SIZE) {
+    ElMessage.warning(`文件「${raw.name}」超过 ${REMARK_MAX_ATTACH_SIZE / 1024 / 1024}MB`)
     return
   }
-  editNewAttachments.value.push(file.raw)
+  editNewAttachments.value.push(raw)
 }
 
 /** 新增成功后交代初始密码：没有身份证号的那批要管理员单独去说一声 */
@@ -1759,16 +1776,19 @@ function pickPhoto(type, useCamera = false) {
 }
 
 async function handlePhotoPicked(e) {
-  const file = e.target.files?.[0]
+  const raw = e.target.files?.[0]
   // 一定要清空：不清的话连着选同一个文件不会再触发 change
   e.target.value = ''
-  if (!file || !photoPicking) return
+  if (!raw || !photoPicking) return
+  // 要换哪一张在 await 之前记下：压缩期间用户可能又点了别的照片
+  const type = photoPicking
+  // 手机拍的照片动辄几 MB，先压小再传（规则见 utils/imageCompress.js）
+  const file = await compressImage(raw)
   if (file.size > 10 * 1024 * 1024) {
     ElMessage.warning('照片不能超过 10MB')
     return
   }
 
-  const type = photoPicking
   photoUploading.value = type
   photoUploadProgress.value = 0
   try {
@@ -1869,10 +1889,12 @@ function pickSignImage() {
 }
 
 async function handleSignPicked(e) {
-  const file = e.target.files?.[0]
+  const raw = e.target.files?.[0]
   // 一定要清空：不清的话连着选同一个文件不会再触发 change
   e.target.value = ''
-  if (!file) return
+  if (!raw) return
+  // 签字图多是手机拍的，先压小再传（规则见 utils/imageCompress.js）
+  const file = await compressImage(raw)
   if (file.size > 10 * 1024 * 1024) {
     ElMessage.warning('签字图片不能超过 10MB')
     return
@@ -1913,6 +1935,8 @@ async function handleDeleteSign() {
 
 // 班委改备注：提交 remark + 附件（后端也只放行这两个字段）
 async function handleSaveRemark() {
+  // 刚选进来的图可能还在压，等它们落地再提交
+  await Promise.all([...compressTasks])
   saving.value = true
   try {
     // 保留的旧附件下标（remarkAttachments 里的每一项都保留，它们的原始 index 存在 index 字段里）
@@ -1947,7 +1971,10 @@ function removeNewRemarkAttachment(idx) {
 }
 
 // 备注附件：上传文件变更
-function handleRemarkAttachChange(file) {
+async function handleRemarkAttachChange(file) {
+  if (!file.raw) return
+  // 同编辑弹窗：图片先压小，再校验（规则见 utils/imageCompress.js）
+  const raw = await trackCompress(file.raw)
   // 已保留的 + 新上传的 总数检查
   const total = remarkAttachments.value.length + remarkNewAttachments.value.length + 1
   if (total > REMARK_MAX_TOTAL_ATTACHMENTS) {
@@ -1960,11 +1987,11 @@ function handleRemarkAttachChange(file) {
     return
   }
   // 大小检查
-  if (file.size > REMARK_MAX_ATTACH_SIZE) {
-    ElMessage.warning(`文件「${file.name}」超过 ${REMARK_MAX_ATTACH_SIZE / 1024 / 1024}MB`)
+  if (raw.size > REMARK_MAX_ATTACH_SIZE) {
+    ElMessage.warning(`文件「${raw.name}」超过 ${REMARK_MAX_ATTACH_SIZE / 1024 / 1024}MB`)
     return
   }
-  remarkNewAttachments.value.push(file.raw)
+  remarkNewAttachments.value.push(raw)
 }
 
 // 下载备注附件
