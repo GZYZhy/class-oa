@@ -27,12 +27,12 @@
         </div>
       </div>
 
-      <!-- 点名和签到共用一套筛选：关键词对点名查备注、对签到查标题 -->
+      <!-- 点名和签到共用一套筛选：两类记录都按列表里那一列标题搜 -->
       <el-form :inline="true" size="default">
         <el-form-item label="搜索">
           <el-input
             v-model="keyword"
-            placeholder="搜索点名备注或签到标题"
+            placeholder="搜索标题"
             clearable
             style="width: 240px"
             @keyup.enter="handleSearch"
@@ -124,9 +124,9 @@
             </template>
           </template>
         </el-table-column>
-        <!-- 备注：点名是那一句话，签到就是标题（搜索也搜它）。
+        <!-- 标题：点名的备注、签到的标题都放这一列（搜索也搜它）。
              签到自己的补充说明在明细里，不丢 -->
-        <el-table-column label="备注" min-width="140" show-overflow-tooltip>
+        <el-table-column label="标题" min-width="140" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.type === 'checkin'">{{ row.title }}</span>
             <span v-else-if="row.remark">{{ row.remark }}</span>
@@ -138,7 +138,7 @@
             <div class="at-ops">
               <template v-if="row.type === 'attendance'">
                 <el-button link type="primary" @click="openDetail(row)">明细</el-button>
-                <el-button link type="primary" @click="handleRemark(row)">备注</el-button>
+                <el-button link type="primary" @click="handleRemark(row)">标题</el-button>
                 <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
               </template>
               <template v-else>
@@ -172,7 +172,7 @@
 
     <!-- 点名明细：逐个改状态。当天点错了、事后有人说「我其实到了」都在这儿改 -->
     <el-dialog v-model="detailVisible" :title="detailTitle" width="560px">
-      <!-- 这次点名的备注也带进来：翻明细时看得到「为什么这次状态长这样」 -->
+      <!-- 这次点名的标题也带进来：翻明细时看得到「为什么这次状态长这样」 -->
       <div v-if="detail.remark" class="at-remark">{{ detail.remark }}</div>
       <el-table v-loading="detailLoading" :data="detail.items" max-height="420">
         <el-table-column prop="student_name" label="姓名" />
@@ -197,7 +197,7 @@
       </template>
     </el-dialog>
 
-    <!-- 签到详情：标题、备注、地点、要求和逐人签到情况，结束后同样能打开 -->
+    <!-- 签到详情：标题、说明、地点、要求和逐人签到情况，结束后同样能打开 -->
     <CheckinDetailDialog ref="checkinDetailRef" @updated="() => fetchList()" />
 
     <CheckinCreateDialog ref="createRef" @saved="() => fetchList()" />
@@ -253,7 +253,7 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const dateRange = ref(null)
-// 关键词对点名查备注、对签到查标题。和日期范围是「并且」的关系，可以只给一个
+// 关键词搜两类记录的标题（点名取 remark、签到取 title）。和日期范围是「并且」的关系
 const keyword = ref('')
 
 const tableRef = ref(null)
@@ -362,15 +362,16 @@ async function changeStatus(item, status) {
 }
 
 /**
- * 给这次点名写一句备注
+ * 给这次点名写标题
  *
- * 整条替换：填什么存什么，清空就没了（后端没有单独的「删备注」接口）。
+ * 存的还是 AttendanceRecord.remark 那一列，只是列表里统一叫「标题」。
+ * 整条替换：填什么存什么，清空就没了（后端没有单独的删除接口）。
  * 不改明细里的任何状态，所以不用刷明细弹窗，只刷列表
  */
 async function handleRemark(row) {
   let value
   try {
-    const res = await ElMessageBox.prompt('给这次点名写一句说明（留空即清掉）', '备注', {
+    const res = await ElMessageBox.prompt('给这次点名写个标题（留空即清掉）', '标题', {
       confirmButtonText: '保存',
       cancelButtonText: '取消',
       inputValue: row.remark || '',
@@ -385,10 +386,10 @@ async function handleRemark(row) {
   const remark = (value || '').trim()
   try {
     await updateAttendanceRemark(row.id, remark)
-    ElMessage.success(remark ? '备注已保存' : '备注已清掉')
+    ElMessage.success(remark ? '标题已保存' : '标题已清掉')
     fetchList()
   } catch (e) {
-    ElMessage.error(errText(e, '保存备注失败'))
+    ElMessage.error(errText(e, '保存标题失败'))
   }
 }
 

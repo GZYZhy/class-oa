@@ -36,7 +36,7 @@
             placeholder="例如：周六晚点名"
           />
         </el-form-item>
-        <el-form-item label="备注">
+        <el-form-item label="说明">
           <el-input
             v-model="form.remark"
             type="textarea"

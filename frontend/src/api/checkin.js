@@ -34,7 +34,7 @@ export function closeCheckin(id) {
 /**
  * 改签到标题
  *
- * 列表的「备注」列显示的就是标题，搜索也搜它；标题不能为空。
+ * 列表的「标题」列显示的就是它，搜索也搜它；标题不能为空。
  */
 export function updateCheckinTitle(id, title) {
   return request({ url: `/checkins/${id}`, method: 'patch', data: { title } })
