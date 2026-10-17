@@ -10,7 +10,15 @@ import { createPinia } from 'pinia'
 // 它挂在 .dark 类下，不属于任何一个组件的样式。
 import 'element-plus/theme-chalk/dark/css-vars.css'
 
-// 这三样按需插件看不见，得自己引、自己装：
+// 但这三样的样式**必须手动引**：按需插件只认模板里出现的 <el-xxx>，
+// 它们要么是函数调用、要么是全局指令，插件看不见。
+// 漏掉的后果是「功能在、外观没了」：退出确认框会变成一行裸文字加两个按钮，
+// 消息提示也没有底色和定位 —— 只有到生产构建里才看得出来，开发时整包样式兜着。
+import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
+import 'element-plus/es/components/loading/style/css'
+
+// 这三样还要自己装：
 //   · ElMessage / ElMessageBox 是当函数调出来的，模板里根本没有对应的标签；
 //   · ElLoading 是全局指令 v-loading 的本体。
 // 装它们不只是为了「能用」—— 这几个 install 里有一句 fn._context = app._context，

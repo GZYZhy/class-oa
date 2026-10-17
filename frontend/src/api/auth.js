@@ -116,3 +116,53 @@ export function verifyPasskeyRegistration(data) {
 export function deletePasskey(id) {
   return request({ url: `/auth/passkeys/${id}`, method: 'delete' })
 }
+
+/* ---------- 二次验证 ----------
+ * 密码登录返回 { two_factor_required: true } 时，不写会话，要用下面第一个接口
+ * 交验证码（或恢复码）才真正登录。其余几个都在「账户设置」里用。
+ */
+
+/** 登录第二步：提交 6 位验证码或 XXXX-XXXX 恢复码 */
+export function verifyTwoFactorLogin(data) {
+  return request({ url: '/auth/2fa/verify', method: 'post', data })
+}
+
+/** 重发登录验证码（只对邮箱方式；60 秒冷却由后端把关） */
+export function resendTwoFactorCode() {
+  return request({ url: '/auth/2fa/resend', method: 'post' })
+}
+
+/** 我的二次验证状态：{ enabled, method, email, masked_email, smtp_enabled, recovery_codes_left } */
+export function getTwoFactorStatus() {
+  return request({ url: '/auth/2fa/status', method: 'get' })
+}
+
+/** 开启邮箱方式的第 1 步：发一封验证码到实际收件地址 */
+export function sendTwoFactorEmailCode(data) {
+  return request({ url: '/auth/2fa/email/send', method: 'post', data })
+}
+
+/** 开启邮箱方式的第 2 步：验证码对了才真正开启，响应里带 10 个恢复码 */
+export function confirmTwoFactorEmail(data) {
+  return request({ url: '/auth/2fa/email/confirm', method: 'post', data })
+}
+
+/** 开启身份验证器的第 1 步：生成待确认的密钥 */
+export function beginTotpSetup(data) {
+  return request({ url: '/auth/2fa/totp/begin', method: 'post', data })
+}
+
+/** 开启身份验证器的第 2 步：App 里的码对了才真正开启 */
+export function confirmTotpSetup(data) {
+  return request({ url: '/auth/2fa/totp/confirm', method: 'post', data })
+}
+
+/** 关闭二次验证（需要登录密码） */
+export function disableTwoFactor(data) {
+  return request({ url: '/auth/2fa/disable', method: 'post', data })
+}
+
+/** 重新生成 10 个恢复码，旧的整批作废 */
+export function regenerateRecoveryCodes(data) {
+  return request({ url: '/auth/2fa/recovery/regenerate', method: 'post', data })
+}

@@ -129,6 +129,12 @@ NEW_COLUMNS = [
     # ---------- 考勤记录的一句话备注 ----------
     # 默认空串 = 这次点名没写备注，与补列前行为一致（页面上那格是空的），不需要回填
     ("attendance_records", "remark", "VARCHAR(200) NOT NULL DEFAULT ''"),
+    # ---------- 二次验证 ----------
+    # 默认空串 / 0 = 没开二次验证。补列后老账号的登录行为与补列前逐字一致，
+    # 不会有人升级完突然被要求输验证码
+    ("users", "two_factor_method", "VARCHAR(10) NOT NULL DEFAULT ''"),
+    ("users", "totp_secret", "VARCHAR(64) NOT NULL DEFAULT ''"),
+    ("users", "totp_last_step", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）
