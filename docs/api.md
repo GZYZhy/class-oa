@@ -1691,7 +1691,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinPublicResponse` — 成功
-  - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`signed_at`、`my_distance_m`、`on_leave`
+  - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`grace_until`、`signed_at`、`my_distance_m`、`on_leave`
 
 ### 提前结束签到（班委及以上）
 
@@ -1847,7 +1847,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinPublicResponse` — 成功
-  - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`signed_at`、`my_distance_m`、`on_leave`
+  - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`grace_until`、`signed_at`、`my_distance_m`、`on_leave`
 
 ## 意见反馈
 
