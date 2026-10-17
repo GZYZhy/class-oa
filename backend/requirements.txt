@@ -11,6 +11,8 @@ itsdangerous==2.2.0
 pywebpush==2.5.0
 pymupdf==1.28.2
 reportlab==4.2.2
+# 通行密钥（WebAuthn）签名校验。只做验证，不生成钥匙 —— 私钥永远在用户设备上
+webauthn==2.7.0
 # MySQL 驱动：把 DATABASE_URL 指向 MySQL 时才真正用到（默认的 SQLite 不需要它）。
 # 纯 Python 实现，python:3.12-slim 里不用装 gcc / libmysqlclient-dev。
 #

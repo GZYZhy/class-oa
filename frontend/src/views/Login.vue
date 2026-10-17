@@ -82,6 +82,20 @@
         >
           登 录
         </el-button>
+
+        <!-- 通行密钥登录：浏览器不支持或不是 HTTPS 时整行不出现。
+             需要先填学号 —— 服务器要靠它找出这个账号名下有哪些钥匙 -->
+        <div v-if="passkeyReady" class="passkey-row">
+          <el-divider>或</el-divider>
+          <el-button
+            link
+            type="primary"
+            :loading="passkeyLoading"
+            @click="handlePasskeyLogin"
+          >
+            使用通行密钥登录
+          </el-button>
+        </div>
       </el-form>
 
       <div class="login-foot">
@@ -99,6 +113,7 @@ import { User, Lock, Key } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { getCaptcha, getCaptchaRequired } from '@/api/auth'
+import { isPasskeySupported } from '@/utils/passkey'
 import { SITE } from '@/utils/site'
 
 const router = useRouter()
@@ -114,6 +129,11 @@ const form = reactive({
 })
 
 // 验证码相关
+// 通行密钥：只有浏览器支持且是 HTTPS（localhost 除外）时才露出那个按钮。
+// 服务端渲染 / 老浏览器里 isPasskeySupported() 返回 false，页面和以前一样
+const passkeyReady = ref(false)
+const passkeyLoading = ref(false)
+
 const showCaptcha = ref(false)
 const captchaSrc = ref('')
 // 'math' = 自带的算术题；'turnstile' = Cloudflare 人机验证（由后端 .env 决定）
@@ -153,6 +173,7 @@ function onTurnstileToken(token) {
 // 进入页面时先问一下后端：这个 IP 现在要不要人机验证、用哪一种
 // （之前如果输错过，10 分钟内再进来就得显示验证码框）
 onMounted(async () => {
+  passkeyReady.value = isPasskeySupported()
   try {
     const res = await getCaptchaRequired()
     // mode / site_key 即使这次不用也得记下来：
@@ -219,6 +240,42 @@ async function handleLogin() {
     }
   } finally {
     loading.value = false
+  }
+}
+
+/**
+ * 用通行密钥登录
+ *
+ * 不校验验证码：通行密钥本身就是第二因素，后端也只做了封禁检查。
+ * 学号必须自己填 —— 浏览器里的钥匙是按 RP ID 存的，服务器得先知道
+ * 该拿谁的钥匙名单去点名。
+ */
+async function handlePasskeyLogin() {
+  if (!form.student_no.trim()) return ElMessage.warning('请先填写学号或账号')
+
+  passkeyLoading.value = true
+  try {
+    await userStore.loginWithPasskey({
+      student_no: form.student_no.trim(),
+      remember: form.remember
+    })
+    ElMessage.success('登录成功')
+    router.replace(route.query.redirect || '/dashboard')
+  } catch (e) {
+    // 用户点了「取消」或者等超时：浏览器抛 NotAllowedError，不是系统故障
+    if (e?.name === 'NotAllowedError') {
+      ElMessage.info('已取消通行密钥验证')
+      return
+    }
+    const status = e?.response?.status
+    const msg = e?.response?.data?.detail || '通行密钥登录失败，请重试'
+    if (status === 403) {
+      banMessage.value = msg
+      return
+    }
+    ElMessage.error(msg)
+  } finally {
+    passkeyLoading.value = false
   }
 }
 
@@ -321,6 +378,16 @@ function goHome() {
 .login-btn {
   width: 100%;
   letter-spacing: 4px;
+}
+
+.passkey-row {
+  margin-top: 6px;
+  text-align: center;
+}
+
+/* 「或」两侧留得比默认窄一点，别把登录卡片撑长 */
+.passkey-row :deep(.el-divider) {
+  margin: 14px 0 10px;
 }
 
 .login-foot {

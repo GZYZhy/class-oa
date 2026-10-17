@@ -47,6 +47,14 @@ export function unfreezeUser(studentNo) {
   })
 }
 
+/** 清除该账号的全部通行密钥（换手机、钥匙丢了、怀疑被冒用时用） */
+export function clearUserPasskeys(studentNo) {
+  return request({
+    url: `/admin/users/${studentNo}/passkeys`,
+    method: 'delete'
+  })
+}
+
 /** 吊销该账号的所有会话：把所有设备踢下线，但账号仍可正常登录 */
 export function revokeUserSessions(studentNo) {
   return request({

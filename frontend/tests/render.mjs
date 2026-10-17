@@ -3439,6 +3439,59 @@ console.log('\n▶ 缓存：接口的默认值搬到了后端，压给上游的 
   }
 }
 
+console.log('\n▶ 通行密钥：没有浏览器的环境要安静降级')
+{
+  // 后端发来的是 base64url，浏览器 API 要 ArrayBuffer，这一层掉了登录必失败
+  const { _internal } = await server.ssrLoadModule('/src/utils/passkey.js')
+  const bytes = new Uint8Array([0, 1, 2, 250, 255])
+  const encoded = _internal.bytesToB64url(bytes.buffer)
+  check(!/[+/=]/.test(encoded), 'base64url 里没有 + / = 这三个字符')
+  check(
+    _internal.b64urlToBytes(encoded).join(',') === bytes.join(','),
+    '编码再解码还原出同样的字节'
+  )
+  check(
+    _internal.b64urlToBytes('AQID-g').join(',') === '1,2,3,250',
+    '解码时补回省略的 = 填充'
+  )
+
+  // SSR 里没有 window.PublicKeyCredential —— 登录页不能多出一个按了也登不了的按钮
+  const off = await render('/src/views/Login.vue')
+  check(off.html.includes('登 录'), '登录页照常渲染')
+  check(!off.html.includes('使用通行密钥登录'), '不支持通行密钥的环境不显示那个按钮')
+
+  // onMounted 在 SSR 不跑，直接改初始值模拟「支持」
+  const on = await renderPatched(
+    '/src/views/Login.vue',
+    'const passkeyReady = ref(false)',
+    'const passkeyReady = ref(true)'
+  )
+  check(on.html.includes('使用通行密钥登录'), '支持时登录页出现「使用通行密钥登录」')
+  check(
+    !on.warns.some((w) => /Failed to resolve (component|directive)/.test(w)),
+    '登录页没有未解析的组件/指令'
+  )
+
+  // 账户设置里的那一段：不支持添加，但已有钥匙的列表还在（换设备后还得能删）
+  const plain = await render('/src/components/PasskeySetting.vue')
+  check(plain.html.includes('当前浏览器不支持通行密钥'), '不支持的浏览器给出说明')
+  check(plain.html.includes('我的通行密钥'), '已有钥匙的列表仍然渲染')
+  check(plain.html.includes('还没有添加过通行密钥'), '空列表有提示')
+  check(
+    !plain.warns.some((w) => /Failed to resolve (component|directive)/.test(w)),
+    '通行密钥组件没有未解析的组件/指令'
+  )
+
+  const usable = await renderPatched(
+    '/src/components/PasskeySetting.vue',
+    'const supported = ref(false)',
+    'const supported = ref(true)'
+  )
+  check(usable.html.includes('添加通行密钥'), '支持时可以添加')
+  check(usable.html.includes('登录密码'), '添加前要再确认一次密码')
+  check(usable.html.includes('服务器只保存公钥'), '说明了私钥不离开设备')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

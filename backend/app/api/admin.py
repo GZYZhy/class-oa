@@ -19,6 +19,7 @@ from ..models import (
     FileAccessLog,
     IpBan,
     OperationLog,
+    PasskeyCredential,
     PushSubscription,
     Resource,
     Student,
@@ -398,6 +399,35 @@ def unfreeze_user(
     )
     db.commit()
     return {"message": "已解冻"}
+
+
+@router.delete(
+    "/users/{student_no}/passkeys", summary="清除该账号的全部通行密钥"
+)
+def clear_user_passkeys(
+    student_no: str,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """换手机、丢了手机又没开云同步时的退路：清掉之后用密码登录即可
+
+    只删通行密钥，不动密码、不踢会话 —— 通行密钥是「多一种进门方式」，
+    清掉它不会让正在用的人掉线，也不会让账号失去密码登录能力。
+    """
+    target = _get_user(db, student_no)
+    deleted = (
+        db.query(PasskeyCredential)
+        .filter(PasskeyCredential.user_id == target.id)
+        .delete(synchronize_session=False)
+    )
+    log_operation(
+        db, user, "清除通行密钥", target=f"{student_no} {account_name(db, target)}",
+        detail=f"共 {deleted} 把" if deleted else "本来就没有",
+        ip=ip,
+    )
+    db.commit()
+    return {"message": f"已清除 {deleted} 把通行密钥", "deleted": deleted}
 
 
 @router.post("/users/{student_no}/revoke-sessions", summary="吊销该账号的所有会话")

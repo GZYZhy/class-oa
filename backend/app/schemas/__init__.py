@@ -109,6 +109,14 @@ from .poll import (
     PollUpdate,
     PollVoteIn,
 )
+from .passkey import (
+    PasskeyRegisterOptionsRequest,
+    PasskeyRegisterVerifyRequest,
+    PasskeyLoginOptionsRequest,
+    PasskeyLoginVerifyRequest,
+    PasskeyResponse,
+    PasskeyListResponse,
+)
 from .schedule import (
     ScheduleCreate,
     ScheduleUpdate,
