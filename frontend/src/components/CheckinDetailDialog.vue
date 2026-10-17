@@ -1,5 +1,12 @@
 <template>
-  <el-dialog v-model="visible" :title="detail.title || '签到明细'" width="700px">
+  <el-dialog v-model="visible" width="700px">
+    <!-- 标题就是列表里那一列，修改按钮跟在标题后面，不再单独占一行 -->
+    <template #header>
+      <div class="cd-header">
+        <span class="cd-header-title">{{ detail.title || '签到明细' }}</span>
+        <el-button link type="primary" size="small" @click="editTitle">修改</el-button>
+      </div>
+    </template>
     <div v-loading="loading" class="cd-body">
       <div class="cd-meta">
         <el-tag :type="detail.status === 'ongoing' ? 'success' : 'info'" size="small">
@@ -8,11 +15,6 @@
         <span class="cd-sub">
           {{ detail.created_by_name }} 发布于 {{ formatDateTime(detail.created_at) }}
         </span>
-      </div>
-      <div class="cd-remark-row">
-        <span class="cd-label">标题</span>
-        <span class="cd-remark-text">{{ detail.title || '—' }}</span>
-        <el-button link type="primary" size="small" @click="editTitle">修改</el-button>
       </div>
       <div v-if="detail.remark" class="cd-remark-row">
         <span class="cd-label">说明</span>
@@ -158,7 +160,7 @@ function openPhoto(row) {
 /**
  * 改签到标题
  *
- * 列表的「备注」列显示的就是标题，所以改完要通知父组件刷新列表。
+ * 列表的「标题」列显示的就是它，所以改完要通知父组件刷新列表。
  * 结束后也能改；标题不能为空，否则列表里认不出是哪次签到
  */
 async function editTitle() {
@@ -219,6 +221,18 @@ defineExpose({ open })
 </script>
 
 <style scoped>
+.cd-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cd-header-title {
+  font-size: var(--el-dialog-title-font-size);
+  line-height: var(--el-dialog-font-line-height);
+  color: var(--el-text-color-primary);
+}
+
 .cd-body {
   display: flex;
   flex-direction: column;
