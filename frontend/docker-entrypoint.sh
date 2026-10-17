@@ -264,6 +264,26 @@ render_brand() {
 # 每次都从原始副本出发，渲染才真的幂等。
 ORIG_DIR=/etc/nginx/orig
 
+# HEAD_INJECT 是「明确要注入第三方脚本」的开关：CSP 默认不许内联脚本，
+# 不放开的话注入的 <script> 会被浏览器直接拦掉。
+# 每次启动都先从镜像原始副本恢复，再按当前 HEAD_INJECT 决定是否放宽 ——
+# 这样删掉配置后 restart 也能把权限收回去（容器文件系统会跨 restart 保留）。
+CSP_FILE=/etc/nginx/security-headers.conf
+if [ -f "$ORIG_DIR/security-headers.conf" ]; then
+    cp -f "$ORIG_DIR/security-headers.conf" "$CSP_FILE"
+fi
+if [ -n "$HEAD_INJECT" ]; then
+    # 'unsafe-inline' 管内联 <script>，https: 管它引用的外部脚本；
+    # 只动 script-src，其余指令保持原样
+    sed -i "s#script-src 'self' https://challenges#script-src 'self' 'unsafe-inline' https: https://challenges#" "$CSP_FILE"
+    if grep -q "script-src 'self' 'unsafe-inline' https:" "$CSP_FILE"; then
+        echo "[品牌] HEAD_INJECT 非空：CSP 已放行内联脚本与任意 https 脚本"
+    else
+        # 模板改过措辞时 sed 会静默失配，这里至少留一条能搜到的警告
+        echo "[品牌] 警告：CSP 模板结构变了，HEAD_INJECT 的脚本可能被浏览器拦下" >&2
+    fi
+fi
+
 # site-config.js 不在镜像的 webroot 里，从模板现场生成
 render_brand /etc/nginx/templates/site-config.js.template "$WEBROOT/site-config.js"
 echo "[品牌] 已生成 $WEBROOT/site-config.js"
