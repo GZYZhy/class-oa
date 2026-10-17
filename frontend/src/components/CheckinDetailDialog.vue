@@ -206,6 +206,8 @@ async function changeStatus(row, status) {
       if (byNo[target.student_no]) target.status = byNo[target.student_no]
     }
     ElMessage.success('已修改')
+    // 结算后的签到行显示的就是这四个计数，改完要让列表跟着变
+    emit('updated')
   } catch (e) {
     ElMessage.error(errText(e, '修改失败'))
   } finally {

@@ -4609,6 +4609,9 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(detailSrc.includes('updateCheckinTitle(detail.value.id')
     && detailSrc.includes('>修改<'),
     '签到的「改备注」挪进明细，改的是标题')
+  // 列表里结算后的签到行显示的就是这四个计数，改完标题或状态都要刷新列表
+  check(detailSrc.match(/emit\('updated'\)/g)?.length >= 2,
+    '改标题和改出勤状态之后都通知父组件刷新列表')
 
   // 公开页要暴露给没登录的人：路由必须是 public + bare
   const routerSrc = readFileSync(`${ROOT}/src/router/index.js`, 'utf8')
