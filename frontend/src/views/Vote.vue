@@ -3,7 +3,7 @@
     <!-- 整页都是表决内容（谁投了什么、谁还没投），盖一层「谁在看」的水印 -->
     <Watermark :text="watermarkText" />
 
-    <!-- 标题 + 筛选 + 发起 -->
+    <!-- 和审核审批一样整页一张卡片：标题、筛选、列表都在里面 -->
     <div class="page-card">
       <h3 class="page-title">投票表决</h3>
       <div class="vt-bar">
@@ -42,14 +42,13 @@
           <el-icon><Plus /></el-icon>发起投票
         </el-button>
       </div>
-    </div>
 
-    <!-- 列表 -->
-    <div class="page-card">
+      <!-- 列表 -->
       <el-table
         v-loading="loading"
         :data="rows"
         stripe
+        style="margin-top: 16px;"
         empty-text="还没有投票。班委发起一场，范围内的同学就会收到站内信"
       >
         <el-table-column label="标题" min-width="220">

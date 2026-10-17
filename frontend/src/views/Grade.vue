@@ -28,13 +28,12 @@
           <el-icon><Upload /></el-icon>上传成绩
         </el-button>
       </div>
-    </div>
 
-    <div class="page-card">
       <el-table
         v-loading="loading"
         :data="rows"
         stripe
+        style="margin-top: 12px;"
         empty-text="还没有录入过成绩，点右上角「上传成绩」传一份 Excel"
       >
         <el-table-column prop="name" label="测试名称" min-width="180" show-overflow-tooltip />

@@ -50,8 +50,12 @@ function reset() {
       style="width: 240px"
       @change="emit('search')"
     />
-    <el-button type="primary" @click="emit('search')">查询</el-button>
-    <el-button @click="reset">重置</el-button>
+    <!-- 两个按钮包在一起：窄屏换行时「查询」留在上一行、「重置」掉到下一行，
+         会被当成两个不相干的按钮 -->
+    <span class="review-search-actions">
+      <el-button type="primary" @click="emit('search')">查询</el-button>
+      <el-button @click="reset">重置</el-button>
+    </span>
   </div>
 </template>
 
@@ -60,6 +64,11 @@ function reset() {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  gap: 8px;
+}
+
+.review-search-actions {
+  display: inline-flex;
   gap: 8px;
 }
 </style>

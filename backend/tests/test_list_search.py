@@ -121,6 +121,47 @@ def test_grade_name_search(lb):
     assert lb.client.get("/api/grades", params={"keyword": " "}).json()["total"] == 2
 
 
+# ---------- 我的成绩：按考试名称搜 ----------
+#
+# /grades/mine 不分页，服务层是在拼好的结果里直接筛；这里验的是「学生只看自己的」
+# 那条接口也认 keyword，而且不误伤别人、空白不过滤。
+
+def _my_grade(b, name, day, student_no=S1, student_name=S1_NAME, score=80):
+    """给一个学生造一场有成绩的测试，返回测试 id"""
+    b.run("INSERT INTO grade_tests (name, tested_at, remark) VALUES (?, ?, '')", name, day)
+    test_id = b.rows("SELECT id FROM grade_tests WHERE name = ? ORDER BY id DESC LIMIT 1",
+                     name)[0][0]
+    b.run("INSERT INTO grade_subjects (test_id, name, sort, mode, full_score) "
+          "VALUES (?, '数学', 0, 'score', 100)", test_id)
+    subject_id = b.rows("SELECT id FROM grade_subjects WHERE test_id = ? "
+                        "ORDER BY id DESC LIMIT 1", test_id)[0][0]
+    b.run("INSERT INTO grade_items (test_id, subject_id, student_no, student_name, score) "
+          "VALUES (?, ?, ?, ?, ?)", test_id, subject_id, student_no, student_name, score)
+    return test_id
+
+
+def test_my_grade_name_search(lb):
+    midterm = _my_grade(lb, "高数期中考", "2026-03-10")
+    final = _my_grade(lb, "线性代数期末", "2026-06-20")
+    # 别人也有一场同名考试：筛的是「我的成绩」，不该把别人的测试带出来
+    _my_grade(lb, "高数期中考", "2026-03-10", S2, S2_NAME, score=95)
+
+    lb.logout()
+    assert lb.login(student_no=S1, password="010002").status_code == 200
+
+    def names(keyword):
+        r = lb.client.get("/api/grades/mine", params={"keyword": keyword})
+        assert r.status_code == 200, r.text
+        return [row["name"] for row in r.json()]
+
+    assert names("") == ["线性代数期末", "高数期中考"], "不传关键词全都在，按日期倒序"
+    assert names("高数") == ["高数期中考"], "按考试名片段搜"
+    assert names("期末") == ["线性代数期末"]
+    assert names("   ") == ["线性代数期末", "高数期中考"], "空白等于没传"
+    assert names("查无此试") == []
+    assert midterm and final  # 两场都造成功了
+
+
 # ---------- 考勤：按备注搜 ----------
 
 def _call(b, remark, day):

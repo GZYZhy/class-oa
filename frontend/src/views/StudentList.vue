@@ -1,7 +1,7 @@
 <template>
   <div class="student-list">
-    <!-- 筛选区域 -->
-    <div class="page-card filter-card">
+    <!-- 和审核审批一样整页一张卡片：标题、筛选和表格都在里面 -->
+    <div class="page-card">
       <h3 class="page-title">学生信息</h3>
       <el-form :inline="true" :model="filterForm" size="default">
         <el-form-item label="关键词">
@@ -72,12 +72,10 @@
           </el-button>
         </el-form-item>
       </el-form>
-    </div>
 
-    <!-- 表格区域 -->
-    <div class="page-card" style="margin-top: 16px;">
+      <!-- 表格区域。标题行已经去掉了：「学生信息」在上面说清楚了，
+           再来一行「学生名单」只是把同一件事说两遍 -->
       <div class="table-header">
-        <h3 class="page-title" style="margin-bottom: 0;">学生名单</h3>
         <div class="table-tools">
           <span class="tools-count">共 {{ total }} 人</span>
           <el-dropdown @command="handleSort">
@@ -204,13 +202,13 @@
           <template #default="{ row }">
             <div
               class="thumb-photo"
-              @click.stop="row.gaokao_photo && openRowPhotos(row)"
+              @click.stop="primaryPhoto(row) && openRowPhotos(row)"
             >
               <!-- 列表缩略图走 v-photo-src：进视口才下载。
                    别换回 :src + loading="lazy" —— 见 script 里那段注释 -->
               <img
-                v-if="row.gaokao_photo"
-                v-photo-src="getPhotoUrl(row, 'gaokao')"
+                v-if="primaryPhoto(row)"
+                v-photo-src="getPhotoUrl(row, primaryPhoto(row).type)"
                 class="thumb-img"
                 decoding="async"
                 fetchpriority="low"
@@ -307,10 +305,10 @@
 
       <template v-if="currentStudent">
         <div class="detail-header">
-          <div class="detail-photo" @click="currentStudent.gaokao_photo && openStudentPhotos(currentStudent)">
+          <div class="detail-photo" @click="primaryPhoto(currentStudent) && openStudentPhotos(currentStudent)">
             <img
-              v-if="currentStudent.gaokao_photo"
-              :src="getPhotoUrl(currentStudent, 'gaokao')"
+              v-if="primaryPhoto(currentStudent)"
+              :src="getPhotoUrl(currentStudent, primaryPhoto(currentStudent).type)"
               class="detail-photo-img"
               decoding="async"
               @error="handleImgError($event)"
@@ -1448,14 +1446,23 @@ function openPhotoViewer(student, activeType = 'gaokao') {
   viewerVisible.value = true
 }
 
+// 名单缩略图和详情大头照用哪一张：与顶栏头像同一口径
+// （自备证件照 > 高考照片 > 实地采集），都没有才算「暂无照片」
+const PRIMARY_PHOTO_ORDER = ['id', 'gaokao', 'on_site']
+
+function primaryPhoto(student) {
+  const type = PRIMARY_PHOTO_ORDER.find((t) => student?.[`${t}_photo`])
+  return type ? { type, fileName: student[`${type}_photo`] } : null
+}
+
 // 名单表格中点击某行的缩略图
 function openRowPhotos(row) {
-  openPhotoViewer(row, 'gaokao')
+  openPhotoViewer(row, primaryPhoto(row)?.type || 'gaokao')
 }
 
 // 详情弹窗中点击照片
-function openStudentPhotos(student, photoType = 'gaokao') {
-  openPhotoViewer(student, photoType)
+function openStudentPhotos(student, photoType) {
+  openPhotoViewer(student, photoType || primaryPhoto(student)?.type || 'gaokao')
 }
 
 async function fetchData() {
@@ -2249,14 +2256,13 @@ watch(() => route.query.open, openFromQuery)
   position: relative;
 }
 
-.filter-card {
-  padding-bottom: 0;
-}
-
+/* 卡片标题下面是筛选表单，再往下是「共 N 人 / 排序 / 点名」那一条工具行。
+   去掉表格标题后只剩工具组，所以靠右对齐、并和上面的筛选拉开一点距离 */
 .table-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
+  margin-top: 4px;
 }
 
 /* 用 gap 统一间距。以前靠每个按钮自己 style="margin-left: 8px" 顶开，
@@ -2471,22 +2477,22 @@ watch(() => route.query.open, openFromQuery)
      放不下两个，于是一行一个地把半屏占满。这里改成两列自适应 —— 关键词和按钮各占
      一整行（一个要宽、一个本来就窄），中间那五个下拉两两一行；控件宽度一律交给容器
      （行内的 style="width: 240px" 压过样式表，得 !important 才盖得住） */
-  .filter-card :deep(.el-form--inline .el-form-item) {
+  .page-card :deep(.el-form--inline .el-form-item) {
     display: flex;
     width: calc(50% - 5px);
     margin-right: 0;
     margin-bottom: 10px;
   }
-  .filter-card :deep(.el-form--inline .el-form-item:first-child),
-  .filter-card :deep(.el-form--inline .el-form-item:last-child) {
+  .page-card :deep(.el-form--inline .el-form-item:first-child),
+  .page-card :deep(.el-form--inline .el-form-item:last-child) {
     width: 100%;
   }
-  .filter-card :deep(.el-form-item__content) {
+  .page-card :deep(.el-form-item__content) {
     flex: 1;
     min-width: 0;
   }
-  .filter-card :deep(.el-input),
-  .filter-card :deep(.el-select) {
+  .page-card :deep(.el-input),
+  .page-card :deep(.el-select) {
     width: 100% !important;
   }
 }

@@ -14,6 +14,7 @@
 这个文件就是补上的那道守卫。）
 """
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -130,3 +131,58 @@ def test_sign_is_not_a_regular_photo_type():
     assert set(PHOTO_FIELDS) < set(IMPORT_PHOTO_FIELDS)
     # 标签表是给打包导入用的，两种都要在
     assert PHOTO_TYPE_LABELS["sign"] == "签字图"
+
+
+# ---------- 顶栏头像：自备证件照 > 高考照片 > 实地采集 > 姓名首字 ----------
+
+def avatar_v(sp):
+    """顶栏头像地址里带的版本号（也就是后端挑中的文件名）；没有头像时为 None"""
+    r = sp.b.client.get("/api/auth/me")
+    assert r.status_code == 200, r.text
+    url = r.json()["avatar"]
+    if not url:
+        return None
+    return parse_qs(urlparse(url).query)["v"][0]
+
+
+def test_avatar_follows_the_photo_priority(sp):
+    """三种照片里挑最好的那张：自备证件照 > 高考照片 > 实地采集"""
+    assert avatar_v(sp) is None, "一张照片都没有时交给前端画姓名首字"
+    assert sp.b.client.get("/api/auth/avatar").status_code == 404
+
+    on_site = upload(sp, "on_site").json()["photo"]
+    assert avatar_v(sp) == on_site, "只有实地采集时就用它"
+
+    gaokao = upload(sp, "gaokao").json()["photo"]
+    assert avatar_v(sp) == gaokao, "高考照片比实地采集优先"
+
+    id_photo = upload(sp, "id").json()["photo"]
+    assert avatar_v(sp) == id_photo, "自备证件照优先级最高"
+
+    # 地址指向的那张确实就是自备证件照，不是「字段对了、文件拿错了」
+    r = sp.b.client.get("/api/auth/avatar")
+    assert r.status_code == 200, r.text
+    assert r.content == PNG
+
+    # 删掉当前这张，自动退回下一档，而不是直接变成裂图
+    assert sp.b.client.delete(f"/api/students/{sp.sid}/photo?type=id").status_code == 200
+    assert avatar_v(sp) == gaokao
+    assert sp.b.client.delete(f"/api/students/{sp.sid}/photo?type=gaokao").status_code == 200
+    assert avatar_v(sp) == on_site
+    assert sp.b.client.delete(f"/api/students/{sp.sid}/photo?type=on_site").status_code == 200
+    assert avatar_v(sp) is None
+    assert sp.b.client.get("/api/auth/avatar").status_code == 404
+
+
+def test_avatar_skips_a_recorded_but_missing_file(sp):
+    """库里记着路径、文件却不在的那张要跳过（换库、手工清理过都会这样）"""
+    gaokao = upload(sp, "gaokao").json()["photo"]
+    id_photo = upload(sp, "id").json()["photo"]
+    assert avatar_v(sp) == id_photo
+
+    (sp.b.db.parent / "photos" / id_photo).unlink()
+    assert avatar_v(sp) == gaokao, "缺文件的跳过，继续往后找"
+
+    r = sp.b.client.get("/api/auth/avatar")
+    assert r.status_code == 200, r.text
+    assert r.content == PNG

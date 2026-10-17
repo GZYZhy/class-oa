@@ -482,14 +482,27 @@
             style="display: none"
             @change="handleFileSelected"
           />
-          <span class="tip">管理「资料下载」页面显示的条目。</span>
+          <span class="tip">管理「资料下载」页面显示的条目；分类旁的箭头调整分类之间的顺序。</span>
         </div>
 
-        <div v-for="group in resourceGroups" :key="group.category" class="resource-group">
+        <div v-for="(group, gi) in resourceGroups" :key="group.category" class="resource-group">
           <div class="resource-group-title">
             <el-icon><FolderOpened /></el-icon>
             {{ group.category }}
             <span class="group-count">{{ group.items.length }} 份</span>
+            <!-- 分类之间的顺序：一个分类整体上移/下移，不动分类里的资料 -->
+            <span class="category-order">
+              <el-button size="small" :disabled="gi === 0" @click="moveResourceCategory(gi, -1)">
+                <el-icon><Top /></el-icon>
+              </el-button>
+              <el-button
+                size="small"
+                :disabled="gi === resourceGroups.length - 1"
+                @click="moveResourceCategory(gi, 1)"
+              >
+                <el-icon><Bottom /></el-icon>
+              </el-button>
+            </span>
           </div>
 
           <el-table :data="group.items" v-loading="loadingResources" stripe border style="width: 100%;">
@@ -884,6 +897,7 @@ import {
   listResources,
   uploadResource,
   updateResource,
+  reorderResourceCategories,
   reorderResources,
   deleteResource,
   getFileAccessLogs,
@@ -1805,6 +1819,22 @@ async function moveResource(row, direction) {
   }
 }
 
+async function moveResourceCategory(index, direction) {
+  // direction: -1=上移, 1=下移。整组交换，不动组内资料
+  const target = index + direction
+  if (target < 0 || target >= resourceGroups.value.length) return
+
+  const order = resourceGroups.value.map((g) => g.category)
+  ;[order[index], order[target]] = [order[target], order[index]]
+
+  try {
+    await reorderResourceCategories(order)
+    fetchResources()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '调整分类顺序失败')
+  }
+}
+
 // ---------- 生日关怀 ----------
 const birthdayLoaded = ref(false)
 const loadingBirthday = ref(false)
@@ -2248,5 +2278,12 @@ onMounted(() => {
   color: var(--el-text-color-secondary);
   font-weight: normal;
   margin-left: 4px;
+}
+
+/* 分类的上移/下移按钮，推到标题行最右边，不跟分类名挤在一起 */
+.category-order {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
 }
 </style>

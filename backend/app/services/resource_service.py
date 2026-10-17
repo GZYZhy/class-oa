@@ -12,7 +12,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
-from ..models.resource import Resource
+from ..models.resource import Resource, ResourceCategory
 
 # 资料文件放在 data/downloads/ 下，和旧版一致
 RESOURCE_DIR = BASE_DIR / "data" / "downloads"
@@ -42,10 +42,27 @@ def download_name(row: Resource) -> str:
     return f"{row.name}{ext}"
 
 
+def _ordered_categories(db: Session, categories: list[str]) -> list[str]:
+    """按管理员设置的顺序排列分类
+
+    categories 是「默认顺序」（按分类里最靠前那条资料的 sort_order / id 撞出来的）。
+    没设置过顺序的分类排在已设置的后面，彼此之间保持默认顺序 —— 新出现的分类
+    自然落到末尾，管理员再决定往哪挪。
+    """
+    rank = {
+        row.name: row.sort_order
+        for row in db.query(ResourceCategory)
+        .filter(ResourceCategory.name.in_(categories))
+        .all()
+    }
+    return sorted(categories, key=lambda name: rank.get(name, float("inf")))
+
+
 def list_resources(db: Session) -> list[dict]:
     """按分类分组返回资料列表（旧版 RESOURCE_CATALOG 的形状）
 
     返回：[{"category": "徽章标志", "items": [{name, file, size, url}, ...]}, ...]
+    分类之间的先后由管理员设置（resource_categories），分类内部按 sort_order。
     前端 Downloads.vue 直接用。
     """
     rows = db.query(Resource).order_by(Resource.sort_order, Resource.id).all()
@@ -72,12 +89,23 @@ def list_resources(db: Session) -> list[dict]:
             "sort_order": r.sort_order,
             "download_count": r.download_count or 0,
         })
-    return [{"category": cat, "items": groups[cat]} for cat in order]
+    return [{"category": cat, "items": groups[cat]}
+            for cat in _ordered_categories(db, order)]
 
 
 def list_all(db: Session) -> list[Resource]:
-    """管理员用的全量列表，不分组，按分类 + 排序"""
-    return db.query(Resource).order_by(Resource.category, Resource.sort_order, Resource.id).all()
+    """管理员用的全量列表，不分组，按分类展示顺序 + 分类内排序
+
+    后台是按这个顺序分组的，所以这里也得跟 Downloads 页面一个口径 ——
+    否则管理员在后台调了分类顺序，前台变了、后台没变，看着像没保存。
+    """
+    rows = db.query(Resource).order_by(Resource.sort_order, Resource.id).all()
+    categories: list[str] = []
+    for row in rows:
+        if row.category not in categories:
+            categories.append(row.category)
+    index = {name: i for i, name in enumerate(_ordered_categories(db, categories))}
+    return sorted(rows, key=lambda row: (index[row.category], row.sort_order, row.id))
 
 
 def get_resource(db: Session, resource_id: int) -> Resource | None:
@@ -160,6 +188,29 @@ def reorder_category(db: Session, category: str, id_order: list[int]) -> None:
     start = len(id_order)
     for i, row in enumerate(by_id.values()):
         row.sort_order = start + i
+
+
+def reorder_categories(db: Session, order: list[str]) -> None:
+    """按给定顺序记录分类的展示顺序
+
+    order 是分类名列表，顺序即显示顺序。没列出来的分类排到后面（正常不会发生：
+    前端每次都会把当前所有分类整个发上来）。
+    """
+    existing = {row.name: row for row in db.query(ResourceCategory).all()}
+    for idx, name in enumerate(order):
+        row = existing.get(name)
+        if row is None:
+            db.add(ResourceCategory(name=name, sort_order=idx))
+        else:
+            row.sort_order = idx
+    # 已有记录里没被本次列表覆盖的，按原顺序接在后面
+    rest = sorted(
+        (row for name, row in existing.items() if name not in order),
+        key=lambda row: (row.sort_order, row.id),
+    )
+    for i, row in enumerate(rest, start=len(order)):
+        row.sort_order = i
+    db.flush()
 
 
 def delete_resource(db: Session, resource_id: int) -> bool:

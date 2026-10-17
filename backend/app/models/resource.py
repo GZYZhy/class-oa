@@ -33,3 +33,19 @@ class Resource(Base):
         comment="下载次数",
     )
     created_at = Column(DateTime, server_default=func.now(), comment="创建时间")
+
+
+class ResourceCategory(Base):
+    """资料分类的展示顺序
+
+    分类在 resources 表里只是个字符串，本身没有「第几个」的概念。这张表只记
+    管理员给分类排的顺序，不记分类本身 —— 页面上出现哪些分类仍然由 resources
+    表里实际存在的值决定，一个分类的资料全删光，它自然就不显示了。
+    """
+
+    __tablename__ = "resource_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), nullable=False, unique=True, index=True, comment="分类名")
+    sort_order = Column(Integer, nullable=False, default=0, index=True, comment="排序")
+

@@ -137,6 +137,20 @@ def list_schedules(
     return instances
 
 
+@router.get("/search", response_model=list[ScheduleResponse])
+def search_schedules(
+    keyword: str = Query("", description="日程名称关键词"),
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    """按名称搜自己的日程，每条日程只回一行（重复日程取离今天最近的一次）
+
+    页面上把它放在弹窗里：同名日程可能有很多条，得让用户按日期自己挑。
+    空关键词返回空列表，不整屏拉全班日程。
+    """
+    return ss.search_by_title(db, student.id, keyword)
+
+
 @router.get("/semester", response_model=SemesterInfoResponse)
 def get_semester_info(
     student: Student = Depends(get_current_student),

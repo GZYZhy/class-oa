@@ -2,9 +2,10 @@ import request, { progressHandler } from '@/utils/request'
 
 /**
  * 公告列表
+ * @param {object} [params] - keyword（标题或文号）、start_date、end_date
  */
-export function getAnnouncements() {
-  return request({ url: '/announcements', method: 'get' })
+export function getAnnouncements(params = {}) {
+  return request({ url: '/announcements', method: 'get', params })
 }
 
 /**

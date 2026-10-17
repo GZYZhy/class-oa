@@ -52,6 +52,7 @@ from ..services import (
     clear_failures,
     default_password,
     delete_resource,
+    reorder_categories,
     TOKEN_SOURCE_ANNOUNCEMENT,
     TOKEN_SOURCE_EV_APPLY,
     TOKEN_SOURCE_EV_PROMISE,
@@ -1057,6 +1058,27 @@ def update_resource_api(
     )
     db.commit()
     return {"message": "已更新"}
+
+
+@router.put("/resources/categories/order", summary="调整资料分类的展示顺序")
+def reorder_resource_categories(
+    order: list[str],
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """按给定顺序显示分类（数组顺序即页面顺序）
+
+    只影响「分类之间」的先后；分类里的资料顺序仍由 /resources/reorder/{category} 管。
+    """
+    reorder_categories(db, order)
+    log_operation(
+        db, user, "重排资料分类", target="资料下载",
+        detail=f"调整 {len(order)} 个分类的顺序",
+        ip=ip,
+    )
+    db.commit()
+    return {"message": "已更新顺序"}
 
 
 @router.put("/resources/reorder/{category}", summary="重排某分类下的资料顺序")
