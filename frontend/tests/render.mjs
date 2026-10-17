@@ -3579,6 +3579,16 @@ console.log('\n▶ 账号安全：三块折叠面板之间不再叠分割线')
     '访问令牌 / 通行密钥 / 二次验证之间没有 el-divider（折叠项自带边框）')
   check(src.includes('.channel-block + .channel-block :deep(.el-collapse)'),
     '相邻折叠面板去掉后一块的上边框，避免两条线并排')
+
+  // 通知设置：渠道顺序改为 邮件 → Bark → Webhook，且不再叠 el-divider
+  const notify = src.slice(src.indexOf('后加的渠道'), src.indexOf('我的日志'))
+  const iEmail = notify.indexOf('EmailNotifySetting')
+  const iBark = notify.indexOf('Bark 推送')
+  const iHook = notify.indexOf('WebhookSetting')
+  check(iEmail > 0 && iBark > iEmail && iHook > iBark,
+    '通知渠道顺序：电子邮件 → Bark → Webhook')
+  check(!notify.includes('<el-divider'),
+    '通知设置不再用 el-divider（折叠组件自带边框）')
 }
 
 console.log('\n▶ 二次验证：登录第二步与账户设置')
@@ -3611,6 +3621,13 @@ console.log('\n▶ 二次验证：登录第二步与账户设置')
   )
   check(totp.html.includes('身份验证器 App'), 'TOTP 方式提示去 App 里看码')
   check(!totp.html.includes('重新发送验证码'), 'TOTP 方式没有重发按钮')
+
+  // 身份验证器要能扫码：otpauth 链接在浏览器里不一定点得动，二维码是主入口
+  const tfSrc = readFileSync(`${ROOT}/src/components/TwoFactorSetting.vue`, 'utf8')
+  check(tfSrc.includes("import('qrcode')"), '二维码库按需加载，不进首屏')
+  check(tfSrc.includes('QRCode.toDataURL'), '用 otpauth 链接在本地画二维码')
+  check(/class="totp-qr"/.test(tfSrc), '设置页把二维码显示出来')
+  check(tfSrc.includes("qrDataUrl.value = ''"), '取消设置时清掉上一张二维码')
 
   // 账户设置里的那段：默认未开启，两种方式都摆出来
   const off = await render('/src/components/TwoFactorSetting.vue')

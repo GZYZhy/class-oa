@@ -121,7 +121,14 @@
 
             <template v-else>
               <p class="desc">
-                在 App 里选择「手动输入密钥」，填入下面这串，账号名填你的学号：
+                用 Google Authenticator、微软 Authenticator 等 App 扫描下面的二维码：
+              </p>
+              <div class="totp-qr-box">
+                <img v-if="qrDataUrl" :src="qrDataUrl" class="totp-qr" alt="验证器二维码" />
+                <span v-else class="desc">二维码生成中…</span>
+              </div>
+              <p class="desc">
+                扫不了码也没关系：在 App 里选择「手动输入密钥」，填入下面这串，账号名填你的学号。
               </p>
               <div class="secret-box">{{ totp.secret }}</div>
               <p class="desc">
@@ -211,6 +218,30 @@ const emailMasked = ref('')
 // 身份验证器方式
 const totp = ref(null)   // { secret, otpauth_uri }
 const totpCode = ref('')
+// otpauth:// 的二维码，生成好之前显示「生成中」；生成失败仍可手输密钥
+const qrDataUrl = ref('')
+
+/**
+ * 把 otpauth:// 画成二维码。
+ *
+ * 二维码库按需加载：只有真正开始设置 TOTP 时才下载这一小块代码，不进首屏。
+ * 全程在浏览器本地生成，不依赖任何外部二维码服务或 CDN。
+ */
+async function renderQr(uri) {
+  qrDataUrl.value = ''
+  if (!uri) return
+  try {
+    const QRCode = (await import('qrcode')).default
+    qrDataUrl.value = await QRCode.toDataURL(uri, {
+      margin: 1,
+      width: 220,
+      errorCorrectionLevel: 'M'
+    })
+  } catch {
+    // 画不出二维码不影响开启：下面还有密钥可以手输
+    qrDataUrl.value = ''
+  }
+}
 
 // 恢复码弹窗
 const codesVisible = ref(false)
@@ -292,6 +323,7 @@ async function handleBeginTotp() {
   try {
     totp.value = await beginTotpSetup({ password })
     totpCode.value = ''
+    await renderQr(totp.value?.otpauth_uri)
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '设置失败')
   } finally {
@@ -319,6 +351,7 @@ async function handleConfirmTotp() {
 function resetTotp() {
   totp.value = null
   totpCode.value = ''
+  qrDataUrl.value = ''
 }
 
 async function handleDisable() {
@@ -457,6 +490,22 @@ onMounted(load)
 
 .code-row :deep(.el-input) {
   width: 180px;
+}
+
+/* 二维码：白底 + 细边框，深色模式下也保证扫得出来 */
+.totp-qr-box {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0 12px;
+}
+
+.totp-qr {
+  width: 200px;
+  height: 200px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--el-border-color-lighter);
 }
 
 .secret-box {
