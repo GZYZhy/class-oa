@@ -136,6 +136,14 @@ const routes = [
     name: 'About',
     component: () => import('@/views/About.vue'),
     meta: { title: '关于班级' }
+  },
+  // 兜底：地址输错 / 旧链接失效。没有它 router-view 什么都不渲染，正文区一片空白，
+  // 用户分不清是链接错了还是系统坏了。必须放最后一条 —— 前面的具名路由先匹配
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: () => import('@/views/NotFound.vue'),
+    meta: { title: '页面不存在' }
   }
 ]
 

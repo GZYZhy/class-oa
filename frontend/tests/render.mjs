@@ -3972,6 +3972,28 @@ console.log('\n▶ 线上真实的 404：部署后的旧 chunk、通知里的已
   )
 }
 
+console.log('\n▶ 输错地址：给一张「页面不存在」的卡片，而不是空白')
+{
+  // 哈希路由下服务端永远是 200（nginx 兜底回 index.html），能给的只有前端这张卡片。
+  // 没有 catch-all 的话 router-view 什么都不渲染，正文区一片空白
+  const routerSrc = readFileSync(`${ROOT}/src/router/index.js`, 'utf8')
+  check(/path: '\/:pathMatch\(\.\*\)\*'/.test(routerSrc), '路由表有 catch-all')
+  check(
+    routerSrc.indexOf("path: '/:pathMatch") > routerSrc.indexOf("path: '/about'"),
+    'catch-all 排在所有具名路由之后'
+  )
+  check(/meta: \{ title: '页面不存在' \}/.test(routerSrc), '标签页标题是「页面不存在」')
+
+  const { html } = await render('/src/views/NotFound.vue')
+  const text = stripComments(html)
+  check(text.includes('页面不存在'), '卡片上写着页面不存在')
+  check(text.includes('地址可能输错了'), '说明了可能的原因')
+  check(text.includes('返回首页'), '给了回首页的出口')
+
+  const src = readFileSync(`${ROOT}/src/views/NotFound.vue`, 'utf8')
+  check(src.includes("router.push('/dashboard')"), '「返回首页」真跳首页')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
