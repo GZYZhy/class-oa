@@ -21,7 +21,7 @@
 于是 GET /api/students/{id}/photo?type=sign 天然报「未知的照片类型」。
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
@@ -37,6 +37,7 @@ from ..schemas import (
     SignPhotoStatusResponse,
 )
 from ..services import clip, display_name, get_student, log_operation, notify, recipients
+from ..services.list_filters import created_between, keyword_like
 from ..services.student_photo_service import photo_path, photo_response, remove_photo, save_photo
 from .deps import (
     admin_required,
@@ -204,6 +205,9 @@ def create_request(
             summary="签字查看申请列表（仅管理员）")
 def list_requests(
     status: str | None = Query(None, description="按状态筛选：pending / approved / rejected"),
+    keyword: str | None = Query(None, description="按提交人姓名或学号模糊搜索"),
+    start: date | None = Query(None, description="提交日期起始，含当天"),
+    end: date | None = Query(None, description="提交日期结束，含当天"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     _: User = Depends(admin_required),
@@ -213,6 +217,12 @@ def list_requests(
     query = db.query(SignPhotoRequest)
     if status:
         query = query.filter(SignPhotoRequest.status == status)
+    # 「提交人」是发起申请的那个班委，不是被查看签字的学生
+    person_match = keyword_like(keyword, SignPhotoRequest.applicant_name,
+                                SignPhotoRequest.applicant_no)
+    if person_match is not None:
+        query = query.filter(person_match)
+    query = created_between(query, SignPhotoRequest.created_at, start, end)
     total = query.count()
     items = (
         query.order_by(SignPhotoRequest.id.desc())

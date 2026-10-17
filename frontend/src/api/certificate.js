@@ -68,14 +68,11 @@ export function deleteCertificate(id) {
 
 /**
  * 证明申请列表（班委及以上）
- * @param {string} [status] - pending/approved/rejected
+ * @param {{status?: string, keyword?: string, start?: string, end?: string}} [params]
+ *   keyword 匹配提交人姓名/学号；start/end 是提交日期（YYYY-MM-DD，含首尾）
  */
-export function getCertificateList(status) {
-  return request({
-    url: '/certificates',
-    method: 'get',
-    params: status ? { status } : {}
-  })
+export function getCertificateList(params) {
+  return request({ url: '/certificates', method: 'get', params: params || {} })
 }
 
 /**

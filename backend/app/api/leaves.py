@@ -4,7 +4,7 @@
 
 import os
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -42,6 +42,7 @@ from ..services import (
     notify,
     recipients,
 )
+from ..services.list_filters import created_between, keyword_like
 from ..services.review_flow import (
     ADMIN_TODO,
     CLOSED,
@@ -376,6 +377,9 @@ def list_leaves(
                     "open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销），"
                     "不传为全部",
     ),
+    keyword: str | None = Query(None, description="按提交人姓名或学号模糊搜索"),
+    start: date | None = Query(None, description="提交日期起始，含当天"),
+    end: date | None = Query(None, description="提交日期结束，含当天"),
     _: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
@@ -396,6 +400,12 @@ def list_leaves(
         query = query.filter(LeaveRequest.status.in_(CLOSED))
     elif status:
         query = query.filter(LeaveRequest.status == status)
+
+    person_match = keyword_like(keyword, LeaveRequest.student_name, LeaveRequest.student_no)
+    if person_match is not None:
+        query = query.filter(person_match)
+    query = created_between(query, LeaveRequest.created_at, start, end)
+
     rows = query.order_by(desc(LeaveRequest.id)).all()
     return [_to_response(r) for r in rows]
 

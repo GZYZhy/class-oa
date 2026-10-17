@@ -47,13 +47,13 @@ export function getMyLeaveProof(id) {
   })
 }
 
-/** 管理员：请假申请列表 */
-export function getLeaveList(status) {
-  return request({
-    url: '/leaves',
-    method: 'get',
-    params: status ? { status } : {}
-  })
+/**
+ * 管理员：请假申请列表
+ * @param {{status?: string, keyword?: string, start?: string, end?: string}} [params]
+ *   keyword 匹配提交人姓名/学号；start/end 是提交日期（YYYY-MM-DD，含首尾）
+ */
+export function getLeaveList(params) {
+  return request({ url: '/leaves', method: 'get', params: params || {} })
 }
 
 /** 下载请假审批表 PDF（申请人本人和管理员都能下，下到的是一样的）
