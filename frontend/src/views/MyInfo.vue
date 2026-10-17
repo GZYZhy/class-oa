@@ -335,15 +335,20 @@
                 <!-- ==================== 后加的渠道 ====================
                      整块藏在 newChannelsAvailable 后面：新前端配旧后端时这几个接口是 404，
                      与其给用户看半截能用、点一下报错的界面，不如不显示（见 fetchAccountData）。
-                     顺序是「邮件 → Bark → Webhook」：由简到繁，最常用的在前。
-                     折叠组件自带分隔线，所以这里只用间距，不再叠 el-divider -->
+                     顺序是「浏览器通知 → 邮件 → Bark → Webhook」：由简到繁，最常用的在前。
+                     渠道之间用一条分割线分开；折叠组件自带的外边框在这一块里关掉，
+                     否则会出现「分割线 + 边框」并排的两条线 -->
+                <el-divider v-if="newChannelsAvailable" />
+
                 <EmailNotifySetting
                   v-if="newChannelsAvailable"
-                  class="notify-collapse"
+                  class="notify-channel"
                 />
 
+                <el-divider />
+
                 <!-- ==================== Bark 推送 ==================== -->
-                <div class="notify-bark">
+                <div class="notify-channel">
                   <div class="section-title">Bark 推送</div>
                   <div class="section-sub">手机上装 Bark App，填一个设备 ID 就能收</div>
 
@@ -373,9 +378,11 @@
                   </div>
                 </div>
 
+                <el-divider v-if="newChannelsAvailable" />
+
                 <WebhookSetting
                   v-if="newChannelsAvailable"
-                  class="notify-collapse"
+                  class="notify-channel"
                 />
               </div>
             </el-tab-pane>
@@ -1245,11 +1252,11 @@ onMounted(async () => {
   border-top: 0;
 }
 
-/* 通知设置里的渠道块靠间距分开，不用分割线 —— 折叠组件自己有边框，
-   再加一条 el-divider 就成了并排的两条线 */
-.notify-collapse,
-.notify-bark {
-  margin-top: 28px;
+/* 通知设置里的渠道块之间由 el-divider 分开；折叠组件自带上下边框，
+   留在这里会和分割线并排成两条线，所以在这一块里关掉 */
+.notify-channel :deep(.el-collapse) {
+  border-top: 0;
+  border-bottom: 0;
 }
 
 /* tab 内的分节：外层 page-card 已经给了白底和内边距，这里只要间距 */
