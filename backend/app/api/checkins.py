@@ -11,6 +11,9 @@
    commit，提前发会把「建签到」这笔半截事务一起提交掉（全项目统一口径）。
 """
 
+import base64
+import hashlib
+import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -20,7 +23,6 @@ from fastapi import (
     APIRouter,
     BackgroundTasks,
     Depends,
-    File,
     Form,
     HTTPException,
     Request,
@@ -30,6 +32,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..config import resolve_session_secret
 from ..database import get_db
 from ..models import AttendanceItem, Checkin, CheckinTarget, Student, User
 from ..schemas import (
@@ -66,6 +69,11 @@ router = APIRouter(prefix="/api/checkins", tags=["签到"])
 
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
+
+# 照片在截止前开始传、传完时已经过点的，给一点宽限让「签到」按钮还能提交。
+# 慢网络下十几 MB 的照片传几分钟很正常，宽限要覆盖上传耗时，又不能变成
+# 「过了截止还能慢慢签」。只对带照片凭证的签发生效，普通签到仍严格按截止时间。
+SIGN_GRACE = timedelta(minutes=10)
 
 
 # ---------- 小工具 ----------
@@ -278,6 +286,42 @@ def _save_photo(file: UploadFile) -> str:
     name = f"{uuid.uuid4().hex}{suffix}"
     (CHECKIN_DIR / name).write_bytes(data)
     return name
+
+
+def _photo_token(checkin: Checkin, student_no: str, started_at: datetime, name: str) -> str:
+    """把「谁、哪场签到、几点开始传、传成了哪个文件」签成一个令牌
+
+    签到接口凭它判断照片是不是本人、是不是这场、是不是截止前开始传的。
+    不签名的话，改一下时间就能把截止后才开始传的照片算成截止前。
+    """
+    payload = f"{checkin.id}:{student_no}:{int(started_at.timestamp())}:{name}"
+    sig = hmac.new(
+        resolve_session_secret().encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    return base64.urlsafe_b64encode(f"{payload}:{sig}".encode()).decode()
+
+
+def _read_photo_token(token: str, checkin: Checkin, student_no: str) -> tuple[datetime, str]:
+    """验照片令牌，返回（上传开始时间, 文件名）；不合法一律 400"""
+    invalid = HTTPException(status_code=400, detail="照片凭证无效，请重新选择照片上传")
+    try:
+        raw = base64.urlsafe_b64decode(token.encode()).decode()
+        payload, sig = raw.rsplit(":", 1)
+        cid, no, ts, name = payload.split(":", 3)
+    except (ValueError, UnicodeDecodeError):
+        raise invalid
+
+    expected = hmac.new(
+        resolve_session_secret().encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    if (
+        not hmac.compare_digest(sig, expected)
+        or cid != str(checkin.id)
+        or no != student_no
+        or Path(name).name != name
+    ):
+        raise invalid
+    return datetime.fromtimestamp(int(ts)), name
 
 
 # ---------- 班委端 ----------
@@ -665,6 +709,52 @@ def get_checkin_photo(
 # ---------- 公开端 ----------
 
 @router.post(
+    "/public/{code}/photo",
+    summary="先上传签到照片（需登录且在范围内）",
+)
+async def upload_checkin_photo(
+    code: str,
+    request: Request,
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    """选中照片就传上来，不等点「签到」。
+
+    **不能**把文件声明成 `File(...)` 参数：FastAPI 会先收完整个请求体才进函数，
+    那样记下的是「传完」时间。这里一进函数就先取时间，作为上传开始时间签进
+    令牌；截止前开始传的，哪怕传完已经过点，签到接口也会认。
+    """
+    started_at = datetime.now()
+    finalize_due(db)
+    checkin = _get_by_code(db, code)
+    if checkin_status(checkin, now=started_at) != CHECKIN_ONGOING:
+        raise HTTPException(status_code=400, detail="签到已经结束")
+
+    target = (
+        db.query(CheckinTarget)
+        .filter(
+            CheckinTarget.checkin_id == checkin.id,
+            CheckinTarget.student_no == student.student_no,
+        )
+        .first()
+    )
+    if not target:
+        raise HTTPException(status_code=400, detail="你不在本次签到范围内")
+    if target.signed_at is not None:
+        raise HTTPException(status_code=400, detail="你已签到，不用重复提交")
+
+    form = await request.form()
+    photo = form.get("photo")
+    # 用属性判断而不是 isinstance：request.form() 给的是 Starlette 的 UploadFile，
+    # 和 fastapi.UploadFile 不是同一个类，isinstance 会恒为 False
+    if not getattr(photo, "filename", ""):
+        raise HTTPException(status_code=400, detail="请选择一张照片")
+
+    name = _save_photo(photo)
+    return {"token": _photo_token(checkin, student.student_no, started_at, name)}
+
+
+@router.post(
     "/public/{code}/sign",
     response_model=CheckinPublicResponse,
     summary="学生签到（需登录且在范围内）",
@@ -674,13 +764,33 @@ def sign_checkin(
     request: Request,
     lat: float | None = Form(None, description="GCJ-02 纬度"),
     lng: float | None = Form(None, description="GCJ-02 经度"),
-    photo: UploadFile | None = File(None),
+    photo_token: str | None = Form(None, description="先上传照片拿到的令牌"),
     student: Student = Depends(get_current_student),
     db: Session = Depends(get_db),
 ):
     finalize_due(db)
     checkin = _get_by_code(db, code)
-    if checkin_status(checkin) != CHECKIN_ONGOING:
+
+    # 照片已经先传完了，这里只验令牌。上传统计的是「开始传」的时刻：
+    # 截止前开始传、传完才点签到，仍然算数
+    photo_file: str | None = None
+    upload_started: datetime | None = None
+    if photo_token:
+        upload_started, photo_file = _read_photo_token(
+            photo_token, checkin, student.student_no
+        )
+        if not (CHECKIN_DIR / photo_file).is_file():
+            raise HTTPException(status_code=400, detail="照片已失效，请重新选择上传")
+
+    reference = checkin.closed_at or checkin.end_at
+    now = datetime.now()
+    late_ok = bool(
+        photo_file
+        and upload_started is not None
+        and upload_started < reference
+        and now <= reference + SIGN_GRACE
+    )
+    if checkin_status(checkin, now=now) != CHECKIN_ONGOING and not late_ok:
         raise HTTPException(status_code=400, detail="签到已经结束")
 
     target = (
@@ -710,12 +820,12 @@ def sign_checkin(
                 f"（{checkin.radius_m or 0} 米）",
             )
 
-    if checkin.require_photo and (photo is None or not photo.filename):
+    if checkin.require_photo and not photo_file:
         raise HTTPException(status_code=400, detail="本次签到需要上传一张照片")
-    photo_file = _save_photo(photo) if (photo is not None and photo.filename) else None
 
-    # 条件 UPDATE 抢签到权：两个请求同时提交时，只有第一个 signed_at 还是空的人能改到，
-    # 第二个 rowcount=0，照片也不会留下孤儿文件
+    # 条件 UPDATE 抢签到权：两个请求同时提交时，只有第一个 signed_at 还是空的人能改到。
+    # 失败时**不要**删照片：同一个照片令牌可能被重复提交，第一个请求已经把它
+    # 挂到签到记录上，第二个删掉就成了坏图；宁可留一个没被引用的文件。
     claimed = (
         db.query(CheckinTarget)
         .filter(
@@ -735,31 +845,42 @@ def sign_checkin(
         )
     )
     if not claimed:
-        if photo_file:
-            (CHECKIN_DIR / photo_file).unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="你已签到，不用重复提交")
 
-    try:
-        db.commit()
-    except Exception:
-        if photo_file:
-            (CHECKIN_DIR / photo_file).unlink(missing_ok=True)
-        raise
+    db.commit()
+    db.refresh(checkin)
+
+    # 过了点才签上：结算可能已经跑过，把考勤明细里这个人从「无应答/请假」
+    # 改回「到」，否则签到记录和考勤明细会对不上
+    if checkin.finalized_at is not None and checkin.attendance_record_id:
+        item = (
+            db.query(AttendanceItem)
+            .filter(
+                AttendanceItem.record_id == checkin.attendance_record_id,
+                AttendanceItem.student_no == student.student_no,
+            )
+            .first()
+        )
+        if item is not None and item.status != "present":
+            item.status = "present"
+            db.commit()
 
     # 应到的人都签到了就没必要再等截止：立即结束并结算。
+    # 已经结算过的（上面那种过了点才签上的）不用再走一遍。
     # 最后一个签的人拿到的就是「已结束」，页面上直接能看到最终结果
-    unsigned = (
-        db.query(CheckinTarget)
-        .filter(
-            CheckinTarget.checkin_id == checkin.id,
-            CheckinTarget.signed_at.is_(None),
+    if checkin.finalized_at is None:
+        unsigned = (
+            db.query(CheckinTarget)
+            .filter(
+                CheckinTarget.checkin_id == checkin.id,
+                CheckinTarget.signed_at.is_(None),
+            )
+            .count()
         )
-        .count()
-    )
-    if unsigned == 0:
-        checkin.closed_at = datetime.now()
-        db.commit()
-        finalize_checkin(db, checkin)
+        if unsigned == 0:
+            checkin.closed_at = datetime.now()
+            db.commit()
+            finalize_checkin(db, checkin)
 
     return _public_response(
         db,

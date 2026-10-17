@@ -66,25 +66,48 @@ export function getCheckinPublic(code) {
 }
 
 /**
+ * 先上传签到照片，返回 { token }
+ *
+ * 选中照片就调它，不等点「签到」—— 大照片在手机上要传一阵，等到最后再传
+ * 很容易传完时已经截止。后端会把「开始上传」的时刻签进令牌，截止前开始传的
+ * 照片之后仍可用。
+ *
+ * @param {string} code
+ * @param {File} photo 已经压缩过的图片
+ * @param {{onProgress?: Function}} options onProgress(loaded, total)
+ */
+export function uploadCheckinPhoto(code, photo, { onProgress } = {}) {
+  const form = new FormData()
+  form.append('photo', photo)
+  return request({
+    url: `/checkins/public/${code}/photo`,
+    method: 'post',
+    data: form,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
+  })
+}
+
+/**
  * 学生签到
  *
  * @param {string} code
- * @param {{lat?: number, lng?: number, photo?: File, onProgress?: Function}} payload
+ * @param {{lat?: number, lng?: number, photoToken?: string}} payload
  *   lat/lng 是 **GCJ-02**（高德坐标），由 utils/geolocation.js 从浏览器定位转过来
+ *   photoToken 来自 uploadCheckinPhoto，不再在这里传文件
  */
-export function signCheckin(code, { lat, lng, photo, onProgress } = {}) {
+export function signCheckin(code, { lat, lng, photoToken } = {}) {
   const form = new FormData()
   if (lat != null && lng != null) {
     form.append('lat', String(lat))
     form.append('lng', String(lng))
   }
-  if (photo) form.append('photo', photo)
+  if (photoToken) form.append('photo_token', photoToken)
 
   return request({
     url: `/checkins/public/${code}/sign`,
     method: 'post',
     data: form,
-    headers: { 'Content-Type': 'multipart/form-data' },
-    onUploadProgress: progressHandler(onProgress)
+    headers: { 'Content-Type': 'multipart/form-data' }
   })
 }
