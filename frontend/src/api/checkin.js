@@ -7,11 +7,6 @@ import request, { progressHandler } from '@/utils/request'
  * 公开端凭链接就能读，签到本身必须登录且在当前这次签到的范围内。
  */
 
-/** 签到列表（班委及以上），返回 { total, items } */
-export function getCheckins() {
-  return request({ url: '/checkins', method: 'get' })
-}
-
 /**
  * 发布一次签到（班委及以上）
  *
@@ -34,6 +29,20 @@ export function getCheckin(id) {
 /** 提前结束并立即结算（班委及以上） */
 export function closeCheckin(id) {
   return request({ url: `/checkins/${id}/close`, method: 'post' })
+}
+
+/**
+ * 改签到标题
+ *
+ * 列表的「备注」列显示的就是标题，搜索也搜它；标题不能为空。
+ */
+export function updateCheckinTitle(id, title) {
+  return request({ url: `/checkins/${id}`, method: 'patch', data: { title } })
+}
+
+/** 删除一次签到（连带它结算生成的考勤记录） */
+export function deleteCheckin(id) {
+  return request({ url: `/checkins/${id}`, method: 'delete' })
 }
 
 /**
