@@ -4516,6 +4516,18 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
   check(picker.includes('circle.setRadius(props.radius || 0)'), '半径改了圆跟着变')
   check(/map\.on\('click'/.test(picker), '可以在地图上点选改变地点')
   check(picker.includes("marker.on('dragend'"), '也可以拖动标记微调')
+  check(picker.includes("'地图加载失败，可直接填写经纬度'"),
+    '配了 Key 但地图加载失败时，提示与「未配置」区分开')
+
+  // CSP 不放行高德，地图脚本会被浏览器拦掉、静默降级成手填
+  const cspFile = readFileSync(`${ROOT}/security-headers.conf`, 'utf8')
+  // 只看真正下发的那一行，注释里的示例不算
+  const csp = cspFile.match(/add_header Content-Security-Policy "([^"]+)"/)?.[1] || ''
+  const directive = (name) => csp.match(new RegExp(`${name} ([^;]+);`))?.[1] || ''
+  check(directive('script-src').includes('https://webapi.amap.com'), 'CSP 允许加载高德地图脚本')
+  check(directive('connect-src').includes('https://restapi.amap.com') &&
+    directive('connect-src').includes('https://webapi.amap.com'),
+    'CSP 允许高德的逆地理编码请求')
 
   const create = readFileSync(`${ROOT}/src/components/CheckinCreateDialog.vue`, 'utf8')
   check(create.includes(':radius="form.radius_m"'), '发布弹窗把半径传给地图')

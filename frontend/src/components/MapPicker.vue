@@ -31,7 +31,7 @@
         style="width: 150px;"
         @change="onInputChange"
       />
-      <span class="mp-tip">未配置高德地图，可直接填写经纬度</span>
+      <span class="mp-tip">{{ fallbackTip }}</span>
     </div>
 
     <div v-if="!readonly" class="mp-actions">
@@ -76,6 +76,11 @@ const lngInput = ref(null)
 
 /** 地图可用 = 配了 Key 且真的加载成功；失败后自动落到手填那一路 */
 const useMap = computed(() => hasAmap() && !mapError.value)
+
+/** 降级提示：没配 Key 和加载失败是两回事，原因不能混着说 */
+const fallbackTip = computed(() =>
+  hasAmap() ? '地图加载失败，可直接填写经纬度' : '未配置高德地图，可直接填写经纬度'
+)
 
 // 高德的对象和实例只活在这个组件里，不需要响应式
 let AMapRef = null
