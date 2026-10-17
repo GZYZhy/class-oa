@@ -104,8 +104,9 @@
         <el-table-column prop="operator_name" label="发起人" width="110" />
         <el-table-column label="出勤情况" min-width="210">
           <template #default="{ row }">
-            <!-- 点名：四个计数 -->
-            <template v-if="row.type === 'attendance'">
+            <!-- 点名，以及结算后的签到：标准四计数。签到结算后本行直接换成
+                 这个格式，不再另生成一条「点名」行 -->
+            <template v-if="row.type === 'attendance' || row.status !== 'ongoing'">
               <span>应到 {{ row.total }}</span>
               <span class="at-sep">·</span>
               <span>实到 {{ row.present }}</span>
@@ -114,18 +115,12 @@
               <span class="at-sep">·</span>
               <span :class="{ 'at-danger': row.absent }">无应答 {{ row.absent }}</span>
             </template>
-            <!-- 签到：实时人数 + 状态，明细里有逐人情况 -->
+            <!-- 进行中的签到：实时人数，明细里有逐人情况 -->
             <template v-else>
               <span :class="{ 'at-done': row.signed_count > 0 }">
                 已签 {{ row.signed_count }} / {{ row.target_count }}
               </span>
-              <el-tag
-                :type="row.status === 'ongoing' ? 'success' : 'info'"
-                size="small"
-                class="at-tag"
-              >
-                {{ row.status === 'ongoing' ? '进行中' : '已结束' }}
-              </el-tag>
+              <el-tag type="success" size="small" class="at-tag">进行中</el-tag>
             </template>
           </template>
         </el-table-column>

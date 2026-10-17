@@ -4478,6 +4478,12 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
   check(/def overview_attendance\(/.test(attendancePy)
     && attendancePy.includes('type="checkin"') && attendancePy.includes('type="attendance"'),
     '汇总接口同时返回点名和签到两类行')
+  // 结算生成的考勤不再单独成行，签到那一行自己换成标准格式
+  check(attendancePy.includes('AttendanceRecord.id.notin_(settled_ids)'),
+    '签到结算生成的那条考勤不单独出现在列表里')
+  check(pageSrc.includes("row.type === 'attendance' || row.status !== 'ongoing'")
+    && pageSrc.includes('已签 {{ row.signed_count }} / {{ row.target_count }}'),
+    '签到结算后本行显示应到/实到/请假/无应答，进行中才显示已签人数')
   check(/record_ids: list\[int\] = Query\(default=\[\]/.test(attendancePy)
     && /checkin_ids: list\[int\] = Query\(default=\[\]/.test(attendancePy),
     '导出接口接收勾选的记录 id')

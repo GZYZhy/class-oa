@@ -330,23 +330,51 @@ def overview_attendance(
     关键词对点名查备注、对签到查标题 —— 两边能用来认出这次记录的那句话
     不是同一个字段，但都是用户记得住的那句。两类数据量都是班级级，
     合并后在内存里排序、分页就够了，不必依赖 UNION。
+
+    签到结算后不再新冒出一条「点名」行：这次签到本身那一行直接换成
+    标准格式的人数字段，一次签到始终只占一行。
     """
     # 签到到点后要自动生成考勤记录，汇总里才看得到
     finalize_due(db)
+
+    # ---------- 签到 ----------
+    chk_query = db.query(Checkin)
+    chk_match = keyword_like(keyword, Checkin.title)
+    if chk_match is not None:
+        chk_query = chk_query.filter(chk_match)
+    checkins = [
+        c for c in chk_query.all() if _checkin_in_range(c, start, end)
+    ]
+
+    # 结算生成的考勤记录不再单独成行 —— 哪怕关键词搜到的是它（它的备注里
+    # 也带着标题），也归到上面那次签到那一行，避免一次签到出现两条
+    settled_ids = {
+        rid
+        for (rid,) in db.query(Checkin.attendance_record_id).filter(
+            Checkin.attendance_record_id.isnot(None)
+        )
+    }
 
     # ---------- 点名记录 ----------
     att_query = _date_range(db.query(AttendanceRecord), start, end)
     att_match = keyword_like(keyword, AttendanceRecord.remark)
     if att_match is not None:
         att_query = att_query.filter(att_match)
+    if settled_ids:
+        att_query = att_query.filter(AttendanceRecord.id.notin_(settled_ids))
     records = att_query.all()
 
-    # 一次分组查询把本页所有记录的计数拿回来，不要每条各查一遍
+    # 一次分组查询把两类记录的人数都拿回来，不要每条各查一遍。
+    # 签到那行结算后也要显示「应到 / 实到 / 请假 / 无应答」，数就从它
+    # 生成的那条考勤明细里取
+    count_ids = [r.id for r in records] + [
+        c.attendance_record_id for c in checkins if c.attendance_record_id
+    ]
     by_record: dict[int, dict[str, int]] = {}
-    if records:
+    if count_ids:
         rows = (
             db.query(AttendanceItem.record_id, AttendanceItem.status, func.count())
-            .filter(AttendanceItem.record_id.in_([r.id for r in records]))
+            .filter(AttendanceItem.record_id.in_(count_ids))
             .group_by(AttendanceItem.record_id, AttendanceItem.status)
             .all()
         )
@@ -371,15 +399,6 @@ def overview_attendance(
                 absent=counts.get("absent", 0),
             )
         )
-
-    # ---------- 签到 ----------
-    chk_query = db.query(Checkin)
-    chk_match = keyword_like(keyword, Checkin.title)
-    if chk_match is not None:
-        chk_query = chk_query.filter(chk_match)
-    checkins = [
-        c for c in chk_query.all() if _checkin_in_range(c, start, end)
-    ]
 
     ids = [c.id for c in checkins]
     signed: dict[int, int] = {}
@@ -406,6 +425,8 @@ def overview_attendance(
     for checkin in checkins:
         # 截止那一刻是这条记录的时间，和日期筛选、导出用同一个口径
         reference = checkin.closed_at or checkin.end_at
+        # 结算后本行换成标准格式：人数从生成的那条考勤明细里取
+        counts = by_record.get(checkin.attendance_record_id or 0, {})
         items.append(
             AttendanceOverviewItem(
                 type="checkin",
@@ -415,6 +436,11 @@ def overview_attendance(
                 title=checkin.title or "",
                 operator_name=checkin.created_by_name or "",
                 remark=checkin.remark or "",
+                # 结算前 total 是 0，前端按 status 显示实时的「已签 x / y」
+                total=sum(counts.values()),
+                present=counts.get("present", 0),
+                leave=counts.get("leave", 0),
+                absent=counts.get("absent", 0),
                 status=checkin_status(checkin),
                 target_count=targets.get(checkin.id, 0),
                 signed_count=signed.get(checkin.id, 0),
