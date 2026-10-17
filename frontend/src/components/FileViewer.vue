@@ -30,6 +30,14 @@
             <el-icon><ZoomIn /></el-icon>
           </el-button>
           <el-button size="small" @click="fitWidth">适应窗口</el-button>
+          <!-- 手机拍的证明材料经常是躺着的，得能转正了再看。只影响图片，PDF 不参与 -->
+          <span class="toolbar-divider" />
+          <el-button size="small" title="向左旋转 90°" @click="rotateLeft">
+            <el-icon><RefreshLeft /></el-icon>
+          </el-button>
+          <el-button size="small" title="向右旋转 90°" @click="rotateRight">
+            <el-icon><RefreshRight /></el-icon>
+          </el-button>
         </div>
         <!-- 慢网络下这几秒是空白一片，得让人看见在下东西 —— 材料和签字图
              常有几 MB 的扫描件，不显示进度会让人以为点坏了、反复重点 -->
@@ -317,6 +325,18 @@ function zoomOut() {
     pdfScale.value = Math.max(0.5, +(pdfScale.value - 0.2).toFixed(1))
     renderPdfPage(currentPage.value)
   }
+}
+
+/**
+ * 转 90°。角度归一化到 0~359：正转几圈后数字越滚越大虽然不影响显示，
+ * 但「转了一圈回到原样」时状态值就不是 0 了，判断和调试都别扭。
+ */
+function rotateLeft() {
+  rotate.value = (rotate.value + 270) % 360
+}
+
+function rotateRight() {
+  rotate.value = (rotate.value + 90) % 360
 }
 
 async function fitWidth() {
