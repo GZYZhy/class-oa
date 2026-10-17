@@ -175,4 +175,35 @@ router.beforeEach(async (to) => {
   return true
 })
 
+/**
+ * 部署新版本后，旧页面里再点菜单会去请求已被删掉的旧哈希 chunk，
+ * 浏览器报「Failed to fetch dynamically imported module」，页面却纹丝不动 ——
+ * 用户只会觉得点了没反应。这里整页刷新一次，拿到新的 index.html 就恢复。
+ *
+ * 10 秒内再失败（真断网、部署还没完成）就不再刷，只提示，避免反复刷新；
+ * 断网时刷新只会跳到浏览器的离线页，也单独拦下。
+ */
+const RELOAD_KEY = 'chunk-reload-at'
+
+router.onError((error, to) => {
+  const msg = error?.message || ''
+  if (!/dynamically imported module|Importing a module script failed|ChunkLoadError/i.test(msg)) return
+
+  if (!navigator.onLine) {
+    ElMessage.error('网络已断开，请检查网络后重试')
+    return
+  }
+
+  const last = Number(sessionStorage.getItem(RELOAD_KEY) || 0)
+  if (Date.now() - last < 10000) {
+    ElMessage.error('页面版本已更新，请刷新后重试')
+    return
+  }
+  sessionStorage.setItem(RELOAD_KEY, String(Date.now()))
+
+  // hash 路由：先把地址改成用户想去的页面，刷新后不用再点一次
+  window.location.hash = to.fullPath
+  window.location.reload()
+})
+
 export default router

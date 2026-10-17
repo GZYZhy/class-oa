@@ -717,8 +717,12 @@ async function openFromQuery() {
       resultPoll.value = detail
       await loadResult(id, detail.can_manage ? 'roster' : 'tally')
     }
-  } catch {
-    // 看不了这场（不在范围里 / 已删）：静默，和后端「越权一律 404」是同一口径
+  } catch (e) {
+    // 后端对「已删除」和「无权查看」统一回 404，所以提示语也按同一口径中性写。
+    // 不能完全静默：点通知进来却停在列表页，用户只会以为通知点错了。
+    if (e?.response?.status === 404) {
+      ElMessage.warning('这场投票不存在或你无权查看')
+    }
   }
 }
 
