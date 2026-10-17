@@ -3945,6 +3945,33 @@ console.log('\n▶ 二次验证：登录第二步与账户设置')
   check(!on.html.includes('开始设置'), '已开启时不再显示开启入口')
 }
 
+console.log('\n▶ 线上真实的 404：部署后的旧 chunk、通知里的已删投票')
+{
+  // 部署换包后，开着的旧页面点菜单会请求已删掉的旧哈希 chunk，页面毫无反应。
+  // 路由层要接住这类错误自动刷新，而不是把错误丢在控制台
+  const routerSrc = readFileSync(`${ROOT}/src/router/index.js`, 'utf8')
+  check(/router\.onError\(/.test(routerSrc), '接住了动态 import 失败')
+  check(/dynamically imported module/.test(routerSrc), '只认旧 chunk 这一类错误')
+  check(/navigator\.onLine/.test(routerSrc), '断网时先提示，不白白刷新')
+  check(
+    /sessionStorage\.setItem\(RELOAD_KEY/.test(routerSrc) && /Date\.now\(\) - last < 10000/.test(routerSrc),
+    '10 秒内不重复刷新，断网也不会刷成死循环'
+  )
+  check(
+    /window\.location\.hash = to\.fullPath/.test(routerSrc) && /window\.location\.reload\(\)/.test(routerSrc),
+    '刷新后落在用户本来想去的页面'
+  )
+
+  // 通知跳到一场已被删除的投票时，后端回 404。完全静默会让用户以为点错了通知
+  const voteSrc = readFileSync(`${ROOT}/src/views/Vote.vue`, 'utf8')
+  const at = voteSrc.indexOf('async function openFromQuery')
+  const block = at >= 0 ? voteSrc.slice(at, voteSrc.indexOf('onMounted', at)) : ''
+  check(
+    /status === 404/.test(block) && block.includes('这场投票不存在或你无权查看'),
+    '通知点进已删除的投票：给提示而不是静默'
+  )
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
