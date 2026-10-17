@@ -16,8 +16,10 @@
 不然公开页会撞上数字解析直接 422（本文件第一条用例就用未登录请求兜住它）。
 """
 from datetime import datetime, timedelta
+from io import BytesIO
 
 import pytest
+from openpyxl import load_workbook
 
 from conftest import png_bytes
 
@@ -261,6 +263,25 @@ def test_public_info_works_anonymously(cb):
     assert data["can_sign"] is False
 
 
+def test_public_info_still_readable_after_end(cb):
+    """截止之后链接照样能打开：地点、地图和要求的字段都还在，只是不能再签"""
+    loc = {"lat": LAT, "lng": LNG, "radius_m": 80, "name": "一公寓门口"}
+    checkin = _create(cb, [PEOPLE[0][0]], require_photo=True, location=loc)
+    _force_end(cb, checkin["id"])
+    cb.logout()
+
+    r = cb.client.get(f"/api/checkins/public/{checkin['code']}")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["status"] == "ended"
+    assert data["title"] == "晚点名"
+    assert data["require_photo"] is True
+    assert data["location"] == {
+        "lat": LAT, "lng": LNG, "radius_m": 80, "name": "一公寓门口",
+    }
+    assert data["can_sign"] is False
+
+
 # ---------- 签到 ----------
 
 def test_sign_success_repeat_and_outsider(cb):
@@ -432,6 +453,32 @@ def test_close_ends_immediately_and_blocks_late_sign(cb):
     assert cb.client.post(f"/api/checkins/{cid}/close").status_code == 400
 
 
+def test_last_signature_ends_and_settles_immediately(cb):
+    """应到的人都签完 → 不用等截止，立即结束并结算"""
+    checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]])
+
+    _login(cb, PEOPLE[0][0])
+    r = _sign(cb, checkin["code"])
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ongoing", "还有一个人没签，继续进行"
+
+    _login(cb, PEOPLE[1][0])
+    r = _sign(cb, checkin["code"])
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["status"] == "ended", "最后一个人签完应立即结束"
+    assert data["signed_at"] is not None
+
+    # 结算当场生成，所有人都算「到」
+    _as_admin(cb)
+    record = _attendance_of(cb, "签到·2人")
+    detail = cb.client.get(f"/api/attendance/{record['id']}").json()
+    assert {i["status"] for i in detail["items"]} == {"present"}
+
+    # 已结束的签到不能再手动结束
+    assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 400
+
+
 def test_generated_attendance_cannot_be_deleted(cb):
     checkin = _create(cb, [PEOPLE[0][0]])
     assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 200
@@ -465,3 +512,58 @@ def test_settlement_uses_deadline_not_trigger_moment(cb):
     record = _attendance_of(cb, "签到·1人")
     detail = cb.client.get(f"/api/attendance/{record['id']}").json()
     assert detail["items"][0]["status"] == "absent"
+
+
+def test_settled_status_can_be_edited_like_rollcall(cb):
+    """结算后和点名一样，能逐人改状态；签到详情读的是同一份考勤明细"""
+    checkin = _create(cb, [PEOPLE[0][0]])
+    assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 200
+
+    data = cb.client.get(f"/api/checkins/{checkin['id']}").json()
+    assert data["attendance_record_id"]
+    assert data["targets"][0]["status"] == "absent"
+
+    r = cb.client.patch(
+        f"/api/attendance/{data['attendance_record_id']}/items/{PEOPLE[0][0]}",
+        json={"status": "present"},
+    )
+    assert r.status_code == 200, r.text
+
+    # 签到详情跟着变，不会一边说「无应答」一边说「到」
+    data = cb.client.get(f"/api/checkins/{checkin['id']}").json()
+    assert data["targets"][0]["status"] == "present"
+
+
+def test_export_contains_rollcall_and_checkin_sheets(cb):
+    """一个文件两个页签：点名/签到结算的考勤明细 + 签到本人的签到情况"""
+    checkin = _create(cb, [PEOPLE[0][0]])
+    _login(cb, PEOPLE[0][0])
+    assert _sign(cb, checkin["code"]).status_code == 200
+    # 唯一的应到人签完即自动结算，不用再手动结束
+    _as_admin(cb)
+
+    r = cb.client.post("/api/attendance", json={
+        "scope": "临时集合",
+        "records": [{"student_no": PEOPLE[1][0], "name": "学生03", "status": "present"}],
+    })
+    assert r.status_code == 200, r.text
+
+    r = cb.client.get("/api/attendance/export")
+    assert r.status_code == 200, r.text
+    wb = load_workbook(BytesIO(r.content))
+    assert wb.sheetnames == ["考勤记录", "签到记录"]
+
+    # 第一张表里两种记录都在
+    scopes = {row[1] for row in wb["考勤记录"].iter_rows(min_row=2, values_only=True)}
+    assert {"签到·1人", "临时集合"} <= scopes
+
+    # 第二张表带签到本人的时间与最终状态
+    header = [c.value for c in wb["签到记录"][1]]
+    assert header[:5] == ["截止日期", "标题", "发布人", "截止时间", "签到状态"]
+    rows = list(wb["签到记录"].iter_rows(min_row=2, values_only=True))
+    assert len(rows) == 1, rows
+    row = dict(zip(header, rows[0]))
+    assert row["标题"] == "晚点名"
+    assert row["签到情况"] == "已签到"
+    assert row["签到时间"]
+    assert row["出勤状态"] == "到"

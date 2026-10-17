@@ -39,10 +39,22 @@
       <el-table :data="detail.targets" max-height="360" size="small" class="cd-table">
         <el-table-column prop="student_name" label="姓名" width="90" />
         <el-table-column prop="student_no" label="学号" width="120" />
-        <el-table-column label="状态" width="100">
+        <el-table-column label="出勤状态" width="130">
           <template #default="{ row }">
-            <el-tag v-if="row.signed_at" type="success" size="small">已签到</el-tag>
-            <el-tag v-else-if="row.on_leave" type="warning" size="small">请假</el-tag>
+            <!-- 结算后和点名记录一样，逐人改状态；改的是生成的那条考勤明细 -->
+            <el-select
+              v-if="detail.finalized_at && detail.attendance_record_id"
+              :model-value="row.status"
+              size="small"
+              :disabled="savingStatus"
+              @change="(value) => changeStatus(row, value)"
+            >
+              <el-option label="到" value="present" />
+              <el-option label="无应答" value="absent" />
+              <el-option label="请假" value="leave" />
+            </el-select>
+            <el-tag v-else-if="row.signed_at" type="success" size="small">已签到</el-tag>
+            <el-tag v-else-if="row.on_leave" type="warning" size="small">请假中</el-tag>
             <el-tag v-else type="danger" size="small" effect="plain">未签到</el-tag>
           </template>
         </el-table-column>
@@ -68,7 +80,8 @@
       </el-table>
       <p class="cd-tip">
         结算后「请假」指截止时刻持有已批准的请假；既没签到又没请假的算无应答。
-        请假同学如果也签了到，按「已签到」算
+        请假同学如果也签了到，按「已签到」算。结算后可以在「出勤状态」里直接改，
+        和点名记录的明细一致
       </p>
     </div>
     <template #footer>
@@ -82,11 +95,13 @@ import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
 import { getCheckin } from '@/api/checkin'
+import { updateAttendanceItem } from '@/api/attendance'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'
 
 const visible = ref(false)
 const loading = ref(false)
+const savingStatus = ref(false)
 const detail = ref({ targets: [] })
 
 /** 打开详情。参数是列表行也行，只用到 id */
@@ -107,6 +122,32 @@ async function open(row) {
 /** 照片接口要登录态：新窗口打开会带上同一个 Cookie，直接交给浏览器 */
 function openPhoto(row) {
   window.open(row.photo_url, '_blank', 'noopener')
+}
+
+/**
+ * 改某人结算后的出勤状态
+ *
+ * 不新开接口：读写的就是结算生成的那条考勤明细，
+ * 这样「点名记录」和「签到详情」看到的是同一份数据。
+ */
+async function changeStatus(row, status) {
+  if (status === row.status) return
+  savingStatus.value = true
+  try {
+    const record = await updateAttendanceItem(
+      detail.value.attendance_record_id, row.student_no, status
+    )
+    // 以服务端返回的明细为准，避免两边各改各的
+    const byNo = Object.fromEntries((record.items || []).map((i) => [i.student_no, i.status]))
+    for (const target of detail.value.targets) {
+      if (byNo[target.student_no]) target.status = byNo[target.student_no]
+    }
+    ElMessage.success('已修改')
+  } catch (e) {
+    ElMessage.error(errText(e, '修改失败'))
+  } finally {
+    savingStatus.value = false
+  }
 }
 
 defineExpose({ open })
