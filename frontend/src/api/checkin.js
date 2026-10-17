@@ -69,8 +69,3 @@ export function signCheckin(code, { lat, lng, photo, onProgress } = {}) {
     onUploadProgress: progressHandler(onProgress)
   })
 }
-
-/** 签到照片的地址（班委端，img 的 src 直接用，Cookie 会带上） */
-export function checkinPhotoUrl(id, studentNo) {
-  return `/api/checkins/${id}/targets/${encodeURIComponent(studentNo)}/photo`
-}

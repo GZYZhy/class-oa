@@ -47,7 +47,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { hasAmap, loadAmap, reverseGeocode } from '@/utils/amap'
 import { getCurrentLocation } from '@/utils/geolocation'
@@ -232,6 +232,12 @@ onMounted(async () => {
 
   // 发布端的默认地点 = 发布人当前位置（只读页不定：那是发布人定的地点，与访问者无关）
   if (!props.readonly) autoLocate()
+})
+
+// 地图实例不跟着组件自动回收，卸载时主动销毁，免得反复开关弹窗越积越多
+onUnmounted(() => {
+  map?.destroy?.()
+  map = null
 })
 </script>
 
