@@ -25,6 +25,7 @@ from .grades import router as grades_router
 from .schedules import router as schedules_router
 from .sign_photos import router as sign_photos_router
 from .passkeys import router as passkeys_router
+from .two_factor import router as two_factor_router
 
 api_router = APIRouter()
 api_router.include_router(public_router)   # 首页摘要：公开
@@ -51,4 +52,5 @@ api_router.include_router(grades_router)         # 成绩管理：录入与编�
 api_router.include_router(schedules_router)      # 我的日程：日历式日程管理，班委可批量导入
 api_router.include_router(sign_photos_router)    # 签字图：管理员上传，班委申请、管理员批准后才看得到
 api_router.include_router(passkeys_router)       # 通行密钥：密码之外的登录方式，登记需登录
+api_router.include_router(two_factor_router)     # 二次验证：登录时校验，设置需登录+密码
 api_router.include_router(admin_router)          # 系统管理：仅管理员

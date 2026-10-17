@@ -3492,6 +3492,74 @@ console.log('\n▶ 通行密钥：没有浏览器的环境要安静降级')
   check(usable.html.includes('服务器只保存公钥'), '说明了私钥不离开设备')
 }
 
+console.log('\n▶ 二次验证：登录第二步与账户设置')
+{
+  // 登录页默认还是密码表单，不会凭空多出验证码框
+  const login = await render('/src/views/Login.vue')
+  check(login.html.includes('登 录'), '没触发二次验证时仍是密码登录')
+
+  // SSR 里 onMounted 不跑，直接改初始值模拟「密码已通过、等邮箱验证码」
+  const email = await renderPatched(
+    '/src/views/Login.vue',
+    'const twoFactor = ref(null)',
+    "const twoFactor = ref({ method: 'email', masked_email: 'a***@example.com', email_sent: true })"
+  )
+  check(email.html.includes('验证码已发送到'), '邮箱方式显示收件地址')
+  check(email.html.includes('a***@example.com'), '地址是打码后的')
+  check(email.html.includes('一次性恢复码'), '提示可以改用恢复码')
+  check(email.html.includes('重新发送验证码'), '邮箱方式有重发入口')
+  check(email.html.includes('返回重新登录'), '可以退回密码登录')
+  check(!email.html.includes('登 录'), '第二步不再显示密码登录按钮')
+  check(
+    !email.warns.some((w) => /Failed to resolve (component|directive)/.test(w)),
+    '第二步没有未解析的组件/指令'
+  )
+
+  const totp = await renderPatched(
+    '/src/views/Login.vue',
+    'const twoFactor = ref(null)',
+    "const twoFactor = ref({ method: 'totp', masked_email: '', email_sent: false })"
+  )
+  check(totp.html.includes('身份验证器 App'), 'TOTP 方式提示去 App 里看码')
+  check(!totp.html.includes('重新发送验证码'), 'TOTP 方式没有重发按钮')
+
+  // 账户设置里的那段：默认未开启，两种方式都摆出来
+  const off = await render('/src/components/TwoFactorSetting.vue')
+  check(off.html.includes('未开启'), '默认显示未开启')
+  check(off.html.includes('电子邮件验证码'), '提供邮箱方式')
+  check(off.html.includes('身份验证器（TOTP）'), '提供身份验证器方式')
+  check(off.html.includes('开始设置'), '身份验证器有开始设置入口')
+  check(off.html.includes('管理员还没配置发信服务'), '没配 SMTP 时说明原因')
+  check(
+    !off.warns.some((w) => /Failed to resolve (component|directive)/.test(w)),
+    '二次验证组件没有未解析的组件/指令'
+  )
+
+  // 灌一个「已开启、恢复码用完」的状态
+  const on = await renderPatched(
+    '/src/components/TwoFactorSetting.vue',
+    `  enabled: false,
+  method: '',
+  email: '',
+  masked_email: '',
+  smtp_enabled: false,
+  recovery_codes_left: 0`,
+    `  enabled: true,
+  method: 'email',
+  email: 'admin@example.com',
+  masked_email: 'ad***@example.com',
+  smtp_enabled: true,
+  recovery_codes_left: 0`
+  )
+  check(on.html.includes('已开启'), '已开启时有标记')
+  check(on.html.includes('当前方式：电子邮件验证码'), '显示当前方式')
+  check(on.html.includes('剩余恢复码 0 个'), '显示剩余恢复码数量')
+  check(on.html.includes('重新生成恢复码'), '提供重生成恢复码入口')
+  check(on.html.includes('关闭二次验证'), '提供关闭入口')
+  check(on.html.includes('恢复码已经用完'), '用完后提醒重新生成')
+  check(!on.html.includes('开始设置'), '已开启时不再显示开启入口')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

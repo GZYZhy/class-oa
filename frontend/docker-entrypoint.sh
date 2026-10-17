@@ -220,14 +220,21 @@ SITE_MAJOR="$(brand "${SITE_MAJOR:-}" SITE_MAJOR)"
 SITE_FOOTER="$(brand "${SITE_FOOTER:-}" SITE_FOOTER html)"
 # SEO 描述留空时取站名（唯一一处兜底）
 SITE_DESCRIPTION="$(brand "${SITE_DESCRIPTION:-$SITE_NAME}" SITE_DESCRIPTION)"
+
+# 可选的 <head> 注入内容（统计 / 跟踪器等第三方脚本）。
+# **刻意不过 brand() 的字符检查，也不做任何转义**：它本来就是一段 HTML，
+# 要能写尖括号、引号、$ 和换行。envsubst 只扫描模板本身，值里出现 ${...}
+# 也不会被二次展开，所以原样插进去就完了。
+# 风险由配置人承担 —— 这段内容等同于服务器上的代码。
+export HEAD_INJECT="${HEAD_INJECT:-}"
 export SITE_NAME SITE_SHORT_NAME SITE_SUBTITLE SITE_COLLEGE SITE_MAJOR SITE_FOOTER SITE_DESCRIPTION
 
-# 白名单只列这 7 个 SITE_*，页面里别的 $ 一律不动。
+# 白名单只列这 7 个 SITE_* 和 HEAD_INJECT，页面里别的 $ 一律不动。
 # 先写 .tmp 再 mv：envsubst 中途失败也不会把 index.html 截断成半个文件
 # （此时 nginx 还没启动，也不会有人请求到 .tmp）。
 render_brand() {
     # $1=源文件  $2=输出文件
-    if envsubst '${SITE_NAME} ${SITE_SHORT_NAME} ${SITE_SUBTITLE} ${SITE_COLLEGE} ${SITE_MAJOR} ${SITE_FOOTER} ${SITE_DESCRIPTION}' \
+    if envsubst '${SITE_NAME} ${SITE_SHORT_NAME} ${SITE_SUBTITLE} ${SITE_COLLEGE} ${SITE_MAJOR} ${SITE_FOOTER} ${SITE_DESCRIPTION} ${HEAD_INJECT}' \
         < "$1" \
         > "$2.tmp"; then
         mv -f "$2.tmp" "$2"

@@ -881,6 +881,7 @@ import {
   freezeUser,
   unfreezeUser,
   clearUserPasskeys,
+  clearUserTwoFactor,
   revokeUserSessions,
   getUserLogs,
   createExternalUser,
@@ -977,6 +978,10 @@ function rowActions(row) {
     },
     { label: '日志', type: 'primary', run: () => openUserLogs(row) },
     { label: '清除通行密钥', type: 'warning', run: () => handleClearPasskeys(row) },
+    // 只在真的开着时才出现：没开的人点进去只会看到「本来就没开」
+    ...(row.two_factor_method
+      ? [{ label: '清除二次验证', type: 'warning', run: () => handleClearTwoFactor(row) }]
+      : []),
     { label: '吊销会话', type: 'warning', run: () => handleRevokeSessions(row) },
     {
       label: frozen ? '解冻' : '冻结',
@@ -1067,6 +1072,29 @@ async function handleClearPasskeys(row) {
   try {
     const res = await clearUserPasskeys(row.student_no)
     ElMessage.success(res.message || '已清除')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '清除失败')
+  }
+}
+
+// 清除二次验证：手机丢了、验证器没备份恢复码时，管理员帮他把这道门临时拆掉。
+// 密码和通行密钥都不受影响，清完照样能登录
+async function handleClearTwoFactor(row) {
+  const label = row.two_factor_method === 'email' ? '电子邮件验证码' : '身份验证器'
+  try {
+    await ElMessageBox.confirm(
+      `确定清除「${row.name}」的二次验证吗？当前方式：${label}。清除后只需密码即可登录，恢复码一并作废。`,
+      '清除二次验证',
+      { type: 'warning', confirmButtonText: '清除' }
+    )
+  } catch (e) {
+    return // 取消
+  }
+
+  try {
+    const res = await clearUserTwoFactor(row.student_no)
+    ElMessage.success(res.message || '已清除')
+    fetchUsers()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '清除失败')
   }

@@ -5,7 +5,8 @@ import {
   getMe,
   getPublicSummary,
   getPasskeyLoginOptions,
-  verifyPasskeyLogin
+  verifyPasskeyLogin,
+  verifyTwoFactorLogin
 } from '@/api/auth'
 import { getPasskey } from '@/utils/passkey'
 import { rankOf } from '@/utils/roles'
@@ -44,7 +45,18 @@ export const useUserStore = defineStore('user', {
 
   actions: {
     async login(payload) {
-      this.info = await loginApi(payload)
+      const res = await loginApi(payload)
+      // 密码对了但开了二次验证：后端还没写会话，这里也不能把 info 设上，
+      // 只把标记和挑战信息交给登录页，让它切到第二步的输入框
+      if (res?.two_factor_required) return res
+      this.info = res
+      this.resolved = true
+      return this.info
+    },
+
+    /** 登录第二步：验证码 / 恢复码通过后服务端才写会话 */
+    async verifyTwoFactor(code) {
+      this.info = await verifyTwoFactorLogin({ code })
       this.resolved = true
       return this.info
     },

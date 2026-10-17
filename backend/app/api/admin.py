@@ -23,6 +23,8 @@ from ..models import (
     PushSubscription,
     Resource,
     Student,
+    TwoFactorChallenge,
+    TwoFactorRecoveryCode,
     User,
 )
 from ..schemas import (
@@ -224,6 +226,7 @@ def list_users(_: User = Depends(admin_required), db: Session = Depends(get_db))
             last_login_at=user.last_login_at,
             last_login_ip=user.last_login_ip,
             is_frozen=bool(user.is_frozen),
+            two_factor_method=user.two_factor_method or "",
         )
         for user, student in rows
     ]
@@ -428,6 +431,40 @@ def clear_user_passkeys(
     )
     db.commit()
     return {"message": f"已清除 {deleted} 把通行密钥", "deleted": deleted}
+
+
+@router.delete("/users/{student_no}/2fa", summary="清除该账号的二次验证")
+def clear_user_two_factor(
+    student_no: str,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """手机丢了、验证器又没备份恢复码时的退路：关掉之后用密码登录即可
+
+    只清二次验证相关的数据，不动密码、不踢会话 —— 和清除通行密钥同理，
+    这是「少一道门槛」，不是「让账号下线」。
+    待确认的开启挑战和正在等待校验的登录挑战一并删掉：留着的话，
+    用户下一次输入的码会因为「设置已变化」被拒，反而更困惑。
+    """
+    target = _get_user(db, student_no)
+    had_method = target.two_factor_method or ""
+    target.two_factor_method = ""
+    target.totp_secret = ""
+    target.totp_last_step = 0
+    db.query(TwoFactorRecoveryCode).filter(
+        TwoFactorRecoveryCode.user_id == target.id
+    ).delete(synchronize_session=False)
+    db.query(TwoFactorChallenge).filter(
+        TwoFactorChallenge.user_id == target.id
+    ).delete(synchronize_session=False)
+    log_operation(
+        db, user, "清除二次验证", target=f"{student_no} {account_name(db, target)}",
+        detail={"email": "电子邮件验证码", "totp": "身份验证器"}.get(had_method, "本来就没开"),
+        ip=ip,
+    )
+    db.commit()
+    return {"message": "已清除二次验证", "was_enabled": bool(had_method)}
 
 
 @router.post("/users/{student_no}/revoke-sessions", summary="吊销该账号的所有会话")

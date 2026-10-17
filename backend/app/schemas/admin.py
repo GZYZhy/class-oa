@@ -30,6 +30,8 @@ class AdminUserResponse(BaseModel):
     # 是否已冻结：冻结后不能登录，已登录的会话下一个请求就 401。
     # 老库补列时一律为 False
     is_frozen: bool = False
+    # 二次验证方式：空 = 没开；email / totp。管理员据此显示「已开启」并提供清除入口
+    two_factor_method: str = ""
 
 
 class RoleUpdateRequest(BaseModel):

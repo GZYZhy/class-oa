@@ -55,6 +55,14 @@ export function clearUserPasskeys(studentNo) {
   })
 }
 
+/** 清除该账号的二次验证（手机丢了、验证器没备份时的退路） */
+export function clearUserTwoFactor(studentNo) {
+  return request({
+    url: `/admin/users/${studentNo}/2fa`,
+    method: 'delete'
+  })
+}
+
 /** 吊销该账号的所有会话：把所有设备踢下线，但账号仍可正常登录 */
 export function revokeUserSessions(studentNo) {
   return request({

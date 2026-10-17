@@ -247,6 +247,10 @@
               <!-- 通行密钥：同样是账号安全的范畴，和访问令牌并列 -->
               <el-divider />
               <PasskeySetting />
+
+              <!-- 二次验证：密码之外再加一道，和通行密钥一样属于登录方式 -->
+              <el-divider />
+              <TwoFactorSetting />
             </el-tab-pane>
 
             <!-- ==================== 通知设置 ==================== -->
@@ -605,6 +609,7 @@ import { getWebhookSetting } from '@/api/notifyChannels'
 import WebhookSetting from '@/components/WebhookSetting.vue'
 import AccessTokenSetting from '@/components/AccessTokenSetting.vue'
 import PasskeySetting from '@/components/PasskeySetting.vue'
+import TwoFactorSetting from '@/components/TwoFactorSetting.vue'
 import EmailNotifySetting from '@/components/EmailNotifySetting.vue'
 import {
   isSupported,

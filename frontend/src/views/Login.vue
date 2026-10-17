@@ -17,6 +17,54 @@
         </el-alert>
       </div>
 
+      <!-- 第二步：密码已通过，等第二因素。这里还没有登录态，
+           成功后才由 store 写入用户信息并跳转 -->
+      <div v-else-if="twoFactor" class="twofa-block">
+        <p class="twofa-tip">
+          <template v-if="twoFactor.method === 'email'">
+            验证码已发送到 <b>{{ twoFactor.masked_email || '你的邮箱' }}</b>，10 分钟内有效。
+          </template>
+          <template v-else>
+            请输入身份验证器 App 中显示的 6 位动态码。
+          </template>
+          <span class="twofa-sub">
+            邮箱进不去或手机丢了，可以输入一次性恢复码（XXXX-XXXX）。
+          </span>
+        </p>
+        <el-input
+          v-model="twoFactorCode"
+          size="large"
+          maxlength="20"
+          placeholder="6 位验证码，或恢复码"
+          :prefix-icon="Key"
+          clearable
+          @keyup.enter="handleTwoFactor"
+        />
+        <el-button
+          type="primary"
+          size="large"
+          class="login-btn twofa-btn"
+          :loading="verifying"
+          @click="handleTwoFactor"
+        >
+          验 证
+        </el-button>
+        <div class="twofa-actions">
+          <el-button
+            v-if="twoFactor.method === 'email'"
+            link
+            type="primary"
+            :disabled="resendLeft > 0 || resending"
+            :loading="resending"
+            @click="handleResend"
+          >
+            {{ resendLeft > 0 ? `重新发送（${resendLeft} 秒）` : '重新发送验证码' }}
+          </el-button>
+          <el-button link type="info" @click="cancelTwoFactor">返回重新登录</el-button>
+        </div>
+        <p v-if="twoFactor.message" class="twofa-warn">{{ twoFactor.message }}</p>
+      </div>
+
       <el-form v-else :model="form" @submit.prevent="handleLogin">
         <el-form-item>
           <el-input
@@ -106,13 +154,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Key } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
-import { getCaptcha, getCaptchaRequired } from '@/api/auth'
+import { getCaptcha, getCaptchaRequired, resendTwoFactorCode } from '@/api/auth'
 import { isPasskeySupported } from '@/utils/passkey'
 import { SITE } from '@/utils/site'
 
@@ -144,6 +192,15 @@ const turnstileRef = ref(null)
 
 // 非空表示本机 IP 正被封禁：整个表单换成这段提示
 const banMessage = ref('')
+
+// 二次验证第二步：null = 还在密码阶段；有值 = 密码已通过，等验证码
+// 值形如 { method, masked_email, email_sent, message }
+const twoFactor = ref(null)
+const twoFactorCode = ref('')
+const verifying = ref(false)
+const resending = ref(false)
+const resendLeft = ref(0)
+let resendTimer = null
 
 async function refreshCaptcha() {
   try {
@@ -203,13 +260,18 @@ async function handleLogin() {
   // 两套人机验证只交一个字段，后端靠「哪个有值」判断走的哪条路
   const useTurnstile = showCaptcha.value && captchaMode.value === 'turnstile'
   try {
-    await userStore.login({
+    const res = await userStore.login({
       student_no: form.student_no.trim(),
       password: form.password,
       remember: form.remember,
       captcha: showCaptcha.value && !useTurnstile ? form.captcha : undefined,
       turnstile_token: useTurnstile ? turnstileToken.value : undefined
     })
+    // 密码对了但还要第二因素：不跳转，切到验证码输入框
+    if (res?.two_factor_required) {
+      enterTwoFactor(res)
+      return
+    }
     ElMessage.success('登录成功')
     // 登录前想去的页面，登录后直接过去
     router.replace(route.query.redirect || '/dashboard')
@@ -278,6 +340,86 @@ async function handlePasskeyLogin() {
     passkeyLoading.value = false
   }
 }
+
+// ---------- 二次验证 ----------
+
+function enterTwoFactor(data) {
+  twoFactor.value = data
+  twoFactorCode.value = ''
+  // 密码已经用完，不留在内存里
+  form.password = ''
+  if (data.message) ElMessage.warning(data.message)
+  if (data.method === 'email') startResendCooldown()
+}
+
+function startResendCooldown() {
+  stopResendCooldown()
+  resendLeft.value = 60
+  resendTimer = setInterval(() => {
+    resendLeft.value -= 1
+    if (resendLeft.value <= 0) stopResendCooldown()
+  }, 1000)
+}
+
+function stopResendCooldown() {
+  if (resendTimer) {
+    clearInterval(resendTimer)
+    resendTimer = null
+  }
+  resendLeft.value = 0
+}
+
+async function handleTwoFactor() {
+  const code = twoFactorCode.value.trim()
+  if (!code) return ElMessage.warning('请输入验证码或恢复码')
+
+  verifying.value = true
+  try {
+    await userStore.verifyTwoFactor(code)
+    stopResendCooldown()
+    ElMessage.success('登录成功')
+    router.replace(route.query.redirect || '/dashboard')
+  } catch (e) {
+    const msg = e?.response?.data?.detail || '验证失败，请重试'
+    ElMessage.error(msg)
+    // 挑战过期 / 次数用尽 / 设置被管理员改了：都只能从头输密码
+    if (msg.includes('重新登录') || msg.includes('重新输入密码')) {
+      resetTwoFactor()
+    } else {
+      twoFactorCode.value = ''
+    }
+  } finally {
+    verifying.value = false
+  }
+}
+
+async function handleResend() {
+  resending.value = true
+  try {
+    const res = await resendTwoFactorCode()
+    ElMessage.success(res.message || '已重新发送')
+    twoFactorCode.value = ''
+    startResendCooldown()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '重新发送失败')
+  } finally {
+    resending.value = false
+  }
+}
+
+function resetTwoFactor() {
+  twoFactor.value = null
+  twoFactorCode.value = ''
+  stopResendCooldown()
+}
+
+async function cancelTwoFactor() {
+  // 把服务端那条待验证的挑战清掉，避免留一条没人用的记录
+  await userStore.logout()
+  resetTwoFactor()
+}
+
+onBeforeUnmount(stopResendCooldown)
 
 function goHome() {
   router.push('/dashboard')
@@ -378,6 +520,41 @@ function goHome() {
 .login-btn {
   width: 100%;
   letter-spacing: 4px;
+}
+
+.twofa-block {
+  margin-top: 4px;
+}
+
+.twofa-tip {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--el-text-color-regular);
+}
+
+.twofa-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.twofa-btn {
+  margin-top: 14px;
+}
+
+.twofa-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.twofa-warn {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-color-warning);
 }
 
 .passkey-row {

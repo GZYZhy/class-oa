@@ -62,6 +62,7 @@ from ..services import (
 )
 from ..services.email_service import TEST_BUDGET as EMAIL_TEST_BUDGET
 from ..services.email_service import TEST_TIMEOUT as EMAIL_TEST_TIMEOUT
+from ..services.two_factor import start_login_two_factor
 from ..services.webpush_service import TEST_BUDGET
 from ..services.webpush_service import push as web_push
 from ..utils.security import (
@@ -270,7 +271,9 @@ def captcha_required(
     }
 
 
-@router.post("/login", response_model=UserInfoResponse, summary="登录")
+# 不用 response_model=UserInfoResponse：开了二次验证时这里先返回
+# {"two_factor_required": true, ...}，UserInfoResponse 会把这个标记过滤掉
+@router.post("/login", summary="登录")
 def login(
     data: LoginRequest,
     request: Request,
@@ -346,6 +349,11 @@ def login(
 
     # 通开密码不做任何区分：不写操作日志、不打印提示，登录痕迹与本人登录完全一样
     # （最近登录时间照常更新、账号事件也照常记，两种方式没有差别）
+
+    # 密码对了但开了二次验证：先不写会话，让前端切到第二个输入框。
+    # 只有 api/two_factor.py 的 /verify 通过后才会调用 complete_login
+    if user.two_factor_method in ("email", "totp"):
+        return start_login_two_factor(request, db, user, ip, data.remember)
 
     # 登录成功，清掉失败记录（并写会话、记登录事件）
     complete_login(request, db, user, ip, data.remember)

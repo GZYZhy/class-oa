@@ -39,6 +39,13 @@
          普通脚本在这里同步执行，window.__SITE__ 一定比 main.js 先就绪。
          Service Worker 也 importScripts 同一个文件。 -->
     <script src="/site-config.js"></script>
+
+    <!-- 可选：.env 里 HEAD_INJECT 的内容会**原样**插在这里，
+         用来放统计 / 跟踪器等第三方脚本。不填就是空行，什么都不加载。
+         原样插入意味着值里的引号、尖括号、反斜杠、$ 和换行都不会被转义，
+         所以 .env 里要按 Docker Compose 的规则写多行值（见 .env.example）。
+         这段配置的权限等同服务器本身：只放自己信任的代码。 -->
+    ${HEAD_INJECT}
   </head>
   <body>
     <div id="app"></div>

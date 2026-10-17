@@ -117,6 +117,11 @@ from .passkey import (
     PasskeyResponse,
     PasskeyListResponse,
 )
+from .two_factor import (
+    TwoFactorCodeRequest,
+    TwoFactorPasswordRequest,
+    TwoFactorVerifyRequest,
+)
 from .schedule import (
     ScheduleCreate,
     ScheduleUpdate,

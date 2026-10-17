@@ -24,5 +24,6 @@ from .grade import GradeItem, GradeSubject, GradeTest
 from .schedule import Schedule, ScheduleBatch, ICalToken
 from .sign_photo_request import SignPhotoRequest
 from .passkey import PasskeyCredential
+from .two_factor import TwoFactorChallenge, TwoFactorRecoveryCode
 
-__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AttendanceRecord", "AttendanceItem", "InboxMessage", "Poll", "PollQuestion", "PollTarget", "PollAnswer", "GradeTest", "GradeSubject", "GradeItem", "Schedule", "ScheduleBatch", "ICalToken", "SignPhotoRequest", "PasskeyCredential"]
+__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AttendanceRecord", "AttendanceItem", "InboxMessage", "Poll", "PollQuestion", "PollTarget", "PollAnswer", "GradeTest", "GradeSubject", "GradeItem", "Schedule", "ScheduleBatch", "ICalToken", "SignPhotoRequest", "PasskeyCredential", "TwoFactorChallenge", "TwoFactorRecoveryCode"]

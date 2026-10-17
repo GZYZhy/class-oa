@@ -21,18 +21,25 @@ const SITE_KEYS = [
   'SITE_DESCRIPTION'
 ]
 
+/** 可选的 <head> 注入内容（统计 / 跟踪器）。不是品牌值，原样插入、不转义 */
+const HEAD_KEY = 'HEAD_INJECT'
+
 /**
  * 把文本里的 ${SITE_X} 换成 .env 里的值
  *
  * 认不出来的键保持原样不动，和生产的 envsubst 白名单行为一致 ——
  * 名字拼错了就该一眼看见 ${SITE_XXX}，而不是悄悄变成空。
+ *
+ * HEAD_INJECT 的内容不经过任何处理：引号、尖括号、反斜杠、$、换行都原样保留。
+ * 它是一段 HTML，处理了反而会把脚本弄坏。
  */
-function renderSite(text, env) {
+export function renderSite(text, env) {
   const values = Object.fromEntries(SITE_KEYS.map((key) => [key, env[key] || '']))
   // SEO 描述留空时取站名，和 entrypoint 里的处理保持一致
   values.SITE_DESCRIPTION = values.SITE_DESCRIPTION || values.SITE_NAME
+  values[HEAD_KEY] = env[HEAD_KEY] || ''
 
-  return text.replace(/\$\{(SITE_[A-Z_]+)\}/g, (whole, key) =>
+  return text.replace(/\$\{(SITE_[A-Z_]+|HEAD_INJECT)\}/g, (whole, key) =>
     key in values ? values[key] : whole
   )
 }
@@ -57,13 +64,17 @@ function siteBrand() {
 
     configResolved(config) {
       // loadEnv 的第三个参数传 '' = 不过滤前缀，把 .env 里的键都读进来。
-      // 但下面只取 SITE_* 用：其余键（含 MASTER_PASSWORD 等机密）既不会
-      // 进 HTML，也不会进客户端产物。
+      // 但下面只取 SITE_* 和 HEAD_INJECT 用：其余键（含 MASTER_PASSWORD 等机密）
+      // 既不会进 HTML，也不会进客户端产物。
       env = loadEnv(config.mode, PROJECT_ROOT, '')
       console.log(
         `[品牌] 已从 ${PROJECT_ROOT}.env 注入：` +
           SITE_KEYS.map((k) => `${k}=${env[k] || '(空)'}`).join('  ')
       )
+      // 不打印内容本身：那是一整段脚本，刷屏且可能带密钥
+      if (env[HEAD_KEY]) {
+        console.log(`[品牌] HEAD_INJECT 已设置（${env[HEAD_KEY].length} 个字符）`)
+      }
     },
 
     transformIndexHtml(html) {
