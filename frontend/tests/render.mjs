@@ -3587,8 +3587,9 @@ console.log('\n▶ 账号安全：三块折叠面板之间不再叠分割线')
   const iHook = notify.indexOf('WebhookSetting')
   check(iEmail > 0 && iBark > iEmail && iHook > iBark,
     '通知渠道顺序：电子邮件 → Bark → Webhook')
-  check(!notify.includes('<el-divider'),
-    '通知设置不再用 el-divider（折叠组件自带边框）')
+  check(notify.includes('<el-divider'), '渠道之间保留一条分割线')
+  check(src.includes('.notify-channel :deep(.el-collapse)'),
+    '折叠块自带的外边框在通知设置里关掉，避免和分割线并排成双线')
 }
 
 console.log('\n▶ 二次验证：登录第二步与账户设置')
