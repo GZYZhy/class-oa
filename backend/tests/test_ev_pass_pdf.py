@@ -252,6 +252,7 @@ def test_table_cells_are_centred():
     标签去掉编号与冒号后只剩两三个字，还贴着格子左边就会明显偏在一头。
     量的是每个 span 中心到所在格子左右边的距离，两边得一样。
     """
+    _sentinel_branding()                       # 空配置时这几格没有值，片段数会随环境变
     student, req = _sample()
     page = _pass_page(student, req)[0]
 
