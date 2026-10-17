@@ -4634,6 +4634,18 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   const apiSrc = readFileSync(`${ROOT}/src/api/checkin.js`, 'utf8')
   check(apiSrc.includes("url: `/checkins/public/${code}/sign`"), '签到走公开 code + 登录态接口')
   check(apiSrc.includes("headers: { 'Content-Type': 'multipart/form-data' }"), '签到可以带照片（multipart）')
+
+  // 进行中的签到，明细里可以延长截止时间、催还没签的人
+  check(apiSrc.includes('url: `/checkins/${id}/extend`')
+    && apiSrc.includes('url: `/checkins/${id}/remind`'),
+    '延长截止时间与提醒未签到都有接口')
+  check(detailSrc.includes('延长5分钟') && detailSrc.includes('提醒未签到')
+    && /v-if="detail\.status === 'ongoing'"/.test(detailSrc),
+    '只有进行中的签到才显示「延长5分钟」和「提醒未签到」')
+  check(/@click="extend"/.test(detailSrc)
+    && detailSrc.includes("emit('updated')")
+    && detailSrc.includes('已延长5分钟'),
+    '延长后列表里的截止时间跟着刷新')
 }
 
 console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出允许范围')

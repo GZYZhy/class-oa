@@ -13,7 +13,7 @@
 
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import (
@@ -454,6 +454,97 @@ def close_checkin(
     finalize_checkin(db, checkin)   # 立即结算，不用等任何人刷新页面
     db.refresh(checkin)
     return _detail(db, request, checkin)
+
+
+@router.post(
+    "/{checkin_id}/extend",
+    response_model=CheckinDetailResponse,
+    summary="延长签到截止时间 5 分钟（班委及以上）",
+)
+def extend_checkin(
+    checkin_id: int,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """截止前可反复延长，每次 5 分钟，不设上限。
+
+    只能在本来的截止时间到之前操作：已经到点（哪怕还没懒结算）就不算了，
+    否则会把一次已经结束的签到重新拉回进行中，和结算结果对不上。
+    """
+    checkin = _get_checkin(db, checkin_id)
+    if checkin.finalized_at is not None:
+        raise HTTPException(status_code=400, detail="这次签到已经结束")
+    now = datetime.now()
+    if now >= checkin.end_at:
+        raise HTTPException(
+            status_code=400, detail="已经过了截止时间，不能再延长"
+        )
+
+    before = checkin.end_at
+    checkin.end_at = before + timedelta(minutes=5)
+    log_operation(
+        db,
+        user,
+        action="延长签到",
+        target=checkin.title or "",
+        detail=f"截止 {before:%m-%d %H:%M} → {checkin.end_at:%m-%d %H:%M}",
+        ip=get_client_ip(request),
+    )
+    db.commit()
+    db.refresh(checkin)
+    return _detail(db, request, checkin)
+
+
+@router.post(
+    "/{checkin_id}/remind",
+    summary="提醒还没签到的同学（班委及以上）",
+)
+def remind_checkin(
+    checkin_id: int,
+    request: Request,
+    background: BackgroundTasks,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """只给还没签到的人发站内信，已签的、范围外的人都不打扰。
+
+    和发布时一样，notify 自己会 commit，必须放在这次请求的事务 commit 之后。
+    """
+    checkin = _get_checkin(db, checkin_id)
+    if checkin.finalized_at is not None or datetime.now() >= checkin.end_at:
+        raise HTTPException(status_code=400, detail="这次签到已经结束")
+
+    unsigned = (
+        db.query(CheckinTarget)
+        .filter(
+            CheckinTarget.checkin_id == checkin.id,
+            CheckinTarget.signed_at.is_(None),
+        )
+        .all()
+    )
+    log_operation(
+        db,
+        user,
+        action="提醒签到",
+        target=checkin.title or "",
+        detail=f"提醒 {len(unsigned)} 名未签到的同学",
+        ip=get_client_ip(request),
+    )
+    db.commit()
+
+    body = f"截止 {checkin.end_at:%m-%d %H:%M}，你还没签到，打开链接完成签到"
+    for target in unsigned:
+        notify(
+            db,
+            background,
+            recipients(db, only_no=target.student_no),
+            f"提醒签到：{checkin.title}",
+            body,
+            level="timeSensitive",
+            page=f"/checkin?code={checkin.code}",
+        )
+    return {"ok": True, "reminded": len(unsigned)}
 
 
 @router.get(

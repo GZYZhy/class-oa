@@ -31,6 +31,16 @@ export function closeCheckin(id) {
   return request({ url: `/checkins/${id}/close`, method: 'post' })
 }
 
+/** 截止前把截止时间往后推 5 分钟，可以反复点（班委及以上） */
+export function extendCheckin(id) {
+  return request({ url: `/checkins/${id}/extend`, method: 'post' })
+}
+
+/** 给还没签到的人发站内信（班委及以上），返回 { reminded } */
+export function remindCheckin(id) {
+  return request({ url: `/checkins/${id}/remind`, method: 'post' })
+}
+
 /**
  * 改签到标题
  *
