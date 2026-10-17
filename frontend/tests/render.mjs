@@ -120,8 +120,9 @@ const ElDialogStub = {
   }
 }
 
-async function render(path, extraComponents = {}) {
-  const app = createSSRApp((await server.ssrLoadModule(path)).default)
+async function render(path, extraComponents = {}, props = {}) {
+  // props 给根组件用（如 AccountEventTag 的 event）；页面级调用不传，仍是空对象
+  const app = createSSRApp((await server.ssrLoadModule(path)).default, props)
   app.use(ElementPlus)
   app.use(createPinia()) // 组件里那句 useUserStore() 得有活的 pinia
   app.provide(ID_INJECTION_KEY, { prefix: 1000, current: 0 })
@@ -3625,6 +3626,40 @@ console.log('\n▶ 账号安全：三块折叠面板之间不再叠分割线')
     '折叠块自带的外边框在通知设置里关掉，避免和分割线并排成双线')
 }
 
+console.log('\n▶ 登录与账号操作：事件都映射成中文')
+{
+  // 我的日志与管理员「按账号查日志」共用这一份映射，两边不再各写一长串 v-if
+  const labels = {
+    login: '登录',
+    change_password: '修改密码',
+    token_create: '创建令牌',
+    token_revoke: '吊销令牌',
+    passkey_add: '添加通行密钥',
+    passkey_delete: '删除通行密钥',
+    two_factor_enable: '开启二次验证',
+    two_factor_disable: '关闭二次验证',
+    recovery_regenerate: '重新生成恢复码'
+  }
+  for (const [event, label] of Object.entries(labels)) {
+    const { html, warns } = await render(
+      '/src/components/AccountEventTag.vue', {}, { event }
+    )
+    check(stripComments(html).includes(label), `${event} 显示为「${label}」`)
+    check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)),
+      `${event}：没有未解析的组件/指令`)
+  }
+
+  // 后端将来加新事件类型时退回原始事件名，不会变成一片空白
+  const unknown = await render('/src/components/AccountEventTag.vue', {}, { event: 'future_event' })
+  check(unknown.html.includes('future_event'), '未知事件显示原始名')
+
+  for (const page of ['/src/views/MyInfo.vue', '/src/views/Admin.vue']) {
+    const src = readFileSync(`${ROOT}${page}`, 'utf8')
+    check(src.includes('<AccountEventTag :event="row.event" />'),
+      `${page} 用共享组件渲染事件标签`)
+  }
+}
+
 console.log('\n▶ 二次验证：登录第二步与账户设置')
 {
   // 登录页默认还是密码表单，不会凭空多出验证码框
@@ -3639,6 +3674,7 @@ console.log('\n▶ 二次验证：登录第二步与账户设置')
   )
   check(email.html.includes('验证码已发送到'), '邮箱方式显示收件地址')
   check(email.html.includes('a***@example.com'), '地址是打码后的')
+  check(!email.html.includes('XXXX-XXXX'), '不再提示恢复码的格式')
   check(email.html.includes('一次性恢复码'), '提示可以改用恢复码')
   check(email.html.includes('重新发送验证码'), '邮箱方式有重发入口')
   check(email.html.includes('返回重新登录'), '可以退回密码登录')
@@ -3654,6 +3690,8 @@ console.log('\n▶ 二次验证：登录第二步与账户设置')
     "const twoFactor = ref({ method: 'totp', masked_email: '', email_sent: false })"
   )
   check(totp.html.includes('身份验证器 App'), 'TOTP 方式提示去 App 里看码')
+  check(totp.html.includes('twofa-tip--totp'), 'TOTP 方式的提示语居中')
+  check(!totp.html.includes('XXXX-XXXX'), 'TOTP 方式也不提恢复码格式')
   check(!totp.html.includes('重新发送验证码'), 'TOTP 方式没有重发按钮')
 
   // 身份验证器要能扫码：otpauth 链接在浏览器里不一定点得动，二维码是主入口
@@ -3693,6 +3731,8 @@ console.log('\n▶ 二次验证：登录第二步与账户设置')
   )
   check(on.html.includes('已开启'), '已开启时有标记')
   check(on.html.includes('当前方式：电子邮件验证码'), '显示当前方式')
+  check(on.html.includes('验证码发到 ad***@example.com'), '已开启时邮箱是打码后的')
+  check(!on.html.includes('admin@example.com'), '不显示完整邮箱')
   check(on.html.includes('剩余恢复码 0 个'), '显示剩余恢复码数量')
   check(on.html.includes('重新生成恢复码'), '提供重生成恢复码入口')
   check(on.html.includes('关闭二次验证'), '提供关闭入口')

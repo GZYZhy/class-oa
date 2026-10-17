@@ -8,7 +8,7 @@
 覆盖：登记 → 列表 → 登出 → 用钥匙登录 → /me；错误密码拿不到选项；
 挑战一次性且分登记/登录两种；同一把钥匙不能重复登记；管理员清除后钥匙失效；
 **登录不输学号**：选项不点名凭据、按钥匙反查持有人、没登记的钥匙进不来；
-登记必须要求可发现凭据（resident key）。
+登记必须要求可发现凭据（resident key）；添加 / 删除钥匙写进账号事件。
 
 cd backend && python -m pytest tests/test_passkey.py -q
 """
@@ -180,6 +180,13 @@ def _login(b, auth: SoftAuthenticator):
         "/api/auth/passkeys/login/verify",
         json={"remember": True, "credential": auth.login(options.json())},
     )
+
+
+def _events(b) -> list[str]:
+    """「我的日志 → 登录与账号操作」里的事件名，最近的在前"""
+    r = b.client.get("/api/auth/my-logs", params={"events_page_size": 50})
+    assert r.status_code == 200, r.text
+    return [e["event"] for e in r.json()["events"]]
 
 
 def test_register_login_and_list(b):
@@ -391,6 +398,22 @@ def test_passkey_login_skips_two_factor(b):
     r = _login(b, auth)
     assert r.status_code == 200, r.text
     assert b.client.get("/api/auth/me").status_code == 200
+
+
+def test_key_add_and_delete_are_logged(b):
+    """添加 / 删除通行密钥都落在「登录与账号操作」里，带 IP"""
+    auth = _authenticator(b)
+    assert _register(b, auth).status_code == 200
+
+    r = b.client.get("/api/auth/my-logs")
+    first = r.json()["events"][0]
+    assert first["event"] == "passkey_add"
+    assert first["ip"], "账号事件要记下操作时的 IP"
+
+    key_id = b.client.get("/api/auth/passkeys").json()["items"][0]["id"]
+    r = b.client.delete(f"/api/auth/passkeys/{key_id}")
+    assert r.status_code == 200, r.text
+    assert _events(b)[0] == "passkey_delete"
 
 
 def test_only_own_key_can_be_deleted(b):

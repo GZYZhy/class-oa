@@ -6,7 +6,8 @@ TOTP 直接用 app.utils.totp 算出当前时间步的码 —— 服务端和测
 纯函数，但正确性由 test_totp_math 里的 RFC 6238 官方测试向量兜底。
 
 覆盖：邮件开启 → 登出 → 登录要第二因素 → 输错 → 输对；重发冷却；
-TOTP 开启 → 登录；恢复码一次性；错误次数用尽；管理员清除；关闭后恢复密码直登。
+TOTP 开启 → 登录；恢复码一次性；错误次数用尽；管理员清除；关闭后恢复密码直登；
+开启 / 重生成恢复码 / 关闭都写进「登录与账号操作」。
 
 cd backend && python -m pytest tests/test_two_factor.py -q
 """
@@ -164,6 +165,13 @@ def _enable_totp(b):
 def _relogin(b):
     b.logout()
     return b.login(ADMIN_NO, LOGIN_PW)
+
+
+def _events(b) -> list[str]:
+    """「我的日志 → 登录与账号操作」里的事件名，最近的在前"""
+    r = b.client.get("/api/auth/my-logs", params={"events_page_size": 50})
+    assert r.status_code == 200, r.text
+    return [e["event"] for e in r.json()["events"]]
 
 
 # ---------- TOTP 纯函数 ----------
@@ -326,6 +334,7 @@ def test_totp_flow_recovery_and_disable(b):
     """TOTP 登录、恢复码只用一次、关闭后回到密码直登"""
     secret, codes = _enable_totp(b)
     assert len(codes) == 10
+    assert _events(b)[0] == "two_factor_enable"
 
     r = _relogin(b)
     assert r.json()["two_factor_required"] is True
@@ -352,12 +361,32 @@ def test_totp_flow_recovery_and_disable(b):
     )
     assert r.status_code == 200, r.text
 
-    # 关闭之后，密码登录直接成功
+    # 关闭动作本身也要留在账号事件里（先查再重登，否则最新一条会是下一次登录）
     r = b.client.post("/api/auth/2fa/disable", json={"password": LOGIN_PW})
     assert r.status_code == 200, r.text
+    assert _events(b)[0] == "two_factor_disable"
+
+    # 关闭之后，密码登录直接成功
     r = _relogin(b)
     assert r.status_code == 200
     assert "two_factor_required" not in r.json()
+
+
+def test_security_changes_are_logged(b, smtp):
+    """开启邮箱二次验证、重生成恢复码、关闭，都写进「登录与账号操作」"""
+    _enable_email(b, smtp)
+    r = b.client.get("/api/auth/my-logs")
+    first = r.json()["events"][0]
+    assert first["event"] == "two_factor_enable"
+    assert first["ip"], "账号事件要记下操作时的 IP"
+
+    r = b.client.post("/api/auth/2fa/recovery/regenerate", json={"password": LOGIN_PW})
+    assert r.status_code == 200, r.text
+    assert _events(b)[0] == "recovery_regenerate"
+
+    r = b.client.post("/api/auth/2fa/disable", json={"password": LOGIN_PW})
+    assert r.status_code == 200, r.text
+    assert _events(b)[:2] == ["two_factor_disable", "recovery_regenerate"]
 
 
 def test_wrong_code_limit(b):
