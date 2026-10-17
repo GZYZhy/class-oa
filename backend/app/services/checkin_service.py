@@ -4,16 +4,24 @@
 接口只负责搬运，前端只认字段不重算 —— 否则迟早出现「页面说进行中、结算说已结束」。
 """
 
+import os
 from datetime import datetime
 from math import asin, cos, radians, sin, sqrt
+from pathlib import Path
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from ..config import BASE_DIR
 from ..models import AttendanceItem, AttendanceRecord, Checkin, CheckinTarget, LeaveRequest
 
 CHECKIN_ONGOING = "ongoing"
 CHECKIN_ENDED = "ended"
+
+# 签到照片单独一个目录，不和学生照片/请假证明混在一起。
+# 测试用 CHECKIN_DIR 指到临时目录；生产默认落在挂载出来的 data/ 下，备份会一起打包
+CHECKIN_DIR = Path(os.environ.get("CHECKIN_DIR") or (BASE_DIR / "data" / "checkins"))
+CHECKIN_DIR.mkdir(parents=True, exist_ok=True)
 
 # 地球平均半径（米）。距离只用来判「在不在允许范围」，这个精度足够了
 EARTH_RADIUS_M = 6371000
@@ -152,3 +160,40 @@ def finalize_checkin(db: Session, checkin: Checkin) -> bool:
     checkin.attendance_record_id = record.id
     db.commit()
     return True
+
+
+def remove_checkin(db: Session, checkin: Checkin) -> list[str]:
+    """删掉一次签到的落库数据（不提交事务、不写操作日志）
+
+    结算生成的考勤记录必须一起删：attendance.delete_attendance 会拦着不让
+    单独删它，留下的话就是一条永远删不掉的「签到·N人」。
+    返回照片文件名，由调用方在提交成功后再删文件 —— 事务回滚时照片还在。
+    """
+    targets = (
+        db.query(CheckinTarget)
+        .filter(CheckinTarget.checkin_id == checkin.id)
+        .all()
+    )
+    if checkin.attendance_record_id:
+        db.query(AttendanceItem).filter(
+            AttendanceItem.record_id == checkin.attendance_record_id
+        ).delete(synchronize_session=False)
+        record = (
+            db.query(AttendanceRecord)
+            .filter(AttendanceRecord.id == checkin.attendance_record_id)
+            .first()
+        )
+        if record:
+            db.delete(record)
+
+    db.query(CheckinTarget).filter(
+        CheckinTarget.checkin_id == checkin.id
+    ).delete(synchronize_session=False)
+    db.delete(checkin)
+    return [Path(t.photo_file).name for t in targets if t.photo_file]
+
+
+def remove_photos(photo_files: list[str]) -> None:
+    """删签到照片。文件已经不在也不报错"""
+    for name in photo_files:
+        (CHECKIN_DIR / Path(name).name).unlink(missing_ok=True)

@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" :title="detail.title || '签到详情'" width="700px">
+  <el-dialog v-model="visible" :title="detail.title || '签到明细'" width="700px">
     <div v-loading="loading" class="cd-body">
       <div class="cd-meta">
         <el-tag :type="detail.status === 'ongoing' ? 'success' : 'info'" size="small">
@@ -9,12 +9,20 @@
           {{ detail.created_by_name }} 发布于 {{ formatDateTime(detail.created_at) }}
         </span>
       </div>
-      <div v-if="detail.remark" class="cd-remark">{{ detail.remark }}</div>
+      <div class="cd-remark-row">
+        <span class="cd-label">标题</span>
+        <span class="cd-remark-text">{{ detail.title || '—' }}</span>
+        <el-button link type="primary" size="small" @click="editTitle">修改</el-button>
+      </div>
+      <div v-if="detail.remark" class="cd-remark-row">
+        <span class="cd-label">说明</span>
+        <span class="cd-remark-text">{{ detail.remark }}</span>
+      </div>
       <div class="cd-line">
         <span class="cd-label">截止时间</span>
         <span>{{ formatDateTime(detail.end_at) }}</span>
         <span v-if="detail.closed_at" class="cd-sub">
-          （已于 {{ formatDateTime(detail.closed_at) }} 提前结束）
+          （已于 {{ formatDateTime(detail.closed_at) }} 结束）
         </span>
       </div>
       <div class="cd-line">
@@ -100,14 +108,15 @@
 
 <script setup>
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
 import FileViewer from '@/components/FileViewer.vue'
-import { getCheckin } from '@/api/checkin'
+import { getCheckin, updateCheckinTitle } from '@/api/checkin'
 import { updateAttendanceItem } from '@/api/attendance'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'
 
+const emit = defineEmits(['updated'])
 const visible = ref(false)
 const loading = ref(false)
 const savingStatus = ref(false)
@@ -124,7 +133,7 @@ async function open(row) {
   try {
     detail.value = await getCheckin(row.id)
   } catch (e) {
-    ElMessage.error(errText(e, '读取签到详情失败'))
+    ElMessage.error(errText(e, '读取签到明细失败'))
     visible.value = false
   } finally {
     loading.value = false
@@ -143,6 +152,38 @@ function openPhoto(row) {
     url: row.photo_url,
     fileName: `${row.student_name}_签到照片.jpg`,
     studentName: row.student_name
+  }
+}
+
+/**
+ * 改签到标题
+ *
+ * 列表的「备注」列显示的就是标题，所以改完要通知父组件刷新列表。
+ * 结束后也能改；标题不能为空，否则列表里认不出是哪次签到
+ */
+async function editTitle() {
+  let value
+  try {
+    const res = await ElMessageBox.prompt('改签到标题', '标题', {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputValue: detail.value.title || '',
+      inputPlaceholder: '例如：周六晚点名',
+      inputPattern: /\S/,
+      inputErrorMessage: '标题不能为空'
+    })
+    value = res.value
+  } catch {
+    return
+  }
+  const title = (value || '').trim()
+  try {
+    const updated = await updateCheckinTitle(detail.value.id, title)
+    detail.value.title = updated.title
+    ElMessage.success('标题已修改')
+    emit('updated')
+  } catch (e) {
+    ElMessage.error(errText(e, '修改标题失败'))
   }
 }
 
@@ -206,12 +247,17 @@ defineExpose({ open })
   font-size: 14px;
 }
 
-.cd-remark {
-  padding: 8px 12px;
-  border-radius: 4px;
-  background: var(--el-fill-color-light);
+.cd-remark-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.cd-remark-text {
+  flex: 1;
   color: var(--el-text-color-regular);
   line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .cd-location {

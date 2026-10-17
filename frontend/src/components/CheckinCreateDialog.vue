@@ -16,10 +16,10 @@
       </el-result>
       <div class="cc-link">
         <el-input :model-value="created.link" readonly />
-        <el-button type="primary" @click="copyText(created.link)">复制链接</el-button>
+        <el-button type="primary" @click="copyText(created.link)">链接</el-button>
       </div>
       <p class="cc-tip">
-        截止 {{ formatDateTime(created.end_at) }} 自动结束，也可以在考勤页的「签到」里提前结束。
+        截止 {{ formatDateTime(created.end_at) }} 自动结束，也可以在考勤记录里手动结束。
         结算后会生成一条普通考勤记录
       </p>
     </div>

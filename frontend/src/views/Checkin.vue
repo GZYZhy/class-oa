@@ -14,7 +14,7 @@
       <el-result
         v-else-if="error"
         icon="warning"
-        title="打不开这次签到"
+        :title="notFound ? '链接已失效' : '打不开这次签到'"
         :sub-title="error"
       >
         <template #extra>
@@ -188,6 +188,8 @@ const userStore = useUserStore()
 
 const loading = ref(true)
 const error = ref('')
+// 404 = 链接不对，或这次签到已经被发布人删了：页面不显示「读取失败」，而是明说链接失效
+const notFound = ref(false)
 const info = ref(null)
 
 // 签到表单的状态。签到成功后整块被「已签到」替换，这些值不用再清
@@ -226,6 +228,7 @@ async function load() {
   }
   loading.value = true
   error.value = ''
+  notFound.value = false
   // 公开页的路由守卫不会去问后端登录状态，这里补一次，才能知道 is_login 和 is_target
   if (!userStore.resolved) await userStore.fetchMe()
   try {
@@ -233,7 +236,11 @@ async function load() {
     // 能签且要求定位：进页面就去要位置，少点一次「获取位置」
     if (info.value.can_sign && info.value.location) locate()
   } catch (e) {
-    error.value = errText(e, '签到不存在或链接已失效')
+    // 签到被删后链接就查不到了：单独给一句能看懂的话，不暴露「读取失败」
+    notFound.value = e?.response?.status === 404
+    error.value = notFound.value
+      ? '这次签到不存在或已被删除。如确实有这次签到，请向发布人重新要一次链接。'
+      : errText(e, '读取签到信息失败')
   } finally {
     loading.value = false
   }
