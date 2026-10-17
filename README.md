@@ -104,4 +104,5 @@ curl -s http://127.0.0.1:8000/api/health
 
 ## License
 
-[Apache 2.0](LICENSE)
+仅允许**非公开、非商业**使用。数据安全由使用者自行保证；软件按“现状”提供，
+不保证无缺陷；数据的合法性由使用者自行负责。完整条款见 [LICENSE](LICENSE)。
