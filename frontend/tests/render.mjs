@@ -254,6 +254,22 @@ console.log('\n▶ 初始化浮层必须整屏换掉外壳（不是盖一层弹�
   check(src.includes('if (userStore.isBootstrap) return'), '登录态变化时的红点/推送刷新有守卫')
 }
 
+console.log('\n▶ 签到页首屏不下载整站布局（弱网也要快）')
+{
+  const app = readFileSync(`${ROOT}/src/App.vue`, 'utf8')
+  const layout = readFileSync(`${ROOT}/src/components/AppLayout.vue`, 'utf8')
+  check(/import\('@\/components\/AppLayout\.vue'\)/.test(app), '整站布局拆出去按需加载')
+  check(!app.includes('<el-container'), '入口外壳里不再有菜单、对话框这一整套')
+  check(layout.includes('<el-container') && layout.includes('MENU_GROUPS'),
+    '布局内容完整搬到了 AppLayout')
+  check(layout.includes('userStore.refreshTotal()') && layout.includes('if (!userStore.resolved)'),
+    '登录态与班级人数改由布局挂载时拉取')
+  // 公开页不再多问一次登录态：需要的 is_login / is_target 由公开接口一并返回
+  const checkin = readFileSync(`${ROOT}/src/views/Checkin.vue`, 'utf8')
+  check(!checkin.includes('fetchMe'), '签到页只发一个信息请求，弱网少一个来回')
+  check(!/from '@\/store\/user'/.test(checkin), '公开页不依赖用户 store')
+}
+
 console.log('\n▶ 身份只认 is_bootstrap 列，不认登录名')
 {
   const src = readFileSync(`${ROOT}/src/store/user.js`, 'utf8')
@@ -2291,10 +2307,11 @@ console.log('\n▶ 首页：品牌标签、快捷入口、最新通知')
   check(/Promise\.allSettled\(/.test(src),
     '生日和通知两路一起发、各自兜异常，不串着等也不连累首页统计')
 
-  // 判据只有一份：App.vue 的侧边菜单改成 import 了，不许再抄回去一份
-  const app = readFileSync(`${ROOT}/src/App.vue`, 'utf8')
-  check(/import \{ canSee \} from '@\/utils\/roles'/.test(app), 'App.vue 用的是公共那份 canSee')
-  check(!/function canSee\(/.test(app), 'App.vue 里没有第二份 canSee 实现')
+  // 判据只有一份：侧边菜单改成 import 了，不许再抄回去一份
+  // （布局已从 App.vue 拆到 AppLayout.vue，菜单在那里）
+  const app = readFileSync(`${ROOT}/src/components/AppLayout.vue`, 'utf8')
+  check(/import \{ canSee \} from '@\/utils\/roles'/.test(app), '菜单用的是公共那份 canSee')
+  check(!/function canSee\(/.test(app), 'AppLayout 里没有第二份 canSee 实现')
 }
 
 console.log('\n▶ 分类统计：概览卡点开是哪些人')
