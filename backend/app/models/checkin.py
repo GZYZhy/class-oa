@@ -40,6 +40,8 @@ class Checkin(Base):
     created_by_name = Column(String(50), comment="发布人姓名（快照）")
     created_at = Column(DateTime, default=datetime.now, comment="发布时间")
 
+    # 可空 = 老数据：发布即可签。新发布的签到总会填上，支持「到点才开始」
+    start_at = Column(DateTime, index=True, comment="开始时间，可空 = 发布即可签")
     end_at = Column(DateTime, index=True, comment="截止时间")
     closed_at = Column(DateTime, comment="提前结束的时刻，可空")
 

@@ -19,7 +19,8 @@
         <el-button type="primary" @click="copyText(created.link)">链接</el-button>
       </div>
       <p class="cc-tip">
-        截止 {{ formatDateTime(created.end_at) }} 自动结束，也可以在考勤记录里手动结束。
+        {{ created.start_at ? `${formatDateTime(created.start_at)} 开始，` : '' }}截止
+        {{ formatDateTime(created.end_at) }} 自动结束，也可以在考勤记录里手动结束。
         结算后会生成一条普通考勤记录
       </p>
     </div>
@@ -45,6 +46,17 @@
             show-word-limit
             placeholder="选填。写清集合地点、注意事项"
           />
+        </el-form-item>
+        <el-form-item label="开始时间" required>
+          <el-date-picker
+            v-model="form.start_at"
+            type="datetime"
+            placeholder="到这个时间才能签到"
+            format="YYYY-MM-DD HH:mm"
+            value-format="YYYY-MM-DD HH:mm"
+            style="width: 100%;"
+          />
+          <div class="cc-tip">默认现在。定在以后，同学提前打开链接也只能等开始</div>
         </el-form-item>
         <el-form-item label="截止时间" required>
           <el-date-picker
@@ -113,8 +125,8 @@
           />
           <span class="cc-tip cc-inline">米（10～5000）</span>
         </div>
-        <el-form label-width="88px" class="cc-loc-name">
-          <el-form-item label="地点名称">
+        <el-form label-width="118px" class="cc-loc-name">
+          <el-form-item label="地点的展示名称">
             <el-input
               v-model="form.location_name"
               maxlength="100"
@@ -165,17 +177,26 @@ const point = ref(null)
 /** 手动改过地点名之后，反查回来的地址不再覆盖它 */
 const nameTouched = ref(false)
 
-/** 默认截止：30 分钟后，四舍五入到分钟 */
-function defaultEnd() {
-  const d = new Date(Date.now() + 30 * 60 * 1000)
+/** 把某个时刻格式化成日期选择器认的「不带时区」写法 */
+function formatPicker(d) {
   const pad = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** 默认开始：现在（取整到分钟，和选择器一致）；默认截止：30 分钟后 */
+function defaultStart() {
+  return formatPicker(new Date())
+}
+
+function defaultEnd() {
+  return formatPicker(new Date(Date.now() + 30 * 60 * 1000))
 }
 
 function blankForm() {
   return {
     title: '',
     remark: '',
+    start_at: defaultStart(),
     end_at: defaultEnd(),
     require_photo: false,
     targets: [],
@@ -245,8 +266,11 @@ function onPlace(name) {
 /** 提交前校验，一条条报。后端仍会再验一遍（它才是唯一的闸） */
 function firstError() {
   if (!form.title.trim()) return '请填写标题'
+  if (!form.start_at) return '请选择开始时间'
   if (!form.end_at) return '请选择截止时间'
+  const start = new Date(form.start_at.replace(' ', 'T'))
   const end = new Date(form.end_at.replace(' ', 'T'))
+  if (start.getTime() >= end.getTime()) return '开始时间必须早于截止时间'
   if (end.getTime() <= Date.now()) return '截止时间必须晚于当前时间'
   if (!form.targets.length) return '至少要选一名同学'
   if (form.useLocation) {
@@ -263,6 +287,7 @@ async function handleSubmit() {
   const payload = {
     title: form.title.trim(),
     remark: form.remark.trim(),
+    start_at: form.start_at,
     end_at: form.end_at,
     require_photo: form.require_photo,
     targets: [...form.targets]

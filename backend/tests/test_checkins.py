@@ -98,7 +98,7 @@ def _end_at(minutes=30):
 
 
 def _create(b, targets, *, minutes=30, title="晚点名", remark="宿舍区集合",
-            require_photo=False, location=None, end_at=None):
+            require_photo=False, location=None, end_at=None, start_at=None):
     payload = {
         "title": title,
         "remark": remark,
@@ -107,6 +107,9 @@ def _create(b, targets, *, minutes=30, title="晚点名", remark="宿舍区集�
         "require_photo": require_photo,
         "location": location,
     }
+    # 不传 = 发布即可签（老前端的写法），新前端总会带上
+    if start_at is not None:
+        payload["start_at"] = start_at.strftime("%Y-%m-%dT%H:%M:%S")
     r = b.client.post("/api/checkins", json=payload)
     assert r.status_code == 200, r.text
     return r.json()
@@ -231,6 +234,60 @@ def test_create_rejects_past_end_and_unknown_student(cb):
     })
     assert r.status_code == 400
     assert "不带时区" in r.json()["detail"]
+
+
+def test_start_time_is_rejected_when_not_before_end(cb):
+    end = _end_at()
+    r = cb.client.post("/api/checkins", json={
+        "title": "开始晚于截止", "targets": [PEOPLE[0][0]],
+        "start_at": end.strftime("%Y-%m-%dT%H:%M:%S"),
+        "end_at": end.strftime("%Y-%m-%dT%H:%M:%S"),
+    })
+    assert r.status_code == 400
+    assert "开始时间必须早于截止时间" in r.json()["detail"]
+
+
+def test_checkin_stays_pending_until_start_time(cb):
+    """定在以后开始的签到：公开页只显示「未开始」，签到和传照片都拒
+
+    到点后把库里的开始时间拨到过去，同一份数据立刻变成进行中并能签 ——
+    状态完全由 start_at 推出来，不需要任何定时任务去「开启」。
+    """
+    start = datetime.now() + timedelta(minutes=10)
+    checkin = _create(
+        cb, [PEOPLE[0][0]], start_at=start, end_at=start + timedelta(minutes=30)
+    )
+    assert checkin["status"] == "pending"
+    assert checkin["start_at"] is not None
+
+    public = cb.client.get(f"/api/checkins/public/{checkin['code']}").json()
+    assert public["status"] == "pending"
+    assert public["start_at"] is not None
+    assert public["can_sign"] is False
+
+    _login(cb, PEOPLE[0][0])
+    public = cb.client.get(f"/api/checkins/public/{checkin['code']}").json()
+    assert public["can_sign"] is False
+    r = _sign(cb, checkin["code"])
+    assert r.status_code == 400
+    assert "还没开始" in r.json()["detail"]
+
+    # 考勤列表也认这个状态，并带上开始时间；时间列前端据此显示「开始」
+    _as_admin(cb)
+    items = cb.client.get("/api/attendance/overview").json()["items"]
+    row = next(x for x in items if x["type"] == "checkin" and x["id"] == checkin["id"])
+    assert row["status"] == "pending"
+    assert row["start_at"] is not None
+
+    # 到点：把开始时间拨到过去再签
+    past = datetime.now() - timedelta(minutes=1)
+    cb.run(
+        "UPDATE checkins SET start_at=? WHERE id=?",
+        past.strftime("%Y-%m-%d %H:%M:%S.%f"), checkin["id"],
+    )
+    _login(cb, PEOPLE[0][0])
+    assert cb.client.get(f"/api/checkins/public/{checkin['code']}").json()["status"] == "ongoing"
+    assert _sign(cb, checkin["code"]).status_code == 200
 
 
 # ---------- 站内信 ----------
