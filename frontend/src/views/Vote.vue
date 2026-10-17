@@ -5,7 +5,15 @@
 
     <!-- 和审核审批一样整页一张卡片：标题、筛选、列表都在里面 -->
     <div class="page-card">
-      <h3 class="page-title">投票表决</h3>
+      <!-- 「发起投票」跟标题同一行：放在筛选区右边的话，窄屏上会孤零零地
+           顶在第一行，和下面的控件错开 -->
+      <div class="vt-head">
+        <h3 class="page-title">投票表决</h3>
+        <!-- 权限在按钮一级：普通学生进来只有表决和看结果，后端 committee_required 兜底 -->
+        <el-button v-if="userStore.isCommittee" type="primary" @click="createRef.open()">
+          <el-icon><Plus /></el-icon>发起投票
+        </el-button>
+      </div>
       <div class="vt-bar">
         <el-form :inline="true" size="default" class="vt-filter">
           <el-form-item label="标题">
@@ -37,10 +45,6 @@
             </el-button>
           </el-form-item>
         </el-form>
-        <!-- 权限在按钮一级：普通学生进来只有表决和看结果，后端 committee_required 兜底 -->
-        <el-button v-if="userStore.isCommittee" type="primary" @click="createRef.open()">
-          <el-icon><Plus /></el-icon>发起投票
-        </el-button>
       </div>
 
       <!-- 列表 -->
@@ -758,16 +762,58 @@ onUnmounted(stopPolling)
   position: relative;
 }
 
+/* 标题和「发起投票」同一行 */
+.vt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.vt-head .page-title {
+  margin-bottom: 0;
+}
+
 .vt-bar {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
   flex-wrap: wrap;
   gap: 8px;
 }
 
 .vt-filter {
-  margin-bottom: 0; /* el-form 自带下边距，留着会把右侧按钮顶歪 */
+  margin-bottom: 0; /* el-form 自带下边距，留着会把下面的表格顶远 */
+}
+
+/* 手机上控件占满整行，标签挪到左边跟控件并排，别一行标签一行控件 */
+@media (max-width: 768px) {
+  .vt-filter {
+    width: 100%;
+  }
+
+  .vt-filter :deep(.el-form-item) {
+    display: flex;
+    width: 100%;
+    margin-right: 0;
+    margin-bottom: 10px;
+  }
+
+  .vt-filter :deep(.el-form-item__label) {
+    width: 44px;
+    padding-right: 8px;
+    flex-shrink: 0;
+    justify-content: flex-start;
+  }
+
+  .vt-filter :deep(.el-form-item__content) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .vt-filter :deep(.el-input),
+  .vt-filter :deep(.el-select) {
+    width: 100% !important;
+  }
 }
 
 .vt-title {

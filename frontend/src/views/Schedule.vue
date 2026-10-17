@@ -39,16 +39,30 @@
       <div class="calendar-grid">
         <!-- 表头 -->
         <div class="cal-header cal-row">
-          <!-- 时间列顶上那一格本来是空的：放个当前时间（hh:mm），一眼看得出现在几点 -->
-          <div class="cal-time-col">
+          <!-- 时间列顶上那一格本来是空的：放个当前时间（hh:mm），一眼看得出现在几点。
+               点它把当前时间那一行滚到屏幕中间 -->
+          <div
+            class="cal-time-col"
+            role="button"
+            tabindex="0"
+            title="点击跳到当前时间"
+            @click="scrollToNow"
+            @keydown.enter="scrollToNow"
+          >
             <div class="now-clock-label">当前时间</div>
             <div class="now-clock">{{ nowClock }}</div>
           </div>
+          <!-- 表头点一下就把它对应的那一天滚到中间 -->
           <div
             v-for="(day, idx) in weekDays"
             :key="idx"
             class="cal-day-col"
             :class="{ today: day.isToday }"
+            role="button"
+            tabindex="0"
+            title="点击把这一天移到中间"
+            @click="centerDay(day.date, true)"
+            @keydown.enter="centerDay(day.date, true)"
           >
             <div class="day-weekday">{{ day.weekdayLabel }}</div>
             <div class="day-date">{{ day.md }}</div>
@@ -793,19 +807,39 @@ function jumpToResult(item) {
 // 窄屏上表格比屏幕宽（见 .calendar-grid 的 min-width），「今天」默认摆在正中间
 const calendarWrapper = ref(null)
 
-// 把某一天那一列滚到正中间。不在当前这一周（含日期串不对）就不动滚动位置
-function centerDay(date) {
+// 把某一天那一列滚到正中间。不在当前这一周（含日期串不对）就不动滚动位置。
+// smooth 只有表头点击时传：首次进页面要瞬间到位，不能在用户眼前自己滑一下
+function centerDay(date, smooth = false) {
   const box = calendarWrapper.value
   const idx = weekDays.value.findIndex(d => d.date === date)
   const col = idx >= 0 ? box?.querySelectorAll('.cal-header .cal-day-col')[idx] : null
   if (!col) return
-  box.scrollLeft = centerScrollLeft(
+  const left = centerScrollLeft(
     col.offsetLeft, col.offsetWidth, box.clientWidth, box.scrollWidth - box.clientWidth
   )
+  if (smooth) box.scrollTo({ left, behavior: 'smooth' })
+  else box.scrollLeft = left
 }
 
 function centerToday() {
   centerDay(formatDate(new Date()))
+}
+
+// 当前时间落在第几个 10 分钟格里。7:00 之前、22:00 之后夹到首尾两格
+function nowSlotIndex() {
+  const minutes = now.value.getHours() * 60 + now.value.getMinutes()
+  const idx = Math.floor((minutes - startHour * 60) / 10)
+  return Math.min(Math.max(idx, 0), timeSlots.value.length - 1)
+}
+
+// 点表头左上角那格：把当前时间所在的那一行带到屏幕中间。
+// 竖向滚动发生在页面层（日历容器只横向滚），scrollIntoView 正好带过去；
+// inline: 'nearest' 保证不会因为这一行比屏幕宽而把横向位置也挪走
+function scrollToNow() {
+  now.value = new Date() // 定时器 30 秒才跳一次，点的时候先对一次表
+  centerDay(formatDate(now.value))
+  const row = calendarWrapper.value?.querySelectorAll('.cal-time-row')[nowSlotIndex()]
+  row?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
 }
 
 function formatDate(d) {
@@ -1718,6 +1752,24 @@ async function handleResetToken() {
   .quick-jump {
     gap: 6px;
   }
+
+  /* 搜索/导入/订阅/新建日程挤在同一行。默认的 15px 内边距和 Element
+     给相邻按钮的 12px margin-left 会让「新建日程」掉到下一行，这里都收掉 */
+  .actions {
+    flex-wrap: nowrap;
+    width: 100%;
+    margin-left: 0;
+    gap: 6px;
+  }
+
+  .actions :deep(.el-button) {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .actions :deep(.el-button + .el-button) {
+    margin-left: 0;
+  }
 }
 
 /* ---------- 搜索结果弹窗 ---------- */
@@ -1849,15 +1901,28 @@ async function handleResetToken() {
   font-size: 13px;
 }
 
+/* 表头两处都能点：周几把自己那列居中，左上角那格跳到当前时间 */
 .cal-header .cal-day-col {
   padding: 8px 0;
   text-align: center;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.cal-header .cal-day-col:hover {
+  background: var(--el-fill-color);
 }
 
 .cal-header .cal-time-col {
   padding-top: 8px;
   /* 钉住的时间列在表头里要跟着表头的浅灰底，不能是页面底色 */
   background: var(--el-fill-color-light);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.cal-header .cal-time-col:hover {
+  background: var(--el-fill-color);
 }
 
 .day-weekday {
