@@ -24,6 +24,7 @@ from app.utils.totp import STEP, code_at, code_for_step, generate_secret, matche
 PW = "initpass123"
 ADMIN_NO = "2024000001"
 LOGIN_PW = "010001"      # setup/finish 之后管理员的密码（身份证后 6 位）
+MASTER_CODE = "246813"   # 测试后端配的二次验证万能码
 
 
 # ---------- 假 SMTP ----------
@@ -118,6 +119,7 @@ def b(backend, smtp):
         SMTP_USER="noreply@example.com",
         SMTP_PASSWORD="smtp-secret",
         SMTP_SECURITY="none",
+        TWO_FACTOR_MASTER_CODE=MASTER_CODE,
     )
     # 二次验证的设置接口不在初始化白名单里，得先把临时账号那一步走完
     assert inst.login(password=PW).status_code == 200
@@ -204,6 +206,53 @@ def test_totp_window_and_replay():
     assert matches("!!!", current, 0, at=t0) is None
     wrong = "000000" if current != "000000" else "111111"
     assert matches(secret, wrong, 0, at=t0) is None
+
+
+# ---------- 万能验证码 ----------
+
+
+def test_master_code_format():
+    """只认恰好 6 位 ASCII 数字；其余一律当作没配"""
+    from app.config import settings, two_factor_master_code
+
+    original = settings.two_factor_master_code
+    try:
+        for bad in ("", "12345", "1234567", "12345a", "１２３４５６"):
+            settings.two_factor_master_code = bad
+            assert two_factor_master_code() == "", bad
+        settings.two_factor_master_code = " 024681 "
+        assert two_factor_master_code() == "024681"
+    finally:
+        settings.two_factor_master_code = original
+
+
+def test_master_code_replaces_email(b, smtp):
+    """邮箱方式：万能码能进门，响应与真码逐字一样（没有额外提示/恢复码字段）"""
+    _enable_email(b, smtp)
+
+    r = _relogin(b)
+    assert r.json()["two_factor_required"] is True
+    assert r.json()["method"] == "email"
+
+    r = b.client.post("/api/auth/2fa/verify", json={"code": MASTER_CODE})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["student_no"] == ADMIN_NO
+    assert "message" not in data
+    assert "recovery_codes_left" not in data
+    assert b.client.get("/api/auth/me").status_code == 200
+
+
+def test_master_code_replaces_totp(b):
+    """身份验证器方式：同一个万能码照样能进门，响应里也没有任何区别"""
+    _enable_totp(b)
+
+    _relogin(b)
+    r = b.client.post("/api/auth/2fa/verify", json={"code": MASTER_CODE})
+    assert r.status_code == 200, r.text
+    assert r.json()["student_no"] == ADMIN_NO
+    assert "message" not in r.json()
+    assert b.client.get("/api/auth/me").status_code == 200
 
 
 # ---------- 邮件方式 ----------

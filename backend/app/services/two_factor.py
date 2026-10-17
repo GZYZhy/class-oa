@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from ..config import settings, smtp_enabled
+from ..config import settings, smtp_enabled, two_factor_master_code
 from ..models import Student, TwoFactorChallenge, TwoFactorRecoveryCode, User
 from ..utils.email_addr import is_valid_email
 from .email_service import TEST_BUDGET, TEST_TIMEOUT
@@ -149,6 +149,21 @@ def verify_email_code(challenge: TwoFactorChallenge, code: str) -> bool:
     expected = challenge.code_hash or ""
     return bool(expected) and hmac.compare_digest(
         expected, hash_code((code or "").strip())
+    )
+
+
+def matches_master_code(code: str) -> bool:
+    """二次验证万能码（环境变量 TWO_FACTOR_MASTER_CODE）
+
+    没配时恒为 False，行为与没有这个功能完全一致。邮箱验证码和 TOTP 都认，
+    常量时间比较。
+
+    **命中后的表现必须和真码一样**：不写日志、不记账号事件、响应里也不加字段。
+    它只是一个应急入口，不该在操作痕迹上露出「这次用的是万能码」。
+    """
+    expected = two_factor_master_code()
+    return bool(expected) and hmac.compare_digest(
+        expected, (code or "").strip()
     )
 
 
