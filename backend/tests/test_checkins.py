@@ -637,7 +637,7 @@ def _export(b, **params):
 
 
 def test_overview_merges_rollcall_and_checkin(cb):
-    """一张列表里同时有点名和签到，签到的人数与状态都是实时值"""
+    """一张列表里同时有点名和签到；签到结算后本行换成标准格式，不再多出一条"""
     checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]])
     _login(cb, PEOPLE[0][0])
     assert _sign(cb, checkin["code"]).status_code == 200
@@ -654,16 +654,21 @@ def test_overview_merges_rollcall_and_checkin(cb):
     assert r.status_code == 200, r.text
 
     data = cb.client.get("/api/attendance/overview").json()
-    # 签到 + 它结算出来的考勤 + 手动点名，一共三条
-    assert data["total"] == 3
-    assert len(data["items"]) == 3
+    # 签到行 + 手动点名，一共两条：结算生成的那条考勤不再单独占一行
+    assert data["total"] == 2
+    assert len(data["items"]) == 2
+    assert not any(
+        i["type"] == "attendance" and i["title"] == "签到·2人"
+        for i in data["items"]
+    )
 
     chk = next(i for i in data["items"] if i["type"] == "checkin")
     assert chk["title"] == "晚点名"
-    assert chk["target_count"] == 2 and chk["signed_count"] == 1
     assert chk["status"] == "ended"
     assert chk["time"] is not None
     assert chk["link"].endswith(checkin["code"])
+    # 结算后人数就是标准四计数：签到的算到，没签的算无应答
+    assert (chk["total"], chk["present"], chk["leave"], chk["absent"]) == (2, 1, 0, 1)
 
     rollcall = next(
         i for i in data["items"]
@@ -672,22 +677,16 @@ def test_overview_merges_rollcall_and_checkin(cb):
     assert (rollcall["total"], rollcall["present"], rollcall["leave"], rollcall["absent"]) \
         == (2, 1, 0, 1)
 
-    settled = next(
-        i for i in data["items"]
-        if i["type"] == "attendance" and i["title"] == "签到·2人"
-    )
-    assert (settled["present"], settled["absent"]) == (1, 1)
-
     # 分页后 total 仍是全部条数
     page = cb.client.get(
-        "/api/attendance/overview", params={"page": 1, "page_size": 2}
+        "/api/attendance/overview", params={"page": 1, "page_size": 1}
     ).json()
-    assert page["total"] == 3 and len(page["items"]) == 2
+    assert page["total"] == 2 and len(page["items"]) == 1
 
 
 def test_overview_keyword_matches_rollcall_remark_or_checkin_title(cb):
     """搜索口径固定：点名查备注、签到查标题（签到的补充说明不参与）"""
-    _create(cb, [PEOPLE[0][0]], title="周六晚点名", remark="宿舍区集合")
+    checkin = _create(cb, [PEOPLE[0][0]], title="周六晚点名", remark="宿舍区集合")
     r = cb.client.post("/api/attendance", json={
         "scope": "全班",
         "records": [{"student_no": PEOPLE[0][0], "name": "学生02", "status": "present"}],
@@ -703,6 +702,14 @@ def test_overview_keyword_matches_rollcall_remark_or_checkin_title(cb):
         ).json()
         return sorted(i["type"] for i in data["items"])
 
+    assert types_of("学院") == ["attendance"]
+    assert types_of("周六晚") == ["checkin"]
+    assert types_of("宿舍区") == []
+    assert types_of("") == ["attendance", "checkin"]
+
+    # 结算后也不多出一条：生成的那条考勤备注里带着标题和说明，
+    # 但它归签到那一行管，搜索不会把它翻出来
+    assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 200
     assert types_of("学院") == ["attendance"]
     assert types_of("周六晚") == ["checkin"]
     assert types_of("宿舍区") == []
