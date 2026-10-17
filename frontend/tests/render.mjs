@@ -3994,6 +3994,51 @@ console.log('\n▶ 输错地址：给一张「页面不存在」的卡片，而�
   check(src.includes("router.push('/dashboard')"), '「返回首页」真跳首页')
 }
 
+console.log('\n▶ 站内信：分页之外，还能一把删掉已读')
+{
+  // onMounted 在 SSR 里不跑，灌一个「25 条里 20 条未读」的状态
+  const SEED = `
+items.value = [
+  { id: 1, title: '新消息', body: '正文', level: 'active', page: null,
+    created_at: '2026-10-17T08:00:00', read_at: null },
+  { id: 2, title: '旧消息', body: '正文', level: 'active', page: null,
+    created_at: '2026-10-16T08:00:00', read_at: '2026-10-16T09:00:00' }
+]
+total.value = 25
+unread.value = 20
+`
+  const { html } = await renderPatched('/src/views/Inbox.vue', 'onMounted(load)', SEED)
+  const text = stripComments(html)
+  check(text.includes('删除已读（5）'), '按钮上写着要删几条（total - unread）')
+  check(text.includes('全部标为已读（20）'), '两个操作按钮并排出现')
+  check(/class="inbox-pager"/.test(html), '超过 20 条时出分页器')
+
+  // 全部已读：没有未读可标，但已读都能删；条数不够一页时不显示分页器
+  const allRead = await renderPatched(
+    '/src/views/Inbox.vue',
+    'onMounted(load)',
+    `
+items.value = []
+total.value = 3
+unread.value = 0
+`
+  )
+  check(allRead.html.includes('删除已读（3）'), '全是已读时删除按钮仍在')
+  check(!allRead.html.includes('全部标为已读'), '没有未读时不显示「全部标为已读」')
+  check(!/class="inbox-pager"/.test(allRead.html), '不超过一页时不出分页器')
+
+  const apiSrc = readFileSync(`${ROOT}/src/api/inbox.js`, 'utf8')
+  check(
+    /url: '\/inbox\/read', method: 'delete'/.test(apiSrc),
+    '删除走 DELETE /inbox/read（不是逐条删）'
+  )
+
+  const src = readFileSync(`${ROOT}/src/views/Inbox.vue`, 'utf8')
+  check(src.includes('未读消息保留') && src.includes('删除后不可恢复'), '确认框说清了删什么、能不能反悔')
+  check(src.includes('res.deleted'), '成功提示用的是后端真实删掉的条数')
+  check(src.includes('page.value = 1'), '删完回到第一页（已读散在各页）')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

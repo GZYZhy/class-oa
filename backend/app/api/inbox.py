@@ -1,7 +1,7 @@
 """站内信：所有推送的存档
 
 登录的人各看各的。写入不在这里 —— 那是 notify_service 的事（所有推送顺手存一份），
-本模块只有「看」和「标记已读」。菜单红点用的未读数另有 /api/badges 一处，
+本模块只有「看」「标记已读」和「删除已读」。菜单红点用的未读数另有 /api/badges 一处，
 不在这里重复开接口。
 """
 
@@ -56,3 +56,9 @@ def read_message(
 @router.post("/read-all", summary="全部标为已读")
 def read_all(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return {"updated": inbox_service.mark_all_read(db, user.student_no)}
+
+
+@router.delete("/read", summary="删除全部已读消息")
+def delete_read(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """只删自己、只删已读的；未读消息一条不动。重复调用返回 0，无副作用。"""
+    return {"deleted": inbox_service.delete_read(db, user.student_no)}

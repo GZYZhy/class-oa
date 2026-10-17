@@ -22,3 +22,8 @@ export function markInboxRead(id) {
 export function markAllInboxRead() {
   return request({ url: '/inbox/read-all', method: 'post' })
 }
+
+/** 删除全部已读消息（未读的保留），返回 { deleted } */
+export function deleteReadInbox() {
+  return request({ url: '/inbox/read', method: 'delete' })
+}
