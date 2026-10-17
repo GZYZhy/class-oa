@@ -475,7 +475,7 @@ def test_page_opened_before_deadline_signs_after_login(cb):
     """打开链接时还没登录：登录花掉的时间不该让人白跑一趟
 
     真实路径：群里发链接 → 学生点开（没登录，只看到标题和地点）→ 找学号、
-    输密码 → 回来时截止时间已经过了。只要页面是截止前打开的，截止后 10 分钟内
+    输密码 → 回来时截止时间已经过了。只要页面是截止前打开的，截止后 5 分钟内
     仍能签上，并且要求照片的也能在这段时间里传照片。
     """
     checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]], require_photo=True)
@@ -528,7 +528,7 @@ def test_page_opened_before_deadline_signs_after_login(cb):
 
 
 def test_open_grace_is_bounded_and_forged_token_rejected(backend):
-    """补签宽限有线：开页早于截止，但过了 10 分钟照样签不上；伪造凭证不算数
+    """补签宽限有线：开页早于截止，但过了 5 分钟照样签不上；伪造凭证不算数
 
     服务端密钥在这里钉死，测试进程才签得出合法凭证 —— 正常部署时它是启动
     时随机生成的，外部拿不到，这正是伪造不了的原因。
@@ -548,7 +548,7 @@ def test_open_grace_is_bounded_and_forged_token_rejected(backend):
         cb.client.cookies.set(cookie_name, token, path="/api/checkins")
         return token
 
-    # 40 分钟前截止：开页凭证是真的，但 10 分钟宽限早过了
+    # 40 分钟前截止：开页凭证是真的，但 5 分钟宽限早过了
     set_end_and_cookie(datetime.now() - timedelta(minutes=40))
     _login(cb, PEOPLE[0][0])
     data = cb.client.get(f"/api/checkins/public/{code}").json()
@@ -559,8 +559,8 @@ def test_open_grace_is_bounded_and_forged_token_rejected(backend):
     assert r.status_code == 400
     assert "已经结束" in r.json()["detail"]
 
-    # 截止刚过 5 分钟：凭证本身合法，但故意改坏最后一个字符就不认了
-    token = set_end_and_cookie(datetime.now() - timedelta(minutes=5))
+    # 截止刚过 2 分钟：凭证本身合法，但故意改坏最后一个字符就不认了
+    token = set_end_and_cookie(datetime.now() - timedelta(minutes=2))
     cb.client.cookies.set(
         cookie_name, token[:-1] + ("A" if token[-1] != "A" else "B"),
         path="/api/checkins",
