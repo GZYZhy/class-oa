@@ -81,3 +81,38 @@ export function createAccessToken(data) {
 export function revokeAccessToken(id) {
   return request({ url: `/auth/tokens/${id}`, method: 'delete' })
 }
+
+/* ---------- 通行密钥（WebAuthn） ----------
+ * 两段式：先取选项（里面带着一次性挑战，后端存在会话里），
+ * 浏览器弹出系统验证框，再把结果发回来校验。挑战 5 分钟有效。
+ */
+
+/** 取出「用通行密钥登录」的选项。**不需要登录**，但要先知道学号 */
+export function getPasskeyLoginOptions(data) {
+  return request({ url: '/auth/passkeys/login/options', method: 'post', data })
+}
+
+/** 校验登录断言。成功即写入会话，和密码登录等效 */
+export function verifyPasskeyLogin(data) {
+  return request({ url: '/auth/passkeys/login/verify', method: 'post', data })
+}
+
+/** 我的通行密钥列表。返回 { items, max_count } */
+export function getPasskeys() {
+  return request({ url: '/auth/passkeys', method: 'get' })
+}
+
+/** 登记新钥匙前取选项。要再输一次密码：钥匙放进的是「账号」，得确认是你本人 */
+export function getPasskeyRegisterOptions(data) {
+  return request({ url: '/auth/passkeys/register/options', method: 'post', data })
+}
+
+/** 提交登记结果 */
+export function verifyPasskeyRegistration(data) {
+  return request({ url: '/auth/passkeys/register/verify', method: 'post', data })
+}
+
+/** 删除我的一把通行密钥（只能删自己的） */
+export function deletePasskey(id) {
+  return request({ url: `/auth/passkeys/${id}`, method: 'delete' })
+}

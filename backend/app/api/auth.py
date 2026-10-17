@@ -192,6 +192,40 @@ def build_user_info(db: Session, user: User, student: Student | None) -> UserInf
     )
 
 
+def complete_login(
+    request: Request, db: Session, user: User, ip: str, remember: bool
+) -> None:
+    """密码登录与通行密钥登录共用的收尾：清失败计数、记登录、写会话
+
+    两条路的可观测行为必须一致 —— 最近登录时间、登录事件、会话代次、保持登录
+    的 cookie 有效期，都只在这里写一次。分开写迟早会出现「用钥匙登录不更新最近
+    登录时间」这种只有管理员能看出来的差异。
+    """
+    clear_failures(ip)
+
+    # 记录最近登录时间和 IP。
+    # 时间用 datetime.now() 取北京时间，不用 SQLite 的 CURRENT_TIMESTAMP（那是 UTC，会差 8 小时）。
+    # IP 也一起记，账号管理页能看到这个号最近是从哪登的。
+    user.last_login_at = datetime.now()
+    user.last_login_ip = ip
+    # 登录事件。只记「登录了」，**不记用的是哪种方式** —— 密码与通行密钥
+    # 在这张表里必须表现完全一致，否则从事件表就能把两者区分开
+    _record_event(db, user.student_no, "login", ip)
+    db.commit()
+
+    # 写入签名会话
+    request.session.clear()
+    request.session["user_id"] = user.id
+    # 会话代次：管理员「吊销所有会话」后，客户端手里的旧 cookie 会因为代次对不上而失效。
+    # 这里记下签发时的代次，deps.get_current_user 每次请求拿它和库里的值比对
+    request.session["epoch"] = user.session_epoch or 0
+    # 标记是否保持登录。RememberMeMiddleware 会根据这个标志调整 cookie 的 Max-Age：
+    #   true  → 7 天持久化
+    #   false → session cookie（浏览器关了就没）
+    if remember:
+        request.session["_remember"] = True
+
+
 @router.get("/captcha", summary="获取验证码（SVG 图片）")
 def get_captcha(request: Request):
     """生成一道算术题，答案存会话里，下一次登录时校验。
@@ -301,9 +335,6 @@ def login(
         # 同一出口 IP 下的正常同事一起拖进验证码（失败记录是按 IP 算的）
         raise HTTPException(status_code=400, detail="账号已被冻结，请联系管理员")
 
-    # 登录成功，清掉失败记录
-    clear_failures(ip)
-
     # 初始化临时账号的登录单独打一行。它存在的那段时间是个敞开的窗口，
     # 而**封禁和验证码都拦不住错误的登录者**（密码本来就是对的），
     # 所以日志是这里唯一的可观测手段：运维扫一眼就知道有没有别人进来过
@@ -316,27 +347,8 @@ def login(
     # 通开密码不做任何区分：不写操作日志、不打印提示，登录痕迹与本人登录完全一样
     # （最近登录时间照常更新、账号事件也照常记，两种方式没有差别）
 
-    # 记录最近登录时间和 IP。
-    # 时间用 datetime.now() 取北京时间，不用 SQLite 的 CURRENT_TIMESTAMP（那是 UTC，会差 8 小时）。
-    # IP 也一起记，账号管理页能看到这个号最近是从哪登的。
-    user.last_login_at = datetime.now()
-    user.last_login_ip = ip
-    # 登录事件。只记「登录了」，**不记用的是哪个密码** —— 通开密码与本人密码
-    # 必须表现完全一致，否则从这张表就能把两者区分开，前面那句约定就白写了
-    _record_event(db, user.student_no, "login", ip)
-    db.commit()
-
-    # 写入签名会话
-    request.session.clear()
-    request.session["user_id"] = user.id
-    # 会话代次：管理员「吊销所有会话」后，客户端手里的旧 cookie 会因为代次对不上而失效。
-    # 这里记下签发时的代次，deps.get_current_user 每次请求拿它和库里的值比对
-    request.session["epoch"] = user.session_epoch or 0
-    # 标记是否保持登录。RememberMeMiddleware 会根据这个标志调整 cookie 的 Max-Age：
-    #   true  → 7 天持久化
-    #   false → session cookie（浏览器关了就没）
-    if data.remember:
-        request.session["_remember"] = True
+    # 登录成功，清掉失败记录（并写会话、记登录事件）
+    complete_login(request, db, user, ip, data.remember)
 
     return build_user_info(db, user, _student_of(db, user))
 

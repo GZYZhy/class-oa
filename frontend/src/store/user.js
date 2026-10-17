@@ -3,8 +3,11 @@ import {
   login as loginApi,
   logout as logoutApi,
   getMe,
-  getPublicSummary
+  getPublicSummary,
+  getPasskeyLoginOptions,
+  verifyPasskeyLogin
 } from '@/api/auth'
+import { getPasskey } from '@/utils/passkey'
 import { rankOf } from '@/utils/roles'
 
 export const useUserStore = defineStore('user', {
@@ -42,6 +45,21 @@ export const useUserStore = defineStore('user', {
   actions: {
     async login(payload) {
       this.info = await loginApi(payload)
+      this.resolved = true
+      return this.info
+    },
+
+    /**
+     * 用通行密钥登录
+     *
+     * 和密码登录走两个接口，但登录成功后的状态处理一模一样：
+     * 后端校验通过时已经写好会话，这里只要把用户信息接过来。
+     * 浏览器取消 / 超时的异常原样往外抛，由登录页决定怎么提示。
+     */
+    async loginWithPasskey({ student_no, remember }) {
+      const options = await getPasskeyLoginOptions({ student_no, remember })
+      const credential = await getPasskey(options)
+      this.info = await verifyPasskeyLogin({ student_no, remember, credential })
       this.resolved = true
       return this.info
     },
