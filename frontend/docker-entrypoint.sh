@@ -75,6 +75,12 @@ if [ -n "$NGINX_SSL_CERT" ] && [ -n "$NGINX_SSL_KEY" ]; then
         # 那句已经搬进后端 middleware.DefaultCacheControlMiddleware。
     }
 
+    # 密码管理器探路地址：302 到改密表单（完整说明见 nginx.conf.template；
+    # # 不加引号会被 nginx 当成注释开头，这里在 shell 字符串里写成转义引号）
+    location = /.well-known/change-password {
+        return 302 \"/#/my-info?tab=account\";
+    }
+
     location / {
         try_files \$uri \$uri/ /index.html;
     }
