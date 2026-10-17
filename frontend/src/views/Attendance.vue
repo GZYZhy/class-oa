@@ -95,10 +95,17 @@
         </el-table-column>
         <el-table-column label="时间" width="160">
           <template #default="{ row }">
-            <div>{{ formatDateTime(row.time) }}</div>
-            <div v-if="row.type === 'checkin'" class="at-sub">
-              {{ row.status === 'ongoing' ? '截止' : '结束' }}
-            </div>
+            <!-- 未开始的签到，这一格显示的是几点开始，同学好提前准备 -->
+            <template v-if="row.type === 'checkin' && row.status === 'pending'">
+              <div>{{ formatDateTime(row.start_at || row.time) }}</div>
+              <div class="at-sub">开始</div>
+            </template>
+            <template v-else>
+              <div>{{ formatDateTime(row.time) }}</div>
+              <div v-if="row.type === 'checkin'" class="at-sub">
+                {{ row.status === 'ongoing' ? '截止' : '结束' }}
+              </div>
+            </template>
           </template>
         </el-table-column>
         <el-table-column prop="operator_name" label="发起人" width="110" />
@@ -106,7 +113,7 @@
           <template #default="{ row }">
             <!-- 点名，以及结算后的签到：标准四计数。签到结算后本行直接换成
                  这个格式，不再另生成一条「点名」行 -->
-            <template v-if="row.type === 'attendance' || row.status !== 'ongoing'">
+            <template v-if="row.type === 'attendance' || row.status === 'ended'">
               <span>应到 {{ row.total }}</span>
               <span class="at-sep">·</span>
               <span>实到 {{ row.present }}</span>
@@ -115,12 +122,18 @@
               <span class="at-sep">·</span>
               <span :class="{ 'at-danger': row.absent }">无应答 {{ row.absent }}</span>
             </template>
-            <!-- 进行中的签到：实时人数，明细里有逐人情况 -->
+            <!-- 未开始 / 进行中的签到：实时人数，明细里有逐人情况 -->
             <template v-else>
               <span :class="{ 'at-done': row.signed_count > 0 }">
                 已签 {{ row.signed_count }} / {{ row.target_count }}
               </span>
-              <el-tag type="success" size="small" class="at-tag">进行中</el-tag>
+              <el-tag
+                :type="row.status === 'pending' ? 'warning' : 'success'"
+                size="small"
+                class="at-tag"
+              >
+                {{ row.status === 'pending' ? '未开始' : '进行中' }}
+              </el-tag>
             </template>
           </template>
         </el-table-column>
@@ -145,8 +158,9 @@
                 <el-button link type="primary" @click="copyText(row.link)">链接</el-button>
                 <el-button link type="primary" @click="openCheckinDetail(row)">明细</el-button>
                 <el-button link type="danger" @click="handleDeleteCheckin(row)">删除</el-button>
+                <!-- 未开始的也能取消：发布错了，按结束走同一条结算路径 -->
                 <el-button
-                  v-if="row.status === 'ongoing'"
+                  v-if="row.status !== 'ended'"
                   link
                   type="danger"
                   @click="handleCloseCheckin(row)"
@@ -319,12 +333,12 @@ function handleSelectionChange(selected) {
   selection.value = selected
 }
 
-/** 有进行中的签到时定时刷新：已签人数是实时变的，不用等用户自己点 */
+/** 有未结束的签到时定时刷新：到点自动变成进行中，人数也是实时变的 */
 let refreshTimer = null
 function startAutoRefresh() {
   refreshTimer = setInterval(() => {
-    const ongoing = rows.value.some((r) => r.type === 'checkin' && r.status === 'ongoing')
-    if (ongoing && document.visibilityState === 'visible' && !loading.value) fetchList(true)
+    const running = rows.value.some((r) => r.type === 'checkin' && r.status !== 'ended')
+    if (running && document.visibilityState === 'visible' && !loading.value) fetchList(true)
   }, 30000)
 }
 

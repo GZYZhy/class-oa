@@ -49,7 +49,9 @@ from ..schemas import (
 from ..services import display_name, log_operation, notify, recipients
 from ..services.checkin_service import (
     CHECKIN_DIR,
+    CHECKIN_ENDED,
     CHECKIN_ONGOING,
+    CHECKIN_PENDING,
     approved_leave_nos,
     checkin_status,
     finalize_checkin,
@@ -163,6 +165,7 @@ def _list_item(
         status=checkin_status(checkin),
         created_by_name=checkin.created_by_name or "",
         created_at=checkin.created_at,
+        start_at=checkin.start_at,
         end_at=checkin.end_at,
         target_count=target_count,
         signed_count=signed_count,
@@ -243,8 +246,12 @@ def _public_response(
     )
     status = checkin_status(checkin)
     # 截止前打开过页面的，截止后还有一段补签宽限（GRACE）。
-    # 进行中时不往响应里放这个字段：前端只在「已结束但还能签」时需要它
-    open_until = _open_grace_until(request, checkin, student_no or "")
+    # 只有已结束才查：未开始时参考时刻还在未来，凭证会被误判成「宽限内」
+    open_until = (
+        _open_grace_until(request, checkin, student_no or "")
+        if status == CHECKIN_ENDED
+        else None
+    )
     return CheckinPublicResponse(
         code=checkin.code,
         title=checkin.title or "",
@@ -252,6 +259,7 @@ def _public_response(
         status=status,
         created_by_name=checkin.created_by_name or "",
         created_at=checkin.created_at,
+        start_at=checkin.start_at,
         end_at=checkin.end_at,
         require_photo=bool(checkin.require_photo),
         location=_location_of(checkin),
@@ -272,7 +280,7 @@ def _public_response(
         signed_at=target.signed_at if target else None,
         my_distance_m=target.distance_m if target else None,
         on_leave=on_leave,
-        grace_until=open_until if status != CHECKIN_ONGOING else None,
+        grace_until=open_until,
     )
 
 
@@ -412,12 +420,16 @@ def create_checkin(
         raise HTTPException(status_code=400, detail="标题不能为空")
     # 与投票同口径：前端传的是不带时区的串。带 Z / +08:00 的输入拿去和
     # naive 的 now() 比会抛 TypeError，静默去时区又会悄悄错 8 小时，所以直接拒
-    if data.end_at.tzinfo is not None:
+    if data.end_at.tzinfo is not None or (
+        data.start_at is not None and data.start_at.tzinfo is not None
+    ):
         raise HTTPException(
             status_code=400, detail="时间请用不带时区的写法，例如 2026-10-18 19:30"
         )
     if data.end_at <= datetime.now():
         raise HTTPException(status_code=400, detail="截止时间必须晚于当前时间")
+    if data.start_at is not None and data.start_at >= data.end_at:
+        raise HTTPException(status_code=400, detail="开始时间必须早于截止时间")
 
     # 去重、去空：同一学号传两次只会插一行（唯一约束兜底，但提前收拾干净）
     nos: list[str] = []
@@ -446,6 +458,7 @@ def create_checkin(
         created_by_no=user.student_no,
         created_by_name=display_name(db, user),
         created_at=datetime.now(),
+        start_at=data.start_at,
         end_at=data.end_at,
         require_photo=data.require_photo,
         lat=location.lat if location else None,
@@ -472,7 +485,9 @@ def create_checkin(
         user,
         action="发布签到",
         target=title,
-        detail=f"范围 {len(nos)} 人，截止 {data.end_at:%m-%d %H:%M}"
+        detail=f"范围 {len(nos)} 人"
+        + (f"，{data.start_at:%m-%d %H:%M} 开始" if data.start_at else "")
+        + f"，截止 {data.end_at:%m-%d %H:%M}"
         + ("，需照片" if data.require_photo else "")
         + ("，需定位" if location else ""),
         ip=get_client_ip(request),
@@ -482,7 +497,10 @@ def create_checkin(
     # commit 之后才通知（见文件头第 2 条）。逐个人调 recipients：范围是任意子集，
     # recipients 没有「批量学号」参数；班级几十人，循环最简单。
     # 不排除发布人：发布人自己在范围内时同样要签到，也得收到这条信
-    body = f"截止 {checkin.end_at:%m-%d %H:%M}，打开链接完成签到"
+    body = (
+        (f"{checkin.start_at:%m-%d %H:%M} 开始，" if checkin.start_at else "")
+        + f"截止 {checkin.end_at:%m-%d %H:%M}，打开链接完成签到"
+    )
     for no in nos:
         notify(
             db,
@@ -543,15 +561,21 @@ def public_checkin(
         student_no=student_no,
     )
 
-    # 进行中才签发「打开过页面」的凭证。过了截止再打开的不发 —— 否则就成了
-    # 随时可以来拿一张、补签窗口永远开着的卡。每次打开都重签一次，时间跟着更新
+    # 截止前打开的都签发「打开过页面」的凭证；未开始也算 —— 有人可能提前点开
+    # 链接，登录回来时已经过点。过了截止再打开的不发 —— 否则就成了随时可以来
+    # 拿一张、补签窗口永远开着的卡。每次打开都重签一次，时间跟着更新
     now = datetime.now()
-    if checkin_status(checkin, now=now) == CHECKIN_ONGOING:
+    if checkin_status(checkin, now=now) != CHECKIN_ENDED:
         reference = checkin.closed_at or checkin.end_at
         response.set_cookie(
             _open_cookie_name(checkin.id),
             _open_token(checkin, student_no, now),
-            max_age=max(60, int((reference + GRACE - now).total_seconds())),
+            # 未开始的签到参考时刻可能还很远，给 cookie 设个 7 天上限，
+            # 免得浏览器直接丢弃超长 max_age
+            max_age=min(
+                7 * 24 * 3600,
+                max(60, int((reference + GRACE - now).total_seconds())),
+            ),
             path="/api/checkins",
             httponly=True,
             samesite="lax",
@@ -817,6 +841,8 @@ async def upload_checkin_photo(
     started_at = datetime.now()
     finalize_due(db)
     checkin = _get_by_code(db, code)
+    if checkin_status(checkin, now=started_at) == CHECKIN_PENDING:
+        raise HTTPException(status_code=400, detail="签到还没开始")
     # 截止前打开过页面的，补签宽限内也允许传照片（否则要求照片的签到根本补不上）
     if (
         checkin_status(checkin, now=started_at) != CHECKIN_ONGOING
@@ -864,6 +890,10 @@ def sign_checkin(
 ):
     finalize_due(db)
     checkin = _get_by_code(db, code)
+    # 未开始不能签。必须先拦：这时参考时刻（截止）还在未来，开页凭证会被
+    # 后面的宽限判据误当成「已结束但在窗口内」
+    if checkin_status(checkin) == CHECKIN_PENDING:
+        raise HTTPException(status_code=400, detail="签到还没开始")
 
     # 照片已经先传完了，这里只验令牌。上传统计的是「开始传」的时刻：
     # 截止前开始传、传完才点签到，仍然算数
