@@ -4423,6 +4423,107 @@ console.log('\n▶ 资料下载：管理员能调整分类之间的顺序')
     '前台与后台共用同一套排序口径')
 }
 
+console.log('\n▶ 签到：考勤页的「签到」标签页')
+{
+  const { html } = await render('/src/views/Attendance.vue')
+  const text = stripComments(html)
+  check(text.includes('点名记录') && text.includes('签到'), '考勤页有两个标签：点名记录 / 签到')
+  check(text.includes('发布签到'), '签到标签页里有「发布签到」按钮')
+
+  const pageSrc = readFileSync(`${ROOT}/src/views/Attendance.vue`, 'utf8')
+  check(pageSrc.includes('<el-tabs v-model="activeTab">'), '两个标签用 el-tabs 切换')
+  check(pageSrc.includes('<CheckinPanel />'), '签到标签页挂的是 CheckinPanel')
+  check((pageSrc.match(/class="page-card/g) || []).length === 1, '加标签页之后仍然只有一张卡片')
+}
+
+console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才能签）')
+{
+  const base = {
+    code: 'abc123',
+    title: '周六晚点名',
+    remark: '宿舍区集合',
+    status: 'ongoing',
+    created_by_name: '班长',
+    created_at: '2026-10-18T19:00:00',
+    end_at: '2026-10-18T19:30:00',
+    require_photo: false,
+    location: null,
+    target_count: 5,
+    link: 'https://example.com/#/checkin?code=abc123',
+    is_login: false,
+    is_target: false,
+    can_sign: false,
+    signed_at: null,
+    my_distance_m: null,
+    on_leave: false
+  }
+  const inject = (extra) =>
+    `loading.value = false\ninfo.value = ${JSON.stringify({ ...base, ...extra })}`
+
+  // 未登录：只读信息 + 一个回跳登录的按钮
+  const { html: guest } = await renderPatched('/src/views/Checkin.vue', 'onMounted(load)', inject({}))
+  const guestText = stripComments(guest)
+  check(guestText.includes('周六晚点名') && guestText.includes('宿舍区集合'), '没登录也能看到标题和备注')
+  check(guestText.includes('截止 2026-10-18 19:30'), '截止时间换了展示格式')
+  check(guestText.includes('登录后签到'), '没登录时给的是「登录后签到」')
+  check(guestText.includes('#/login?redirect='), '登录后会回到这个签到链接')
+
+  // 有地点：只读显示地点名、半径和坐标（测试环境没有高德 Key，走降级那一路）
+  const { html: located } = await renderPatched(
+    '/src/views/Checkin.vue',
+    'onMounted(load)',
+    inject({ location: { lat: 39.9071, lng: 116.3972, radius_m: 100, name: '一公寓门口' } })
+  )
+  const locatedText = stripComments(located)
+  check(locatedText.includes('签到地点：一公寓门口'), '公开页显示签到地点名')
+  check(locatedText.includes('允许半径 100 米'), '公开页写明允许半径')
+  check(locatedText.includes('纬度 39.9071'), '没配地图时降级显示经纬度')
+
+  // 已签到
+  const { html: signed } = await renderPatched(
+    '/src/views/Checkin.vue',
+    'onMounted(load)',
+    inject({ is_login: true, is_target: true, signed_at: '2026-10-18T19:05:00' })
+  )
+  check(stripComments(signed).includes('你已于 2026-10-18 19:05 签到'), '签过了就显示签到时间')
+
+  // 已结束 + 有有效请假 → 记为请假
+  const { html: ended } = await renderPatched(
+    '/src/views/Checkin.vue',
+    'onMounted(load)',
+    inject({ status: 'ended', is_login: true, is_target: true, on_leave: true })
+  )
+  check(stripComments(ended).includes('记为「请假」'), '结束了没签、有请假 → 记为请假')
+
+  // 公开页要暴露给没登录的人：路由必须是 public + bare
+  const routerSrc = readFileSync(`${ROOT}/src/router/index.js`, 'utf8')
+  check(/path: '\/checkin'[\s\S]{0,200}?meta: \{ title: '签到', public: true, bare: true \}/
+    .test(routerSrc), '签到链接是公开页且不套侧边栏')
+
+  // 后端只收公开 code，登录后由接口告诉前端能不能签
+  const apiSrc = readFileSync(`${ROOT}/src/api/checkin.js`, 'utf8')
+  check(apiSrc.includes("url: `/checkins/public/${code}/sign`"), '签到走公开 code + 登录态接口')
+  check(apiSrc.includes("headers: { 'Content-Type': 'multipart/form-data' }"), '签到可以带照片（multipart）')
+}
+
+console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出允许范围')
+{
+  const picker = readFileSync(`${ROOT}/src/components/MapPicker.vue`, 'utf8')
+  check(picker.includes('autoLocate()'), '打开地图就自动定位发布人（默认地点）')
+  check(/if \(!props\.readonly\) autoLocate\(\)/.test(picker), '只读地图不自动定位（公开页不该要访问者位置）')
+  check(picker.includes('getCurrentLocation'), '默认位置来自浏览器定位')
+  check(picker.includes('new AMapRef.Circle'), '地图上画出允许签到的范围圆')
+  check(picker.includes('circle.setRadius(props.radius || 0)'), '半径改了圆跟着变')
+  check(/map\.on\('click'/.test(picker), '可以在地图上点选改变地点')
+  check(picker.includes("marker.on('dragend'"), '也可以拖动标记微调')
+
+  const create = readFileSync(`${ROOT}/src/components/CheckinCreateDialog.vue`, 'utf8')
+  check(create.includes(':radius="form.radius_m"'), '发布弹窗把半径传给地图')
+  check(/if \(!point\.value\) return '已打开「要求定位」，请先选择签到地点'/.test(create),
+    '打开定位却没选点时不让发布')
+  check(create.includes("const d = new Date(Date.now() + 30 * 60 * 1000)"), '截止时间默认 30 分钟后')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

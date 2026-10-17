@@ -29,5 +29,9 @@ self.__SITE__ = {
   subtitle: '${SITE_SUBTITLE}',
   college: '${SITE_COLLEGE}',
   major: '${SITE_MAJOR}',
-  footer: '${SITE_FOOTER}'
+  footer: '${SITE_FOOTER}',
+  /* 高德地图 JS API 凭据。本身是公开值（会发给每个访客），留空时
+     签到页的地图降级为手填经纬度，签到主体功能照常可用 */
+  amapKey: '${AMAP_JS_KEY}',
+  amapSecurityCode: '${AMAP_SECURITY_CODE}'
 }
