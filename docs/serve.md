@@ -176,7 +176,7 @@ server {
 | `LOGIN_BAN_THRESHOLD` / `_MINUTES` / `LOGIN_FAIL_WINDOW_MINUTES` | 登录失败封禁 |
 | `SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_SECURITY` | 邮件通知与邮箱验证码 |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile 人机验证 |
-| `HEAD_INJECT` | 原样插入每页 `<head>`，放统计或第三方脚本 |
+| `HEAD_INJECT` | 原样插入每页 `<head>`，放统计或第三方脚本；非空时启动脚本会自动放宽 CSP 的 `script-src` |
 | `DATABASE_URL` | 默认 SQLite；也可指向 MySQL |
 | `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | 浏览器推送签名 |
 | `BARK_SERVER` | Bark 推送服务地址 |

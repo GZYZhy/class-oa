@@ -9,7 +9,9 @@
 
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { renderSite } from '../vite.config.js'
@@ -83,6 +85,53 @@ console.log('▶ 生产链路：envsubst 也能逐字保留多行与特殊字符
   } else {
     console.log('  （本机没有 envsubst，跳过）')
   }
+}
+
+console.log('▶ 生产链路：HEAD_INJECT 非空时放宽 CSP，默认部署保持严格')
+{
+  const entrypoint = read('../docker-entrypoint.sh')
+  const csp = read('../security-headers.conf')
+
+  assert.ok(
+    read('../Dockerfile').includes('cp /etc/nginx/security-headers.conf /etc/nginx/orig/'),
+    'Dockerfile 应把 CSP 原始副本留在 /etc/nginx/orig'
+  )
+  assert.ok(
+    entrypoint.includes('cp -f "$ORIG_DIR/security-headers.conf" "$CSP_FILE"'),
+    '每次启动应先恢复原始 CSP，删掉 HEAD_INJECT 后 restart 才能收回权限'
+  )
+  assert.ok(
+    /if \[ -n "\$HEAD_INJECT" \]/.test(entrypoint),
+    '只有 HEAD_INJECT 非空时才放宽'
+  )
+  // 只看真正下发的那一行，注释里提到 unsafe-inline 不算
+  const cspLine = csp.split('\n').find((l) => l.startsWith('add_header Content-Security-Policy'))
+  assert.ok(cspLine, 'security-headers.conf 里应有 CSP 响应头')
+  assert.ok(
+    !/script-src[^;]*'unsafe-inline'/.test(cspLine),
+    '镜像内置的 CSP 默认不允许内联脚本'
+  )
+
+  // 真跑一遍 entrypoint 里那条 sed，确认它能改到实际下发的这份 CSP
+  const sedExpr = entrypoint.match(/sed -i "([^"]+)"/)?.[1]
+  assert.ok(sedExpr, 'entrypoint 里应有放宽 CSP 的 sed')
+  const dir = mkdtempSync(join(tmpdir(), 'csp-'))
+  const file = join(dir, 'security-headers.conf')
+  writeFileSync(file, csp)
+  // -i.bak 在 GNU 和 BSD sed 上都认；只用 -i 时 macOS 会把下一个参数当备份后缀
+  const r = spawnSync('sed', ['-i.bak', sedExpr, file], { encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  const relaxed = readFileSync(file, 'utf8')
+  rmSync(dir, { recursive: true, force: true })
+
+  assert.ok(
+    /script-src 'self' 'unsafe-inline' https:/.test(relaxed),
+    '放宽后应允许内联脚本与任意 https 脚本'
+  )
+  assert.ok(
+    relaxed.includes("https://*.amap.com 'unsafe-eval'"),
+    '放宽只加词，不能弄丢原有的高德白名单与 unsafe-eval'
+  )
 }
 
 console.log('▶ 服务组件样式：函数式组件与 v-loading 的 CSS 必须手动引入')

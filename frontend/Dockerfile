@@ -41,7 +41,8 @@ COPY site-config.js.template /etc/nginx/templates/site-config.js.template
 RUN mkdir -p /etc/nginx/orig/icons && \
     cp /usr/share/nginx/html/logo.png /usr/share/nginx/html/favicon.png /etc/nginx/orig/ && \
     cp /usr/share/nginx/html/icons/*.png /etc/nginx/orig/icons/ && \
-    cp /usr/share/nginx/html/index.html /usr/share/nginx/html/manifest.webmanifest /etc/nginx/orig/
+    cp /usr/share/nginx/html/index.html /usr/share/nginx/html/manifest.webmanifest /etc/nginx/orig/ && \
+    cp /etc/nginx/security-headers.conf /etc/nginx/orig/
 
 # 启动脚本：替换环境变量 → 生成 nginx 配置 → 启动 nginx
 COPY docker-entrypoint.sh /docker-entrypoint.sh
