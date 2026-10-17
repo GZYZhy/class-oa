@@ -52,8 +52,11 @@
         <!-- ---------- 进行中 ---------- -->
         <div v-if="info.status === 'ongoing'" class="ck-actions">
           <template v-if="!info.is_login">
-            <p class="ck-tip">登录后即可签到。本次签到仅限范围内的同学</p>
-            <a :href="loginHref"><el-button type="primary" size="large">登录后签到</el-button></a>
+            <!-- 未登录是这一页唯一的行动号召，提示和按钮都居中放 -->
+            <div class="ck-login">
+              <p class="ck-tip">登录后即可签到。本次签到仅限范围内的同学</p>
+              <a :href="loginHref"><el-button type="primary" size="large">登录后签到</el-button></a>
+            </div>
           </template>
           <p v-else-if="!info.is_target" class="ck-tip ck-warn">
             你不在本次签到范围内，不需要签到
@@ -246,6 +249,15 @@ onMounted(load)
   flex-direction: column;
   align-items: flex-start;
   gap: 10px;
+}
+
+.ck-login {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
 }
 
 .ck-actions .el-button {
