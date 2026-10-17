@@ -20,9 +20,11 @@
       <!-- 第二步：密码已通过，等第二因素。这里还没有登录态，
            成功后才由 store 写入用户信息并跳转 -->
       <div v-else-if="twoFactor" class="twofa-block">
-        <p class="twofa-tip" :class="{ 'twofa-tip--totp': twoFactor.method === 'totp' }">
+        <p class="twofa-tip">
           <template v-if="twoFactor.method === 'email'">
-            验证码已发送到 <b>{{ twoFactor.masked_email || '你的邮箱' }}</b>，10 分钟内有效。
+            验证码已发送到 <b>{{ twoFactor.masked_email || '你的邮箱' }}</b>
+            <!-- 邮箱长短不一，有效期单独起一行，别跟着地址一起被挤成半截 -->
+            <span class="twofa-validity">10 分钟内有效</span>
           </template>
           <template v-else>
             请输入身份验证器 App 中显示的 6 位动态码。
@@ -584,16 +586,20 @@ function goHome() {
   font-size: 13px;
   line-height: 1.7;
   color: var(--el-text-color-regular);
+  /* 两种方式都整段居中，下面的恢复码提示也跟着对齐 */
+  text-align: center;
 }
 
-/* 身份验证器方式没有「发到哪个邮箱」这一行，单独一句提示居中更稳当 */
-.twofa-tip--totp {
-  text-align: center;
+.twofa-validity {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .twofa-sub {
   display: block;
-  margin-top: 4px;
+  margin-top: 6px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
