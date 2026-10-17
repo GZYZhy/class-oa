@@ -4466,6 +4466,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(guestText.includes('周六晚点名') && guestText.includes('宿舍区集合'), '没登录也能看到标题和备注')
   check(guestText.includes('截止 2026-10-18 19:30'), '截止时间换了展示格式')
   check(guestText.includes('登录后签到'), '没登录时给的是「登录后签到」')
+  check(guest.includes('class="ck-login"'), '「登录后签到」按钮居中（提示与按钮同一块）')
   check(guestText.includes('#/login?redirect='), '登录后会回到这个签到链接')
 
   // 有地点：只读显示地点名、半径和坐标（测试环境没有高德 Key，走降级那一路）
