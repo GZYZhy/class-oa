@@ -3516,6 +3516,31 @@ console.log('\n▶ 缓存：接口的默认值搬到了后端，压给上游的 
   }
 }
 
+console.log('\n▶ 改密地址：/.well-known/change-password')
+{
+  // 浏览器和密码管理器会探这个地址，标准做法是 302 到真正的改密页面。
+  // 三份配置都查一遍：只改 nginx.conf、镜像里那份没动，线上就还是 404 页面。
+  for (const file of ['nginx.conf', 'nginx.conf.template', 'docker-entrypoint.sh']) {
+    const src = readFileSync(`${ROOT}/${file}`, 'utf8')
+    check(
+      src.includes('location = /.well-known/change-password'),
+      `${file}: 响应密码管理器的探路地址`
+    )
+    // # 必须带引号（shell 那份是转义的 \"），否则 nginx 把它当注释开头
+    check(
+      /return 302 \\?"\/#\/my-info\?tab=account\\?";/.test(src),
+      `${file}: 302 到账户设置里的改密表单`
+    )
+  }
+
+  const myInfoSrc = readFileSync(`${ROOT}/src/views/MyInfo.vue`, 'utf8')
+  check(
+    myInfoSrc.includes("const accountTab = ref('security')"),
+    '目标页默认落在「账号安全」子 tab（改密表单就在这里）'
+  )
+  check(myInfoSrc.includes('handleChangePassword'), '目标页确实有改密表单')
+}
+
 console.log('\n▶ 通行密钥：没有浏览器的环境要安静降级')
 {
   // 后端发来的是 base64url，浏览器 API 要 ArrayBuffer，这一层掉了登录必失败
