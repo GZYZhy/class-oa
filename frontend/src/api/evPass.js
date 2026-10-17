@@ -90,20 +90,28 @@ export function rejectEvPass(id, reason) {
   })
 }
 
-/** 下载申请表 PDF。本人或班委及以上，且申请已通过 */
-export function downloadEvPassPdf(id) {
+/** 下载申请表 PDF。本人或班委及以上，且申请已通过
+ *
+ * onProgress：(loaded, total) => void，下载进度
+ */
+export function downloadEvPassPdf(id, onProgress) {
   return request({
     url: `/ev-passes/${id}/pass-pdf`,
     method: 'get',
-    responseType: 'blob'
+    responseType: 'blob',
+    onDownloadProgress: progressHandler(onProgress)
   })
 }
 
-/** 下载承诺书 PDF。本人或班委及以上，且申请已通过 */
-export function downloadEvPromisePdf(id) {
+/** 下载承诺书 PDF。本人或班委及以上，且申请已通过
+ *
+ * onProgress：(loaded, total) => void，下载进度
+ */
+export function downloadEvPromisePdf(id, onProgress) {
   return request({
     url: `/ev-passes/${id}/promise-pdf`,
     method: 'get',
-    responseType: 'blob'
+    responseType: 'blob',
+    onDownloadProgress: progressHandler(onProgress)
   })
 }

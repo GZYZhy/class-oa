@@ -93,9 +93,11 @@
                 <el-button>选择文件</el-button>
                 <template #tip>
                   <div v-if="editingId" class="el-upload__tip">
-                    支持 PDF / 图片，最大 20MB。不重选就沿用当前那份
+                    支持 PDF / 图片，最大 20MB。超过 1MB 的图片会自动压缩；不重选就沿用当前那份
                   </div>
-                  <div v-else class="el-upload__tip">支持 PDF / 图片，最大 20MB，必填</div>
+                  <div v-else class="el-upload__tip">
+                    支持 PDF / 图片，最大 20MB，必填。超过 1MB 的图片会自动压缩
+                  </div>
                 </template>
               </el-upload>
             </el-form-item>
@@ -186,9 +188,11 @@
                   size="small"
                   link
                   type="success"
+                  :loading="isDownloading(`leave-${row.id}`)"
                   @click="downloadPdf(row)"
                 >
-                  下载请假表
+                  {{ isDownloading(`leave-${row.id}`) && downloadPercent
+                    ? `${downloadPercent}%` : '下载请假表' }}
                 </el-button>
               </template>
             </el-table-column>
@@ -233,6 +237,9 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getMyLeaves, submitLeave, updateLeave, deleteLeave, downloadLeavePdf } from '@/api/leave'
 import { formatDate, formatDateTime } from '@/utils/format'
+import { compressImage } from '@/utils/imageCompress'
+import { blobErrorDetail } from '@/utils/download'
+import { useDownloadProgress } from '@/composables/useDownloadProgress'
 import FileViewer from '@/components/FileViewer.vue'
 import ServiceIntro from '@/components/ServiceIntro.vue'
 
@@ -240,6 +247,8 @@ const activeTab = ref('apply')
 const submitting = ref(false)
 // 上传进度百分比（算不出总大小时为 0，就不显示数字）
 const uploadProgress = ref(0)
+// 下载请假表的进度（同一时间只跑一个）
+const { percent: downloadPercent, isDownloading, run: runDownload } = useDownloadProgress()
 const loading = ref(false)
 const leaves = ref([])
 const formRef = ref(null)
@@ -315,7 +324,10 @@ const days = computed(() => {
   return Math.round((b - a) / 86400000) + 1
 })
 
-function handleFileChange(file) {
+async function handleFileChange(file) {
+  // 手机拍的证明动辄好几 MB，上传前先压小（PDF 不动，规则见 utils/imageCompress.js）。
+  // 压完把 raw 换掉 —— 提交时取的就是它
+  if (file.raw) file.raw = await compressImage(file.raw)
   fileList.value = [file]
   // 手动触发校验
   formRef.value?.validateField('proof')
@@ -475,19 +487,21 @@ function viewProof(row) {
   proofViewerVisible.value = true
 }
 
-function downloadPdf(row) {
-  downloadLeavePdf(row.id).then(blob => {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    // 只取日期部分做文件名，和后端生成的保持一致
-    a.download = `${row.student_name}_请假审批表_${formatDate(row.start_at).replace(/-/g, '')}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
-  }).catch(() => {
-    // blob 响应里报错体也是 Blob，读不出 detail，只能给一句通用提示
-    ElMessage.error('下载失败，请稍后重试')
-  })
+async function downloadPdf(row) {
+  try {
+    await runDownload(`leave-${row.id}`, async (onProgress) => {
+      const blob = await downloadLeavePdf(row.id, onProgress)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      // 只取日期部分做文件名，和后端生成的保持一致
+      a.download = `${row.student_name}_请假审批表_${formatDate(row.start_at).replace(/-/g, '')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    })
+  } catch (e) {
+    ElMessage.error(await blobErrorDetail(e, '下载失败，请稍后重试'))
+  }
 }
 
 onMounted(() => {

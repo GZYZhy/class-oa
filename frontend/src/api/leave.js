@@ -56,12 +56,16 @@ export function getLeaveList(status) {
   })
 }
 
-/** 下载请假审批表 PDF（申请人本人和管理员都能下，下到的是一样的） */
-export function downloadLeavePdf(id) {
+/** 下载请假审批表 PDF（申请人本人和管理员都能下，下到的是一样的）
+ *
+ * onProgress：(loaded, total) => void，下载进度（PDF 里嵌着签字图，可能不小）
+ */
+export function downloadLeavePdf(id, onProgress) {
   return request({
     url: `/leaves/${id}/pdf`,
     method: 'get',
-    responseType: 'blob'
+    responseType: 'blob',
+    onDownloadProgress: progressHandler(onProgress)
   })
 }
 

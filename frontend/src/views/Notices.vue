@@ -244,7 +244,7 @@
                   @change="handleAttachChange"
                 />
                 <div class="upload-tip">
-                  最多 {{ maxAttachments }} 个，支持图片 / 视频 / 音频 / 文档 / 压缩包，单文件不超过 20MB
+                  最多 {{ maxAttachments }} 个，支持图片 / 视频 / 音频 / 文档 / 压缩包，单文件不超过 20MB。超过 1MB 的图片会自动压缩
                 </div>
               </div>
             </el-form-item>
@@ -361,6 +361,10 @@ import { downloadFile } from '@/utils/download'
 import { renderMarkdown, formatFileSize } from '@/utils/markdown'
 import { copyText } from '@/utils/clipboard'
 import { noticeIdFromQuery } from '@/utils/notice'
+import { compressImage } from '@/utils/imageCompress'
+
+// 正在压缩的图片附件：提交时等它们压完，不然传上去的还是原图
+const compressTasks = new Set()
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
 
@@ -550,20 +554,37 @@ function openEdit(item) {
 }
 
 // 附件选择
-function handleAttachChange(e) {
+async function handleAttachChange(e) {
   const files = Array.from(e.target.files || [])
+  // 重置 input，方便下次选同名文件也能触发
+  e.target.value = ''
   const remaining = maxAttachments - editingAttachments.value.length - newAttachments.value.length
   if (files.length > remaining) {
     ElMessage.warning(`最多只能再添加 ${remaining} 个附件`)
   }
-  const toAdd = files.slice(0, remaining)
-  for (const f of toAdd) {
+  const toAdd = files.slice(0, Math.max(remaining, 0))
+  // 图片先压小（视频 / 音频 / 文档 / 压缩包原样，规则见 utils/imageCompress.js）。
+  // 任务先全部登记，这样压缩期间点「发布」也会等它们
+  const tasks = toAdd.map((raw) => {
+    const task = compressImage(raw)
+    compressTasks.add(task)
+    task.finally(() => compressTasks.delete(task))
+    return task
+  })
+  const compressed = await Promise.all(tasks)
+
+  for (const f of compressed) {
+    // 等压缩的这会儿可能又选了几个，落库前再数一次
+    if (newAttachments.value.length >= maxAttachments - editingAttachments.value.length) {
+      ElMessage.warning(`最多只能添加 ${maxAttachments} 个附件`)
+      break
+    }
     // 校验大小
     if (f.size > MAX_ATTACHMENT_SIZE) {
       ElMessage.warning(`「${f.name}」超过 20MB，已跳过`)
       continue
     }
-    // 校验后缀
+    // 校验后缀（压缩后的图片后缀是 .jpg）
     const ext = '.' + f.name.split('.').pop()?.toLowerCase()
     if (!ALLOWED_ATTACHMENT_EXTS.split(',').includes(ext)) {
       ElMessage.warning(`「${f.name}」不支持的文件类型`)
@@ -571,8 +592,6 @@ function handleAttachChange(e) {
     }
     newAttachments.value.push(f)
   }
-  // 重置 input，方便下次选同名文件也能触发
-  e.target.value = ''
 }
 
 function removeOldAttachment(idx) {
@@ -596,6 +615,9 @@ async function handleSubmit() {
   if (!form.title.trim()) return ElMessage.warning('请填写标题')
   if (!form.publish_date) return ElMessage.warning('请选择发布时间')
   if (!form.content.trim()) return ElMessage.warning('请填写正文')
+
+  // 刚选的图可能还在压，等它们落地再组装附件
+  await Promise.all([...compressTasks])
 
   // 组装 FormData
   const fd = new FormData()

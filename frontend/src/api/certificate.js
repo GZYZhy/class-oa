@@ -159,14 +159,16 @@ export function downloadCertificateAttachment(id, index, admin = false) {
  * 下载成品证明 PDF
  * @param {number} id
  * @param {boolean} [admin=false]
+ * @param {Function} [onProgress] - 下载进度回调
  */
-export function downloadCertificateResult(id, admin = false) {
+export function downloadCertificateResult(id, admin = false, onProgress) {
   const url = admin
     ? `/api/certificates/${id}/result/admin`
     : `/api/certificates/${id}/result`
   return request({
     url,
     method: 'get',
-    responseType: 'blob'
+    responseType: 'blob',
+    onDownloadProgress: progressHandler(onProgress)
   })
 }
