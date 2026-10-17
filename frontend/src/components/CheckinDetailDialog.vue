@@ -88,12 +88,21 @@
       <el-button @click="visible = false">关闭</el-button>
     </template>
   </el-dialog>
+
+  <!-- 看照片和看证明材料用同一个预览框：能缩放、旋转、下载 -->
+  <FileViewer
+    v-model="photoViewer.visible"
+    :file-url="photoViewer.url"
+    :file-name="photoViewer.fileName"
+    :title="`${photoViewer.studentName} 的签到照片`"
+  />
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
+import FileViewer from '@/components/FileViewer.vue'
 import { getCheckin } from '@/api/checkin'
 import { updateAttendanceItem } from '@/api/attendance'
 import { formatDateTime } from '@/utils/format'
@@ -103,6 +112,9 @@ const visible = ref(false)
 const loading = ref(false)
 const savingStatus = ref(false)
 const detail = ref({ targets: [] })
+
+// 照片预览框的状态。只是交给 FileViewer 用，不改签到数据
+const photoViewer = ref({ visible: false, url: '', fileName: '', studentName: '' })
 
 /** 打开详情。参数是列表行也行，只用到 id */
 async function open(row) {
@@ -119,9 +131,19 @@ async function open(row) {
   }
 }
 
-/** 照片接口要登录态：新窗口打开会带上同一个 Cookie，直接交给浏览器 */
+/**
+ * 查看签到照片
+ *
+ * 复用证明材料那个预览框：FileViewer 走 axios 带登录态取图，
+ * 还能缩放、旋转、下载。签到页上传前统一压成 JPEG，文件名给 .jpg 即可判成图片。
+ */
 function openPhoto(row) {
-  window.open(row.photo_url, '_blank', 'noopener')
+  photoViewer.value = {
+    visible: true,
+    url: row.photo_url,
+    fileName: `${row.student_name}_签到照片.jpg`,
+    studentName: row.student_name
+  }
 }
 
 /**
