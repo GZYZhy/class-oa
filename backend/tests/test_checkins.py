@@ -205,8 +205,8 @@ def test_create_rejects_past_end_and_unknown_student(cb):
 
 # ---------- 站内信 ----------
 
-def test_targets_get_inbox_message_and_creator_does_not(cb):
-    checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]])
+def test_targets_and_creator_in_range_get_inbox_message(cb):
+    checkin = _create(cb, [PEOPLE[0][0], ADMIN])
     code = checkin["code"]
 
     _login(cb, PEOPLE[0][0])
@@ -217,11 +217,18 @@ def test_targets_get_inbox_message_and_creator_does_not(cb):
     assert hits[0]["page"] == f"/checkin?code={code}"
     assert hits[0]["level"] == "timeSensitive"
 
-    # 发起人自己不该收到「我刚发布的签到」
+    # 发布人自己在范围内时同样要签到，也该收到这条信
     _as_admin(cb)
     r = cb.client.get("/api/inbox")
     assert r.status_code == 200, r.text
-    assert not [m for m in r.json()["items"] if m["title"] == "新签到：晚点名"]
+    hits = [m for m in r.json()["items"] if m["title"] == "新签到：晚点名"]
+    assert len(hits) == 1, "发布人在范围内时应当收到站内信"
+
+    # 不在范围内就不发（再发一次，范围只有别人）
+    _create(cb, [PEOPLE[1][0]], title="晚点名二")
+    r = cb.client.get("/api/inbox")
+    hits = [m for m in r.json()["items"] if m["title"] == "新签到：晚点名二"]
+    assert not hits, "不在范围内的发布人不该收到"
 
 
 # ---------- 公开信息 ----------
