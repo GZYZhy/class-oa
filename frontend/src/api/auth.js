@@ -84,10 +84,12 @@ export function revokeAccessToken(id) {
 
 /* ---------- 通行密钥（WebAuthn） ----------
  * 两段式：先取选项（里面带着一次性挑战，后端存在会话里），
- * 浏览器弹出系统验证框，再把结果发回来校验。挑战 5 分钟有效。
+ * 浏览器弹出系统验证框，再把结果发回来校验。挑战 10 分钟有效
+ * （给自动填充留出时间：钥匙挂上后用户可能过一会儿才选）。
  */
 
-/** 取出「用通行密钥登录」的选项。**不需要登录**，但要先知道学号 */
+/** 取出「用通行密钥登录」的选项。**不需要登录，也不需要学号**：服务器返回空
+ *  allowCredentials，由浏览器列出本机属于本站的钥匙 */
 export function getPasskeyLoginOptions(data) {
   return request({ url: '/auth/passkeys/login/options', method: 'post', data })
 }

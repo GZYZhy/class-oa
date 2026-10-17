@@ -6,12 +6,15 @@
 
 两件不显然的事：
 
-1. **挑战（challenge）存在服务端会话里，一次性、限时五分钟**。挑战本身不是秘密，
+1. **挑战（challenge）存在服务端会话里，一次性、限时十分钟**。挑战本身不是秘密，
    但必须由服务端签发并在验证时比对；让前端回传一个「我刚生成的挑战」，
    等于把防重放交给攻击者来保证。
 2. **RP ID / 期望来源从配置或浏览器 Origin 推导**。两个班级各是一个独立实例，
    要让钥匙只对本站有效：1.zdeweb.cn 的钥匙不该在 2.zdeweb.cn 上被提示出来。
    所以 RP ID 取完整主机名，不取父域 zdeweb.cn。
+3. **登录不需要先输学号**。登记时要求「可发现凭据」，钥匙里带着账号；登录时
+   浏览器列出本站的钥匙让用户挑，服务器在验证那一步按凭据 ID 反查持有人。
+   凭据 ID 由认证器随机生成、全表唯一，反查结果就是这次登录的账号。
 """
 import time
 from datetime import datetime
@@ -56,8 +59,10 @@ router = APIRouter(prefix="/api/auth/passkeys", tags=["通行密钥"])
 
 # 一个人最多登记 10 把：手机、平板、两台电脑、备用钥匙……再多就不是钥匙而是仓库了
 MAX_PASSKEYS = 10
-# 挑战五分钟后作废。足够用户抬手按指纹，又短到被截获也没有利用价值
-CHALLENGE_TTL = 300
+# 挑战十分钟后作废。按一次指纹只要几秒；放宽到十分钟是给条件式 UI 用的 ——
+# 页面打开后钥匙会一直挂在账号框的自动填充里，用户可能过一会儿才点它。
+# 挑战仍是一次性的、绑在当前会话上，被截获也无法在别处重放
+CHALLENGE_TTL = 600
 _CHALLENGE_KEY = "webauthn_challenge"
 
 
@@ -150,10 +155,11 @@ def register_options(
         user_id=str(user.id).encode(),
         user_name=user.student_no,
         user_display_name=account_name(db, user),
-        # 不要求「可发现凭据」（resident key）：登录时先输学号，由服务端点名要哪把钥匙。
-        # 这样钥匙只在本站有效，也不会被浏览器的通用账号选择器混进去
+        # 要求「可发现凭据」（resident key）：钥匙里同时存下本站的账号，
+        # 登录时浏览器就能把本机的钥匙列出来让用户挑，不用先输学号。
+        # RP ID 仍是完整主机名，另一套班级实例的钥匙不会串到这里
         authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.DISCOURAGED,
+            resident_key=ResidentKeyRequirement.REQUIRED,
             user_verification=UserVerificationRequirement.PREFERRED,
         ),
         # 同一把钥匙已经登记过时，让浏览器自己拦下来，免得出现两行同名记录
@@ -240,33 +246,17 @@ def login_options(
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
+    """不点名任何账号：allowCredentials 留空，由浏览器列出本机上属于本站的钥匙，
+    用户挑一把、过指纹 / 面容 / PIN 即可。谁登录留到第二步按凭据反查。"""
     _check_ban(db, ip)
 
-    student_no = data.student_no.strip()
-    user = db.query(User).filter(User.student_no == student_no).first()
     _, rp_id = _site(request)
-
-    # 查无此人时也返回一份空 allowCredentials 的选项，而不是 404：
-    # 不让接口变成「这个学号存不存在」的查询器。浏览器拿到空列表后验证必然失败
-    allow = []
-    if user:
-        allow = [
-            PublicKeyCredentialDescriptor(id=base64url_to_bytes(p.credential_id))
-            for p in _passkeys_of(db, user.id)
-        ]
-
     options = generate_authentication_options(
         rp_id=rp_id,
-        allow_credentials=allow,
+        allow_credentials=[],
         user_verification=UserVerificationRequirement.PREFERRED,
     )
-    _save_challenge(
-        request,
-        "login",
-        options.challenge,
-        uid=user.id if user else None,
-        remember=data.remember,
-    )
+    _save_challenge(request, "login", options.challenge, remember=data.remember)
     return options_to_json_dict(options)
 
 
@@ -281,23 +271,17 @@ def login_verify(
     challenge, meta = _take_challenge(request, "login")
     origin, rp_id = _site(request)
 
-    # 挑战里记着「发起时点的是哪个账号」，和这次提交的学号必须一致，
-    # 防止拿 A 的挑战去登 B 的账号
-    user = db.query(User).filter(User.student_no == data.student_no.strip()).first()
-    if not user or meta.get("uid") != user.id:
-        raise HTTPException(status_code=400, detail="通行密钥验证失败，请重试")
-
-    # 前端回传的 rawId 与登记时存的 credential_id 是同一个 base64url 串
+    # 谁登录由**钥匙本身**决定：rawId 与登记时存的 credential_id 是同一个
+    # base64url 串，且全表唯一。反查到的持有人就是这次登录的账号，前端不回传学号，
+    # 也就不存在「拿 A 的挑战去登 B」的问题
     credential_id = data.credential.get("rawId") or data.credential.get("id")
     row = (
         db.query(PasskeyCredential)
-        .filter(
-            PasskeyCredential.credential_id == credential_id,
-            PasskeyCredential.user_id == user.id,
-        )
+        .filter(PasskeyCredential.credential_id == credential_id)
         .first()
     )
-    if not row:
+    user = db.query(User).filter(User.id == row.user_id).first() if row else None
+    if not user:
         raise HTTPException(status_code=400, detail="通行密钥验证失败，请重试")
 
     try:

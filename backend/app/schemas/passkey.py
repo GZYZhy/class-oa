@@ -20,7 +20,11 @@ class PasskeyRegisterVerifyRequest(PasskeyRegisterOptionsRequest):
 
 
 class PasskeyLoginOptionsRequest(BaseModel):
-    student_no: str
+    """用通行密钥登录：**不再需要学号**
+
+    登记时要求的是「可发现凭据」（resident key），钥匙里带着账号；登录时
+    浏览器会列出本机上属于本站的钥匙，服务器在验证那一步按凭据 ID 反查持有人。
+    """
     remember: bool = Field(True, description="是否保持登录 7 天")
 
 

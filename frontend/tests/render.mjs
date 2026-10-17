@@ -3543,6 +3543,39 @@ console.log('\n▶ 通行密钥：没有浏览器的环境要安静降级')
     'const passkeyReady = ref(true)'
   )
   check(on.html.includes('使用通行密钥登录'), '支持时登录页出现「使用通行密钥登录」')
+
+  // 免账号：不再要求先填学号，按钮是和「登 录」同宽同高的白底次要按钮
+  const loginSrc = readFileSync(`${ROOT}/src/views/Login.vue`, 'utf8')
+  check(
+    /class="login-btn passkey-btn"/.test(loginSrc),
+    '通行密钥按钮与「登 录」同样式（白底、同宽）'
+  )
+  check(!loginSrc.includes('请先填写学号或账号'), '通行密钥登录不再要求先填学号')
+
+  // 条件式 UI：登记过钥匙的人聚焦账号框就能从自动填充里选，不用先点按钮。
+  // 没登记的人看到的仍是普通输入框 —— 这条路径失败时必须一声不吭
+  check(
+    on.html.includes('autocomplete="username webauthn"'),
+    '账号框带 webauthn 自动填充标记'
+  )
+  check(loginSrc.includes("mediation: 'conditional'"), '登录页挂起条件式 UI')
+  check(loginSrc.includes('new AbortController()'), '挂起的自动填充可以中止')
+  check(
+    /async function handlePasskeyLogin\(\) \{[\s\S]{0,400}?stopConditionalPasskey\(\)/.test(loginSrc),
+    '点按钮前先中止自动填充，两条流程不会互相覆盖挑战'
+  )
+  const condBody = loginSrc.slice(
+    loginSrc.indexOf('async function startConditionalPasskey'),
+    loginSrc.indexOf('/** 中止挂起的自动填充')
+  )
+  check(!/ElMessage\.(error|warning|info)/.test(condBody), '自动填充失败时保持静默')
+
+  const storeSrc = readFileSync(`${ROOT}/src/store/user.js`, 'utf8')
+  check(
+    /loginWithPasskey\(\{\s*remember, mediation, signal\s*\}\)/.test(storeSrc),
+    '登录调用不再传学号，并透传自动填充参数'
+  )
+
   check(
     !on.warns.some((w) => /Failed to resolve (component|directive)/.test(w)),
     '登录页没有未解析的组件/指令'
