@@ -5,8 +5,7 @@ name: class-oa
 services:
   # 后端服务
   backend:
-    # 镜像来自 GHCR（私有包），由 scripts/build_images.sh --push 推上去。
-    # 服务器上先 docker login ghcr.io 才能拉；拉新版用 docker compose pull。
+    # 镜像来自公开的 GHCR，服务器上不需要 docker login；拉新版用 docker compose pull。
     image: ghcr.io/gzyzhy/class-oa-backend:${IMAGE_TAG:-latest}
     container_name: class-oa-backend
     restart: unless-stopped
