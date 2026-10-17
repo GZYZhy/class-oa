@@ -154,6 +154,7 @@
                 <el-tag v-else-if="row.status === 'correcting'" type="warning" size="small">待补正</el-tag>
                 <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
                 <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
+                <el-tag v-else-if="row.status === 'revoked'" type="info" size="small">已撤销</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="申请时间" width="160" align="center">
@@ -212,6 +213,8 @@
                 <span v-else-if="row.status === 'correcting'" style="color: #e6a23c;">
                   需补正：{{ row.correction_reason || '请补齐材料' }}
                 </span>
+                <!-- 已撤销不再展示当初的审核意见（用户口径），审核信息留在库里备查 -->
+                <span v-else-if="row.status === 'revoked'" style="color: var(--el-text-color-disabled);">—</span>
                 <span v-else style="color: var(--el-text-color-disabled);">
                   {{ row.status === 'accepted' ? '已受理，等待审批' : '待受理' }}
                 </span>

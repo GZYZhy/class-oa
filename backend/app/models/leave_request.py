@@ -12,7 +12,8 @@ class LeaveRequest(Base):
 
     学生提交 → 管理员审核（批准时可填班导师意见并选谁的签字）→ 申请人本人和
     管理员都能下载生成好的 PDF 请假审批表（带不可见溯源水印）。
-    状态：pending（待受理）/ accepted（已受理）/ correcting（待补正）/ approved / rejected
+    状态：pending（待受理）/ accepted（已受理）/ correcting（待补正）/ approved / rejected /
+    revoked（已撤销：管理员把已通过的单子撤了，终态、不可恢复）
     """
     __tablename__ = "leave_requests"
 
@@ -41,7 +42,7 @@ class LeaveRequest(Base):
     # 审核
     status = Column(
         String(20), default="pending", index=True,
-        comment="pending/accepted/correcting/approved/rejected",
+        comment="pending/accepted/correcting/approved/rejected/revoked",
     )
     reviewer_name = Column(String(50), comment="审核人姓名")
     reviewer_no = Column(String(20), comment="审核人学号")

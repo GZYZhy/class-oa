@@ -31,7 +31,7 @@ class EvPassRequest(Base):
     # 审核
     status = Column(
         String(20), default="pending", index=True,
-        comment="pending/accepted/correcting/approved/rejected",
+        comment="pending/accepted/correcting/approved/rejected/revoked",
     )
     reviewer_no = Column(String(20), comment="审核人学号")
     reviewer_name = Column(String(50), comment="审核人姓名")

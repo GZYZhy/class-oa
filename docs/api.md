@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.14.3，共 236 个接口。
+> 版本 1.14.3，共 239 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -25,13 +25,13 @@
 - 资料下载（2）
 - 关于班级（1）
 - 修改申请（6）
-- 请假申请（15）
+- 请假申请（16）
 - 考勤记录（7）
 - 意见反馈（8）
 - 未读红点（1）
-- 电动车通行证（16）
+- 电动车通行证（17）
 - 学生信息导出（7）
-- 证明开具（15）
+- 证明开具（16）
 - 办件空间（2）
 - 站内信（4）
 - 生日关怀（4）
@@ -1182,7 +1182,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
-| `status` | query | 否 | string，可空 | pending/accepted/correcting/approved/rejected；open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回），不传为全部 |
+| `status` | query | 否 | string，可空 | pending/accepted/correcting/approved/rejected/revoked；open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销），不传为全部 |
 
 **响应**
 
@@ -1387,6 +1387,23 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **请求体**（`application/json`，JSON）
 
 类型：LeaveAdvisorSignature，可空
+
+**响应**
+
+- `200` `LeaveRequestResponse` — 成功
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`
+
+### 撤销已通过的请假申请
+
+`POST /api/leaves/{leave_id}/revoke`
+
+管理员把一条已通过的申请撤了：状态变成「已撤销」，学生端不再显示审核意见 撤销后这条单子不能再编辑、不再生成审批表（下载接口按状态拦）；它也不再能批、 不能补签字 —— **撤销是终态，没有反向操作**。 要发通知：申请人手里的表可能已经打印出去了，不喊一声他不会知道这张表作废了。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `leave_id` | path | 是 | integer |  |
 
 **响应**
 
@@ -1748,7 +1765,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
-| `status` | query | 否 | string，可空 | 按状态筛选：pending/accepted/correcting/approved/rejected；open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回） |
+| `status` | query | 否 | string，可空 | 按状态筛选：pending/accepted/correcting/approved/rejected/revoked；open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销） |
 
 **响应**
 
@@ -1935,6 +1952,23 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **请求体**（`application/json`，JSON）
 
 类型：EvPassSignature，可空
+
+**响应**
+
+- `200` `EvPassRequestResponse` — 成功
+  - 字段：`id`、`student_id`、`student_name`、`student_no`、`brand`、`plate_number`、`license_original_name`、`status`、`created_at`、`reviewer_name`、`reviewed_at`、`reject_reason`、`correction_reason`、`sign_name`、`has_sign`
+
+### 撤销已通过的申请（管理员）
+
+`POST /api/ev-passes/{req_id}/revoke`
+
+把一条已通过的申请撤了：状态变成「已撤销」，申请人不能再编辑、不再提供两份 PDF **撤销是终态，没有反向操作**：撤销后它也不能再批、不能补签字。 要发通知 —— 申请人手里可能已经打印出来了，不喊一声不会知道作废了。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `req_id` | path | 是 | integer |  |
 
 **响应**
 
@@ -2142,7 +2176,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
-| `status` | query | 否 | string，可空 | 按状态筛选：pending/accepted/correcting/approved/rejected；open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回） |
+| `status` | query | 否 | string，可空 | 按状态筛选：pending/accepted/correcting/approved/rejected/revoked；open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销） |
 
 **响应**
 
@@ -2367,6 +2401,22 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `reason` | string | 是 | 驳回理由 |
+
+**响应**
+
+- `200` — 成功
+
+### 撤销已通过的申请（管理员）
+
+`POST /api/certificates/{req_id}/revoke`
+
+把一条已通过的申请撤了：状态变成「已撤销」，申请人不能再编辑、不再下载成品 **撤销是终态，没有反向操作**：撤销后它也不能再批，成品也不能再上传（上传接口 要求已通过）。要发通知 —— 申请人可能已经拿到打印件，不喊一声不会知道作废了。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `req_id` | path | 是 | integer |  |
 
 **响应**
 

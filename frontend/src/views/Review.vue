@@ -139,6 +139,7 @@
               <el-tag v-else-if="row.status === 'correcting'" type="warning" size="small">待补正</el-tag>
               <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
               <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
+              <el-tag v-else-if="row.status === 'revoked'" type="info" size="small">已撤销</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="班导师签字" width="120" align="center">
@@ -154,7 +155,7 @@
           <el-table-column label="申请时间" width="150" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="400" align="center">
+          <el-table-column label="操作" width="460" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewLeaveProof(row)">
                 证明材料
@@ -180,6 +181,16 @@
                 @click="openLeaveDialog('sign', row)"
               >
                 补签字
+              </el-button>
+              <!-- 撤销是终态：撤了就不再提供请假表、不能编辑。二次确认在 handler 里 -->
+              <el-button
+                v-if="row.status === 'approved' && userStore.isAdmin"
+                size="small"
+                link
+                type="danger"
+                @click="handleRevokeLeave(row)"
+              >
+                撤销
               </el-button>
               <!-- 受理 = 管理员看过这份材料了。打开「证明材料」预览也会自动受理一次，这个按钮是兜底 -->
               <el-button
@@ -259,6 +270,7 @@
               <el-tag v-else-if="row.status === 'correcting'" type="warning" size="small">待补正</el-tag>
               <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
               <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
+              <el-tag v-else-if="row.status === 'revoked'" type="info" size="small">已撤销</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="经办班委签字" width="130" align="center">
@@ -269,7 +281,7 @@
               <span v-else style="color: var(--el-text-color-secondary);">暂不签署</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="470" align="center">
+          <el-table-column label="操作" width="530" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewEvLicense(row)">行驶证</el-button>
               <!-- 生成的文档：班委和管理员都能下（留档、报学院盖章用）。
@@ -305,6 +317,16 @@
                 @click="openEvPassDialog('sign', row)"
               >
                 补签字
+              </el-button>
+              <!-- 撤销是终态：撤了就不再提供申请表和承诺书、不能编辑。二次确认在 handler 里 -->
+              <el-button
+                v-if="row.status === 'approved' && userStore.isAdmin"
+                size="small"
+                link
+                type="danger"
+                @click="handleRevokeEvPass(row)"
+              >
+                撤销
               </el-button>
               <!-- 受理 = 管理员看过这份材料了。打开「行驶证」预览也会自动受理一次，这个按钮是兜底 -->
               <el-button
@@ -377,6 +399,7 @@
               <el-tag v-else-if="row.status === 'correcting'" type="warning" size="small">待补正</el-tag>
               <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
               <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
+              <el-tag v-else-if="row.status === 'revoked'" type="info" size="small">已撤销</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="操作" min-width="420" align="center">
@@ -403,6 +426,16 @@
                   待上传成品
                 </span>
               </template>
+              <!-- 撤销是终态：撤了就再也不提供成品、不能编辑。二次确认在 handler 里 -->
+              <el-button
+                v-if="row.status === 'approved' && userStore.isAdmin"
+                size="small"
+                link
+                type="danger"
+                @click="handleRevokeCertificate(row)"
+              >
+                撤销
+              </el-button>
               <!-- 受理 = 管理员看过这份材料了。证明的附件是可选的，没有附件的单子
                    只能靠这个按钮受理，所以它不是装饰 -->
               <el-button
@@ -869,6 +902,7 @@ import {
   approveLeave,
   advisorSign,
   rejectLeave,
+  revokeLeave,
   downloadLeaveProof,
   downloadLeavePdf as apiDownloadLeavePdf
 } from '@/api/leave'
@@ -888,6 +922,7 @@ import {
   signEvPass,
   getEvPassSigners,
   rejectEvPass,
+  revokeEvPass,
   downloadEvPassPdf,
   downloadEvPromisePdf
 } from '@/api/evPass'
@@ -907,6 +942,7 @@ import {
 } from '@/api/export'
 import {
   getCertificateList,
+  revokeCertificate,
   acceptCertificate,
   unacceptCertificate,
   correctCertificate,
@@ -1074,6 +1110,30 @@ const {
 } = makeReviewActions({
   accept: acceptLeave, unaccept: unacceptLeave, correct: correctLeave, reload: fetchLeaveList
 })
+
+/**
+ * 管理员撤销已通过的单子。三个办件的后果一样：变成「已撤销」终态、不再提供下载、
+ * 不能再编辑也不能恢复，只有「不能再下载什么」这句文案不同
+ */
+function handleRevoke(row, label, revoke, reload) {
+  ElMessageBox.confirm(
+    `撤销后这条申请会变成「已撤销」，${label}不再提供下载，也不能再编辑。撤销后不能恢复，确定撤销吗？`,
+    '撤销申请',
+    { type: 'warning', confirmButtonText: '撤销', cancelButtonText: '取消' }
+  ).then(async () => {
+    try {
+      await revoke(row.id)
+      ElMessage.success('已撤销')
+      reload()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
+function handleRevokeLeave(row) {
+  handleRevoke(row, '请假审批表', revokeLeave, fetchLeaveList)
+}
 
 // 请假证明预览
 const proofViewerVisible = ref(false)
@@ -1322,6 +1382,10 @@ function handleRejectEvPass(row) {
   }).catch(() => {})
 }
 
+function handleRevokeEvPass(row) {
+  handleRevoke(row, '申请表和承诺书', revokeEvPass, fetchEvPassList)
+}
+
 // —— 证明开具 ——
 // 班委能看列表、看附件，但不能下载成品 PDF、不能审批
 const certificateList = ref([])
@@ -1423,6 +1487,10 @@ function handleRejectCertificate(row) {
       ElMessage.error(e?.response?.data?.detail || '操作失败')
     }
   }).catch(() => {})
+}
+
+function handleRevokeCertificate(row) {
+  handleRevoke(row, '成品证明', revokeCertificate, fetchCertificateList)
 }
 
 // —— 签字查看申请（仅管理员审批）——

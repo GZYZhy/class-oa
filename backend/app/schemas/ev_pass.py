@@ -18,7 +18,7 @@ class EvPassRequestResponse(BaseModel):
     brand: Optional[str] = None
     plate_number: Optional[str] = None
     license_original_name: Optional[str] = None
-    # pending 待受理 / accepted 已受理 / correcting 待补正 / approved 已通过 / rejected 已驳回
+    # pending 待受理 / accepted 已受理 / correcting 待补正 / approved 已通过 / rejected 已驳回 / revoked 已撤销
     status: Optional[str] = None
     created_at: Optional[datetime] = None
     reviewer_name: Optional[str] = None
