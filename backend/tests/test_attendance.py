@@ -213,7 +213,7 @@ def test_remark_comes_back_in_list(b):
 
 
 def test_remark_shows_up_in_export(b):
-    """导出给人看的那份也得带上 —— 备注本来就是要给看考勤的人读的"""
+    """导出给人看的那份也得带上 —— 列表里叫标题，导出表头也用同一个名字"""
     rid = make_record(b)
     b.client.patch(f"/api/attendance/{rid}", json={"remark": "学院临时集合"})
 
@@ -221,20 +221,21 @@ def test_remark_shows_up_in_export(b):
     assert r.status_code == 200, r.text
     ws = openpyxl.load_workbook(BytesIO(r.content)).active
     header = [c.value for c in ws[1]]
-    assert "备注" in header, f"导出表头里没有备注列：{header}"
+    assert "标题" in header, f"导出表头里没有标题列：{header}"
+    assert "备注" not in header, f"导出表头还留着旧叫法：{header}"
 
-    col = header.index("备注")
+    col = header.index("标题")
     values = [row[col].value for row in ws.iter_rows(min_row=2)]
-    assert set(values) == {"学院临时集合"}, f"明细行上没带备注：{values}"
+    assert set(values) == {"学院临时集合"}, f"明细行上没带标题：{values}"
 
 
 def test_unwritten_remark_exports_blank(b):
-    """没写备注的记录导出时是空的，不能漏出 None 字面量"""
+    """没写标题的记录导出时是空的，不能漏出 None 字面量"""
     make_record(b)
 
     r = b.client.get("/api/attendance/export")
     ws = openpyxl.load_workbook(BytesIO(r.content)).active
-    col = [c.value for c in ws[1]].index("备注")
+    col = [c.value for c in ws[1]].index("标题")
     values = [row[col].value for row in ws.iter_rows(min_row=2)]
     assert all(v is None or v == "" for v in values), f"没写备注的那列应当是空的：{values}"
     assert not any(isinstance(v, str) for v in values), "别把 Python 的 None 当字符串打进单元格"
