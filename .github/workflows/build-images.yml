@@ -3,7 +3,8 @@ name: 构建并推送镜像
 # 只有推送 vX.Y.Z 版本标签时才构建镜像。日常提交只跑全量测试（test.yml），
 # 不构建、也不移动 latest —— 没发版的提交不该被服务器 `docker compose pull` 拿到。
 #
-# 构建前会先把 test.yml 里的前后端全量测试整个跑一遍，测试不过就不出镜像。
+# 发版构建不再等测试：版本提交和普通提交走两条独立的路 —— 普通提交只检查不构建，
+# 带 tag 的提交只构建不检查。
 #
 # 想在本地构建（比如要带 arm64、或者 GitHub 挂了）还是用
 # scripts/build_images.sh，镜像前缀和日期标签的算法两边一致
@@ -20,13 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  tests:
-    # 门禁：把全量测试 workflow 原样调起来，前后端都通过才轮到 build。
-    # 本地全量约 8 分钟，CI 上更久，所以发版构建会明显比以前慢 —— 这是故意的。
-    uses: ./.github/workflows/test.yml
-
   build:
-    needs: tests
     runs-on: ubuntu-latest
     permissions:
       contents: read # checkout 要读仓库
