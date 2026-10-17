@@ -71,15 +71,11 @@ router = APIRouter(prefix="/api/checkins", tags=["签到"])
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 
-# 照片在截止前开始传、传完时已经过点的，给一点宽限让「签到」按钮还能提交。
-# 慢网络下十几 MB 的照片传几分钟很正常，宽限要覆盖上传耗时，又不能变成
-# 「过了截止还能慢慢签」。只对带照片凭证的签发生效，普通签到仍严格按截止时间。
-SIGN_GRACE = timedelta(minutes=10)
-
-# 打开链接时还没登录，登录（找学号、输密码、切账号）花掉的时间不该让人白跑一趟。
-# 只要页面是截止前打开的，截止后再给这么一段补签时间（传照片也在这个窗口内）。
-# 上限就是 10 分钟：够登录、够传一张图，又不会变成不限时。
-OPEN_GRACE = timedelta(minutes=10)
+# 迟到的两条有界理由共用一个窗口，都要求「截止前」已经动手：
+# 1. 照片是截止前开始传的 —— 慢网络下十几 MB 的照片传几分钟很正常；
+# 2. 页面是截止前打开的 —— 打开时还没登录，找学号、输密码花掉的时间不该让人白跑。
+# 5 分钟：够登录、够传一张图，又不会变成「过了截止还能慢慢签」。
+GRACE = timedelta(minutes=5)
 
 
 # ---------- 小工具 ----------
@@ -246,7 +242,7 @@ def _public_response(
         and approved_leave_nos(db, [target.student_no], reference)
     )
     status = checkin_status(checkin)
-    # 截止前打开过页面的，截止后还有一段补签宽限（OPEN_GRACE）。
+    # 截止前打开过页面的，截止后还有一段补签宽限（GRACE）。
     # 进行中时不往响应里放这个字段：前端只在「已结束但还能签」时需要它
     open_until = _open_grace_until(request, checkin, student_no or "")
     return CheckinPublicResponse(
@@ -386,7 +382,7 @@ def _open_grace_until(
     """这次请求还在不在「截止前打开过页面」的补签宽限内；在就返回到什么时候
 
     三个条件缺一不可：页面确实在截止前打开、本人（或游客）的凭证、现在没超过
-    截止后 OPEN_GRACE。
+    截止后 GRACE。
     """
     token = request.cookies.get(_open_cookie_name(checkin.id))
     if not token:
@@ -397,7 +393,7 @@ def _open_grace_until(
     reference = checkin.closed_at or checkin.end_at
     if opened_at >= reference:
         return None
-    until = reference + OPEN_GRACE
+    until = reference + GRACE
     return until if datetime.now() <= until else None
 
 
@@ -555,7 +551,7 @@ def public_checkin(
         response.set_cookie(
             _open_cookie_name(checkin.id),
             _open_token(checkin, student_no, now),
-            max_age=max(60, int((reference + OPEN_GRACE - now).total_seconds())),
+            max_age=max(60, int((reference + GRACE - now).total_seconds())),
             path="/api/checkins",
             httponly=True,
             samesite="lax",
@@ -887,7 +883,7 @@ def sign_checkin(
         photo_file
         and upload_started is not None
         and upload_started < reference
-        and now <= reference + SIGN_GRACE
+        and now <= reference + GRACE
     )
     late_open = _open_grace_until(request, checkin, student.student_no) is not None
     if (
