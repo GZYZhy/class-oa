@@ -1669,6 +1669,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | `title` | string | 是 | 标题 |
 | `remark` | string | 否 | 备注，空串 = 没写 |
 | `targets` | string[] | 是 | 范围内学生的学号 |
+| `start_at` | string（日期时间），可空 | 否 | 开始时间，为空 = 发布即可签 |
 | `end_at` | string（日期时间） | 是 | 截止时间 |
 | `require_photo` | boolean | 否 | 是否要求上传一张照片 |
 | `location` | CheckinLocationIn，可空 | 否 |  |
@@ -1676,7 +1677,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinDetailResponse` — 成功
-  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`start_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
 
 ### 签到公开信息（凭链接，无需登录）
 
@@ -1691,7 +1692,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinPublicResponse` — 成功
-  - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`grace_until`、`signed_at`、`my_distance_m`、`on_leave`
+  - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`start_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`grace_until`、`signed_at`、`my_distance_m`、`on_leave`
 
 ### 提前结束签到（班委及以上）
 
@@ -1706,7 +1707,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinDetailResponse` — 成功
-  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`start_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
 
 ### 延长签到截止时间 5 分钟（班委及以上）
 
@@ -1723,7 +1724,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinDetailResponse` — 成功
-  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`start_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
 
 ### 提醒还没签到的同学（班委及以上）
 
@@ -1754,7 +1755,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinDetailResponse` — 成功
-  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`start_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
 
 ### 改签到标题（班委及以上）
 
@@ -1777,7 +1778,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinDetailResponse` — 成功
-  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`start_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
 
 ### 删除一次签到（班委及以上）
 
@@ -1847,7 +1848,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinPublicResponse` — 成功
-  - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`grace_until`、`signed_at`、`my_distance_m`、`on_leave`
+  - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`start_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`grace_until`、`signed_at`、`my_distance_m`、`on_leave`
 
 ## 意见反馈
 
