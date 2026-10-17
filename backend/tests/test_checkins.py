@@ -962,6 +962,7 @@ def test_export_contains_rollcall_and_checkin_sheets(cb):
     # 第二张表带签到本人的时间与最终状态
     header = [c.value for c in wb["签到记录"][1]]
     assert header[:5] == ["截止日期", "标题", "发布人", "截止时间", "签到状态"]
+    assert header[-1] == "说明" and "备注" not in header
     rows = list(wb["签到记录"].iter_rows(min_row=2, values_only=True))
     assert len(rows) == 1, rows
     row = dict(zip(header, rows[0]))
