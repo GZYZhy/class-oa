@@ -332,49 +332,51 @@
                   </div>
                 </template>
 
-                <el-divider />
+                <!-- ==================== 后加的渠道 ====================
+                     整块藏在 newChannelsAvailable 后面：新前端配旧后端时这几个接口是 404，
+                     与其给用户看半截能用、点一下报错的界面，不如不显示（见 fetchAccountData）。
+                     顺序是「邮件 → Bark → Webhook」：由简到繁，最常用的在前。
+                     折叠组件自带分隔线，所以这里只用间距，不再叠 el-divider -->
+                <EmailNotifySetting
+                  v-if="newChannelsAvailable"
+                  class="notify-collapse"
+                />
 
                 <!-- ==================== Bark 推送 ==================== -->
-                <div class="section-title">Bark 推送</div>
-                <div class="section-sub">手机上装 Bark App，填一个设备 ID 就能收</div>
+                <div class="notify-bark">
+                  <div class="section-title">Bark 推送</div>
+                  <div class="section-sub">手机上装 Bark App，填一个设备 ID 就能收</div>
 
-                <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px;">
-                  <template #title>怎么拿到设备 ID</template>
-                  在手机上装好 Bark App，打开后首页显示的那串字符就是设备 ID。
-                  复制粘贴到下面即可（粘整条链接也行，会自动识别）。
-                </el-alert>
+                  <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px;">
+                    <template #title>怎么拿到设备 ID</template>
+                    在手机上装好 Bark App，打开后首页显示的那串字符就是设备 ID。
+                    复制粘贴到下面即可（粘整条链接也行，会自动识别）。
+                  </el-alert>
 
-                <el-form :model="barkForm" label-width="100px">
-                  <el-form-item label="设备 ID">
-                    <el-input
-                      v-model="barkForm.bark_key"
-                      placeholder="留空并保存 = 关闭推送"
-                      clearable
-                      @keyup.enter="handleBarkSave"
-                    />
-                  </el-form-item>
-                </el-form>
+                  <el-form :model="barkForm" label-width="100px">
+                    <el-form-item label="设备 ID">
+                      <el-input
+                        v-model="barkForm.bark_key"
+                        placeholder="留空并保存 = 关闭推送"
+                        clearable
+                        @keyup.enter="handleBarkSave"
+                      />
+                    </el-form-item>
+                  </el-form>
 
-                <div class="actions">
-                  <el-button size="small" :loading="barkTesting" @click="handleBarkTest">发送测试推送</el-button>
-                  <el-button type="primary" size="small" :loading="barkSaving" @click="handleBarkSave">保存</el-button>
-                  <el-button v-if="savedBarkKey" link type="danger" size="small" @click="handleBarkUnbind">
-                    解除绑定
-                  </el-button>
+                  <div class="actions">
+                    <el-button size="small" :loading="barkTesting" @click="handleBarkTest">发送测试推送</el-button>
+                    <el-button type="primary" size="small" :loading="barkSaving" @click="handleBarkSave">保存</el-button>
+                    <el-button v-if="savedBarkKey" link type="danger" size="small" @click="handleBarkUnbind">
+                      解除绑定
+                    </el-button>
+                  </div>
                 </div>
 
-                <!-- ==================== 两个后加的渠道 ====================
-                     整块藏在 newChannelsAvailable 后面：新前端配旧后端时这几个接口是 404，
-                     与其给用户看半截能用、点一下报错的界面，不如不显示（见 fetchAccountData） -->
-                <template v-if="newChannelsAvailable">
-                  <el-divider />
-
-                  <WebhookSetting />
-
-                  <el-divider />
-
-                  <EmailNotifySetting />
-                </template>
+                <WebhookSetting
+                  v-if="newChannelsAvailable"
+                  class="notify-collapse"
+                />
               </div>
             </el-tab-pane>
 
@@ -1241,6 +1243,13 @@ onMounted(async () => {
    去掉后一块的上边框，两块之间就只剩一条分隔线 */
 .channel-block + .channel-block :deep(.el-collapse) {
   border-top: 0;
+}
+
+/* 通知设置里的渠道块靠间距分开，不用分割线 —— 折叠组件自己有边框，
+   再加一条 el-divider 就成了并排的两条线 */
+.notify-collapse,
+.notify-bark {
+  margin-top: 28px;
 }
 
 /* tab 内的分节：外层 page-card 已经给了白底和内边距，这里只要间距 */
