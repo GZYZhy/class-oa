@@ -69,8 +69,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # 和 frontend/Dockerfile 的 node:20 对齐
-          node-version: "20"
+          # 不能用 frontend/Dockerfile 的 node:20：render.mjs 用了
+          # node:module 的 registerHooks，那是 Node 22.15 才有的。
+          # 构建镜像用哪个 Node 无所谓（Vite 产物与它无关），测试要能跑起来。
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
