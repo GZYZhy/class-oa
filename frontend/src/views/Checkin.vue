@@ -25,38 +25,28 @@
       <template v-else-if="info">
         <div class="ck-title-row">
           <h2 class="ck-title">{{ info.title }}</h2>
-          <el-tag :type="info.status === 'ongoing' ? 'success' : 'info'" size="small">
-            {{ info.status === 'ongoing' ? '进行中' : '已结束' }}
-          </el-tag>
+          <el-tag :type="statusTag" size="small">{{ statusText }}</el-tag>
         </div>
         <p v-if="info.remark" class="ck-remark">{{ info.remark }}</p>
 
         <div class="ck-meta">
           <span>{{ info.created_by_name }} 发布</span>
+          <span v-if="info.status === 'pending' && info.start_at">
+            开始 {{ formatDateTime(info.start_at) }}
+          </span>
           <span>截止 {{ formatDateTime(info.end_at) }}</span>
           <span>应到 {{ info.target_count }} 人</span>
         </div>
 
-        <!-- 要求对所有人公开：没登录、已结束都能看到；地点地图也照常展示 -->
-        <div class="ck-req">
-          <span class="ck-label">签到要求</span>
-          <span v-if="info.location">
-            在「{{ info.location.name || '指定地点' }}」{{ info.location.radius_m }} 米范围内
-          </span>
-          <span v-if="info.location && info.require_photo">、</span>
-          <span v-if="info.require_photo">上传一张照片</span>
-          <span v-if="!info.location && !info.require_photo">
-            无需定位和照片，确认到场即可
-          </span>
-        </div>
+        <!-- 签到要求逐条编号列出：地点和照片各是一条 -->
+        <ol v-if="requirements.length" class="ck-req">
+          <li v-for="(item, i) in requirements" :key="i">{{ item }}</li>
+        </ol>
+        <p v-else class="ck-req">无需定位和照片，确认到场即可</p>
 
         <!-- 只读地图：地图没配就显示经纬度，不影响签到本身。
              截止之后链接仍可打开，这里也照常展示 -->
         <div v-if="info.location" class="ck-location">
-          <div class="ck-loc-head">
-            签到地点：{{ info.location.name || '指定地点' }}
-            <span class="ck-sub">（允许半径 {{ info.location.radius_m }} 米）</span>
-          </div>
           <MapPicker
             :model-value="{ lat: info.location.lat, lng: info.location.lng }"
             :radius="info.location.radius_m"
@@ -64,12 +54,17 @@
           />
         </div>
 
+        <!-- ---------- 未开始：只说明几时开始，到点刷新即可 ---------- -->
+        <div v-if="info.status === 'pending'" class="ck-actions">
+          <div class="ck-center">
+            <p class="ck-tip">
+              签到将于 {{ formatDateTime(info.start_at) }} 开始，到时间后刷新本页即可签到
+            </p>
+          </div>
+        </div>
+
         <!-- ---------- 进行中；或已结束但页面是截止前打开的（补签宽限） ---------- -->
-        <div v-if="info.status === 'ongoing' || info.grace_until" class="ck-actions">
-          <p v-if="info.status !== 'ongoing'" class="ck-tip ck-warn">
-            签到已在 {{ formatDateTime(info.end_at) }} 截止。你在截止前打开了链接，
-            可以在 {{ formatDateTime(info.grace_until) }} 前补签
-          </p>
+        <div v-else-if="info.status === 'ongoing' || info.grace_until" class="ck-actions">
           <template v-if="!info.is_login">
             <!-- 未登录是这一页唯一的行动号召，提示和按钮都居中放 -->
             <div class="ck-center">
@@ -96,34 +91,25 @@
               你在这次签到时段有已批准的请假。现在签到会记为「到」；不签则记为「请假」
             </p>
 
-            <div v-if="info.location" class="ck-block">
-              <div class="ck-block-head">
-                <span class="ck-label">签到地点</span>
-                <span>{{ info.location.name || '指定地点' }}</span>
-              </div>
-              <div class="ck-line">
-                <span class="ck-label">我的位置</span>
-                <template v-if="locating">定位中…</template>
-                <template v-else-if="position">
-                  <span :class="{ 'ck-warn': !withinRadius }">
-                    距签到地点约 {{ distance }} 米（允许 {{ info.location.radius_m }} 米）
-                  </span>
-                </template>
-                <span v-else class="ck-warn">还没有定位</span>
-                <el-button link type="primary" :loading="locating" @click="locate">
-                  {{ position ? '重新定位' : '获取位置' }}
-                </el-button>
-              </div>
-              <p v-if="position && !withinRadius" class="ck-tip ck-warn">
-                当前位置超出允许范围，请到签到地点附近再试
-              </p>
+            <!-- 地点在上面的要求里已经写明，这里只报本人位置，不重复地点名 -->
+            <div v-if="info.location" class="ck-line">
+              <span class="ck-label">我的位置</span>
+              <template v-if="locating">定位中…</template>
+              <template v-else-if="position">
+                <span :class="{ 'ck-warn': !withinRadius }">
+                  距签到地点约 {{ distance }} 米（允许 {{ info.location.radius_m }} 米）
+                </span>
+              </template>
+              <span v-else class="ck-warn">还没有定位</span>
+              <el-button link type="primary" :loading="locating" @click="locate">
+                {{ position ? '重新定位' : '获取位置' }}
+              </el-button>
             </div>
+            <p v-if="position && !withinRadius" class="ck-tip ck-warn">
+              当前位置超出允许范围，请到签到地点附近再试
+            </p>
 
-            <div v-if="info.require_photo" class="ck-block">
-              <div class="ck-block-head">
-                <span class="ck-label">照片</span>
-                <span>本次签到需要一张照片</span>
-              </div>
+            <template v-if="info.require_photo">
               <!-- 用原生 input：手机点一下就能调起相机，比套一层上传组件轻 -->
               <input
                 ref="fileInput"
@@ -134,6 +120,7 @@
                 @change="onFileChange"
               />
               <div class="ck-line">
+                <span class="ck-label">照片</span>
                 <span class="ck-tip" :class="{ 'ck-warn': uploadError }">
                   <template v-if="compressing">正在压缩照片…</template>
                   <template v-else-if="uploading">正在上传照片…</template>
@@ -168,11 +155,7 @@
                 :indeterminate="uploadPercent === null"
                 :stroke-width="6"
               />
-            </div>
-
-            <p v-if="!info.location && !info.require_photo" class="ck-tip">
-              确认你已到场，点下面的按钮完成签到
-            </p>
+            </template>
             <!-- 唯一的主按钮居中，和登录、已签到两个状态的按钮对齐 -->
             <div class="ck-center">
               <el-button
@@ -226,6 +209,24 @@ const error = ref('')
 // 404 = 链接不对，或这次签到已经被发布人删了：页面不显示「读取失败」，而是明说链接失效
 const notFound = ref(false)
 const info = ref(null)
+
+const statusText = computed(() => {
+  if (info.value?.status === 'pending') return '未开始'
+  return info.value?.status === 'ongoing' ? '进行中' : '已结束'
+})
+const statusTag = computed(() => {
+  if (info.value?.status === 'pending') return 'warning'
+  return info.value?.status === 'ongoing' ? 'success' : 'info'
+})
+
+/** 签到要求逐条列出：有就编号，一条都没有时说「确认到场即可」 */
+const requirements = computed(() => {
+  const items = []
+  const loc = info.value?.location
+  if (loc) items.push(`在「${loc.name || '指定地点'}」${loc.radius_m} 米范围内`)
+  if (info.value?.require_photo) items.push('上传一张照片')
+  return items
+})
 
 // 签到表单的状态。签到成功后整块被「已签到」替换，这些值不用再清
 const position = ref(null)
@@ -454,16 +455,19 @@ onMounted(load)
 }
 
 .ck-req {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-top: 12px;
+  margin: 12px 0 0;
   padding: 8px 12px;
   border-radius: 4px;
   background: var(--el-fill-color-light);
   font-size: 14px;
   color: var(--el-text-color-regular);
-  line-height: 1.5;
+  line-height: 1.6;
+}
+
+/* 签到的两项要求各占一条，按 1. 2. 编号 */
+ol.ck-req {
+  padding-left: 32px;
+  list-style: decimal;
 }
 
 .ck-location {
@@ -471,16 +475,6 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.ck-loc-head {
-  font-size: 14px;
-  color: var(--el-text-color-primary);
-}
-
-.ck-sub {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
 }
 
 .ck-actions {
@@ -502,19 +496,6 @@ onMounted(load)
 
 .ck-actions .el-button {
   min-width: 160px;
-}
-
-.ck-block {
-  width: 100%;
-  padding-top: 10px;
-  border-top: 1px solid var(--el-border-color-lighter);
-}
-
-.ck-block-head {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 6px;
-  font-size: 14px;
 }
 
 .ck-line {

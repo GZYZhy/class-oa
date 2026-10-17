@@ -80,6 +80,8 @@ class AttendanceOverviewItem(BaseModel):
 
     # 签到的情况
     status: str = ""
+    # 开始时间，可空（老签到没有这一列）
+    start_at: datetime | None = None
     target_count: int = 0
     signed_count: int = 0
     link: str = ""

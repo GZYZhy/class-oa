@@ -23,6 +23,8 @@ class CheckinCreate(BaseModel):
     targets: list[str] = Field(
         ..., min_length=1, max_length=500, description="范围内学生的学号"
     )
+    # 为空 = 发布即可签（兼容老前端）。新前端总会带上，默认是「现在」
+    start_at: datetime | None = Field(None, description="开始时间，为空 = 发布即可签")
     end_at: datetime = Field(..., description="截止时间")
     require_photo: bool = Field(False, description="是否要求上传一张照片")
     location: CheckinLocationIn | None = None
@@ -70,6 +72,8 @@ class CheckinListItem(BaseModel):
     status: str
     created_by_name: str = ""
     created_at: datetime | None = None
+    # 为空 = 老数据（发布即可签）
+    start_at: datetime | None = None
     end_at: datetime
     target_count: int = 0
     signed_count: int = 0
@@ -105,6 +109,8 @@ class CheckinPublicResponse(BaseModel):
     status: str
     created_by_name: str = ""
     created_at: datetime | None = None
+    # 为空 = 老数据（发布即可签）
+    start_at: datetime | None = None
     end_at: datetime
     require_photo: bool = False
     location: CheckinLocationResponse | None = None

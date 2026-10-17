@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..config import BASE_DIR
 from ..models import AttendanceItem, AttendanceRecord, Checkin, CheckinTarget, LeaveRequest
 
+CHECKIN_PENDING = "pending"
 CHECKIN_ONGOING = "ongoing"
 CHECKIN_ENDED = "ended"
 
@@ -28,15 +29,20 @@ EARTH_RADIUS_M = 6371000
 
 
 def checkin_status(checkin: Checkin, now: datetime | None = None) -> str:
-    """进行中 / 已结束
+    """未开始 / 进行中 / 已结束
 
     `finalized_at` 优先于时间判断：提前结束的签到 closed_at 已经落了，
     再怎么等也不会重新变成进行中。
+    `start_at` 为空 = 老数据（发布即可签），不做开始时间判断。
     """
     if checkin.finalized_at is not None:
         return CHECKIN_ENDED
     now = now or datetime.now()
-    return CHECKIN_ENDED if now >= checkin.end_at else CHECKIN_ONGOING
+    if now >= checkin.end_at:
+        return CHECKIN_ENDED
+    if checkin.start_at is not None and now < checkin.start_at:
+        return CHECKIN_PENDING
+    return CHECKIN_ONGOING
 
 
 def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:

@@ -9,8 +9,11 @@
     </template>
     <div v-loading="loading" class="cd-body">
       <div class="cd-meta">
-        <el-tag :type="detail.status === 'ongoing' ? 'success' : 'info'" size="small">
-          {{ detail.status === 'ongoing' ? '进行中' : '已结束' }}
+        <el-tag
+          :type="detail.status === 'pending' ? 'warning' : detail.status === 'ongoing' ? 'success' : 'info'"
+          size="small"
+        >
+          {{ detail.status === 'pending' ? '未开始' : detail.status === 'ongoing' ? '进行中' : '已结束' }}
         </el-tag>
         <span class="cd-sub">
           {{ detail.created_by_name }} 发布于 {{ formatDateTime(detail.created_at) }}
@@ -19,6 +22,10 @@
       <div v-if="detail.remark" class="cd-remark-row">
         <span class="cd-label">说明</span>
         <span class="cd-remark-text">{{ detail.remark }}</span>
+      </div>
+      <div v-if="detail.start_at" class="cd-line">
+        <span class="cd-label">开始时间</span>
+        <span>{{ formatDateTime(detail.start_at) }}</span>
       </div>
       <div class="cd-line">
         <span class="cd-label">截止时间</span>

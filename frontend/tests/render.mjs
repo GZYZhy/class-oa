@@ -4500,7 +4500,7 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
   // 结算生成的考勤不再单独成行，签到那一行自己换成标准格式
   check(attendancePy.includes('AttendanceRecord.id.notin_(settled_ids)'),
     '签到结算生成的那条考勤不单独出现在列表里')
-  check(pageSrc.includes("row.type === 'attendance' || row.status !== 'ongoing'")
+  check(pageSrc.includes("row.type === 'attendance' || row.status === 'ended'")
     && pageSrc.includes('已签 {{ row.signed_count }} / {{ row.target_count }}'),
     '签到结算后本行显示应到/实到/请假/无应答，进行中才显示已签人数')
   check(/record_ids: list\[int\] = Query\(default=\[\]/.test(attendancePy)
@@ -4564,8 +4564,10 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
     inject({ location: { lat: 39.9071, lng: 116.3972, radius_m: 100, name: '一公寓门口' } })
   )
   const locatedText = stripComments(located)
-  check(locatedText.includes('签到地点：一公寓门口'), '公开页显示签到地点名')
-  check(locatedText.includes('允许半径 100 米'), '公开页写明允许半径')
+  check(locatedText.includes('在「一公寓门口」100 米范围内'), '公开页把签到地点与允许半径写进要求')
+  check(/<ol class="ck-req"/.test(located) && /<li/.test(located),
+    '签到要求按 1. 2. 编号列出')
+  check(!locatedText.includes('签到地点：一公寓门口'), '地点只出现在要求里，不再重复一行标题')
   check(locatedText.includes('纬度 39.9071'), '没配地图时降级显示经纬度')
 
   // 能签时表单直接长在页面上（不再弹窗），并带上定位与照片入口
@@ -4580,8 +4582,23 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   const formText = stripComments(form)
   check(formText.includes('确认签到'), '签到表单位于页面内，不用再弹窗')
   check(form.includes('class="ck-center"'), '确认签到按钮居中')
-  check(form.includes('class="ck-block"'), '定位与照片用页面里的分块样式')
+  check(form.includes('class="ck-line"') && !form.includes('ck-block'),
+    '定位与照片各占一行，不再套一层分块')
   check(formText.includes('请拍照或从相册选一张'), '要求照片时页面内给出选择入口')
+
+  // 还没到开始时间：只说几时开始，不给签到按钮
+  const { html: pending } = await renderPatched(
+    '/src/views/Checkin.vue',
+    'onMounted(load)',
+    inject({
+      status: 'pending', start_at: '2026-10-18T19:00:00',
+      is_login: true, is_target: true
+    })
+  )
+  const pendingText = stripComments(pending)
+  check(pendingText.includes('未开始'), '没到开始时间时标「未开始」')
+  check(pendingText.includes('签到将于 2026-10-18 19:00 开始'), '没到开始时写明几时开始')
+  check(!pendingText.includes('确认签到'), '没到开始时不给签到按钮')
 
   // 已签到
   const { html: signed } = await renderPatched(
@@ -4607,8 +4624,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
     inject({ status: 'ended', grace_until: '2026-10-18T20:00:00' })
   )
   const graceGuestText = stripComments(graceGuest)
-  check(graceGuestText.includes('可以在 2026-10-18 20:00 前补签'),
-    '已结束但页面是截止前打开的：写明补签截止时刻')
+  check(!graceGuestText.includes('前补签'), '补签不再显示提示语')
   check(graceGuestText.includes('登录后签到'),
     '游客在宽限内仍然能走「登录后签到」，不会只剩一句已结束')
 
@@ -4622,7 +4638,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   )
   const graceFormText = stripComments(graceForm)
   check(graceFormText.includes('确认签到'), '已结束但在宽限内，签到表单照样显示')
-  check(graceFormText.includes('前补签'), '补签表单上方说明为什么还能签')
+  check(!graceFormText.includes('前补签'), '补签表单上方也不再有提示语')
 
   // 截止之后链接仍能看：地点地图与要求对游客也公开
   const { html: endedInfo } = await renderPatched(
@@ -4636,11 +4652,11 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   )
   const endedInfoText = stripComments(endedInfo)
   check(endedInfoText.includes('这次签到已经结束'), '截止后仍能打开链接看信息')
-  check(endedInfoText.includes('签到要求'), '签到要求对所有人公开')
+  check(/<ol class="ck-req"/.test(endedInfo), '签到要求逐条编号，对所有人公开')
   check(endedInfoText.includes('一公寓门口') && endedInfoText.includes('100 米范围内'),
     '未登录、已结束时也写明地点与允许半径')
   check(endedInfoText.includes('上传一张照片'), '要求照片对所有人公开')
-  check(endedInfoText.includes('签到地点：一公寓门口'), '已结束时地图与地点照常展示')
+  check(endedInfo.includes('class="ck-location"'), '已结束时地图照常展示')
   check(endedInfoText.includes('纬度 39.9071'), '已结束时没配地图也能看到坐标')
 
   // 结算后可在签到详情里逐人改出勤状态（读写结算生成的考勤明细）
@@ -4694,7 +4710,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   // 登录耗时不能把人挡在门外，但宽限由服务端给（grace_until），前端不自己算
   check(checkinVueSrc.includes("info.status === 'ongoing' || info.grace_until"),
     '已结束但服务端给了补签宽限时，表单照常显示')
-  check(checkinVueSrc.includes('前补签'), '补签时说明「截止前打开了链接」')
+  check(!checkinVueSrc.includes('前补签'), '补签不再显示提示语')
   check(!/OPEN_GRACE|30 \* 60|30分钟宽限/.test(checkinVueSrc),
     '宽限时长只在后端定义，前端不另写一份')
 
@@ -4753,7 +4769,15 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
   check(create.includes(':radius="form.radius_m"'), '发布弹窗把半径传给地图')
   check(/if \(!point\.value\) return '已打开「要求定位」，请先选择签到地点'/.test(create),
     '打开定位却没选点时不让发布')
-  check(create.includes("const d = new Date(Date.now() + 30 * 60 * 1000)"), '截止时间默认 30 分钟后')
+  check(create.includes('function defaultEnd()')
+    && /function defaultEnd\(\) \{\s*return formatPicker\(new Date\(Date.now\(\) \+ 30 \* 60 \* 1000\)\)/
+      .test(create), '截止时间默认 30 分钟后')
+  check(/function defaultStart\(\) \{\s*return formatPicker\(new Date\(\)\)/.test(create),
+    '开始时间默认现在')
+  check(create.includes('label="开始时间"') && create.includes('v-model="form.start_at"')
+    && create.includes('start_at: form.start_at'), '发布弹窗可以指定开始时间并随表单提交')
+  check(create.includes('开始时间必须早于截止时间'), '开始时间晚于截止时间时前端先拦一道')
+  check(create.includes('label="地点的展示名称"'), '地点名称那一项叫「地点的展示名称」')
 }
 
 await server.close()
