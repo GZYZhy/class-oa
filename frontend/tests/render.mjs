@@ -4666,10 +4666,13 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
   // 只看真正下发的那一行，注释里的示例不算
   const csp = cspFile.match(/add_header Content-Security-Policy "([^"]+)"/)?.[1] || ''
   const directive = (name) => csp.match(new RegExp(`${name} ([^;]+);`))?.[1] || ''
-  check(directive('script-src').includes('https://webapi.amap.com'), 'CSP 允许加载高德地图脚本')
-  check(directive('connect-src').includes('https://restapi.amap.com') &&
-    directive('connect-src').includes('https://webapi.amap.com'),
-    'CSP 允许高德的逆地理编码请求')
+  // 只放行 webapi 不够：高德 2.0 运行时还会从 jsapi-service.amap.com 拉
+  // WebGLRender 插件，脚本被 CSP 拦掉时地图就是一片白网格（2026-10-18 线上踩过）
+  check(directive('script-src').includes('https://*.amap.com'), 'CSP 允许加载高德地图脚本与运行时插件')
+  check(directive('script-src').includes("'unsafe-eval'"),
+    'CSP 允许高德装配 WebGLRender（它用 eval，不加地图只剩白网格）')
+  check(directive('connect-src').includes('https://*.amap.com'),
+    'CSP 允许高德的逆地理编码与底图数据请求')
 
   const create = readFileSync(`${ROOT}/src/components/CheckinCreateDialog.vue`, 'utf8')
   check(create.includes(':radius="form.radius_m"'), '发布弹窗把半径传给地图')
