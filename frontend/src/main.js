@@ -41,7 +41,7 @@ import {
   Key, Link, List, Loading, Lock, Male,
   Medal, Menu, Message, MoreFilled, Notification, Paperclip,
   Picture, PieChart, Plus, Pointer, Postcard, Present,
-  Refresh, RefreshLeft, Right, Search, Select, Setting,
+  Refresh, RefreshLeft, RefreshRight, Right, Search, Select, Setting,
   Sort, Star, SwitchButton, Tickets, Top, Upload,
   UploadFilled, User, UserFilled, Van, Warning, ZoomIn,
   ZoomOut
@@ -78,7 +78,7 @@ const ICONS = {
   Key, Link, List, Loading, Lock, Male,
   Medal, Menu, Message, MoreFilled, Notification, Paperclip,
   Picture, PieChart, Plus, Pointer, Postcard, Present,
-  Refresh, RefreshLeft, Right, Search, Select, Setting,
+  Refresh, RefreshLeft, RefreshRight, Right, Search, Select, Setting,
   Sort, Star, SwitchButton, Tickets, Top, Upload,
   UploadFilled, User, UserFilled, Van, Warning, ZoomIn,
   ZoomOut

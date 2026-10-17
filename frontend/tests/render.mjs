@@ -3438,6 +3438,34 @@ console.log('\n▶ 材料预览小窗：慢网络下要看得见在加载，关�
   check(loadPdf.slice(0, loadPdf.indexOf('\n}')).includes('inFlight.signal'), 'PDF 也递了取消信号')
 }
 
+console.log('\n▶ 材料预览小窗：图片能转正（手机拍的证明经常是躺着的）')
+{
+  const src = readFileSync(`${ROOT}/src/components/FileViewer.vue`, 'utf8')
+
+  check(
+    src.includes('@click="rotateLeft"') && src.includes('@click="rotateRight"'),
+    '图片工具条有向左 / 向右旋转两个按钮'
+  )
+  check(
+    /rotate\.value \+ 270\) % 360/.test(src) && /rotate\.value \+ 90\) % 360/.test(src),
+    '每次转 90°，角度归一化到 0~359'
+  )
+  check(src.includes('rotate(${rotate}deg)'), '旋转真的应用在图片的 transform 上')
+  check(/watch\([\s\S]{0,400}rotate\.value = 0/.test(src), '每次打开都从正向开始')
+  // PDF 不跟着转：那两个按钮只写在图片分支里，PDF 分支没有
+  const pdfBranch = src.slice(src.indexOf('<!-- PDF -->'), src.indexOf('<!-- 不支持的类型 -->'))
+  check(!pdfBranch.includes('rotateLeft'), 'PDF 工具条没有旋转按钮')
+
+  // 真渲染一遍图片分支。SSR 下 el-dialog 正文不渲染，得套上会渲染的桩
+  const { html } = await render(
+    '/src/components/FileViewer.vue',
+    { ElDialog: ElDialogStub },
+    { modelValue: true, fileName: '证明.jpg', fileUrl: '/x.jpg' }
+  )
+  check(html.includes('向左旋转'), '向左旋转按钮带说明（图标按钮没有文字）')
+  check(html.includes('向右旋转'), '向右旋转按钮带说明')
+}
+
 console.log('\n▶ 弱网首屏：图表库按需且不挡首页，图标不整包进产物')
 {
   const iconNames = new Set(Object.keys(Icons))
