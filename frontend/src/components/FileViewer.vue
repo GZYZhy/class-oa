@@ -94,7 +94,7 @@
         <el-button type="primary" :loading="downloading" @click="handleDownload">
           <el-icon v-if="!downloading"><Download /></el-icon>
           <!-- 慢网络下大文件传得久，把百分比写出来免得让人以为卡死了 -->
-          {{ downloading && progress ? progress + '%' : '下载' }}
+          {{ downloading && downloadPercent !== null ? downloadPercent + '%' : '下载' }}
         </el-button>
       </span>
       <el-button @click="emit('update:modelValue', false)">关闭</el-button>
@@ -169,6 +169,14 @@ const pdfScale = ref(1.2)
 const downloading = ref(false)
 // 当前这次取文件的进度 { loaded, total }（total 为 0 表示后端没给 Content-Length）
 const progress = ref(null)
+
+// 下载按钮上的百分比。progress 是 { loaded, total }，别直接拼进模板 ——
+// 拼出来会是「[object Object]%」。拿不到总大小时返回 null，按钮只写「下载」
+const downloadPercent = computed(() => {
+  const p = progress.value
+  if (!p || !p.total) return null
+  return Math.min(100, Math.round((p.loaded / p.total) * 100))
+})
 
 // 遮罩上的文字：有 Content-Length 就写清楚下到哪了，没有就只说在加载
 const loadingText = computed(() => {

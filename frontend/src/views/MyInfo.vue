@@ -240,16 +240,14 @@
               </div>
 
               <!-- 访问令牌：同样是「账号安全」范畴（拿到令牌等于拿到你的账号），
-                   所以和修改密码放同一个 tab。组件自己是折叠的，平时不占地方 -->
-              <el-divider />
+                   所以和修改密码放同一个 tab。组件自己是折叠的，平时不占地方。
+                   三块之间不再加 el-divider：折叠项自带分隔线，再加一道就成了双线 -->
               <AccessTokenSetting />
 
               <!-- 通行密钥：同样是账号安全的范畴，和访问令牌并列 -->
-              <el-divider />
               <PasskeySetting />
 
               <!-- 二次验证：密码之外再加一道，和通行密钥一样属于登录方式 -->
-              <el-divider />
               <TwoFactorSetting />
             </el-tab-pane>
 
@@ -1239,6 +1237,12 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* 账号安全里三块折叠面板上下紧挨着，每块自己带上下边框，相邻处会叠成两条线。
+   去掉后一块的上边框，两块之间就只剩一条分隔线 */
+.channel-block + .channel-block :deep(.el-collapse) {
+  border-top: 0;
+}
+
 /* tab 内的分节：外层 page-card 已经给了白底和内边距，这里只要间距 */
 .tab-section {
   margin-bottom: 28px;

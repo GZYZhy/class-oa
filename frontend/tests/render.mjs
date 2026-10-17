@@ -3312,6 +3312,13 @@ console.log('\n▶ 材料预览小窗：慢网络下要看得见在加载，关�
 
   // 图片分支原来既不显示进度、也没有遮罩：点开请假证明材料是一整片空白，
   // 而这些材料常有几 MB 的扫描件，慢网络下要等好一会儿，看着像点坏了
+  // 下载按钮上的百分比：progress 是 { loaded, total }，直接拼进模板会印成
+  // 「[object Object]%」。慢网络下用户看到的就是这一串乱码
+  check(src.includes('const downloadPercent = computed'),
+    '下载按钮的百分比从 { loaded, total } 算出来')
+  check(!/progress \+ '%'/.test(src),
+    '按钮上不再直接把 progress 对象拼成 [object Object]%')
+
   check(src.includes('v-loading="loadingImage"'), '图片分支挂了加载遮罩')
   check(/:element-loading-text="loadingText"/.test(src.slice(0, src.indexOf('<!-- PDF -->'))),
     '遮罩上带进度文字（和 PDF 分支共用同一句）')
@@ -3559,6 +3566,19 @@ console.log('\n▶ 通行密钥：没有浏览器的环境要安静降级')
   check(usable.html.includes('添加通行密钥'), '支持时可以添加')
   check(usable.html.includes('登录密码'), '添加前要再确认一次密码')
   check(usable.html.includes('服务器只保存公钥'), '说明了私钥不离开设备')
+}
+
+console.log('\n▶ 账号安全：三块折叠面板之间不再叠分割线')
+{
+  const src = readFileSync(`${ROOT}/src/views/MyInfo.vue`, 'utf8')
+  const start = src.indexOf('<!-- 访问令牌')
+  const end = src.indexOf('</el-tab-pane>', start)
+  check(start > 0 && end > start, '找得到账号安全那一段')
+  const account = src.slice(start, end)
+  check(!account.includes('<el-divider'),
+    '访问令牌 / 通行密钥 / 二次验证之间没有 el-divider（折叠项自带边框）')
+  check(src.includes('.channel-block + .channel-block :deep(.el-collapse)'),
+    '相邻折叠面板去掉后一块的上边框，避免两条线并排')
 }
 
 console.log('\n▶ 二次验证：登录第二步与账户设置')
