@@ -79,6 +79,9 @@ services:
       - SITE_FOOTER=${SITE_FOOTER:-}
       # SEO 描述；留空时由 entrypoint 取 SITE_NAME
       - SITE_DESCRIPTION=${SITE_DESCRIPTION:-}
+      # 可选的 <head> 注入内容（统计 / 跟踪器等第三方脚本）。
+      # 原样插入，不转义；多行写法见 .env.example
+      - HEAD_INJECT=${HEAD_INJECT:-}
       # 监听的域名，默认 _（所有域名）
       # - NGINX_SERVER_NAME=example.com
       # 是否信任反向代理的 X-Forwarded-* 头（on/off），默认 on

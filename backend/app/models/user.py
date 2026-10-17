@@ -113,4 +113,25 @@ class User(Base):
         Integer, nullable=False, default=0, server_default=text("0"),
         comment="会话代次，吊销所有会话时 +1",
     )
+    # ---------- 二次验证（默认关闭） ----------
+    # 空串 = 没开（默认值），email = 邮箱验证码，totp = 身份验证器。
+    # 密码始终是第一因素；打开后，密码对了还要再过一道才算登录。
+    # **通行密钥登录例外**：钥匙本身就要求用户在场验证，所以直接跳过二次验证。
+    two_factor_method = Column(
+        String(10), nullable=False, default="", server_default=text("''"),
+        comment="二次验证方式：空|email|totp",
+    )
+    # TOTP 密钥（Base32）。只在 method=totp 时非空。
+    # ⚠ 明文存储：拿到数据库的人可以生成任意验证码。它的性质和密码哈希不同，
+    # 保护级别等同 SMTP 密码——只能靠「整库不外泄」这一条，不能靠这一列自身。
+    totp_secret = Column(
+        String(64), nullable=False, default="", server_default=text("''"),
+        comment="TOTP 密钥（Base32），未开启时为空",
+    )
+    # 上次通过的 TOTP 时间步。用来防重放：同一个 30 秒步里的验证码只能用一次，
+    # 否则截到验证码的人在 45 秒窗口内还能再登一次
+    totp_last_step = Column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+        comment="最近用过的 TOTP 时间步，防重放",
+    )
     created_at = Column(DateTime, server_default=func.now())

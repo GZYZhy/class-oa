@@ -308,6 +308,36 @@ def test_admin_can_clear_and_key_stops_working(b):
     assert b.login(ADMIN_NO, "010001").status_code == 200
 
 
+def test_passkey_login_skips_two_factor(b):
+    """开了二次验证也能直接用钥匙登录：钥匙本身已经是第二因素"""
+    from app.utils.totp import code_at
+
+    r = b.client.post("/api/auth/2fa/totp/begin", json={"password": "010001"})
+    assert r.status_code == 200, r.text
+    secret = r.json()["secret"]
+    r = b.client.post("/api/auth/2fa/totp/confirm", json={"code": code_at(secret)})
+    assert r.status_code == 200, r.text
+
+    auth = _authenticator(b)
+    assert _register(b, auth).status_code == 200
+
+    b.logout()
+    # 密码登录被拦在第二因素
+    r = b.login(ADMIN_NO, "010001")
+    assert r.json()["two_factor_required"] is True
+    assert b.client.get("/api/auth/me").status_code == 401
+
+    # 钥匙登录不经过那一关，直接完成
+    options = _login_options(b)
+    assert options.status_code == 200, options.text
+    r = b.client.post(
+        "/api/auth/passkeys/login/verify",
+        json={"student_no": ADMIN_NO, "remember": True, "credential": auth.login(options.json())},
+    )
+    assert r.status_code == 200, r.text
+    assert b.client.get("/api/auth/me").status_code == 200
+
+
 def test_only_own_key_can_be_deleted(b):
     """删别人的钥匙：404，而不是删掉或报 500"""
     auth = _authenticator(b)
