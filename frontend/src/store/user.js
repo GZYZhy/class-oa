@@ -68,10 +68,13 @@ export const useUserStore = defineStore('user', {
      * 后端校验通过时已经写好会话，这里只要把用户信息接过来。
      * 浏览器取消 / 超时的异常原样往外抛，由登录页决定怎么提示。
      */
-    async loginWithPasskey({ student_no, remember }) {
-      const options = await getPasskeyLoginOptions({ student_no, remember })
-      const credential = await getPasskey(options)
-      this.info = await verifyPasskeyLogin({ student_no, remember, credential })
+    async loginWithPasskey({ remember, mediation, signal }) {
+      // 不在前端点名账号：allowCredentials 为空，浏览器列出本机的钥匙，
+      // 服务器在验证那一步按凭据反查持有人。
+      // mediation / signal 只给条件式 UI（自动填充）用，按钮路径不传
+      const options = await getPasskeyLoginOptions({ remember })
+      const credential = await getPasskey(options, { mediation, signal })
+      this.info = await verifyPasskeyLogin({ remember, credential })
       this.resolved = true
       return this.info
     },

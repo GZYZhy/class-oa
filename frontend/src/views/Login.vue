@@ -67,10 +67,15 @@
 
       <el-form v-else :model="form" @submit.prevent="handleLogin">
         <el-form-item>
+          <!-- autocomplete="username webauthn" 是条件式 UI 的开关：
+               登记过钥匙的人聚焦这里时，系统会把钥匙列进自动填充；
+               没登记过的人看到的就是一个普通输入框，没有任何额外提示 -->
           <el-input
             v-model="form.student_no"
             size="large"
             placeholder="学号 / 账号"
+            name="username"
+            autocomplete="username webauthn"
             :prefix-icon="User"
             clearable
           />
@@ -132,12 +137,12 @@
         </el-button>
 
         <!-- 通行密钥登录：浏览器不支持或不是 HTTPS 时整行不出现。
-             需要先填学号 —— 服务器要靠它找出这个账号名下有哪些钥匙 -->
+             不需要先填学号：钥匙里带着账号，点按钮后由系统列出本机的钥匙 -->
         <div v-if="passkeyReady" class="passkey-row">
           <el-divider>或</el-divider>
           <el-button
-            link
-            type="primary"
+            size="large"
+            class="login-btn passkey-btn"
             :loading="passkeyLoading"
             @click="handlePasskeyLogin"
           >
@@ -161,7 +166,7 @@ import { User, Lock, Key } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { getCaptcha, getCaptchaRequired, resendTwoFactorCode } from '@/api/auth'
-import { isPasskeySupported } from '@/utils/passkey'
+import { isPasskeySupported, isConditionalPasskeyAvailable } from '@/utils/passkey'
 import { SITE } from '@/utils/site'
 
 const router = useRouter()
@@ -181,6 +186,12 @@ const form = reactive({
 // 服务端渲染 / 老浏览器里 isPasskeySupported() 返回 false，页面和以前一样
 const passkeyReady = ref(false)
 const passkeyLoading = ref(false)
+
+// 条件式 UI（聚焦账号框时自动填充钥匙）挂起的请求。
+// **绝大多数同学没登记过钥匙**，所以这条路径全程静默：不弹窗、不提示、不占位，
+// 没钥匙的人看到的登录页和以前一模一样。白底按钮才是人人可用的入口。
+let conditionalAbort = null
+let conditionalStopped = false
 
 const showCaptcha = ref(false)
 const captchaSrc = ref('')
@@ -250,6 +261,8 @@ onMounted(async () => {
   } catch (e) {
     // 问不到就算了，默认不显示，输错一次后端会提示要验证码
   }
+
+  if (!banMessage.value) startConditionalPasskey()
 })
 
 async function handleLogin() {
@@ -309,24 +322,21 @@ async function handleLogin() {
  * 用通行密钥登录
  *
  * 不校验验证码：通行密钥本身就是第二因素，后端也只做了封禁检查。
- * 学号必须自己填 —— 浏览器里的钥匙是按 RP ID 存的，服务器得先知道
- * 该拿谁的钥匙名单去点名。
+ * 也不需要学号：登记时钥匙里存了账号，浏览器会列出本机属于本站的钥匙，
+ * 用户挑一把、过指纹 / 面容 / PIN 即可，服务器按凭据反查持有人。
  */
 async function handlePasskeyLogin() {
-  if (!form.student_no.trim()) return ElMessage.warning('请先填写学号或账号')
-
+  // 自动填充和按钮不能同时挂起：两边都会在服务端会话里存挑战，后发起的会覆盖先前的
+  stopConditionalPasskey()
   passkeyLoading.value = true
   try {
-    await userStore.loginWithPasskey({
-      student_no: form.student_no.trim(),
-      remember: form.remember
-    })
+    await userStore.loginWithPasskey({ remember: form.remember })
     ElMessage.success('登录成功')
     router.replace(route.query.redirect || '/dashboard')
   } catch (e) {
-    // 用户点了「取消」或者等超时：浏览器抛 NotAllowedError，不是系统故障
+    // 用户点了「取消」、等待超时，或本机没有可用的钥匙：都是 NotAllowedError
     if (e?.name === 'NotAllowedError') {
-      ElMessage.info('已取消通行密钥验证')
+      ElMessage.info('未选择通行密钥，或本机没有可用的钥匙')
       return
     }
     const status = e?.response?.status
@@ -341,9 +351,49 @@ async function handlePasskeyLogin() {
   }
 }
 
+/**
+ * 让钥匙出现在账号框的自动填充里（条件式 UI）
+ *
+ * 不 popup：页面加载后只是挂起一次 get(mediation:'conditional')，
+ * 用户聚焦账号框、从自动填充里选了钥匙，系统才弹指纹 / 面容。
+ * 没登记过钥匙的人不会看到任何变化；任何失败都静默，绝不打扰正要输密码的人。
+ */
+async function startConditionalPasskey() {
+  if (!(await isConditionalPasskeyAvailable()) || conditionalStopped) return
+
+  const controller = new AbortController()
+  conditionalAbort = controller
+  try {
+    await userStore.loginWithPasskey({
+      remember: form.remember,
+      mediation: 'conditional',
+      signal: controller.signal
+    })
+    ElMessage.success('登录成功')
+    router.replace(route.query.redirect || '/dashboard')
+  } catch (e) {
+    // 一律不提示：没选、没钥匙、挑战过期、网络抖动，甚至我们主动中止（AbortError）。
+    // 这里多弹一个字，全班每个人都会在打开登录页时看到它
+  } finally {
+    if (conditionalAbort === controller) conditionalAbort = null
+  }
+}
+
+/** 中止挂起的自动填充。按钮、二次验证、离开页面时都要调用 */
+function stopConditionalPasskey() {
+  conditionalStopped = true
+  if (conditionalAbort) {
+    conditionalAbort.abort()
+    conditionalAbort = null
+  }
+}
+
 // ---------- 二次验证 ----------
 
 function enterTwoFactor(data) {
+  // 表单要整个换成验证码输入框，挂起的自动填充已经无处可显示；
+  // 不停掉的话，用户在验证码那一步选钥匙会绕过二次验证
+  stopConditionalPasskey()
   twoFactor.value = data
   twoFactorCode.value = ''
   // 密码已经用完，不留在内存里
@@ -419,7 +469,10 @@ async function cancelTwoFactor() {
   resetTwoFactor()
 }
 
-onBeforeUnmount(stopResendCooldown)
+onBeforeUnmount(() => {
+  stopResendCooldown()
+  stopConditionalPasskey()
+})
 
 function goHome() {
   router.push('/dashboard')
@@ -559,7 +612,11 @@ function goHome() {
 
 .passkey-row {
   margin-top: 6px;
-  text-align: center;
+}
+
+/* 和「登 录」同宽同高，只是白底次要按钮；字距不跟主按钮走，太长会挤出卡片 */
+.passkey-btn {
+  letter-spacing: 1px;
 }
 
 /* 「或」两侧留得比默认窄一点，别把登录卡片撑长 */

@@ -6,8 +6,9 @@
 挑战、来源、RP ID、签名计数器、COSE 公钥，任何一处不一致都会在这里拦下。
 
 覆盖：登记 → 列表 → 登出 → 用钥匙登录 → /me；错误密码拿不到选项；
-挑战一次性且分登记/登录两种；同一把钥匙不能重复登记；
-管理员清除后钥匙失效；查无此人也不暴露学号是否存在。
+挑战一次性且分登记/登录两种；同一把钥匙不能重复登记；管理员清除后钥匙失效；
+**登录不输学号**：选项不点名凭据、按钥匙反查持有人、没登记的钥匙进不来；
+登记必须要求可发现凭据（resident key）。
 
 cd backend && python -m pytest tests/test_passkey.py -q
 """
@@ -152,22 +153,32 @@ def _authenticator(b) -> SoftAuthenticator:
     return SoftAuthenticator(origin=origin, rp_id="127.0.0.1")
 
 
-def _register(b, auth: SoftAuthenticator, label: str = "测试钥匙"):
+def _register(b, auth: SoftAuthenticator, label: str = "测试钥匙", password: str = "010001"):
     options = b.client.post(
         "/api/auth/passkeys/register/options",
-        json={"password": "010001", "label": label},
+        json={"password": password, "label": label},
     )
     assert options.status_code == 200, options.text
     return b.client.post(
         "/api/auth/passkeys/register/verify",
-        json={"password": "010001", "label": label, "credential": auth.register(options.json())},
+        json={"password": password, "label": label, "credential": auth.register(options.json())},
     )
 
 
-def _login_options(b, student_no: str = ADMIN_NO):
+def _login_options(b):
+    """取登录选项：不再带学号，服务器返回空 allowCredentials"""
     return b.client.post(
         "/api/auth/passkeys/login/options",
-        json={"student_no": student_no, "remember": True},
+        json={"remember": True},
+    )
+
+
+def _login(b, auth: SoftAuthenticator):
+    options = _login_options(b)
+    assert options.status_code == 200, options.text
+    return b.client.post(
+        "/api/auth/passkeys/login/verify",
+        json={"remember": True, "credential": auth.login(options.json())},
     )
 
 
@@ -191,12 +202,9 @@ def test_register_login_and_list(b):
 
     options = _login_options(b)
     assert options.status_code == 200, options.text
-    assert options.json()["allowCredentials"], "应按学号点名这把钥匙"
+    assert options.json()["allowCredentials"] == [], "不点名任何凭据，由浏览器列出本机的钥匙"
 
-    r = b.client.post(
-        "/api/auth/passkeys/login/verify",
-        json={"student_no": ADMIN_NO, "remember": True, "credential": auth.login(options.json())},
-    )
+    r = _login(b, auth)
     assert r.status_code == 200, r.text
     assert r.json()["student_no"] == ADMIN_NO
 
@@ -231,7 +239,6 @@ def test_challenge_is_single_use(b):
 
     options = _login_options(b)
     payload = {
-        "student_no": ADMIN_NO,
         "remember": True,
         "credential": auth.login(options.json()),
     }
@@ -255,7 +262,6 @@ def test_register_challenge_cannot_be_used_to_login(b):
     r = b.client.post(
         "/api/auth/passkeys/login/verify",
         json={
-            "student_no": ADMIN_NO,
             "remember": True,
             # 响应是按登录格式造的，但服务端会话里存的是登记挑战
             "credential": auth.login({"challenge": options.json()["challenge"]}),
@@ -276,11 +282,71 @@ def test_same_credential_cannot_register_twice(b):
     assert len(b.client.get("/api/auth/passkeys").json()["items"]) == 1
 
 
-def test_unknown_student_does_not_leak(b):
-    """查无此人时也给选项，只是 allowCredentials 为空 —— 接口不能当学号查询器"""
-    r = _login_options(b, "2024999999")
+def test_register_requires_discoverable_credential(b):
+    """登记必须要求可发现凭据：钥匙里不存账号，浏览器就列不出来，免账号登录无从谈起"""
+    r = b.client.post(
+        "/api/auth/passkeys/register/options",
+        json={"password": "010001", "label": "测试钥匙"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["authenticatorSelection"]["residentKey"] == "required"
+
+
+def test_login_options_never_enumerate_credentials(b):
+    """库里明明有钥匙，登录选项里也不点名 —— 选哪把由浏览器决定，接口不暴露账号"""
+    auth = _authenticator(b)
+    assert _register(b, auth).status_code == 200
+
+    b.logout()
+    r = _login_options(b)
     assert r.status_code == 200, r.text
     assert r.json()["allowCredentials"] == []
+
+
+def test_unregistered_credential_is_rejected(b):
+    """没在本站登记过的钥匙，即使拿到了合法挑战也登不进来"""
+    auth = _authenticator(b)
+    options = _login_options(b)
+    r = b.client.post(
+        "/api/auth/passkeys/login/verify",
+        json={"remember": True, "credential": auth.login(options.json())},
+    )
+    assert r.status_code == 400, r.text
+
+
+def test_key_identifies_its_owner_without_student_no(b):
+    """两把钥匙分属两个账号：登出后选谁的钥匙就登谁，前端不用传学号"""
+    other_no = "2024000002"
+    auth1 = _authenticator(b)
+    assert _register(b, auth1).status_code == 200
+
+    # 建第二个学生（自动建号，初始密码 = 身份证后 6 位），登录后登记第二把钥匙
+    r = b.client.post(
+        "/api/students",
+        json={
+            "student_no": other_no,
+            "name": "乙",
+            "id_card": "110101200601010002",
+        },
+    )
+    assert r.status_code == 200, r.text
+    b.logout()
+    assert b.login(other_no, "010002").status_code == 200
+    auth2 = _authenticator(b)
+    assert _register(b, auth2, label="乙的钥匙", password="010002").status_code == 200
+
+    # 第二把 → 第二个人
+    b.logout()
+    r = _login(b, auth2)
+    assert r.status_code == 200, r.text
+    assert r.json()["student_no"] == other_no
+    assert b.client.get("/api/auth/me").json()["student_no"] == other_no
+
+    # 第一把 → 第一个人，两把不会串
+    b.logout()
+    r = _login(b, auth1)
+    assert r.status_code == 200, r.text
+    assert r.json()["student_no"] == ADMIN_NO
 
 
 def test_admin_can_clear_and_key_stops_working(b):
@@ -295,13 +361,7 @@ def test_admin_can_clear_and_key_stops_working(b):
     assert b.client.get("/api/auth/passkeys").json()["items"] == []
 
     b.logout()
-    options = _login_options(b)
-    assert options.status_code == 200, options.text
-    assert options.json()["allowCredentials"] == []
-    r = b.client.post(
-        "/api/auth/passkeys/login/verify",
-        json={"student_no": ADMIN_NO, "remember": True, "credential": auth.login(options.json())},
-    )
+    r = _login(b, auth)
     assert r.status_code == 400, r.text
 
     # 密码这条退路始终在
@@ -328,12 +388,7 @@ def test_passkey_login_skips_two_factor(b):
     assert b.client.get("/api/auth/me").status_code == 401
 
     # 钥匙登录不经过那一关，直接完成
-    options = _login_options(b)
-    assert options.status_code == 200, options.text
-    r = b.client.post(
-        "/api/auth/passkeys/login/verify",
-        json={"student_no": ADMIN_NO, "remember": True, "credential": auth.login(options.json())},
-    )
+    r = _login(b, auth)
     assert r.status_code == 200, r.text
     assert b.client.get("/api/auth/me").status_code == 200
 
