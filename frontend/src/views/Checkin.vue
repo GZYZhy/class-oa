@@ -64,8 +64,12 @@
           />
         </div>
 
-        <!-- ---------- 进行中 ---------- -->
-        <div v-if="info.status === 'ongoing'" class="ck-actions">
+        <!-- ---------- 进行中；或已结束但页面是截止前打开的（补签宽限） ---------- -->
+        <div v-if="info.status === 'ongoing' || info.grace_until" class="ck-actions">
+          <p v-if="info.status !== 'ongoing'" class="ck-tip ck-warn">
+            签到已在 {{ formatDateTime(info.end_at) }} 截止。你在截止前打开了链接，
+            可以在 {{ formatDateTime(info.grace_until) }} 前补签
+          </p>
           <template v-if="!info.is_login">
             <!-- 未登录是这一页唯一的行动号召，提示和按钮都居中放 -->
             <div class="ck-center">
