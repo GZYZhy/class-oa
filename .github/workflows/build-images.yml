@@ -1,28 +1,32 @@
 name: 构建并推送镜像
 
-# 推 main 就自动构建，改完代码服务器 pull 一下就能拿到新镜像。
-# 纯文档改动不触发 —— 那类提交不会改变镜像内容，没必要占构建额度。
+# 只有推送 vX.Y.Z 版本标签时才构建镜像。日常提交只跑全量测试（test.yml），
+# 不构建、也不移动 latest —— 没发版的提交不该被服务器 `docker compose pull` 拿到。
+#
+# 构建前会先把 test.yml 里的前后端全量测试整个跑一遍，测试不过就不出镜像。
 #
 # 想在本地构建（比如要带 arm64、或者 GitHub 挂了）还是用
 # scripts/build_images.sh，镜像前缀和日期标签的算法两边一致
 #（它不带 sha 标签，也没有下面这条「发版提交额外打语义版本号」）。
 on:
   push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - ".env.example"
-      - ".gitignore"
-  workflow_dispatch: # 也可以在 Actions 页面手动点一次
+    tags: ["v*"]
+  workflow_dispatch: # 应急：在 Actions 页面手动构建一次（不带语义版本标签）
 
-# 连续推两次时，把前一次还在跑的构建取消掉：省额度，也避免两个任务
-# 同时往同一批标签上写（后完成的那个赢，结果不可预测）
+# 同一个标签重复推送（强制移动标签）时，把前一次还在跑的构建取消掉：
+# 省额度，也避免两个任务同时往同一批标签上写（后完成的那个赢，结果不可预测）
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  tests:
+    # 门禁：把全量测试 workflow 原样调起来，前后端都通过才轮到 build。
+    # 本地全量约 8 分钟，CI 上更久，所以发版构建会明显比以前慢 —— 这是故意的。
+    uses: ./.github/workflows/test.yml
+
   build:
+    needs: tests
     runs-on: ubuntu-latest
     permissions:
       contents: read # checkout 要读仓库
@@ -54,12 +58,8 @@ jobs:
           short_sha="$(git rev-parse --short=7 HEAD)"
 
           # 发版那个提交上打着 v1.7.1 这样的标签时，镜像也带上 1.7.1。
-          # 只认 **HEAD 上的**标签：发完版之后还有几个改 bug 的提交，它们的
-          # app_version 同样是 1.7.1，但没打过标签，不会去覆盖已经推出去的 1.7.1
-          # —— 镜像标签是可变引用，同名的后推的赢，那样「1.7.1 指哪次构建」就说不清了。
-          #
-          # 标签要和 main **一起推**（git push origin main vX.Y.Z）：先推 main 再补推
-          # 标签的话，这次构建已经在跑了，checkout 时还看不到它，版本号就漏了。
+          # 现在就是推标签触发的构建，checkout 下来的 HEAD 上一定有它；
+          # 手动 workflow_dispatch 触发则可能没有，那就只打 latest/日期/sha。
           version_tag="$(git tag --points-at HEAD --list 'v[0-9]*' | sed 's/^v//' | head -n 1)"
 
           # 标签清单在这里拼好，下面 build 和「小结」两步共用一份 ——
