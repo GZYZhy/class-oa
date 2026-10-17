@@ -834,18 +834,7 @@
           </el-table-column>
           <el-table-column label="事件" width="120" align="center">
             <template #default="{ row }">
-              <el-tag v-if="row.event === 'login'" type="info" size="small">登录</el-tag>
-              <el-tag v-else-if="row.event === 'change_password'" type="warning" size="small">
-                修改密码
-              </el-tag>
-              <el-tag v-else-if="row.event === 'token_create'" type="success" size="small">
-                创建令牌
-              </el-tag>
-              <el-tag v-else-if="row.event === 'token_revoke'" type="danger" size="small">
-                吊销令牌
-              </el-tag>
-              <!-- 兜底显示原始事件名：后端将来加新事件类型时，这里不会变成一片空白 -->
-              <span v-else>{{ row.event }}</span>
+              <AccountEventTag :event="row.event" />
             </template>
           </el-table-column>
           <el-table-column label="IP" min-width="150" align="center">
@@ -911,6 +900,7 @@ import { ROLE_LABELS } from '@/utils/roles'
 import { formatDateTime } from '@/utils/format'
 import { useIsMobile } from '@/composables/useIsMobile'
 import ScheduleBatchPanel from '@/components/ScheduleBatchPanel.vue'
+import AccountEventTag from '@/components/AccountEventTag.vue'
 
 // 手机上操作列只直显这一个按钮，其余收进「更多」下拉。想换直显项改这里一个词
 const MOBILE_PRIMARY = '重置密码'

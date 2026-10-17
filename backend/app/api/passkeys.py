@@ -178,6 +178,7 @@ def register_verify(
     request: Request,
     user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
 ):
     """**不校验 credential_id 是否重复后再覆盖**：重复登记一律拒绝。
     浏览器按 excludeCredentials 本来就会拦，真走到这里说明有问题，
@@ -217,6 +218,9 @@ def register_verify(
             backed_up=bool(verified.credential_backed_up),
         )
     )
+    # 和「我的日志 → 登录与账号操作」同一张表；与钥匙同一次 commit，
+    # 不会出现「钥匙加上了但日志没落库」
+    auth_api._record_event(db, user.student_no, "passkey_add", ip)
     db.commit()
     return {"message": "已添加通行密钥"}
 
@@ -226,6 +230,7 @@ def delete_passkey(
     passkey_id: int,
     user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
 ):
     row = (
         db.query(PasskeyCredential)
@@ -235,6 +240,7 @@ def delete_passkey(
     if not row:
         raise HTTPException(status_code=404, detail="没有找到这把通行密钥")
     db.delete(row)
+    auth_api._record_event(db, user.student_no, "passkey_delete", ip)
     db.commit()
     return {"message": "已删除"}
 

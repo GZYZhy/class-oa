@@ -21,7 +21,7 @@
               当前方式：{{ methodLabel }}
             </el-tag>
             <template v-if="status.method === 'email'">
-              <span class="desc">验证码发到 {{ status.email || '（没有可用邮箱）' }}</span>
+              <span class="desc">验证码发到 {{ status.masked_email || '（没有可用邮箱）' }}</span>
             </template>
             <span class="desc">剩余恢复码 {{ status.recovery_codes_left }} 个</span>
           </div>
@@ -48,7 +48,7 @@
               <el-tag v-if="!status.smtp_enabled" type="info" size="small">不可用</el-tag>
             </div>
             <p class="desc">
-              和「通知设置」用同一个邮箱：<b>{{ status.email || '还没有可用邮箱' }}</b>。
+              和「通知设置」用同一个邮箱：<b>{{ status.masked_email || '还没有可用邮箱' }}</b>。
               不需要另外填写地址，改通知邮箱就等于改收件地址。
             </p>
             <el-alert
