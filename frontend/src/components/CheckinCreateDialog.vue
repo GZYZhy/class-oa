@@ -126,7 +126,7 @@
           <span class="cc-tip cc-inline">米（10～5000）</span>
         </div>
         <el-form label-width="118px" class="cc-loc-name">
-          <el-form-item label="地点的展示名称">
+          <el-form-item label="地点展示名">
             <el-input
               v-model="form.location_name"
               maxlength="100"

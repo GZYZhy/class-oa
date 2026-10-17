@@ -27,40 +27,35 @@
         </div>
       </div>
 
-      <!-- 点名和签到共用一套筛选：两类记录都按列表里那一列标题搜 -->
-      <el-form :inline="true" size="default">
-        <el-form-item label="搜索">
-          <el-input
-            v-model="keyword"
-            placeholder="搜索标题"
-            clearable
-            style="width: 240px"
-            @keyup.enter="handleSearch"
-            @clear="handleSearch"
-          >
-            <template #prefix><el-icon><Search /></el-icon></template>
-          </el-input>
-        </el-form-item>
-        <el-form-item label="日期">
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            value-format="YYYY-MM-DD"
-            style="width: 260px"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">
-            <el-icon><Search /></el-icon>查询
-          </el-button>
-          <el-button @click="handleReset">
-            <el-icon><Refresh /></el-icon>重置
-          </el-button>
-        </el-form-item>
-      </el-form>
+      <!-- 点名和签到共用一套筛选：两类记录都按列表里那一列标题搜。
+           不挂标签，输入框自己的提示字就够，整条栏更紧凑 -->
+      <div class="at-filter">
+        <el-input
+          v-model="keyword"
+          placeholder="搜索标题"
+          clearable
+          class="at-search"
+          @keyup.enter="handleSearch"
+          @clear="handleSearch"
+        >
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-date-picker
+          v-model="dateRange"
+          type="daterange"
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          value-format="YYYY-MM-DD"
+          class="at-range"
+        />
+        <el-button type="primary" @click="handleSearch">
+          <el-icon><Search /></el-icon>查询
+        </el-button>
+        <el-button @click="handleReset">
+          <el-icon><Refresh /></el-icon>重置
+        </el-button>
+      </div>
 
       <!-- 列表 -->
       <el-table
@@ -95,17 +90,13 @@
         </el-table-column>
         <el-table-column label="时间" width="160">
           <template #default="{ row }">
-            <!-- 未开始的签到，这一格显示的是几点开始，同学好提前准备 -->
-            <template v-if="row.type === 'checkin' && row.status === 'pending'">
+            <!-- 签到这一列统一显示开始时间，不再标「截止 / 结束」；
+                 老签到没有开始时间，退回原来的时刻 -->
+            <template v-if="row.type === 'checkin'">
               <div>{{ formatDateTime(row.start_at || row.time) }}</div>
-              <div class="at-sub">开始</div>
+              <div v-if="row.start_at" class="at-sub">开始</div>
             </template>
-            <template v-else>
-              <div>{{ formatDateTime(row.time) }}</div>
-              <div v-if="row.type === 'checkin'" class="at-sub">
-                {{ row.status === 'ongoing' ? '截止' : '结束' }}
-              </div>
-            </template>
+            <div v-else>{{ formatDateTime(row.time) }}</div>
           </template>
         </el-table-column>
         <el-table-column prop="operator_name" label="发起人" width="110" />
@@ -584,12 +575,46 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
 .at-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+/* 筛选栏整条摆在浅色底上，不再用表单项标签撑出好几行 */
+.at-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--el-fill-color-lighter);
+}
+
+.at-search {
+  width: 240px;
+}
+
+.at-range {
+  width: 280px;
+}
+
+@media (max-width: 640px) {
+  .at-search,
+  .at-range {
+    width: 100%;
+  }
+
+  .at-filter .el-button {
+    flex: 1;
+  }
 }
 
 .at-warn {

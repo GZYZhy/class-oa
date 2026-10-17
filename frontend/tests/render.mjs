@@ -4297,6 +4297,12 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
   const attendanceSrc = src('/src/views/Attendance.vue')
   check(attendanceSrc.includes('label="标题"') && !attendanceSrc.includes('label="备注"'),
     '列表那一列统一叫「标题」，不再出现「备注」')
+  check(attendanceSrc.includes('class="at-filter"') && attendanceSrc.includes('class="at-search"')
+    && !/el-form-item label="搜索"/.test(attendanceSrc),
+    '筛选栏不再用表单项标签，搜索、日期和按钮收进同一条')
+  check(/formatDateTime\(row\.start_at \|\| row\.time\)/.test(attendanceSrc)
+    && !attendanceSrc.includes("row.status === 'ongoing' ? '截止' : '结束'"),
+    '时间列显示签到的开始时间，不再标「截止 / 结束」')
   check(/if \(keyword\.value\.trim\(\)\) params\.keyword = keyword\.value\.trim\(\)/
     .test(attendanceSrc), '考勤列表把关键词带给后端')
   check(/function handleReset\(\) \{[\s\S]{0,80}?keyword\.value = ''/.test(attendanceSrc),
@@ -4777,7 +4783,7 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
   check(create.includes('label="开始时间"') && create.includes('v-model="form.start_at"')
     && create.includes('start_at: form.start_at'), '发布弹窗可以指定开始时间并随表单提交')
   check(create.includes('开始时间必须早于截止时间'), '开始时间晚于截止时间时前端先拦一道')
-  check(create.includes('label="地点的展示名称"'), '地点名称那一项叫「地点的展示名称」')
+  check(create.includes('label="地点展示名"'), '地点名称那一项叫「地点展示名」')
 }
 
 await server.close()
