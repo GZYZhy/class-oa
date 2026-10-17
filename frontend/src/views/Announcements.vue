@@ -48,18 +48,10 @@
             <span class="ann-title">{{ row.title }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="doc_number" label="文号" width="160" align="center">
+        <el-table-column prop="doc_number" label="文号" width="220" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.doc_number" type="info" size="small">{{ row.doc_number }}</el-tag>
             <span v-else style="color: var(--el-text-color-disabled);">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="发布人" width="120" align="center">
-          <template #default="{ row }">
-            <!-- 本功能上线前录入的老数据没有发布人 -->
-            <span :style="{ color: row.publisher ? 'var(--el-text-color-primary)' : 'var(--el-text-color-disabled)' }">
-              {{ row.publisher || '-' }}
-            </span>
           </template>
         </el-table-column>
         <!-- 可见范围只有班委及以上才关心：学生看到的必然都是「全体公开」 -->

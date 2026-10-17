@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import GradeItem, GradeSubject, GradeTest, Student, User
 from ..models.grade import DEFAULT_FULL_SCORE, PASS_VALUES, SUBJECT_MODES
+from ..services.list_filters import keyword_like
 from ..schemas import (
     GradeDetailResponse,
     GradeImportConfirm,
@@ -288,6 +289,7 @@ def import_confirm(
 
 @router.get("", response_model=GradeListResponse, summary="成绩列表（班委及以上）")
 def list_grades(
+    keyword: str | None = Query(None, description="按考试名称模糊搜索"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE),
     _: User = Depends(committee_required),
@@ -295,6 +297,9 @@ def list_grades(
 ):
     """列表只带两个聚合计数，不带明细（明细走 GET /{test_id}）"""
     query = db.query(GradeTest)
+    name_match = keyword_like(keyword, GradeTest.name)
+    if name_match is not None:
+        query = query.filter(name_match)
     total = query.count()
     tests = (
         query.order_by(GradeTest.tested_at.desc(), GradeTest.id.desc())

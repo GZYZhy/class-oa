@@ -42,13 +42,13 @@ export function getMyFeedbackDetail(id) {
   return request({ url: `/feedback/${id}`, method: 'get' })
 }
 
-/** 班委：反馈列表 */
-export function getFeedbackList(status) {
-  return request({
-    url: '/feedback',
-    method: 'get',
-    params: status ? { status } : {}
-  })
+/**
+ * 班委：反馈列表
+ * @param {{status?: string, keyword?: string, start?: string, end?: string}} [params]
+ *   keyword 匹配提交人姓名/学号；start/end 是提交日期（YYYY-MM-DD，含首尾）
+ */
+export function getFeedbackList(params) {
+  return request({ url: '/feedback', method: 'get', params: params || {} })
 }
 
 /** 班委：反馈详情（查看自动标已读） */

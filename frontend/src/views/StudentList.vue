@@ -2,6 +2,7 @@
   <div class="student-list">
     <!-- 筛选区域 -->
     <div class="page-card filter-card">
+      <h3 class="page-title">学生信息</h3>
       <el-form :inline="true" :model="filterForm" size="default">
         <el-form-item label="关键词">
           <el-input

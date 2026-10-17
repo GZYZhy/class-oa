@@ -11,6 +11,11 @@
       <el-tab-pane name="change">
         <template #label>信息修改申请<span v-if="tabBadge('change')" class="tab-badge">{{ tabBadge('change') }}</span></template>
         <div class="tab-toolbar">
+          <ReviewSearch
+            v-model:keyword="changeKeyword"
+            v-model:range="changeRange"
+            @search="fetchChangeList"
+          />
           <el-radio-group v-model="changeStatus" size="small" @change="fetchChangeList">
             <el-radio-button value="pending">待审核</el-radio-button>
             <el-radio-button value="approved">已通过</el-radio-button>
@@ -105,6 +110,11 @@
       <el-tab-pane name="leave">
         <template #label>请假申请<span v-if="tabBadge('leave')" class="tab-badge">{{ tabBadge('leave') }}</span></template>
         <div class="tab-toolbar">
+          <ReviewSearch
+            v-model:keyword="leaveKeyword"
+            v-model:range="leaveRange"
+            @search="fetchLeaveList"
+          />
           <el-radio-group v-model="leaveStatus" size="small" @change="fetchLeaveList">
             <!-- 四档：待处理（= 待受理 + 已受理，红点数的那一档）/ 待补正 / 已办结（通过 + 驳回）/
                  全部。具体是哪个状态看行上的 tag，不靠筛选按钮一个个摆出来；默认「全部」，
@@ -243,6 +253,11 @@
       <el-tab-pane name="evpass">
         <template #label>电动车通行证<span v-if="tabBadge('evpass')" class="tab-badge">{{ tabBadge('evpass') }}</span></template>
         <div class="tab-toolbar">
+          <ReviewSearch
+            v-model:keyword="evPassKeyword"
+            v-model:range="evPassRange"
+            @search="fetchEvPassList"
+          />
           <el-radio-group v-model="evPassStatus" size="small" @change="fetchEvPassList">
             <el-radio-button value="open">待处理</el-radio-button>
             <el-radio-button value="correcting">待补正</el-radio-button>
@@ -372,6 +387,11 @@
       <el-tab-pane name="certificate">
         <template #label>证明开具<span v-if="tabBadge('certificate')" class="tab-badge">{{ tabBadge('certificate') }}</span></template>
         <div class="tab-toolbar">
+          <ReviewSearch
+            v-model:keyword="certificateKeyword"
+            v-model:range="certificateRange"
+            @search="fetchCertificateList"
+          />
           <el-radio-group v-model="certificateStatus" size="small" @change="fetchCertificateList">
             <el-radio-button value="open">待处理</el-radio-button>
             <el-radio-button value="correcting">待补正</el-radio-button>
@@ -483,6 +503,11 @@
       <el-tab-pane v-if="userStore.isAdmin" name="signphoto">
         <template #label>签字查看申请<span v-if="tabBadge('signphoto')" class="tab-badge">{{ tabBadge('signphoto') }}</span></template>
         <div class="tab-toolbar">
+          <ReviewSearch
+            v-model:keyword="signKeyword"
+            v-model:range="signRange"
+            @search="fetchSignList"
+          />
           <el-radio-group v-model="signStatus" size="small" @change="fetchSignList">
             <el-radio-button value="pending">待审核</el-radio-button>
             <el-radio-button value="approved">已通过</el-radio-button>
@@ -539,6 +564,11 @@
       <el-tab-pane name="export">
         <template #label>导出申请<span v-if="tabBadge('export')" class="tab-badge">{{ tabBadge('export') }}</span></template>
         <div class="tab-toolbar">
+          <ReviewSearch
+            v-model:keyword="exportKeyword"
+            v-model:range="exportRange"
+            @search="fetchExportList"
+          />
           <el-radio-group v-model="exportStatus" size="small" @change="fetchExportList">
             <el-radio-button value="pending">待审核</el-radio-button>
             <el-radio-button value="generated">已通过</el-radio-button>
@@ -623,6 +653,11 @@
       <el-tab-pane name="feedback">
         <template #label>意见反馈<span v-if="tabBadge('feedback')" class="tab-badge">{{ tabBadge('feedback') }}</span></template>
         <div class="tab-toolbar">
+          <ReviewSearch
+            v-model:keyword="feedbackKeyword"
+            v-model:range="feedbackRange"
+            @search="fetchFeedbackList"
+          />
           <el-radio-group v-model="feedbackStatus" size="small" @change="fetchFeedbackList">
             <el-radio-button value="unread">未读</el-radio-button>
             <el-radio-button value="read">已读</el-radio-button>
@@ -930,6 +965,7 @@ import { FIELD_LABELS, PHOTO_FIELD, STATUS_LABELS, STATUS_TYPES } from '@/utils/
 import { formatDate, formatDateTime, formatFileSize } from '@/utils/format'
 import Watermark from '@/components/Watermark.vue'
 import FileViewer from '@/components/FileViewer.vue'
+import ReviewSearch from '@/components/ReviewSearch.vue'
 import { useWatermark } from '@/composables/useWatermark'
 import { useDownloadProgress } from '@/composables/useDownloadProgress'
 import { useUserStore } from '@/store/user'
@@ -985,9 +1021,28 @@ function tabBadge(tab) {
   return count > 99 ? '99+' : String(count)
 }
 
+/**
+ * 审核列表的公共查询参数：状态 + 提交人（姓名/学号）+ 提交日期
+ *
+ * 空值一律不传，后端把「没传」理解为不过滤。日期是 YYYY-MM-DD，后端按自然日算。
+ */
+function reviewParams(status, keyword, range) {
+  const params = {}
+  if (status) params.status = status
+  const kw = (keyword || '').trim()
+  if (kw) params.keyword = kw
+  if (range?.length === 2) {
+    params.start = range[0]
+    params.end = range[1]
+  }
+  return params
+}
+
 // —— 信息修改申请 ——
 const changeList = ref([])
 const changeStatus = ref('pending')
+const changeKeyword = ref('')
+const changeRange = ref(null)
 
 /**
  * 待审照片的对照图。old = 学生现在档案里那张，new = 这条申请里传的那张。
@@ -1007,7 +1062,9 @@ function onImgError(e) {
 async function fetchChangeList() {
   loading.value = true
   try {
-    changeList.value = await getChangeRequests({ status: changeStatus.value || undefined })
+    changeList.value = await getChangeRequests(
+      reviewParams(changeStatus.value, changeKeyword.value, changeRange.value)
+    )
   } catch (e) {
     ElMessage.error('申请列表加载失败')
   } finally {
@@ -1090,11 +1147,15 @@ function makeReviewActions({ accept, unaccept, correct, reload }) {
 const leaveList = ref([])
 // 默认「全部」（空串）：进来先看见所有的。上面那排按钮的四档见模板里的注释
 const leaveStatus = ref('')
+const leaveKeyword = ref('')
+const leaveRange = ref(null)
 
 async function fetchLeaveList() {
   loading.value = true
   try {
-    leaveList.value = await getLeaveList(leaveStatus.value || undefined)
+    leaveList.value = await getLeaveList(
+      reviewParams(leaveStatus.value, leaveKeyword.value, leaveRange.value)
+    )
   } catch (e) {
     ElMessage.error('请假列表加载失败')
   } finally {
@@ -1251,11 +1312,15 @@ async function handleDownloadLeavePdf(row) {
 // committee_required / admin_required / _pdf_target 的划分一致
 const evPassList = ref([])
 const evPassStatus = ref('')
+const evPassKeyword = ref('')
+const evPassRange = ref(null)
 
 async function fetchEvPassList() {
   loading.value = true
   try {
-    evPassList.value = await getEvPassList(evPassStatus.value || undefined)
+    evPassList.value = await getEvPassList(
+      reviewParams(evPassStatus.value, evPassKeyword.value, evPassRange.value)
+    )
   } catch (e) {
     ElMessage.error('通行证申请列表加载失败')
   } finally {
@@ -1390,11 +1455,15 @@ function handleRevokeEvPass(row) {
 // 班委能看列表、看附件，但不能下载成品 PDF、不能审批
 const certificateList = ref([])
 const certificateStatus = ref('')
+const certificateKeyword = ref('')
+const certificateRange = ref(null)
 
 async function fetchCertificateList() {
   loading.value = true
   try {
-    certificateList.value = await getCertificateList(certificateStatus.value || undefined)
+    certificateList.value = await getCertificateList(
+      reviewParams(certificateStatus.value, certificateKeyword.value, certificateRange.value)
+    )
   } catch (e) {
     ElMessage.error('证明申请列表加载失败')
   } finally {
@@ -1496,6 +1565,8 @@ function handleRevokeCertificate(row) {
 // —— 签字查看申请（仅管理员审批）——
 const signList = ref([])
 const signStatus = ref('pending')
+const signKeyword = ref('')
+const signRange = ref(null)
 const signViewerVisible = ref(false)
 const signFileUrl = ref('')
 const signFileName = ref('')
@@ -1503,7 +1574,9 @@ const signFileName = ref('')
 async function fetchSignList() {
   loading.value = true
   try {
-    const res = await getSignRequests({ status: signStatus.value || undefined })
+    const res = await getSignRequests(
+      reviewParams(signStatus.value, signKeyword.value, signRange.value)
+    )
     signList.value = res.items || []
   } catch (e) {
     ElMessage.error('签字申请列表加载失败')
@@ -1610,6 +1683,8 @@ async function doUploadCertResult() {
 // —— 导出申请 ——
 const exportList = ref([])
 const exportStatus = ref('pending')
+const exportKeyword = ref('')
+const exportRange = ref(null)
 const exportLoading = ref(false)
 // 正在下载的那条申请：按钮转圈 + 显示百分比
 const exportDownloadingId = ref(null)
@@ -1619,7 +1694,7 @@ async function fetchExportList() {
   exportLoading.value = true
   try {
     const res = await getExportRequests({
-      status: exportStatus.value || undefined,
+      ...reviewParams(exportStatus.value, exportKeyword.value, exportRange.value),
       page: 1,
       page_size: 100
     })
@@ -1725,6 +1800,8 @@ async function handleDownloadExport(row) {
 // —— 意见反馈 ——
 const feedbackList = ref([])
 const feedbackStatus = ref('unread')
+const feedbackKeyword = ref('')
+const feedbackRange = ref(null)
 const feedbackDetailVisible = ref(false)
 const currentFeedback = ref(null)
 const replyContent = ref('')
@@ -1733,7 +1810,9 @@ const replying = ref(false)
 async function fetchFeedbackList() {
   loading.value = true
   try {
-    feedbackList.value = await getFeedbackList(feedbackStatus.value || undefined)
+    feedbackList.value = await getFeedbackList(
+      reviewParams(feedbackStatus.value, feedbackKeyword.value, feedbackRange.value)
+    )
   } catch (e) {
     ElMessage.error('反馈列表加载失败')
   } finally {
@@ -1849,9 +1928,13 @@ onMounted(handleTabChange)
   vertical-align: 1px;
 }
 
+/* 左边是搜索（提交人 / 提交日期），右边是状态筛选；窄屏时换行而不是挤在一起 */
 .tab-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* 起止时间竖排两行 */

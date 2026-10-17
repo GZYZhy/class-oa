@@ -38,13 +38,13 @@ export function deleteEvPass(id) {
   return request({ url: `/ev-passes/${id}`, method: 'delete' })
 }
 
-/** 全部申请列表（班委及以上，可按状态筛选） */
-export function getEvPassList(status) {
-  return request({
-    url: '/ev-passes',
-    method: 'get',
-    params: { status: status || undefined }
-  })
+/**
+ * 全部申请列表（班委及以上）
+ * @param {{status?: string, keyword?: string, start?: string, end?: string}} [params]
+ *   keyword 匹配提交人姓名/学号；start/end 是提交日期（YYYY-MM-DD，含首尾）
+ */
+export function getEvPassList(params) {
+  return request({ url: '/ev-passes', method: 'get', params: params || {} })
 }
 
 /** 通过申请（管理员）
