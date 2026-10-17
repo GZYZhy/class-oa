@@ -21,15 +21,25 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import AttendanceItem, AttendanceRecord, Checkin, CheckinTarget, User
 from ..schemas import (
+    AttendanceBatchDelete,
     AttendanceCreate,
     AttendanceItemUpdate,
     AttendanceListResponse,
+    AttendanceOverviewItem,
+    AttendanceOverviewResponse,
     AttendanceRecordResponse,
     AttendanceRemarkUpdate,
 )
 from ..services import display_name, log_operation
-from ..services.checkin_service import approved_leave_nos, checkin_status, finalize_due
+from ..services.checkin_service import (
+    approved_leave_nos,
+    checkin_status,
+    finalize_due,
+    remove_checkin,
+    remove_photos,
+)
 from ..services.list_filters import keyword_like
+from ..utils.links import full_url
 from .deps import committee_required, get_client_ip
 
 router = APIRouter(prefix="/api/attendance", tags=["考勤记录"])
@@ -146,10 +156,19 @@ def _summary_detail(scope: str, items: list[AttendanceItem]) -> str:
 def export_attendance(
     start: date | None = Query(None, description="起始日期，含当天"),
     end: date | None = Query(None, description="结束日期，含当天"),
+    keyword: str | None = Query(None, description="按点名备注或签到标题模糊搜索"),
+    record_ids: list[int] = Query(default=[], description="只导出选中的点名记录"),
+    checkin_ids: list[int] = Query(default=[], description="只导出选中的签到"),
     _: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
     """点开导出必须同时拿到点名与签到两种记录，各占一个工作表。
+
+    两种导出方式：
+
+    - 传了 `record_ids` / `checkin_ids`：只导勾选的记录（另一个页签就空着）；
+    - 没传：按日期与关键词导出「当前筛选结果」，关键词对点名查备注、
+      对签到查标题，和列表页的口径完全一致。
 
     签到结算出来的那几条本来就在「考勤记录」里（和点名记录同表），
     这里再单列一张「签到记录」，把本人签到时间、距离和请假情况也带上，
@@ -157,8 +176,43 @@ def export_attendance(
     """
     # 到点的签到先结算，否则导出里会少掉刚结束的那几条
     finalize_due(db)
-    query = _date_range(db.query(AttendanceRecord), start, end)
-    records = query.order_by(AttendanceRecord.call_date.desc(), AttendanceRecord.id.desc()).all()
+    selected = bool(record_ids or checkin_ids)
+    if selected:
+        # 勾选模式：不再套日期与关键词，勾了什么就导什么
+        records = (
+            db.query(AttendanceRecord)
+            .filter(AttendanceRecord.id.in_(record_ids))
+            .order_by(AttendanceRecord.call_date.desc(), AttendanceRecord.id.desc())
+            .all()
+            if record_ids
+            else []
+        )
+        checkins = (
+            db.query(Checkin)
+            .filter(Checkin.id.in_(checkin_ids))
+            .order_by(Checkin.id.desc())
+            .all()
+            if checkin_ids
+            else []
+        )
+    else:
+        query = _date_range(db.query(AttendanceRecord), start, end)
+        att_match = keyword_like(keyword, AttendanceRecord.remark)
+        if att_match is not None:
+            query = query.filter(att_match)
+        records = query.order_by(
+            AttendanceRecord.call_date.desc(), AttendanceRecord.id.desc()
+        ).all()
+
+        chk_query = db.query(Checkin)
+        chk_match = keyword_like(keyword, Checkin.title)
+        if chk_match is not None:
+            chk_query = chk_query.filter(chk_match)
+        # 时间范围按「截止日期」算，和考勤记录的日期（结算参考时刻）是同一个口径
+        checkins = [
+            c for c in chk_query.order_by(Checkin.id.desc()).all()
+            if _checkin_in_range(c, start, end)
+        ]
 
     wb = Workbook()
     ws = wb.active
@@ -191,10 +245,6 @@ def export_attendance(
     _fit_columns(ws, EXPORT_COLUMNS)
 
     # ---------- 第二个页签：签到 ----------
-    # 时间范围按「截止日期」算，和考勤记录的日期（结算参考时刻）是同一个口径
-    checkins = db.query(Checkin).order_by(Checkin.id.desc()).all()
-    checkins = [c for c in checkins if _checkin_in_range(c, start, end)]
-
     ws2 = wb.create_sheet("签到记录")
     _write_header(ws2, CHECKIN_EXPORT_COLUMNS)
 
@@ -243,7 +293,11 @@ def export_attendance(
     buf = io.BytesIO()
     wb.save(buf)
 
-    filename = f"考勤与签到_{start or '全部'}_{end or '全部'}.xlsx"
+    # 勾选导出时文件名标出条数，避免和「筛选结果」那份同名分不清
+    if selected:
+        filename = f"考勤与签到_选中{len(records) + len(checkins)}条.xlsx"
+    else:
+        filename = f"考勤与签到_{start or '全部'}_{end or '全部'}.xlsx"
     return Response(
         content=buf.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -254,6 +308,230 @@ def export_attendance(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.get(
+    "/overview",
+    response_model=AttendanceOverviewResponse,
+    summary="点名与签到记录汇总（班委及以上）",
+)
+def overview_attendance(
+    request: Request,
+    start: date | None = Query(None, description="起始日期，含当天"),
+    end: date | None = Query(None, description="结束日期，含当天"),
+    keyword: str | None = Query(None, description="按点名备注或签到标题模糊搜索"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """点名与签到合成一张列表，按时间倒序排
+
+    关键词对点名查备注、对签到查标题 —— 两边能用来认出这次记录的那句话
+    不是同一个字段，但都是用户记得住的那句。两类数据量都是班级级，
+    合并后在内存里排序、分页就够了，不必依赖 UNION。
+    """
+    # 签到到点后要自动生成考勤记录，汇总里才看得到
+    finalize_due(db)
+
+    # ---------- 点名记录 ----------
+    att_query = _date_range(db.query(AttendanceRecord), start, end)
+    att_match = keyword_like(keyword, AttendanceRecord.remark)
+    if att_match is not None:
+        att_query = att_query.filter(att_match)
+    records = att_query.all()
+
+    # 一次分组查询把本页所有记录的计数拿回来，不要每条各查一遍
+    by_record: dict[int, dict[str, int]] = {}
+    if records:
+        rows = (
+            db.query(AttendanceItem.record_id, AttendanceItem.status, func.count())
+            .filter(AttendanceItem.record_id.in_([r.id for r in records]))
+            .group_by(AttendanceItem.record_id, AttendanceItem.status)
+            .all()
+        )
+        for record_id, status, count in rows:
+            by_record.setdefault(record_id, {})[status] = count
+
+    items: list[AttendanceOverviewItem] = []
+    for record in records:
+        counts = by_record.get(record.id, {})
+        items.append(
+            AttendanceOverviewItem(
+                type="attendance",
+                id=record.id,
+                date=record.call_date,
+                time=record.called_at,
+                title=record.scope or "",
+                operator_name=record.operator_name or "",
+                remark=record.remark or "",
+                total=sum(counts.values()),
+                present=counts.get("present", 0),
+                leave=counts.get("leave", 0),
+                absent=counts.get("absent", 0),
+            )
+        )
+
+    # ---------- 签到 ----------
+    chk_query = db.query(Checkin)
+    chk_match = keyword_like(keyword, Checkin.title)
+    if chk_match is not None:
+        chk_query = chk_query.filter(chk_match)
+    checkins = [
+        c for c in chk_query.all() if _checkin_in_range(c, start, end)
+    ]
+
+    ids = [c.id for c in checkins]
+    signed: dict[int, int] = {}
+    targets: dict[int, int] = {}
+    if ids:
+        rows = (
+            db.query(CheckinTarget.checkin_id, func.count())
+            .filter(CheckinTarget.checkin_id.in_(ids))
+            .group_by(CheckinTarget.checkin_id)
+            .all()
+        )
+        targets = dict(rows)
+        rows = (
+            db.query(CheckinTarget.checkin_id, func.count())
+            .filter(
+                CheckinTarget.checkin_id.in_(ids),
+                CheckinTarget.signed_at.isnot(None),
+            )
+            .group_by(CheckinTarget.checkin_id)
+            .all()
+        )
+        signed = dict(rows)
+
+    for checkin in checkins:
+        # 截止那一刻是这条记录的时间，和日期筛选、导出用同一个口径
+        reference = checkin.closed_at or checkin.end_at
+        items.append(
+            AttendanceOverviewItem(
+                type="checkin",
+                id=checkin.id,
+                date=reference.date(),
+                time=reference,
+                title=checkin.title or "",
+                operator_name=checkin.created_by_name or "",
+                remark=checkin.remark or "",
+                status=checkin_status(checkin),
+                target_count=targets.get(checkin.id, 0),
+                signed_count=signed.get(checkin.id, 0),
+                link=full_url(request, f"/#/checkin?code={checkin.code}"),
+            )
+        )
+
+    # 时间倒序。同一时刻的按 id 兜底，翻页顺序才稳定
+    items.sort(key=lambda x: (x.time or datetime.min, x.id), reverse=True)
+    begin = (page - 1) * page_size
+    return AttendanceOverviewResponse(
+        total=len(items), items=items[begin:begin + page_size]
+    )
+
+
+@router.post(
+    "/batch-delete", summary="批量删除点名与签到记录（班委及以上）"
+)
+def batch_delete_attendance(
+    data: AttendanceBatchDelete,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """一次删掉勾选的记录。
+
+    - 签到：连它的 targets、照片、结算生成的考勤一起删，链接随即失效；
+    - 点名：连明细一起删；
+    - 勾了签到生成的考勤却没勾那次签到：把身后的签到也一起删，
+      否则会留下指空的签到，那条考勤也会变成删不得的历史记录。
+    """
+    if not data.record_ids and not data.checkin_ids:
+        raise HTTPException(status_code=400, detail="没有选择要删除的记录")
+
+    selected_checkin_ids = set(data.checkin_ids)
+    selected_record_ids = set(data.record_ids)
+
+    checkins = (
+        db.query(Checkin).filter(Checkin.id.in_(data.checkin_ids)).all()
+        if data.checkin_ids
+        else []
+    )
+    records = (
+        db.query(AttendanceRecord)
+        .filter(AttendanceRecord.id.in_(data.record_ids))
+        .all()
+        if data.record_ids
+        else []
+    )
+
+    # 选中的考勤若是签到生成的，把那次签到也纳入删除范围
+    known_checkin_ids = {c.id for c in checkins}
+    for record in records:
+        parent = (
+            db.query(Checkin)
+            .filter(Checkin.attendance_record_id == record.id)
+            .first()
+        )
+        if parent and parent.id not in known_checkin_ids:
+            checkins.append(parent)
+            known_checkin_ids.add(parent.id)
+
+    photo_files: list[str] = []
+    handled = 0
+    # 先删签到：它可能带着一条已选中的考勤，先删考勤会撞上「找不到父签到」
+    for checkin in checkins:
+        targets = (
+            db.query(CheckinTarget)
+            .filter(CheckinTarget.checkin_id == checkin.id)
+            .all()
+        )
+        log_operation(
+            db,
+            user,
+            action="删除签到",
+            target=f"{checkin.end_at:%Y-%m-%d} {checkin.title}",
+            detail=f"应到 {len(targets)} 人，已签 "
+            f"{sum(1 for t in targets if t.signed_at)} 人，批量删除"
+            + ("，结算生成的考勤记录一并删除" if checkin.attendance_record_id else ""),
+            ip=get_client_ip(request),
+            target_student_nos=[t.student_no for t in targets],
+        )
+        photo_files += remove_checkin(db, checkin)
+        if checkin.id in selected_checkin_ids:
+            handled += 1
+    db.flush()
+
+    # 签到生成的考勤已经跟着删了，这里只管普通点名
+    generated_ids = {
+        c.attendance_record_id for c in checkins if c.attendance_record_id
+    }
+    for record in records:
+        if record.id in generated_ids:
+            if record.id in selected_record_ids:
+                handled += 1
+            continue
+        items = _items_of(db, record.id)
+        log_operation(
+            db,
+            user,
+            action="删除考勤",
+            target=f"{record.call_date} {record.scope}",
+            detail=_summary_detail(record.scope or "", items) + "，批量删除",
+            ip=get_client_ip(request),
+            target_student_nos=[i.student_no for i in items],
+        )
+        db.query(AttendanceItem).filter(
+            AttendanceItem.record_id == record.id
+        ).delete(synchronize_session=False)
+        db.delete(record)
+        if record.id in selected_record_ids:
+            handled += 1
+
+    db.commit()
+    # 事务成功后再删签到照片，回滚时文件还在
+    remove_photos(photo_files)
+    return {"deleted": handled}
 
 
 @router.get("", response_model=AttendanceListResponse, summary="考勤记录列表（班委及以上）")
@@ -494,16 +772,14 @@ def delete_attendance(
     if not record:
         raise HTTPException(status_code=404, detail="考勤记录不存在")
 
-    # 签到结算出来的记录由 checkins.attendance_record_id 指着，单独删会留下
-    # 一条指空的历史签到。明细状态和备注仍然可以改，点错了在明细里改就行
-    if (
-        db.query(Checkin.id)
+    # 签到结算出来的记录由 checkins.attendance_record_id 指着。删它等于删那次
+    # 签到 —— 单独删会留下一条指空的历史签到；只删签到又会留下这条删不掉的
+    # 考勤，所以两边一起删，链接随即失效
+    checkin = (
+        db.query(Checkin)
         .filter(Checkin.attendance_record_id == record_id)
         .first()
-    ):
-        raise HTTPException(
-            status_code=400, detail="这条考勤由签到自动生成，不能单独删除"
-        )
+    )
 
     items = _items_of(db, record_id)
     log_operation(
@@ -511,14 +787,21 @@ def delete_attendance(
         user,
         action="删除考勤",
         target=f"{record.call_date} {record.scope}",
-        detail=_summary_detail(record.scope or "", items),
+        detail=_summary_detail(record.scope or "", items)
+        + ("；这条考勤由签到自动生成，签到记录与链接一并删除" if checkin else ""),
         ip=get_client_ip(request),
         target_student_nos=[i.student_no for i in items],
     )
-    # 先删明细再删主记录：SQLite 默认不开外键约束，靠这里的顺序保证不留孤儿行
-    db.query(AttendanceItem).filter(AttendanceItem.record_id == record_id).delete()
-    db.delete(record)
-    db.commit()
+    if checkin:
+        photo_files = remove_checkin(db, checkin)
+        db.commit()
+        # 事务成功后再删签到照片，回滚时文件还在
+        remove_photos(photo_files)
+    else:
+        # 先删明细再删主记录：SQLite 默认不开外键约束，靠这里的顺序保证不留孤儿行
+        db.query(AttendanceItem).filter(AttendanceItem.record_id == record_id).delete()
+        db.delete(record)
+        db.commit()
     return {"message": "已删除"}
 
 

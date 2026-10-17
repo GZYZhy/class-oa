@@ -56,6 +56,41 @@ class AttendanceListResponse(BaseModel):
     items: list[AttendanceRecordResponse]
 
 
+class AttendanceOverviewItem(BaseModel):
+    """点名与签到合在一张列表里的一行
+
+    `type` 区分两种记录：attendance = 点名记录，checkin = 签到。
+    两边的字段放在同一个模型里，前端只按 type 取自己那几列。
+    """
+    type: str = Field(..., description="attendance / checkin")
+    id: int
+    date: date
+    # 点名时刻；签到是截止或提前结束的时刻
+    time: datetime | None = None
+    # 点名的范围 / 签到的标题
+    title: str = ""
+    operator_name: str = ""
+    remark: str = ""
+
+    # 点名记录的计数
+    total: int = 0
+    present: int = 0
+    leave: int = 0
+    absent: int = 0
+
+    # 签到的情况
+    status: str = ""
+    target_count: int = 0
+    signed_count: int = 0
+    link: str = ""
+
+
+class AttendanceOverviewResponse(BaseModel):
+    """点名与签到合并后的分页列表"""
+    total: int
+    items: list[AttendanceOverviewItem]
+
+
 class AttendanceItemUpdate(BaseModel):
     """改某人状态"""
     status: str = Field(..., pattern=STATUS_PATTERN)
@@ -68,3 +103,12 @@ class AttendanceRemarkUpdate(BaseModel):
     不另设「删除备注」的接口，空即没有。
     """
     remark: str = Field("", max_length=200, description="备注，空串表示清掉")
+
+
+class AttendanceBatchDelete(BaseModel):
+    """批量删除勾选的记录：点名和签到分两组传
+
+    两类记录的 id 各自独立（都从 1 开始），不能混在一个数组里。
+    """
+    record_ids: list[int] = Field(default_factory=list, description="考勤记录 id")
+    checkin_ids: list[int] = Field(default_factory=list, description="签到 id")

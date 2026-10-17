@@ -35,6 +35,16 @@ class CheckinLocationResponse(BaseModel):
     name: str = ""
 
 
+class CheckinTitleUpdate(BaseModel):
+    """改签到的标题
+
+    列表的「备注」列显示的就是标题，关键词搜索也搜它 ——
+    所以这个接口改的是标题，不是发布时那句补充说明。
+    标题不能清空：空标题在列表里认不出是哪次签到，也没法搜。
+    """
+    title: str = Field(..., max_length=100, description="签到标题，不能为空")
+
+
 class CheckinTargetResponse(BaseModel):
     """班委看签到详情时，每个目标的状态
 

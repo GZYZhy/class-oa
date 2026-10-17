@@ -1247,26 +1247,26 @@ console.log('\n▶ 学生信息页：低频操作收进「更多」，年龄排�
     `复选框列（${selW}）和序号列（${idxW}）都收窄了`)
 }
 
-console.log('\n▶ 学生信息页：点名和抽签的入口还在工具栏上')
+console.log('\n▶ 学生信息页：抽签入口还在工具栏上（点名已挪去考勤页）')
 {
   const src = readFileSync(`${ROOT}/src/views/StudentList.vue`, 'utf8')
 
-  // 1.11.4 收低频操作进「更多」时，顺手把这两个按钮删了却没放进下拉：弹窗组件还挂在
+  // 1.11.4 收低频操作进「更多」时，顺手把按钮删了却没放进下拉：弹窗组件还挂在
   // 模板里、ref 也还声明着，**只是没有任何地方调 open()**，于是从界面上整个消失。
-  // 它们是天天要按的，得留在工具栏上。光断言「文案在不在」抓不住这个 ——
-  // 组件名和 ref 声明里也有这两个词，所以断言直接钉在调用点上
-  check(src.includes('@click="rollCallRef?.open()"'), '「点名」按钮在工具栏上，且有地方调它的 open()')
+  // 抽签是天天要按的，得留在工具栏上。光断言「文案在不在」抓不住这个 ——
+  // 组件名和 ref 声明里也有这个词，所以断言直接钉在调用点上
   check(/<el-button v-if="userStore\.isCommittee" @click="drawRef\?\.open\(\)">/.test(src),
     '「抽签」按钮在，权限与原来一致（班委及以上）')
-
-  // 弹窗本身也得还挂着，不然按钮点了没反应
-  check(src.includes('<RollCallDialog ref="rollCallRef" />'), '点名弹窗组件仍挂在模板里')
   check(/<DrawDialog ref="drawRef"/.test(src), '抽签弹窗组件仍挂在模板里')
 
-  // 以后再收也不能收这儿：这两项不是低频操作（1.11.4 的提交信息里也这么写的）
+  // 点名挪到考勤页：这边连按钮、弹窗和 ref 都不该留，免得点出来的记录
+  // 落在学生信息页却看不到结果
+  check(!src.includes('rollCallRef') && !src.includes('RollCallDialog'),
+    '学生信息页不再有点名的按钮、弹窗和 ref')
+
   const more = src.slice(src.indexOf('<el-dropdown @command="handleMore">'))
   const moreMenu = more.slice(0, more.indexOf('</el-dropdown>'))
-  check(!/点名|抽签/.test(moreMenu), '这两个没被塞进「更多」下拉（它们不是低频操作）')
+  check(!/点名|抽签/.test(moreMenu), '抽签没被塞进「更多」下拉（它不是低频操作）')
 }
 
 console.log('\n▶ 学生信息页：列表缩略图进视口才下载（别把点名/抽签挤在后面）')
@@ -4273,19 +4273,22 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
     '后端投票列表收 keyword')
   check(/keyword_like\(keyword, Poll\.title\)/.test(pollsPy), '投票按 Poll.title 过滤')
 
-  // ---------- 考勤：按备注搜 ----------
+  // ---------- 考勤：全局搜索（点名查备注、签到查标题） ----------
   const { html: attendanceHtml } = await render('/src/views/Attendance.vue')
-  check(stripComments(attendanceHtml).includes('搜索点名备注'), '考勤页有备注搜索框')
+  check(stripComments(attendanceHtml).includes('搜索点名备注或签到标题'),
+    '考勤页的搜索框同时搜点名备注和签到标题')
   const attendanceSrc = src('/src/views/Attendance.vue')
   check(/if \(keyword\.value\.trim\(\)\) params\.keyword = keyword\.value\.trim\(\)/
-    .test(attendanceSrc), '考勤列表把备注关键词带给后端')
+    .test(attendanceSrc), '考勤列表把关键词带给后端')
   check(/function handleReset\(\) \{[\s\S]{0,80}?keyword\.value = ''/.test(attendanceSrc),
-    '重置会清掉备注关键词')
+    '重置会清掉关键词')
   const attendancePy = src('/../backend/app/api/attendance.py')
-  check(/keyword: str \| None = Query\(None, description="按备注模糊搜索"\)/.test(attendancePy),
-    '后端考勤列表收 keyword')
-  check(/keyword_like\(keyword, AttendanceRecord\.remark\)/.test(attendancePy),
-    '考勤按 AttendanceRecord.remark 过滤')
+  check(/keyword: str \| None = Query\(None, description="按点名备注或签到标题模糊搜索"\)/
+    .test(attendancePy), '后端汇总与导出都收同一个 keyword')
+  check(/att_match = keyword_like\(keyword, AttendanceRecord\.remark\)/.test(attendancePy),
+    '点名按 AttendanceRecord.remark 过滤')
+  check(/chk_match = keyword_like\(keyword, Checkin\.title\)/.test(attendancePy),
+    '签到按 Checkin.title 过滤')
 
   // ---------- 成绩：按考试名搜 ----------
   const { html: gradeHtml } = await render('/src/views/Grade.vue')
@@ -4423,22 +4426,76 @@ console.log('\n▶ 资料下载：管理员能调整分类之间的顺序')
     '前台与后台共用同一套排序口径')
 }
 
-console.log('\n▶ 签到：考勤页的「签到」标签页')
+console.log('\n▶ 签到：点名与签到合成一张列表')
 {
   const { html } = await render('/src/views/Attendance.vue')
   const text = stripComments(html)
-  check(text.includes('点名记录') && text.includes('签到'), '考勤页有两个标签：点名记录 / 签到')
-  check(text.includes('发布签到'), '签到标签页里有「发布签到」按钮')
+  check(text.includes('发布签到'), '考勤页有「发布签到」按钮')
+  check(text.includes('搜索点名备注或签到标题'), '搜索框覆盖两种记录')
 
   const pageSrc = readFileSync(`${ROOT}/src/views/Attendance.vue`, 'utf8')
-  check(pageSrc.includes('<el-tabs v-model="activeTab">'), '两个标签用 el-tabs 切换')
-  check(pageSrc.includes('<CheckinPanel />'), '签到标签页挂的是 CheckinPanel')
-  check((pageSrc.match(/class="page-card/g) || []).length === 1, '加标签页之后仍然只有一张卡片')
-  // 导出按钮要在 <el-tabs> 之前，两个标签页都看得到
-  const exportAt = pageSrc.indexOf('@click="handleExport"')
-  const tabsAt = pageSrc.indexOf('<el-tabs')
-  check(exportAt >= 0 && exportAt < tabsAt, '导出按钮挪到标签页之外，两个页签都可见')
-  check(pageSrc.includes('考勤与签到_${start}_${end}.xlsx'), '导出文件名同时体现考勤与签到')
+  // 点名从学生信息页挪过来，点完的记录就落在本页列表里
+  check(pageSrc.includes('@click="rollCallRef?.open()"')
+    && pageSrc.includes('<RollCallDialog ref="rollCallRef"'),
+    '点名入口和弹窗都在考勤页')
+  check(pageSrc.includes('@saved="() => fetchList()"'),
+    '点名上报成功后刷新列表，新记录当场可见')
+  check(readFileSync(`${ROOT}/src/components/RollCallDialog.vue`, 'utf8')
+    .includes("emit('saved')"),
+    '点名弹窗上报成功后发出 saved 事件')
+
+  // 范围：点名是班级口径，签到按应到人数算
+  check(pageSrc.includes('label="范围"'), '列表有「范围」列')
+  check(pageSrc.includes("row.type === 'checkin' ? `${row.target_count}人` : row.title"),
+    '签到的范围显示为应到 x 人')
+  check(!pageSrc.includes('<el-tabs'), '去掉标签页，点名与签到同表')
+  check(!pageSrc.includes('CheckinPanel'), '不再挂单独的签到面板')
+  check(pageSrc.includes('type="selection"') && pageSrc.includes(':reserve-selection="true"'),
+    '复选框跨页保留')
+  check(pageSrc.includes(':row-key="rowKey"') && pageSrc.includes('`${row.type}-${row.id}`'),
+    '两类记录的 row-key 不会撞车')
+  check(pageSrc.includes('只导出选中的记录') && pageSrc.includes('导出当前筛选结果'),
+    '导出时二选一：选中记录 / 当前筛选结果')
+  check(pageSrc.includes('recordIds:') && pageSrc.includes('checkinIds:'),
+    '勾选导出分别带点名和签到的 id')
+  check(pageSrc.includes('${start || \'全部\'}_${end || \'全部\'}.xlsx')
+    && pageSrc.includes('选中${selection.value.length}条.xlsx'),
+    '两种导出的文件名分得清')
+  check(pageSrc.includes('startAutoRefresh') && pageSrc.includes('30000'),
+    '有进行中的签到时定时刷新实时人数')
+  check(pageSrc.includes('批量删除') && pageSrc.includes('handleBatchDelete')
+    && pageSrc.includes(':disabled="!selection.length"'),
+    '勾选后才能批量删除')
+  check(pageSrc.includes('batchDeleteAttendance') && pageSrc.includes('clearSelection'),
+    '批量删除后清空勾选')
+  check(pageSrc.includes('label="操作" width="220"'), '操作列收窄，按钮不折行')
+  check(!pageSrc.includes('handleCheckinRemark'),
+    '签到的改备注挪进明细，列表上少一个按钮')
+
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const attendancePy = src('/../backend/app/api/attendance.py')
+  check(attendancePy.includes('"/overview"'), '后端提供合并列表接口')
+  check(/def overview_attendance\(/.test(attendancePy)
+    && attendancePy.includes('type="checkin"') && attendancePy.includes('type="attendance"'),
+    '汇总接口同时返回点名和签到两类行')
+  check(/record_ids: list\[int\] = Query\(default=\[\]/.test(attendancePy)
+    && /checkin_ids: list\[int\] = Query\(default=\[\]/.test(attendancePy),
+    '导出接口接收勾选的记录 id')
+  check(attendancePy.includes('"/batch-delete"') && /def batch_delete_attendance\(/.test(attendancePy),
+    '后端提供批量删除接口')
+  check(!attendancePy.includes('不能单独删除'),
+    '签到生成的考勤不再被拒绝单独删除，而是连签到一起删')
+
+  const attApi = src('/src/api/attendance.js')
+  check(attApi.includes("url: '/attendance/batch-delete'")
+    && attApi.includes('record_ids: recordIds') && attApi.includes('checkin_ids: checkinIds'),
+    '批量删除把点名和签到的 id 分开传')
+
+  // 签到被删后，公开链接不能只报「读取失败」，要明说链接已失效
+  const checkinVue = src('/src/views/Checkin.vue')
+  check(checkinVue.includes("'链接已失效'") && checkinVue.includes('status === 404')
+    && checkinVue.includes('已被删除'),
+    '签到删除后打开链接显示「链接已失效」')
 }
 
 console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才能签）')
@@ -4543,6 +4600,9 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(detailSrc.includes('FileViewer'), '签到照片复用证明材料那个预览框')
   check(!detailSrc.includes('window.open'), '照片不再另开新窗口')
   check(detailSrc.includes('detail.attendance_record_id'), '改的是结算生成的那条考勤明细')
+  check(detailSrc.includes('updateCheckinTitle(detail.value.id')
+    && detailSrc.includes('>修改<'),
+    '签到的「改备注」挪进明细，改的是标题')
 
   // 公开页要暴露给没登录的人：路由必须是 public + bare
   const routerSrc = readFileSync(`${ROOT}/src/router/index.js`, 'utf8')

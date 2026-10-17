@@ -479,22 +479,81 @@ def test_last_signature_ends_and_settles_immediately(cb):
     assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 400
 
 
-def test_generated_attendance_cannot_be_deleted(cb):
-    checkin = _create(cb, [PEOPLE[0][0]])
+def test_deleting_generated_attendance_also_removes_checkin(cb):
+    """删签到生成的那条考勤 = 删那次签到：链接、照片、考勤一起走
+
+    统一列表里两种记录挨着排，用户分不清也不该关心谁是谁生成的。
+    """
+    checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]], require_photo=True)
+    _login(cb, PEOPLE[0][0])
+    assert _sign(cb, checkin["code"], photo=PNG).status_code == 200
+    _as_admin(cb)
     assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 200
-    record = _attendance_of(cb, "签到·1人")
+    record = _attendance_of(cb, "签到·2人")
+
+    photo = cb.rows("SELECT photo_file FROM checkin_targets WHERE checkin_id=?",
+                    checkin["id"])[0][0]
+    photo_path = cb.db.parent / "checkins" / photo
+    assert photo_path.is_file()
 
     r = cb.client.delete(f"/api/attendance/{record['id']}")
-    assert r.status_code == 400
-    assert "签到自动生成" in r.json()["detail"]
+    assert r.status_code == 200, r.text
+    assert cb.client.get(f"/api/checkins/{checkin['id']}").status_code == 404
+    assert cb.client.get(f"/api/checkins/public/{checkin['code']}").status_code == 404
+    assert _attendance_of(cb, "签到·2人") is None
+    assert not photo_path.exists()
 
-    # 普通点名生成的记录仍然能删（别把保护做成一刀切）
+    # 普通点名生成的记录仍然单独删（别把级联做成一刀切）
     r = cb.client.post("/api/attendance", json={
         "scope": "临时集合",
         "records": [{"student_no": PEOPLE[0][0], "name": "学生02", "status": "present"}],
     })
     assert r.status_code == 200, r.text
     assert cb.client.delete(f"/api/attendance/{r.json()['id']}").status_code == 200
+
+
+def test_batch_delete_selected_records(cb):
+    """复选框批量删除：签到连带照片和结算考勤，普通点名只删自己
+
+    签到生成的那条考勤即使没勾签到，也要把身后的签到一起删掉 ——
+    否则会留下指空的历史签到。
+    """
+    checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]], require_photo=True)
+    _login(cb, PEOPLE[0][0])
+    assert _sign(cb, checkin["code"], photo=PNG).status_code == 200
+    _as_admin(cb)
+    assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 200
+    generated = _attendance_of(cb, "签到·2人")
+    photo = cb.rows("SELECT photo_file FROM checkin_targets WHERE checkin_id=?",
+                    checkin["id"])[0][0]
+    photo_path = cb.db.parent / "checkins" / photo
+
+    ids = {}
+    for scope in ("要删的", "留着的"):
+        r = cb.client.post("/api/attendance", json={
+            "scope": scope,
+            "records": [{"student_no": PEOPLE[0][0], "name": "学生02", "status": "present"}],
+        })
+        assert r.status_code == 200, r.text
+        ids[scope] = r.json()["id"]
+
+    # 只勾「签到生成的考勤」和一条普通点名，不勾签到本身
+    r = cb.client.post("/api/attendance/batch-delete", json={
+        "record_ids": [generated["id"], ids["要删的"]],
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] == 2
+
+    assert _attendance_of(cb, "签到·2人") is None
+    assert _attendance_of(cb, "要删的") is None
+    assert _attendance_of(cb, "留着的") is not None
+    assert cb.client.get(f"/api/checkins/{checkin['id']}").status_code == 404
+    assert cb.client.get(f"/api/checkins/public/{checkin['code']}").status_code == 404
+    assert not photo_path.exists()
+
+    # 什么都不勾：前端按钮是禁用的，接口自己也要拦住
+    r = cb.client.post("/api/attendance/batch-delete", json={})
+    assert r.status_code == 400
 
 
 def test_settlement_uses_deadline_not_trigger_moment(cb):
@@ -567,3 +626,182 @@ def test_export_contains_rollcall_and_checkin_sheets(cb):
     assert row["签到情况"] == "已签到"
     assert row["签到时间"]
     assert row["出勤状态"] == "到"
+
+
+# ---------- 合并列表与按勾选导出 ----------
+
+def _export(b, **params):
+    r = b.client.get("/api/attendance/export", params=params)
+    assert r.status_code == 200, r.text
+    return load_workbook(BytesIO(r.content))
+
+
+def test_overview_merges_rollcall_and_checkin(cb):
+    """一张列表里同时有点名和签到，签到的人数与状态都是实时值"""
+    checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]])
+    _login(cb, PEOPLE[0][0])
+    assert _sign(cb, checkin["code"]).status_code == 200
+    _as_admin(cb)
+    assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 200
+
+    r = cb.client.post("/api/attendance", json={
+        "scope": "全班",
+        "records": [
+            {"student_no": PEOPLE[0][0], "name": "学生02", "status": "present"},
+            {"student_no": PEOPLE[1][0], "name": "学生03", "status": "absent"},
+        ],
+    })
+    assert r.status_code == 200, r.text
+
+    data = cb.client.get("/api/attendance/overview").json()
+    # 签到 + 它结算出来的考勤 + 手动点名，一共三条
+    assert data["total"] == 3
+    assert len(data["items"]) == 3
+
+    chk = next(i for i in data["items"] if i["type"] == "checkin")
+    assert chk["title"] == "晚点名"
+    assert chk["target_count"] == 2 and chk["signed_count"] == 1
+    assert chk["status"] == "ended"
+    assert chk["time"] is not None
+    assert chk["link"].endswith(checkin["code"])
+
+    rollcall = next(
+        i for i in data["items"]
+        if i["type"] == "attendance" and i["title"] == "全班"
+    )
+    assert (rollcall["total"], rollcall["present"], rollcall["leave"], rollcall["absent"]) \
+        == (2, 1, 0, 1)
+
+    settled = next(
+        i for i in data["items"]
+        if i["type"] == "attendance" and i["title"] == "签到·2人"
+    )
+    assert (settled["present"], settled["absent"]) == (1, 1)
+
+    # 分页后 total 仍是全部条数
+    page = cb.client.get(
+        "/api/attendance/overview", params={"page": 1, "page_size": 2}
+    ).json()
+    assert page["total"] == 3 and len(page["items"]) == 2
+
+
+def test_overview_keyword_matches_rollcall_remark_or_checkin_title(cb):
+    """搜索口径固定：点名查备注、签到查标题（签到的补充说明不参与）"""
+    _create(cb, [PEOPLE[0][0]], title="周六晚点名", remark="宿舍区集合")
+    r = cb.client.post("/api/attendance", json={
+        "scope": "全班",
+        "records": [{"student_no": PEOPLE[0][0], "name": "学生02", "status": "present"}],
+    })
+    assert r.status_code == 200, r.text
+    assert cb.client.patch(
+        f"/api/attendance/{r.json()['id']}", json={"remark": "学院临时集合"}
+    ).status_code == 200
+
+    def types_of(keyword):
+        data = cb.client.get(
+            "/api/attendance/overview", params={"keyword": keyword}
+        ).json()
+        return sorted(i["type"] for i in data["items"])
+
+    assert types_of("学院") == ["attendance"]
+    assert types_of("周六晚") == ["checkin"]
+    assert types_of("宿舍区") == []
+    assert types_of("") == ["attendance", "checkin"]
+
+
+def test_export_only_selected_records(cb):
+    """勾选导出：点名和签到各按 id 取，没勾的不进文件"""
+    c1 = _create(cb, [PEOPLE[0][0]], title="签到一")
+    c2 = _create(cb, [PEOPLE[1][0]], title="签到二")
+    ids = []
+    for no, name, scope in (
+        (PEOPLE[0][0], "学生02", "第一次"),
+        (PEOPLE[1][0], "学生03", "第二次"),
+    ):
+        r = cb.client.post("/api/attendance", json={
+            "scope": scope,
+            "records": [{"student_no": no, "name": name, "status": "present"}],
+        })
+        assert r.status_code == 200, r.text
+        ids.append(r.json()["id"])
+
+    wb = _export(cb, record_ids=[ids[0]], checkin_ids=[c2["id"]])
+    scopes = {row[1] for row in wb["考勤记录"].iter_rows(min_row=2, values_only=True)}
+    assert scopes == {"第一次"}
+    titles = {row[1] for row in wb["签到记录"].iter_rows(min_row=2, values_only=True)}
+    assert titles == {"签到二"}
+    assert c1["title"] == "签到一"  # 没被选中的那条确实存在
+
+
+def test_export_filtered_by_keyword(cb):
+    """不勾选时导出当前筛选结果，关键词口径与列表一致"""
+    _create(cb, [PEOPLE[0][0]], title="周六晚点名")
+    r = cb.client.post("/api/attendance", json={
+        "scope": "全班",
+        "records": [{"student_no": PEOPLE[0][0], "name": "学生02", "status": "present"}],
+    })
+    assert r.status_code == 200, r.text
+    assert cb.client.patch(
+        f"/api/attendance/{r.json()['id']}", json={"remark": "学院临时集合"}
+    ).status_code == 200
+
+    wb = _export(cb, keyword="周六晚")
+    assert list(wb["考勤记录"].iter_rows(min_row=2, values_only=True)) == []
+    titles = [row[1] for row in wb["签到记录"].iter_rows(min_row=2, values_only=True)]
+    assert titles == ["周六晚点名"]
+
+    wb = _export(cb, keyword="学院")
+    scopes = [row[1] for row in wb["考勤记录"].iter_rows(min_row=2, values_only=True)]
+    assert scopes == ["全班"]
+    assert list(wb["签到记录"].iter_rows(min_row=2, values_only=True)) == []
+
+
+# ---------- 签到自身的备注与删除 ----------
+
+def test_checkin_title_can_be_edited_and_is_searchable(cb):
+    """列表里的「备注」列就是标题：改完搜索跟着变，标题不能清空"""
+    checkin = _create(cb, [PEOPLE[0][0]], title="晚点名", remark="宿舍区集合")
+
+    r = cb.client.patch(
+        f"/api/checkins/{checkin['id']}", json={"title": " 补点名 "}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["title"] == "补点名"
+    # 发布时那句补充说明是另一回事，不会被标题接口改掉
+    assert r.json()["remark"] == "宿舍区集合"
+
+    def checkins_of(keyword):
+        data = cb.client.get(
+            "/api/attendance/overview", params={"keyword": keyword}
+        ).json()
+        return [i for i in data["items"] if i["type"] == "checkin"]
+
+    assert checkins_of("补点名")[0]["title"] == "补点名"
+    assert checkins_of("晚点名") == []
+    assert checkins_of("宿舍区") == []
+
+    r = cb.client.patch(f"/api/checkins/{checkin['id']}", json={"title": "  "})
+    assert r.status_code == 400
+    assert "标题不能为空" in r.json()["detail"]
+
+    _login(cb, PEOPLE[0][0])
+    assert cb.client.patch(
+        f"/api/checkins/{checkin['id']}", json={"title": "学生改不了"}
+    ).status_code == 403
+
+
+def test_delete_checkin_also_removes_generated_attendance(cb):
+    """删除签到连同它结算出的考勤：否则那条记录会永远删不掉"""
+    checkin = _create(cb, [PEOPLE[0][0]])
+    assert cb.client.post(f"/api/checkins/{checkin['id']}/close").status_code == 200
+    assert _attendance_of(cb, "签到·1人")
+
+    r = cb.client.delete(f"/api/checkins/{checkin['id']}")
+    assert r.status_code == 200, r.text
+    assert cb.client.get(f"/api/checkins/{checkin['id']}").status_code == 404
+    assert _attendance_of(cb, "签到·1人") is None
+
+    # 链接也失效了，公开页拿到的是一句能直接给用户看的话
+    r = cb.client.get(f"/api/checkins/public/{checkin['code']}")
+    assert r.status_code == 404
+    assert "已被删除" in r.json()["detail"]

@@ -11,7 +11,6 @@
    commit，提前发会把「建签到」这笔半截事务一起提交掉（全项目统一口径）。
 """
 
-import os
 import secrets
 import uuid
 from datetime import datetime
@@ -31,7 +30,6 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..config import BASE_DIR
 from ..database import get_db
 from ..models import AttendanceItem, Checkin, CheckinTarget, Student, User
 from ..schemas import (
@@ -41,16 +39,20 @@ from ..schemas import (
     CheckinListResponse,
     CheckinLocationResponse,
     CheckinPublicResponse,
+    CheckinTitleUpdate,
     CheckinTargetResponse,
 )
 from ..services import display_name, log_operation, notify, recipients
 from ..services.checkin_service import (
+    CHECKIN_DIR,
     CHECKIN_ONGOING,
     approved_leave_nos,
     checkin_status,
     finalize_checkin,
     finalize_due,
     haversine_m,
+    remove_checkin,
+    remove_photos,
 )
 from ..utils.links import full_url
 from .deps import (
@@ -61,11 +63,6 @@ from .deps import (
 )
 
 router = APIRouter(prefix="/api/checkins", tags=["签到"])
-
-# 签到照片单独一个目录，不和学生照片/请假证明混在一起。
-# 测试用 CHECKIN_DIR 指到临时目录；生产默认落在挂载出来的 data/ 下，备份会一起打包
-CHECKIN_DIR = Path(os.environ.get("CHECKIN_DIR") or (BASE_DIR / "data" / "checkins"))
-CHECKIN_DIR.mkdir(parents=True, exist_ok=True)
 
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
@@ -84,7 +81,9 @@ def _get_by_code(db: Session, code: str) -> Checkin:
     checkin = db.query(Checkin).filter(Checkin.code == code).first()
     if not checkin:
         # 不知道 code 的人不该知道「有这么一场签到」（同投票的越权口径）
-        raise HTTPException(status_code=404, detail="签到不存在或链接已失效")
+        raise HTTPException(
+            status_code=404, detail="这次签到不存在或已被删除，链接已失效"
+        )
     return checkin
 
 
@@ -470,6 +469,79 @@ def get_checkin(
 ):
     finalize_due(db)
     return _detail(db, request, _get_checkin(db, checkin_id))
+
+
+@router.patch(
+    "/{checkin_id}",
+    response_model=CheckinDetailResponse,
+    summary="改签到标题（班委及以上）",
+)
+def update_checkin_title(
+    checkin_id: int,
+    data: CheckinTitleUpdate,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """列表的「备注」列显示的、关键词搜索搜的，都是这里改的标题。
+
+    标题不能清空：空标题在列表里认不出是哪次签到，也没法搜。
+    """
+    checkin = _get_checkin(db, checkin_id)
+    title = data.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="标题不能为空")
+
+    before = checkin.title or ""
+    if title != before:
+        checkin.title = title
+        log_operation(
+            db,
+            user,
+            action="修改签到标题",
+            target=f"{checkin.end_at:%Y-%m-%d} {before}",
+            detail=f"「{before}」→「{title}」",
+            ip=get_client_ip(request),
+        )
+        db.commit()
+        db.refresh(checkin)
+    return _detail(db, request, checkin)
+
+
+@router.delete("/{checkin_id}", summary="删除一次签到（班委及以上）")
+def delete_checkin(
+    checkin_id: int,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """删掉签到本身、签到照片，以及结算时生成的那条考勤记录。
+
+    反过来，在考勤列表里删那条生成的考勤也会连这次签到一起删
+    （见 attendance.delete_attendance），两边都不留指空的数据。
+    """
+    checkin = _get_checkin(db, checkin_id)
+    targets = (
+        db.query(CheckinTarget)
+        .filter(CheckinTarget.checkin_id == checkin_id)
+        .all()
+    )
+
+    log_operation(
+        db,
+        user,
+        action="删除签到",
+        target=f"{checkin.end_at:%Y-%m-%d} {checkin.title}",
+        detail=f"应到 {len(targets)} 人，已签 {sum(1 for t in targets if t.signed_at)} 人"
+        + ("，结算生成的考勤记录一并删除" if checkin.attendance_record_id else ""),
+        ip=get_client_ip(request),
+        target_student_nos=[t.student_no for t in targets],
+    )
+    photo_files = remove_checkin(db, checkin)
+    db.commit()
+    # 事务成功后再删照片文件；回滚时照片还留着
+    remove_photos(photo_files)
+    return {"ok": True}
 
 
 @router.get(

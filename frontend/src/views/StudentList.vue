@@ -99,15 +99,8 @@
             </template>
           </el-dropdown>
 
-          <!-- 点名：独立弹窗承载「选范围 → 逐个叫 → 汇总」三步。
-               这两个是天天要按的，别顺手收进「更多」——1.11.4 收低频操作时
-               把这两个按钮删了却忘了放进下拉，等于直接消失，1.11.7 补回来 -->
-          <el-button @click="rollCallRef?.open()">
-            <el-icon><Pointer /></el-icon>
-            点名
-          </el-button>
-
-          <!-- 抽签：独立弹窗，权限与页面一致（班委及以上） -->
+          <!-- 抽签：独立弹窗，权限与页面一致（班委及以上）。
+               点名已经挪到考勤页（那里才有考勤记录），别再加回这里 -->
           <el-button v-if="userStore.isCommittee" @click="drawRef?.open()">
             <el-icon><Aim /></el-icon>
             抽签
@@ -1156,8 +1149,6 @@
       </template>
     </el-dialog>
 
-    <!-- 点名弹窗 -->
-    <RollCallDialog ref="rollCallRef" />
     <PhotoImportDialog ref="photoImportRef" @done="fetchData" />
 
     <!-- 抽签弹窗。勾选要实时反映到「从表格里选（N）」上，所以走 prop 而不是 open 传参 -->
@@ -1199,7 +1190,6 @@ import {
 import { useUserStore } from '@/store/user'
 import Watermark from '@/components/Watermark.vue'
 import FileViewer from '@/components/FileViewer.vue'
-import RollCallDialog from '@/components/RollCallDialog.vue'
 import DrawDialog from '@/components/DrawDialog.vue'
 import PhotoImportDialog from '@/components/PhotoImportDialog.vue'
 import StudentImportDialog from '@/components/StudentImportDialog.vue'
@@ -1231,8 +1221,7 @@ const userStore = useUserStore()
 const route = useRoute()
 const router = useRouter()
 
-// 点名 / 抽签弹窗（独立组件，靠 ref 调它的 open()）
-const rollCallRef = ref(null)
+// 抽签弹窗（独立组件，靠 ref 调它的 open()）
 const drawRef = ref(null)
 const photoImportRef = ref(null)
 const importDialogRef = ref(null)

@@ -119,6 +119,9 @@ import { getLeaveList } from '@/api/leave'
 // 名单规则与抽签共用，规则说明见 utils/roster.js
 import { onLeaveNow, pickByScope, splitByLeave, splitBySchoolStatus } from '@/utils/roster'
 
+// 上报成功后通知父组件（考勤页）刷新列表，新记录当场可见
+const emit = defineEmits(['saved'])
+
 const visible = ref(false)
 const loading = ref(false)
 
@@ -264,6 +267,7 @@ async function reportResult() {
       }))
     ]
     await createAttendance({ scope: scope.value, records })
+    emit('saved')
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '点名结果保存失败')
   }

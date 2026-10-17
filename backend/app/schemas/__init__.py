@@ -83,11 +83,14 @@ from .sign_photo import (
     SignPhotoStatusResponse,
 )
 from .attendance import (
+    AttendanceBatchDelete,
     AttendanceCreate,
     AttendanceItemIn,
     AttendanceItemResponse,
     AttendanceItemUpdate,
     AttendanceListResponse,
+    AttendanceOverviewItem,
+    AttendanceOverviewResponse,
     AttendanceRecordResponse,
     AttendanceRemarkUpdate,
 )
@@ -99,6 +102,7 @@ from .checkin import (
     CheckinLocationIn,
     CheckinLocationResponse,
     CheckinPublicResponse,
+    CheckinTitleUpdate,
     CheckinTargetResponse,
 )
 from .inbox import InboxListResponse, InboxMessageResponse
@@ -250,12 +254,16 @@ __all__ = [
     "CheckinLocationIn",
     "CheckinLocationResponse",
     "CheckinPublicResponse",
+    "CheckinTitleUpdate",
     "CheckinTargetResponse",
+    "AttendanceBatchDelete",
     "AttendanceCreate",
     "AttendanceItemIn",
     "AttendanceItemResponse",
     "AttendanceItemUpdate",
     "AttendanceListResponse",
+    "AttendanceOverviewItem",
+    "AttendanceOverviewResponse",
     "AttendanceRecordResponse",
     "PollCreate",
     "PollQuestionIn",
