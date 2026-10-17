@@ -26,6 +26,7 @@ from fastapi import (
     Form,
     HTTPException,
     Request,
+    Response,
     UploadFile,
 )
 from fastapi.responses import FileResponse
@@ -74,6 +75,11 @@ MAX_PHOTO_BYTES = 10 * 1024 * 1024
 # 慢网络下十几 MB 的照片传几分钟很正常，宽限要覆盖上传耗时，又不能变成
 # 「过了截止还能慢慢签」。只对带照片凭证的签发生效，普通签到仍严格按截止时间。
 SIGN_GRACE = timedelta(minutes=10)
+
+# 打开链接时还没登录，登录（找学号、输密码、切账号）花掉的时间不该让人白跑一趟。
+# 只要页面是截止前打开的，截止后再给这么一段补签时间（传照片也在这个窗口内）。
+# 上限就是 10 分钟：够登录、够传一张图，又不会变成不限时。
+OPEN_GRACE = timedelta(minutes=10)
 
 
 # ---------- 小工具 ----------
@@ -240,6 +246,9 @@ def _public_response(
         and approved_leave_nos(db, [target.student_no], reference)
     )
     status = checkin_status(checkin)
+    # 截止前打开过页面的，截止后还有一段补签宽限（OPEN_GRACE）。
+    # 进行中时不往响应里放这个字段：前端只在「已结束但还能签」时需要它
+    open_until = _open_grace_until(request, checkin, student_no or "")
     return CheckinPublicResponse(
         code=checkin.code,
         title=checkin.title or "",
@@ -256,16 +265,18 @@ def _public_response(
         link=_link(request, checkin),
         is_login=is_login,
         is_target=target is not None,
-        # 能不能签只由服务端给结论；前端拿这个字段决定按钮显不显示
+        # 能不能签只由服务端给结论；前端拿这个字段决定按钮显不显示。
+        # 已结束但还在开页宽限内的，同样算能签
         can_sign=bool(
             is_login
             and target is not None
             and target.signed_at is None
-            and status == CHECKIN_ONGOING
+            and (status == CHECKIN_ONGOING or open_until is not None)
         ),
         signed_at=target.signed_at if target else None,
         my_distance_m=target.distance_m if target else None,
         on_leave=on_leave,
+        grace_until=open_until if status != CHECKIN_ONGOING else None,
     )
 
 
@@ -322,6 +333,72 @@ def _read_photo_token(token: str, checkin: Checkin, student_no: str) -> tuple[da
     ):
         raise invalid
     return datetime.fromtimestamp(int(ts)), name
+
+
+def _open_cookie_name(checkin_id: int) -> str:
+    """带上 id：同一浏览器同时开着两场签到，两份凭证互不覆盖"""
+    return f"checkin_open_{checkin_id}"
+
+
+def _open_token(checkin: Checkin, student_no: str | None, opened_at: datetime) -> str:
+    """把「谁、哪场签到、几点打开的页面」签成 Cookie 凭证
+
+    只证明页面是截止前打开的；到底能不能签，签到接口还会再按截止时间 + 宽限
+    判一次。游客打开时还不知道是谁，学号留空，登录后哪个本班账号都能接上。
+    """
+    payload = f"{checkin.id}:{student_no or ''}:{int(opened_at.timestamp())}"
+    sig = hmac.new(
+        resolve_session_secret().encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    return base64.urlsafe_b64encode(f"{payload}:{sig}".encode()).decode()
+
+
+def _read_open_token(
+    token: str, checkin: Checkin, student_no: str
+) -> datetime | None:
+    """验开页凭证，返回打开时间；不合法一律当作没有
+
+    这不是错误：没有凭证的普通签到照常按截止时间走，不该因为浏览器禁了 Cookie
+    就回一句看不明白的 400。
+    """
+    try:
+        raw = base64.urlsafe_b64decode(token.encode()).decode()
+        payload, sig = raw.rsplit(":", 1)
+        cid, no, ts = payload.split(":", 2)
+        opened_at = datetime.fromtimestamp(int(ts))
+    except (ValueError, UnicodeDecodeError, OverflowError, OSError):
+        return None
+
+    expected = hmac.new(
+        resolve_session_secret().encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    if not hmac.compare_digest(sig, expected) or cid != str(checkin.id):
+        return None
+    # 游客凭证（no 为空）谁登录都能用；已登录时打开的凭证只认本人
+    if no and no != student_no:
+        return None
+    return opened_at
+
+
+def _open_grace_until(
+    request: Request, checkin: Checkin, student_no: str
+) -> datetime | None:
+    """这次请求还在不在「截止前打开过页面」的补签宽限内；在就返回到什么时候
+
+    三个条件缺一不可：页面确实在截止前打开、本人（或游客）的凭证、现在没超过
+    截止后 OPEN_GRACE。
+    """
+    token = request.cookies.get(_open_cookie_name(checkin.id))
+    if not token:
+        return None
+    opened_at = _read_open_token(token, checkin, student_no)
+    if opened_at is None:
+        return None
+    reference = checkin.closed_at or checkin.end_at
+    if opened_at >= reference:
+        return None
+    until = reference + OPEN_GRACE
+    return until if datetime.now() <= until else None
 
 
 # ---------- 班委端 ----------
@@ -455,18 +532,35 @@ def list_checkins(
 def public_checkin(
     code: str,
     request: Request,
+    response: Response,
     user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
     finalize_due(db)
     checkin = _get_by_code(db, code)
-    return _public_response(
+    student_no = getattr(user, "student_no", None) if user else None
+    payload = _public_response(
         db,
         request,
         checkin,
         is_login=user is not None,
-        student_no=getattr(user, "student_no", None) if user else None,
+        student_no=student_no,
     )
+
+    # 进行中才签发「打开过页面」的凭证。过了截止再打开的不发 —— 否则就成了
+    # 随时可以来拿一张、补签窗口永远开着的卡。每次打开都重签一次，时间跟着更新
+    now = datetime.now()
+    if checkin_status(checkin, now=now) == CHECKIN_ONGOING:
+        reference = checkin.closed_at or checkin.end_at
+        response.set_cookie(
+            _open_cookie_name(checkin.id),
+            _open_token(checkin, student_no, now),
+            max_age=max(60, int((reference + OPEN_GRACE - now).total_seconds())),
+            path="/api/checkins",
+            httponly=True,
+            samesite="lax",
+        )
+    return payload
 
 
 @router.post(
@@ -727,7 +821,11 @@ async def upload_checkin_photo(
     started_at = datetime.now()
     finalize_due(db)
     checkin = _get_by_code(db, code)
-    if checkin_status(checkin, now=started_at) != CHECKIN_ONGOING:
+    # 截止前打开过页面的，补签宽限内也允许传照片（否则要求照片的签到根本补不上）
+    if (
+        checkin_status(checkin, now=started_at) != CHECKIN_ONGOING
+        and _open_grace_until(request, checkin, student.student_no) is None
+    ):
         raise HTTPException(status_code=400, detail="签到已经结束")
 
     target = (
@@ -784,13 +882,19 @@ def sign_checkin(
 
     reference = checkin.closed_at or checkin.end_at
     now = datetime.now()
+    # 两条有界的迟到理由：照片是截止前开始传的，或者页面是截止前打开的（登录耗时）
     late_ok = bool(
         photo_file
         and upload_started is not None
         and upload_started < reference
         and now <= reference + SIGN_GRACE
     )
-    if checkin_status(checkin, now=now) != CHECKIN_ONGOING and not late_ok:
+    late_open = _open_grace_until(request, checkin, student.student_no) is not None
+    if (
+        checkin_status(checkin, now=now) != CHECKIN_ONGOING
+        and not late_ok
+        and not late_open
+    ):
         raise HTTPException(status_code=400, detail="签到已经结束")
 
     target = (

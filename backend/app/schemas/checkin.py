@@ -114,6 +114,8 @@ class CheckinPublicResponse(BaseModel):
     is_login: bool = False
     is_target: bool = False
     can_sign: bool = False
+    # 已结束、但页面是截止前打开的：补签宽限到这一刻（进行中时为空）
+    grace_until: datetime | None = None
     signed_at: datetime | None = None
     my_distance_m: int | None = None
     on_leave: bool = False

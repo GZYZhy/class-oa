@@ -4540,6 +4540,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
     is_login: false,
     is_target: false,
     can_sign: false,
+    grace_until: null,
     signed_at: null,
     my_distance_m: null,
     on_leave: false
@@ -4598,6 +4599,30 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
     inject({ status: 'ended', is_login: true, is_target: true, on_leave: true })
   )
   check(stripComments(ended).includes('记为「请假」'), '结束了没签、有请假 → 记为请假')
+
+  // 截止前打开过页面、登录花掉了一点时间：过了点仍给一段补签宽限
+  const { html: graceGuest } = await renderPatched(
+    '/src/views/Checkin.vue',
+    'onMounted(load)',
+    inject({ status: 'ended', grace_until: '2026-10-18T20:00:00' })
+  )
+  const graceGuestText = stripComments(graceGuest)
+  check(graceGuestText.includes('可以在 2026-10-18 20:00 前补签'),
+    '已结束但页面是截止前打开的：写明补签截止时刻')
+  check(graceGuestText.includes('登录后签到'),
+    '游客在宽限内仍然能走「登录后签到」，不会只剩一句已结束')
+
+  const { html: graceForm } = await renderPatched(
+    '/src/views/Checkin.vue',
+    'onMounted(load)',
+    inject({
+      status: 'ended', is_login: true, is_target: true, can_sign: true,
+      grace_until: '2026-10-18T20:00:00'
+    })
+  )
+  const graceFormText = stripComments(graceForm)
+  check(graceFormText.includes('确认签到'), '已结束但在宽限内，签到表单照样显示')
+  check(graceFormText.includes('前补签'), '补签表单上方说明为什么还能签')
 
   // 截止之后链接仍能看：地点地图与要求对游客也公开
   const { html: endedInfo } = await renderPatched(
@@ -4666,6 +4691,12 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(checkinVueSrc.includes('重试上传'), '上传失败保留照片，可以重试')
   check(/if \(info\.value\?\.require_photo && !photoToken\.value\)/.test(checkinVueSrc),
     '要求照片时以拿到凭证为准，不是选过文件就行')
+  // 登录耗时不能把人挡在门外，但宽限由服务端给（grace_until），前端不自己算
+  check(checkinVueSrc.includes("info.status === 'ongoing' || info.grace_until"),
+    '已结束但服务端给了补签宽限时，表单照常显示')
+  check(checkinVueSrc.includes('前补签'), '补签时说明「截止前打开了链接」')
+  check(!/OPEN_GRACE|30 \* 60|30分钟宽限/.test(checkinVueSrc),
+    '宽限时长只在后端定义，前端不另写一份')
 
   // 进行中的签到，明细里可以延长截止时间、催还没签的人
   check(apiSrc.includes('url: `/checkins/${id}/extend`')

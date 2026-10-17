@@ -15,6 +15,9 @@
 第三个坑是路由顺序：`/public/{code}` 必须排在 `/{checkin_id}` 前面，
 不然公开页会撞上数字解析直接 422（本文件第一条用例就用未登录请求兜住它）。
 """
+import base64
+import hashlib
+import hmac
 import time
 from datetime import datetime, timedelta
 from io import BytesIO
@@ -44,9 +47,13 @@ LAT, LNG = 30.5000, 114.3000
 PNG = png_bytes()
 
 
-def _world(backend, db_name):
-    """初始化完毕、库里 1 个管理员 + 5 个学生，管理员已登录（同 test_polls）"""
-    b = backend(db=db_name, BOOTSTRAP_PASSWORD=PW)
+def _world(backend, db_name, **env):
+    """初始化完毕、库里 1 个管理员 + 5 个学生，管理员已登录（同 test_polls）
+
+    `**env` 原样传给后端子进程；测开页凭证时要把 SESSION_SECRET_KEY 钉死，
+    测试进程才签得出服务端认得出的 Cookie。
+    """
+    b = backend(db=db_name, BOOTSTRAP_PASSWORD=PW, **env)
     assert b.login(password=PW).status_code == 200
 
     r = b.client.post("/api/students", json={
@@ -154,6 +161,17 @@ def _force_end(b, checkin_id, past_minutes=5):
         "UPDATE checkins SET end_at=? WHERE id=?",
         end_at.strftime("%Y-%m-%d %H:%M:%S.%f"), checkin_id,
     )
+
+
+def _open_token(secret, checkin_id, opened_at, student_no=""):
+    """照后端 `_open_token` 的样子签一张开页凭证
+
+    只有显式配了 SESSION_SECRET_KEY 的用例才能调 —— 平时服务端密钥是启动时
+    随机生成、存在数据目录里的，测试进程拿不到，也不该去拿。
+    """
+    payload = f"{checkin_id}:{student_no}:{int(opened_at.timestamp())}"
+    sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+    return base64.urlsafe_b64encode(f"{payload}:{sig}".encode()).decode()
 
 
 def _attendance_of(b, scope):
@@ -451,6 +469,113 @@ def test_photo_uploaded_before_deadline_still_signs_after(cb):
     )
     assert r.status_code == 400
     assert "已经结束" in r.json()["detail"]
+
+
+def test_page_opened_before_deadline_signs_after_login(cb):
+    """打开链接时还没登录：登录花掉的时间不该让人白跑一趟
+
+    真实路径：群里发链接 → 学生点开（没登录，只看到标题和地点）→ 找学号、
+    输密码 → 回来时截止时间已经过了。只要页面是截止前打开的，截止后 10 分钟内
+    仍能签上，并且要求照片的也能在这段时间里传照片。
+    """
+    checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]], require_photo=True)
+    code, cid = checkin["code"], checkin["id"]
+    cookie_name = f"checkin_open_{cid}"
+
+    # 游客点开链接：信息照常可读，同时拿到一张开页凭证
+    cb.logout()
+    assert cb.client.get(f"/api/checkins/public/{code}").status_code == 200
+    assert cb.client.cookies.get(cookie_name), "进行中的页面打开时就该发凭证"
+
+    # 登录期间截止时间到了
+    end_at = datetime.now() + timedelta(seconds=1)
+    cb.run(
+        "UPDATE checkins SET end_at=? WHERE id=?",
+        end_at.strftime("%Y-%m-%d %H:%M:%S.%f"), cid,
+    )
+    time.sleep(1.2)
+
+    # 登录回来：页面已结束，但公开信息明说还在补签宽限内
+    _login(cb, PEOPLE[0][0])
+    data = cb.client.get(f"/api/checkins/public/{code}").json()
+    assert data["status"] == "ended"
+    assert data["grace_until"] is not None
+    assert data["can_sign"] is True
+
+    # 要求照片的签到：宽限内照片照样能传，传完再签
+    token = _upload_photo(cb, code)
+    r = _sign(cb, code, photo_token=token)
+    assert r.status_code == 200, r.text
+    assert r.json()["signed_at"] is not None
+    # 结算已经跑过（这个人本来是「无应答」），签到后明细要改回「到」
+    _as_admin(cb)
+    record_id = cb.rows(
+        "SELECT attendance_record_id FROM checkins WHERE id=?", cid
+    )[0][0]
+    detail = cb.client.get(f"/api/attendance/{record_id}").json()
+    items = {i["student_no"]: i["status"] for i in detail["items"]}
+    assert items[PEOPLE[0][0]] == "present"
+
+    # 同浏览器里没打开过页面的人：清掉凭证后过了点就是签不上
+    cb.client.cookies.delete(cookie_name)
+    _login(cb, PEOPLE[1][0])
+    data = cb.client.get(f"/api/checkins/public/{code}").json()
+    assert data["grace_until"] is None
+    assert data["can_sign"] is False
+    r = _sign(cb, code)
+    assert r.status_code == 400
+    assert "已经结束" in r.json()["detail"]
+
+
+def test_open_grace_is_bounded_and_forged_token_rejected(backend):
+    """补签宽限有线：开页早于截止，但过了 10 分钟照样签不上；伪造凭证不算数
+
+    服务端密钥在这里钉死，测试进程才签得出合法凭证 —— 正常部署时它是启动
+    时随机生成的，外部拿不到，这正是伪造不了的原因。
+    """
+    secret = "checkins-grace-test-secret"
+    cb = _world(backend, "checkin_grace.db", SESSION_SECRET_KEY=secret)
+    checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]])
+    code, cid = checkin["code"], checkin["id"]
+    cookie_name = f"checkin_open_{cid}"
+
+    def set_end_and_cookie(reference, *, student_no=""):
+        cb.run(
+            "UPDATE checkins SET end_at=? WHERE id=?",
+            reference.strftime("%Y-%m-%d %H:%M:%S.%f"), cid,
+        )
+        token = _open_token(secret, cid, reference - timedelta(minutes=1), student_no)
+        cb.client.cookies.set(cookie_name, token, path="/api/checkins")
+        return token
+
+    # 40 分钟前截止：开页凭证是真的，但 10 分钟宽限早过了
+    set_end_and_cookie(datetime.now() - timedelta(minutes=40))
+    _login(cb, PEOPLE[0][0])
+    data = cb.client.get(f"/api/checkins/public/{code}").json()
+    assert data["status"] == "ended"
+    assert data["grace_until"] is None
+    assert data["can_sign"] is False
+    r = _sign(cb, code)
+    assert r.status_code == 400
+    assert "已经结束" in r.json()["detail"]
+
+    # 截止刚过 5 分钟：凭证本身合法，但故意改坏最后一个字符就不认了
+    token = set_end_and_cookie(datetime.now() - timedelta(minutes=5))
+    cb.client.cookies.set(
+        cookie_name, token[:-1] + ("A" if token[-1] != "A" else "B"),
+        path="/api/checkins",
+    )
+    r = _sign(cb, code)
+    assert r.status_code == 400, "篡改过的凭证不能放行"
+    assert "已经结束" in r.json()["detail"]
+
+    # 换回真凭证：同一个截止时刻、同一个人，就签得上 —— 差别只在凭证
+    cb.client.cookies.set(cookie_name, token, path="/api/checkins")
+    data = cb.client.get(f"/api/checkins/public/{code}").json()
+    assert data["grace_until"] is not None
+    assert data["can_sign"] is True
+    r = _sign(cb, code)
+    assert r.status_code == 200, r.text
 
 
 # ---------- 结算 ----------
