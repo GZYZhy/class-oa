@@ -15,7 +15,7 @@ class CertificateRequestResponse(BaseModel):
     content: Optional[str] = None
     extra_request: Optional[str] = None
     attachments: list[dict] = Field(default_factory=list, description="附件列表 [{file, name, size}]")
-    # pending 待受理 / accepted 已受理 / correcting 待补正 / approved 已通过 / rejected 已驳回
+    # pending 待受理 / accepted 已受理 / correcting 待补正 / approved 已通过 / rejected 已驳回 / revoked 已撤销
     status: str = "pending"
     created_at: Optional[datetime] = None
     reviewer_name: Optional[str] = None

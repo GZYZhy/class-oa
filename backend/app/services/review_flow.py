@@ -19,6 +19,7 @@ STATUS_ACCEPTED = "accepted"      # 已受理，等审批
 STATUS_CORRECTING = "correcting"  # 已受理但材料要补，等申请人重交
 STATUS_APPROVED = "approved"      # 已通过（终态）
 STATUS_REJECTED = "rejected"      # 已驳回（终态）
+STATUS_REVOKED = "revoked"        # 已撤销：管理员把已通过的单子撤了（终态，不可恢复）
 
 # 管理端还得动手的：列表的「待处理」那一档、菜单红点，都用这一份口径
 ADMIN_TODO = (STATUS_PENDING, STATUS_ACCEPTED)
@@ -27,10 +28,10 @@ ADMIN_TODO = (STATUS_PENDING, STATUS_ACCEPTED)
 # 但学生也不能就这么撒手：留一份挂在半路上的办件去删学生，班委回头就收不了尾了
 UNFINISHED = (STATUS_PENDING, STATUS_ACCEPTED, STATUS_CORRECTING)
 
-# 已办结的：两个终态合起来，就是列表里「已办结」那一档。
-# 和 UNFINISHED 刚好互补（五个状态一人一半），这也是列表筛选器那四档的来源：
+# 已办结的：三个终态合起来，就是列表里「已办结」那一档。
+# 和 UNFINISHED 刚好互补（六个状态一分为二），这也是列表筛选器那四档的来源：
 # 待处理 / 待补正 / 已办结 / 全部 —— 前两档分开是因为它们要办的人不同
-CLOSED = (STATUS_APPROVED, STATUS_REJECTED)
+CLOSED = (STATUS_APPROVED, STATUS_REJECTED, STATUS_REVOKED)
 
 
 def accept(row: Any) -> bool:
@@ -88,7 +89,7 @@ def require_accepted(row: Any) -> None:
     分开写的话六个审批接口各要写一遍终态判断，而证明那两个接口原本就漏了
     （approve 只挡「已通过」、reject 一句检查都没有，能在通过之后再驳回一次）。
     """
-    if row.status in (STATUS_APPROVED, STATUS_REJECTED):
+    if row.status in CLOSED:
         raise HTTPException(status_code=400, detail="该申请已处理过")
     if row.status == STATUS_CORRECTING:
         # 刚说了「材料不对、补齐再来」，此刻批它就是自相矛盾；等学生补齐（回到已受理）再批

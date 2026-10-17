@@ -1578,6 +1578,89 @@ console.log('\n▶ 审核页：批准时填班导师意见、选谁的签字')
   check(/advisor_opinion: leaveDialogForm\.value\.advisor_opinion/.test(src), '意见同样原样带上')
 }
 
+console.log('\n▶ 撤销：三个办件都能撤，撤完是终态')
+{
+  const REVIEW = '/src/views/Review.vue'
+  const src = readFileSync(`${ROOT}${REVIEW}`, 'utf8')
+
+  const who = (role) => `const userStore = useUserStore()
+  userStore.info = { student_no: '2024000001', name: '甲', role: '${role}', is_external: false }`
+  const buttons = (html) =>
+    [...stripComments(html).matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)]
+      .map((m) => m[1].replace(/<[^>]+>/g, '').trim())
+
+  // 三个 tab 的行长得不一样，但「管理员能看到撤销按钮、撤完就没了」是同一套语义
+  const PAGES = [
+    {
+      name: '请假', tab: 'leave', list: 'leaveList',
+      row: (o) => ({
+        id: 1, student_name: '丙', leave_type: '事假', reason: '家里有事',
+        start_at: '2026-10-15 08:00', end_at: '2026-10-17 18:00',
+        status: 'approved', has_advisor_sign: true, advisor_sign_name: '甲',
+        created_at: '2026-10-12 09:00', ...o
+      }),
+      download: '下载请假表'
+    },
+    {
+      name: '电动车', tab: 'evpass', list: 'evPassList',
+      row: (o) => ({
+        id: 1, student_name: '戊', brand: '雅迪', plate_number: '京A1234567',
+        status: 'approved', has_sign: true, sign_name: '甲',
+        created_at: '2026-10-12 09:00', ...o
+      }),
+      download: '申请表'
+    },
+    {
+      name: '证明', tab: 'certificate', list: 'certificateList',
+      row: (o) => ({
+        id: 1, student_name: '丙', title: '在读证明', recipient: '某某公司',
+        status: 'approved', attachments: [], result_original_name: '在读证明.pdf',
+        created_at: '2026-10-12 09:00', ...o
+      }),
+      download: '成品 PDF'
+    }
+  ]
+
+  const show = async (p, role, r) => {
+    const { html } = await renderPatchedMany(REVIEW, [
+      ['const userStore = useUserStore()', who(role)],
+      ["const activeTab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'change')",
+        `const activeTab = ref('${p.tab}')`],
+      [`const ${p.list} = ref([])`, `const ${p.list} = ref(${JSON.stringify([r])})`]
+    ])
+    return { text: stripComments(html), labels: buttons(html) }
+  }
+
+  for (const p of PAGES) {
+    const approved = await show(p, 'admin', p.row({}))
+    check(approved.labels.includes('撤销'), `${p.name}：管理员对已通过的单子有「撤销」`)
+    check(approved.labels.includes(p.download), `${p.name}：撤销之前下载入口还在`)
+
+    const revoked = await show(p, 'admin', p.row({ status: 'revoked' }))
+    check(revoked.text.includes('已撤销'), `${p.name}：状态 tag 写着「已撤销」`)
+    check(!revoked.labels.includes('撤销') && !revoked.labels.includes(p.download),
+      `${p.name}：撤完之后没有「撤销」，也没有下载入口`)
+    check(!revoked.labels.includes('补签字'), `${p.name}：撤完之后不能再补签字`)
+
+    const asCm = await show(p, 'committee', p.row({}))
+    check(!asCm.labels.includes('撤销'), `${p.name}：班委没有「撤销」（后端也是 admin_required）`)
+  }
+
+  // 撤销是终态，确认框得把后果说清楚
+  check(/撤销后这条申请会变成「已撤销」[\s\S]{0,80}不能恢复/.test(src),
+    '二次确认写明了「已撤销」「不能恢复」')
+  check(src.includes('revokeLeave') && src.includes('revokeEvPass') &&
+    src.includes('revokeCertificate'), '三个办件的接口都接上了')
+
+  for (const [p, url] of [
+    ['/src/api/leave.js', '/leaves/${id}/revoke'],
+    ['/src/api/evPass.js', '/ev-passes/${id}/revoke'],
+    ['/src/api/certificate.js', '/certificates/${id}/revoke']
+  ]) {
+    check(readFileSync(`${ROOT}${p}`, 'utf8').includes(url), `${p} 的撤销地址是 ${url}`)
+  }
+}
+
 console.log('\n▶ 电动车：两份都改成 PDF，批准时选经办班委签字')
 {
   const REVIEW = '/src/views/Review.vue'
@@ -3332,6 +3415,15 @@ console.log('\n▶ 学生端三页：待受理/待补正能改，撤只有待受
     const approved = await show(p.row({ status: 'approved', reviewer_name: '甲' }))
     check(!approved.labels.includes('修改') && !approved.labels.includes('撤销'),
       `${p.name}：办结的单子改不了也撤不了`)
+
+    // 管理员撤销后：状态变「已撤销」，和学生自己撤（记录删掉）不是一回事 ——
+    // 这条记录还在，但改不了、下不了、也不再显示当初的驳回/补正说明
+    const revoked = await show(p.row({ status: 'revoked', reviewer_name: '甲' }))
+    check(revoked.text.includes('已撤销'), `${p.name}：状态 tag 写着「已撤销」`)
+    check(!revoked.labels.includes('修改') && !revoked.labels.includes('撤销'),
+      `${p.name}：已撤销的单子改不了（撤销是终态）`)
+    check(!revoked.text.includes('驳回原因') && !revoked.text.includes('补正说明'),
+      `${p.name}：已撤销的不再展示当初的审核说明`)
   }
 
   // 退回补正的理由是让申请人照办的话，得看得见才补得对。请假那页有一列「审核意见」

@@ -88,6 +88,7 @@
                 <el-tag v-else-if="row.status === 'correcting'" type="warning" size="small">待补正</el-tag>
                 <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
                 <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
+                <el-tag v-else-if="row.status === 'revoked'" type="info" size="small">已撤销</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="经办班委签字" width="130" align="center">

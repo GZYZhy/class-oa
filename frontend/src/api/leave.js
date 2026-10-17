@@ -103,6 +103,11 @@ export function approveLeave(id, payload) {
   return request({ url: `/leaves/${id}/approve`, method: 'post', data: payload })
 }
 
+/** 管理员：撤销已通过（状态变已撤销，不能再编辑、不再提供审批表；撤销不可恢复） */
+export function revokeLeave(id) {
+  return request({ url: `/leaves/${id}/revoke`, method: 'post' })
+}
+
 /** 管理员：补签字（批准时选了「暂不签字」之后） */
 export function advisorSign(id, payload) {
   return request({ url: `/leaves/${id}/advisor-sign`, method: 'post', data: payload })

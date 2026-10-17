@@ -71,6 +71,11 @@ export function correctEvPass(id, reason) {
   return request({ url: `/ev-passes/${id}/correcting`, method: 'post', data: { reason } })
 }
 
+/** 管理员：撤销已通过（状态变已撤销，不能再编辑、不再提供两份 PDF；撤销不可恢复） */
+export function revokeEvPass(id) {
+  return request({ url: `/ev-passes/${id}/revoke`, method: 'post' })
+}
+
 /** 管理员：补签字（批准时选了「暂不签署」之后） */
 export function signEvPass(id, payload) {
   return request({ url: `/ev-passes/${id}/sign`, method: 'post', data: payload })

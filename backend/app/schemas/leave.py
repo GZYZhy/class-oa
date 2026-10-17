@@ -35,7 +35,8 @@ class LeaveRequestResponse(BaseModel):
     proof_original_name: Optional[str] = None
     status: str = Field(
         ...,
-        description="pending 待受理 / accepted 已受理 / correcting 待补正 / approved 已通过 / rejected 已驳回",
+        description="pending 待受理 / accepted 已受理 / correcting 待补正 / approved 已通过 / "
+                    "rejected 已驳回 / revoked 已撤销（终态）",
     )
     reviewer_name: Optional[str] = None
     reject_reason: str = ""

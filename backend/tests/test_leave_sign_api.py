@@ -533,11 +533,11 @@ def _at(sp, status) -> int:
 def test_the_status_filter_has_a_closed_bucket(sp):
     """筛选器就四档：待处理 / 待补正 / 已办结 / 全部（默认「全部」）
 
-    「已办结」是两个终态的合称（已通过 + 已驳回）：按钮收成一个之后，它必须真的
-    把两个都收进来，漏一个就永远筛不全；「待处理」同理，受理前后都得在里头
+    「已办结」是三个终态的合称（已通过 + 已驳回 + 已撤销）：按钮收成一个之后，它必须
+    真的把三个都收进来，漏一个就永远筛不全；「待处理」同理，受理前后都得在里头
     """
     made = {s: _at(sp, s) for s in
-            ("pending", "accepted", "correcting", "approved", "rejected")}
+            ("pending", "accepted", "correcting", "approved", "rejected", "revoked")}
 
     def ids(status):
         url = f"/api/leaves?status={status}" if status else "/api/leaves"
@@ -547,5 +547,6 @@ def test_the_status_filter_has_a_closed_bucket(sp):
 
     assert ids("open") == {made["pending"], made["accepted"]}, "待处理 = 待受理 + 已受理"
     assert ids("correcting") == {made["correcting"]}
-    assert ids("closed") == {made["approved"], made["rejected"]}, "已办结 = 已通过 + 已驳回"
+    assert ids("closed") == {made["approved"], made["rejected"], made["revoked"]}, \
+        "已办结 = 已通过 + 已驳回 + 已撤销"
     assert ids("") == set(made.values()), "不传 status 就是全部"
