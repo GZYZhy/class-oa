@@ -81,6 +81,11 @@ services:
       # 可选的 <head> 注入内容（统计 / 跟踪器等第三方脚本）。
       # 原样插入，不转义；多行写法见 .env.example
       - HEAD_INJECT=${HEAD_INJECT:-}
+      # ---- 高德地图 JS API（签到时选地点 / 学生定位）----
+      # 留空 = 地图降级为手填经纬度，签到主体功能照常可用。
+      # 这两个值会随 site-config.js 发给每个访客，不是机密
+      - AMAP_JS_KEY=${AMAP_JS_KEY:-}
+      - AMAP_SECURITY_CODE=${AMAP_SECURITY_CODE:-}
       # 监听的域名，默认 _（所有域名）
       # - NGINX_SERVER_NAME=example.com
       # 是否信任反向代理的 X-Forwarded-* 头（on/off），默认 on

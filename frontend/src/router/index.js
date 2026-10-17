@@ -84,6 +84,14 @@ const routes = [
     meta: { title: '投票表决' }
   },
   {
+    // 签到链接（站内信 / 群里转发）落到这里。public：没登录也能看签到信息；
+    // bare：不套侧边栏，从链接进来的人只看这一场签到。真正签到要登录
+    path: '/checkin',
+    name: 'Checkin',
+    component: () => import('@/views/Checkin.vue'),
+    meta: { title: '签到', public: true, bare: true }
+  },
+  {
     path: '/schedule',
     name: 'Schedule',
     component: () => import('@/views/Schedule.vue'),

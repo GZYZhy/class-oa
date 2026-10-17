@@ -3,101 +3,110 @@
     <!-- 和审核审批一样整页一张卡片：标题、筛选和列表都在里面 -->
     <div class="page-card">
       <h3 class="page-title">考勤记录</h3>
-      <el-form :inline="true" size="default">
-        <el-form-item label="备注">
-          <el-input
-            v-model="keyword"
-            placeholder="搜索点名备注"
-            clearable
-            style="width: 200px"
-            @keyup.enter="handleSearch"
-            @clear="handleSearch"
+      <!-- 两个标签：原来「点名」的记录原样保留，新加的「签到」是学生自己确认到场 -->
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="点名记录" name="records">
+          <el-form :inline="true" size="default">
+            <el-form-item label="备注">
+              <el-input
+                v-model="keyword"
+                placeholder="搜索点名备注"
+                clearable
+                style="width: 200px"
+                @keyup.enter="handleSearch"
+                @clear="handleSearch"
+              >
+                <template #prefix><el-icon><Search /></el-icon></template>
+              </el-input>
+            </el-form-item>
+            <el-form-item label="日期">
+              <el-date-picker
+                v-model="dateRange"
+                type="daterange"
+                range-separator="至"
+                start-placeholder="开始日期"
+                end-placeholder="结束日期"
+                value-format="YYYY-MM-DD"
+                style="width: 260px"
+              />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="handleSearch">
+                <el-icon><Search /></el-icon>查询
+              </el-button>
+              <el-button @click="handleReset">
+                <el-icon><Refresh /></el-icon>重置
+              </el-button>
+              <el-button :loading="exporting" @click="handleExport">
+                <el-icon><Download /></el-icon>导出
+              </el-button>
+            </el-form-item>
+          </el-form>
+
+          <!-- 列表 -->
+          <el-table
+            v-loading="loading"
+            :data="rows"
+            stripe
+            style="margin-top: 16px;"
+            empty-text="这段时间还没有点名记录，在学生信息页点一次名就会出现在这里"
           >
-            <template #prefix><el-icon><Search /></el-icon></template>
-          </el-input>
-        </el-form-item>
-        <el-form-item label="日期">
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            value-format="YYYY-MM-DD"
-            style="width: 260px"
+            <el-table-column prop="call_date" label="日期" width="120" />
+            <el-table-column prop="scope" label="范围" width="90" />
+            <el-table-column label="点名时刻" width="150">
+              <template #default="{ row }">{{ formatDateTime(row.called_at) }}</template>
+            </el-table-column>
+            <el-table-column prop="operator_name" label="点名的人" width="110" />
+            <el-table-column label="应到" width="80" align="center">
+              <template #default="{ row }">{{ row.total }}</template>
+            </el-table-column>
+            <el-table-column label="实到" width="80" align="center">
+              <template #default="{ row }">{{ row.present }}</template>
+            </el-table-column>
+            <el-table-column label="请假" width="80" align="center">
+              <template #default="{ row }">
+                <span :class="{ 'at-warn': row.leave }">{{ row.leave }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="无应答" width="90" align="center">
+              <template #default="{ row }">
+                <span :class="{ 'at-danger': row.absent }">{{ row.absent }}</span>
+              </template>
+            </el-table-column>
+            <!-- 一次点名一句话。写得下的会长，所以给整行省略 + 悬浮看全文；
+                 没写就是「—」，比空格子好认 -->
+            <el-table-column label="备注" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span v-if="row.remark">{{ row.remark }}</span>
+                <span v-else class="at-empty">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="190" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openDetail(row)">明细</el-button>
+                <el-button link type="primary" @click="handleRemark(row)">备注</el-button>
+                <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-pagination
+            v-model:current-page="currentPage"
+            v-model:page-size="pageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="total"
+            layout="total, sizes, prev, pager, next, jumper"
+            background
+            class="at-pager"
+            @size-change="handleSizeChange"
+            @current-change="fetchList"
           />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">
-            <el-icon><Search /></el-icon>查询
-          </el-button>
-          <el-button @click="handleReset">
-            <el-icon><Refresh /></el-icon>重置
-          </el-button>
-          <el-button :loading="exporting" @click="handleExport">
-            <el-icon><Download /></el-icon>导出
-          </el-button>
-        </el-form-item>
-      </el-form>
+        </el-tab-pane>
 
-      <!-- 列表 -->
-      <el-table
-        v-loading="loading"
-        :data="rows"
-        stripe
-        style="margin-top: 16px;"
-        empty-text="这段时间还没有点名记录，在学生信息页点一次名就会出现在这里"
-      >
-        <el-table-column prop="call_date" label="日期" width="120" />
-        <el-table-column prop="scope" label="范围" width="90" />
-        <el-table-column label="点名时刻" width="150">
-          <template #default="{ row }">{{ formatDateTime(row.called_at) }}</template>
-        </el-table-column>
-        <el-table-column prop="operator_name" label="点名的人" width="110" />
-        <el-table-column label="应到" width="80" align="center">
-          <template #default="{ row }">{{ row.total }}</template>
-        </el-table-column>
-        <el-table-column label="实到" width="80" align="center">
-          <template #default="{ row }">{{ row.present }}</template>
-        </el-table-column>
-        <el-table-column label="请假" width="80" align="center">
-          <template #default="{ row }">
-            <span :class="{ 'at-warn': row.leave }">{{ row.leave }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="无应答" width="90" align="center">
-          <template #default="{ row }">
-            <span :class="{ 'at-danger': row.absent }">{{ row.absent }}</span>
-          </template>
-        </el-table-column>
-        <!-- 一次点名一句话。写得下的会长，所以给整行省略 + 悬浮看全文；
-             没写就是「—」，比空格子好认 -->
-        <el-table-column label="备注" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span v-if="row.remark">{{ row.remark }}</span>
-            <span v-else class="at-empty">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="190" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="openDetail(row)">明细</el-button>
-            <el-button link type="primary" @click="handleRemark(row)">备注</el-button>
-            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <el-pagination
-        v-model:current-page="currentPage"
-        v-model:page-size="pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        background
-        class="at-pager"
-        @size-change="handleSizeChange"
-        @current-change="fetchList"
-      />
+        <el-tab-pane label="签到" name="checkin">
+          <CheckinPanel />
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
     <!-- 明细：逐个改状态。当天点错了、事后有人说「我其实到了」都在这儿改 -->
@@ -132,6 +141,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import CheckinPanel from '@/components/CheckinPanel.vue'
 import {
   attendanceExportUrl,
   deleteAttendance,
@@ -143,6 +153,8 @@ import {
 import { blobErrorDetail, downloadFile } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
 
+/** 当前标签页：records = 原来的点名记录，checkin = 签到 */
+const activeTab = ref('records')
 const loading = ref(false)
 const exporting = ref(false)
 const rows = ref([])

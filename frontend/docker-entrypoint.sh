@@ -235,12 +235,18 @@ SITE_DESCRIPTION="$(brand "${SITE_DESCRIPTION:-$SITE_NAME}" SITE_DESCRIPTION)"
 export HEAD_INJECT="${HEAD_INJECT:-}"
 export SITE_NAME SITE_SHORT_NAME SITE_SUBTITLE SITE_COLLEGE SITE_MAJOR SITE_FOOTER SITE_DESCRIPTION
 
-# 白名单只列这 7 个 SITE_* 和 HEAD_INJECT，页面里别的 $ 一律不动。
+# 高德地图 JS API 凭据：会随 site-config.js 发给每个访客，本身不是机密。
+# 不经过 brand()：值只可能是字母数字，且写坏了大不了地图加载不出来、签到仍可用。
+# 留空 = 前端拿到空串，签到页降级成手填经纬度。
+export AMAP_JS_KEY="${AMAP_JS_KEY:-}"
+export AMAP_SECURITY_CODE="${AMAP_SECURITY_CODE:-}"
+
+# 白名单只列这 7 个 SITE_*、HEAD_INJECT 和两个 AMAP_*，页面里别的 $ 一律不动。
 # 先写 .tmp 再 mv：envsubst 中途失败也不会把 index.html 截断成半个文件
 # （此时 nginx 还没启动，也不会有人请求到 .tmp）。
 render_brand() {
     # $1=源文件  $2=输出文件
-    if envsubst '${SITE_NAME} ${SITE_SHORT_NAME} ${SITE_SUBTITLE} ${SITE_COLLEGE} ${SITE_MAJOR} ${SITE_FOOTER} ${SITE_DESCRIPTION} ${HEAD_INJECT}' \
+    if envsubst '${SITE_NAME} ${SITE_SHORT_NAME} ${SITE_SUBTITLE} ${SITE_COLLEGE} ${SITE_MAJOR} ${SITE_FOOTER} ${SITE_DESCRIPTION} ${HEAD_INJECT} ${AMAP_JS_KEY} ${AMAP_SECURITY_CODE}' \
         < "$1" \
         > "$2.tmp"; then
         mv -f "$2.tmp" "$2"
