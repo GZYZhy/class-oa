@@ -2416,6 +2416,75 @@ console.log('\n▶ 投票能编辑：标题描述随时改，题目只在没开�
     '替换题目复用出卷那份校验，没有另写一套')
 }
 
+console.log('\n▶ 出卷能复用旧卷子：只搬题目，其余重新填')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+  const pollSrc = src('/src/components/PollCreateDialog.vue')
+
+  // 映射和「编辑填回表单」共用一段，真跑它
+  const { questionsFromPoll, formFromPoll, hasQuestionContent, blankQuestion } =
+    await server.ssrLoadModule('/src/utils/poll.js')
+
+  const OLD = () => ({
+    id: 9, title: '上一场表决', status: 'closed', anonymous: true,
+    start_at: '2026-10-01T08:00:00', end_at: '2026-10-02T20:00:00',
+    questions: [
+      { id: 1, title: '旧题一', multiple: false, max_choices: 1, options: ['甲', '乙'] },
+      { id: 2, title: '旧题二', multiple: true, max_choices: 9, options: ['A', 'B', 'C'] }
+    ]
+  })
+
+  const old = OLD()
+  const qs = questionsFromPoll(old)
+  check(qs.length === 2 && qs[0].title === '旧题一' && qs[1].title === '旧题二',
+    '旧卷子里的题一道道搬过来')
+  check(qs[1].multiple && qs[1].max_choices === 3,
+    '「最多选几项」超过选项数就夹回选项数，和编辑走同一段映射')
+  check(JSON.stringify(qs[0].options) === JSON.stringify(['甲', '乙']),
+    '选项原样照抄，顺序不动')
+  qs[0].options[0] = '改过'
+  check(old.questions[0].options[0] === '甲',
+    '复制出来的是深拷贝：复用后接着改，不会动到原来那场投票')
+  check(questionsFromPoll({ questions: [] }).length === 1,
+    '旧卷子一道题都没有时回一道空题，弹窗不会空着')
+
+  check(JSON.stringify(formFromPoll(OLD()).questions) === JSON.stringify(questionsFromPoll(OLD())),
+    '「编辑」和「复用」用的是同一段映射，没有各写一套')
+  check(formFromPoll(OLD()).title === '上一场表决',
+    '复用不影响编辑：formFromPoll 照旧把标题带回来（复用时只取它的 questions）')
+
+  // 要不要先确认覆盖：空题不算填过
+  check(!hasQuestionContent([blankQuestion()]), '刚打开时的空题不算填过，直接复制不打扰')
+  check(hasQuestionContent([{ ...blankQuestion(), title: '敲了一半' }]),
+    '题干填过就要先确认')
+  check(hasQuestionContent([{ ...blankQuestion(), options: ['甲', ''] }]),
+    '只填了选项也算填过')
+  check(hasQuestionContent([blankQuestion(), blankQuestion()]),
+    '多加了一道题也算填过')
+
+  // ---------- 组件接线（SSR 渲不到弹窗正文，只能断源码） ----------
+  check(/<div v-if="!isEdit" class="pc-reuse">/.test(pollSrc),
+    '复用入口只在出卷时出现 —— 编辑时题目本来就在表单里')
+  check(pollSrc.includes('从之前的投票复制题目（可选）'), '下拉框写明了这是干什么的')
+  check(pollSrc.includes('只复制题目') && pollSrc.includes('标题、时间、表决范围和记名方式'),
+    '旁边说清楚只搬题目，免得以为整场都沿用了')
+  check(/getPolls\(\{ page: 1, page_size: 100 \}\)/.test(pollSrc),
+    '拉可见的投票列表（100 是列表接口的上限）')
+  check(/filter\(\(p\) => p\.question_count > 0\)/.test(pollSrc),
+    '一道题都没有的投票不列出来')
+  check(/await getPoll\(id\)[\s\S]{0,120}?form\.questions = questionsFromPoll\(detail\)/.test(pollSrc),
+    '列表行里没有题目，选中后拉详情，只替换 questions')
+
+  const reuseFn = (pollSrc.match(/async function reuseQuestions[\s\S]*?\n}/) || [''])[0]
+  check(/hasQuestionContent\(form\.questions\)/.test(reuseFn) && /ElMessageBox\.confirm/.test(reuseFn),
+    '当前题目有内容时先确认，覆盖不可撤销')
+  check(!/form\.(title|description|start_at|end_at|targets|anonymous)\s*=/.test(reuseFn),
+    '复用只换题目：标题、时间、范围、记名方式一律不碰')
+
+  check(/function open\(\)[\s\S]{0,200}?fetchReusePolls\(\)/.test(pollSrc),
+    '每次打开出卷弹窗都重拉一遍，刚建的那场也能马上复用')
+}
+
 console.log('\n▶ 投票能暂停：暂停不是结束')
 {
   const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
