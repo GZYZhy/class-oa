@@ -19,7 +19,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import AttendanceItem, AttendanceRecord, Checkin, User
+from ..models import AttendanceItem, AttendanceRecord, Checkin, CheckinTarget, User
 from ..schemas import (
     AttendanceCreate,
     AttendanceItemUpdate,
@@ -28,7 +28,7 @@ from ..schemas import (
     AttendanceRemarkUpdate,
 )
 from ..services import display_name, log_operation
-from ..services.checkin_service import finalize_due
+from ..services.checkin_service import approved_leave_nos, checkin_status, finalize_due
 from ..services.list_filters import keyword_like
 from .deps import committee_required, get_client_ip
 
@@ -39,6 +39,34 @@ STATUS_LABELS = {"present": "到", "absent": "无应答", "leave": "请假"}
 
 # 导出时写在列上的顺序。备注是这次点名上的一句话，同一批明细的每一行都带同一个值
 EXPORT_COLUMNS = ["日期", "范围", "点名时刻", "操作人", "学号", "姓名", "状态", "备注"]
+
+# 签到页签的列。「签到情况」是本人签没签，「出勤状态」是结算后考勤明细里的结果
+CHECKIN_EXPORT_COLUMNS = [
+    "截止日期", "标题", "发布人", "截止时间", "签到状态",
+    "学号", "姓名", "签到情况", "签到时间", "距离(米)", "出勤状态", "备注",
+]
+
+
+def _write_header(ws, columns: list[str]) -> None:
+    """两个页签共用一套表头样式，导出文件看起来是同一套东西"""
+    font = Font(bold=True)
+    fill = PatternFill(start_color="E8F0FE", end_color="E8F0FE", fill_type="solid")
+    for col_idx, label in enumerate(columns, 1):
+        cell = ws.cell(row=1, column=col_idx, value=label)
+        cell.font = font
+        cell.fill = fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+
+def _fit_columns(ws, columns: list[str]) -> None:
+    """列宽按表头估就够了：内容是学号/姓名/日期这类定长。
+
+    除了最后一列 —— 它总是备注，是唯一的长文本列，按表头估只够显示两三个字。
+    """
+    for col_idx, label in enumerate(columns, 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(len(label) * 2 + 6, 24)
+    ws.column_dimensions[get_column_letter(len(columns))].width = 30
+    ws.freeze_panes = "A2"
 
 
 def _counts(items: list[AttendanceItem]) -> dict[str, int]:
@@ -89,6 +117,16 @@ def _date_range(query, start: date | None, end: date | None):
     return query
 
 
+def _checkin_in_range(checkin: Checkin, start: date | None, end: date | None) -> bool:
+    """签到的导出日期取「截止那一刻」，与结算生成的考勤记录日期一致"""
+    day = (checkin.closed_at or checkin.end_at).date()
+    if start and day < start:
+        return False
+    if end and day > end:
+        return False
+    return True
+
+
 def _summary_detail(scope: str, items: list[AttendanceItem]) -> str:
     """操作日志里那句话。无应答的名字列出来才是可用的信息，其余只报数字"""
     data = _counts(items)
@@ -111,7 +149,12 @@ def export_attendance(
     _: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
-    """一个明细一行（某人某次点名的状态），要统计自己在 Excel 里透视"""
+    """点开导出必须同时拿到点名与签到两种记录，各占一个工作表。
+
+    签到结算出来的那几条本来就在「考勤记录」里（和点名记录同表），
+    这里再单列一张「签到记录」，把本人签到时间、距离和请假情况也带上，
+    核对时不用两个页签来回翻。
+    """
     # 到点的签到先结算，否则导出里会少掉刚结束的那几条
     finalize_due(db)
     query = _date_range(db.query(AttendanceRecord), start, end)
@@ -120,15 +163,7 @@ def export_attendance(
     wb = Workbook()
     ws = wb.active
     ws.title = "考勤记录"
-
-    # 表头样式与 generate_excel 保持一致，导出文件看起来是同一套东西
-    header_font = Font(bold=True)
-    header_fill = PatternFill(start_color="E8F0FE", end_color="E8F0FE", fill_type="solid")
-    for col_idx, label in enumerate(EXPORT_COLUMNS, 1):
-        cell = ws.cell(row=1, column=col_idx, value=label)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+    _write_header(ws, EXPORT_COLUMNS)
 
     row_idx = 2
     for record in records:
@@ -153,18 +188,62 @@ def export_attendance(
                 cell = ws.cell(row=row_idx, column=col_idx, value=value)
                 cell.alignment = Alignment(vertical="center")
             row_idx += 1
+    _fit_columns(ws, EXPORT_COLUMNS)
 
-    # 列宽按表头估就够了：内容是学号/姓名/日期这类定长
-    for col_idx, label in enumerate(EXPORT_COLUMNS, 1):
-        ws.column_dimensions[get_column_letter(col_idx)].width = min(len(label) * 2 + 6, 24)
-    # 除了备注 —— 它是唯一的长文本列，按表头估出来的宽度只够显示两三个字
-    ws.column_dimensions[get_column_letter(len(EXPORT_COLUMNS))].width = 30
-    ws.freeze_panes = "A2"
+    # ---------- 第二个页签：签到 ----------
+    # 时间范围按「截止日期」算，和考勤记录的日期（结算参考时刻）是同一个口径
+    checkins = db.query(Checkin).order_by(Checkin.id.desc()).all()
+    checkins = [c for c in checkins if _checkin_in_range(c, start, end)]
+
+    ws2 = wb.create_sheet("签到记录")
+    _write_header(ws2, CHECKIN_EXPORT_COLUMNS)
+
+    row_idx = 2
+    for checkin in checkins:
+        targets = (
+            db.query(CheckinTarget)
+            .filter(CheckinTarget.checkin_id == checkin.id)
+            .order_by(CheckinTarget.student_no)
+            .all()
+        )
+        reference = checkin.closed_at or checkin.end_at
+        leave_nos = approved_leave_nos(db, [t.student_no for t in targets], reference)
+        # 结算后以考勤明细为准：明细里手动改过的状态，导出要跟着变
+        status_by_no = (
+            dict(
+                db.query(AttendanceItem.student_no, AttendanceItem.status)
+                .filter(AttendanceItem.record_id == checkin.attendance_record_id)
+                .all()
+            )
+            if checkin.attendance_record_id
+            else {}
+        )
+        for target in targets:
+            status = status_by_no.get(target.student_no, "")
+            values = [
+                reference.strftime("%Y-%m-%d") if reference else "",
+                checkin.title or "",
+                checkin.created_by_name or "",
+                checkin.end_at.strftime("%Y-%m-%d %H:%M") if checkin.end_at else "",
+                "进行中" if checkin_status(checkin) == "ongoing" else "已结束",
+                target.student_no,
+                target.student_name or "",
+                "已签到" if target.signed_at else "未签到",
+                target.signed_at.strftime("%Y-%m-%d %H:%M") if target.signed_at else "",
+                target.distance_m if target.distance_m is not None else "",
+                STATUS_LABELS.get(status, status),
+                checkin.remark or "",
+            ]
+            for col_idx, value in enumerate(values, 1):
+                cell = ws2.cell(row=row_idx, column=col_idx, value=value)
+                cell.alignment = Alignment(vertical="center")
+            row_idx += 1
+    _fit_columns(ws2, CHECKIN_EXPORT_COLUMNS)
 
     buf = io.BytesIO()
     wb.save(buf)
 
-    filename = f"考勤记录_{start or '全部'}_{end or '全部'}.xlsx"
+    filename = f"考勤与签到_{start or '全部'}_{end or '全部'}.xlsx"
     return Response(
         content=buf.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -4434,6 +4434,11 @@ console.log('\n▶ 签到：考勤页的「签到」标签页')
   check(pageSrc.includes('<el-tabs v-model="activeTab">'), '两个标签用 el-tabs 切换')
   check(pageSrc.includes('<CheckinPanel />'), '签到标签页挂的是 CheckinPanel')
   check((pageSrc.match(/class="page-card/g) || []).length === 1, '加标签页之后仍然只有一张卡片')
+  // 导出按钮要在 <el-tabs> 之前，两个标签页都看得到
+  const exportAt = pageSrc.indexOf('@click="handleExport"')
+  const tabsAt = pageSrc.indexOf('<el-tabs')
+  check(exportAt >= 0 && exportAt < tabsAt, '导出按钮挪到标签页之外，两个页签都可见')
+  check(pageSrc.includes('考勤与签到_${start}_${end}.xlsx'), '导出文件名同时体现考勤与签到')
 }
 
 console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才能签）')
@@ -4466,7 +4471,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(guestText.includes('周六晚点名') && guestText.includes('宿舍区集合'), '没登录也能看到标题和备注')
   check(guestText.includes('截止 2026-10-18 19:30'), '截止时间换了展示格式')
   check(guestText.includes('登录后签到'), '没登录时给的是「登录后签到」')
-  check(guest.includes('class="ck-login"'), '「登录后签到」按钮居中（提示与按钮同一块）')
+  check(guest.includes('class="ck-center"'), '「登录后签到」按钮居中（提示与按钮同一块）')
   check(guestText.includes('#/login?redirect='), '登录后会回到这个签到链接')
 
   // 有地点：只读显示地点名、半径和坐标（测试环境没有高德 Key，走降级那一路）
@@ -4480,6 +4485,20 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(locatedText.includes('允许半径 100 米'), '公开页写明允许半径')
   check(locatedText.includes('纬度 39.9071'), '没配地图时降级显示经纬度')
 
+  // 能签时表单直接长在页面上（不再弹窗），并带上定位与照片入口
+  const { html: form } = await renderPatched(
+    '/src/views/Checkin.vue',
+    'onMounted(load)',
+    inject({
+      is_login: true, is_target: true, can_sign: true, require_photo: true,
+      location: { lat: 39.9071, lng: 116.3972, radius_m: 100, name: '一公寓门口' }
+    })
+  )
+  const formText = stripComments(form)
+  check(formText.includes('确认签到'), '签到表单位于页面内，不用再弹窗')
+  check(form.includes('class="ck-block"'), '定位与照片用页面里的分块样式')
+  check(formText.includes('请拍照或从相册选一张'), '要求照片时页面内给出选择入口')
+
   // 已签到
   const { html: signed } = await renderPatched(
     '/src/views/Checkin.vue',
@@ -4487,6 +4506,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
     inject({ is_login: true, is_target: true, signed_at: '2026-10-18T19:05:00' })
   )
   check(stripComments(signed).includes('你已于 2026-10-18 19:05 签到'), '签过了就显示签到时间')
+  check(stripComments(signed).includes('回首页'), '签完后给一个回首页的按钮')
 
   // 已结束 + 有有效请假 → 记为请假
   const { html: ended } = await renderPatched(
@@ -4495,6 +4515,31 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
     inject({ status: 'ended', is_login: true, is_target: true, on_leave: true })
   )
   check(stripComments(ended).includes('记为「请假」'), '结束了没签、有请假 → 记为请假')
+
+  // 截止之后链接仍能看：地点地图与要求对游客也公开
+  const { html: endedInfo } = await renderPatched(
+    '/src/views/Checkin.vue',
+    'onMounted(load)',
+    inject({
+      status: 'ended',
+      require_photo: true,
+      location: { lat: 39.9071, lng: 116.3972, radius_m: 100, name: '一公寓门口' }
+    })
+  )
+  const endedInfoText = stripComments(endedInfo)
+  check(endedInfoText.includes('这次签到已经结束'), '截止后仍能打开链接看信息')
+  check(endedInfoText.includes('签到要求'), '签到要求对所有人公开')
+  check(endedInfoText.includes('一公寓门口') && endedInfoText.includes('100 米范围内'),
+    '未登录、已结束时也写明地点与允许半径')
+  check(endedInfoText.includes('上传一张照片'), '要求照片对所有人公开')
+  check(endedInfoText.includes('签到地点：一公寓门口'), '已结束时地图与地点照常展示')
+  check(endedInfoText.includes('纬度 39.9071'), '已结束时没配地图也能看到坐标')
+
+  // 结算后可在签到详情里逐人改出勤状态（读写结算生成的考勤明细）
+  const detailSrc = readFileSync(`${ROOT}/src/components/CheckinDetailDialog.vue`, 'utf8')
+  check(detailSrc.includes('updateAttendanceItem('), '结算后可在签到详情里直接改出勤状态')
+  check(detailSrc.includes('label="出勤状态"'), '签到详情把状态列成可改的下拉框')
+  check(detailSrc.includes('detail.attendance_record_id'), '改的是结算生成的那条考勤明细')
 
   // 公开页要暴露给没登录的人：路由必须是 public + bare
   const routerSrc = readFileSync(`${ROOT}/src/router/index.js`, 'utf8')
