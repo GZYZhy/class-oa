@@ -3674,8 +3674,11 @@ console.log('\n▶ 二次验证：登录第二步与账户设置')
   )
   check(email.html.includes('验证码已发送到'), '邮箱方式显示收件地址')
   check(email.html.includes('a***@example.com'), '地址是打码后的')
+  check(email.html.includes('twofa-validity'), '有效期单独一行，不跟着邮箱地址折行')
+  check(email.html.includes('10 分钟内有效'), '有效期文案还在')
   check(!email.html.includes('XXXX-XXXX'), '不再提示恢复码的格式')
   check(email.html.includes('一次性恢复码'), '提示可以改用恢复码')
+  check(email.html.includes('twofa-sub'), '恢复码提示单独一行')
   check(email.html.includes('重新发送验证码'), '邮箱方式有重发入口')
   check(email.html.includes('返回重新登录'), '可以退回密码登录')
   check(!email.html.includes('登 录'), '第二步不再显示密码登录按钮')
@@ -3690,9 +3693,17 @@ console.log('\n▶ 二次验证：登录第二步与账户设置')
     "const twoFactor = ref({ method: 'totp', masked_email: '', email_sent: false })"
   )
   check(totp.html.includes('身份验证器 App'), 'TOTP 方式提示去 App 里看码')
-  check(totp.html.includes('twofa-tip--totp'), 'TOTP 方式的提示语居中')
+  check(totp.html.includes('twofa-sub'), 'TOTP 方式的恢复码提示也在')
   check(!totp.html.includes('XXXX-XXXX'), 'TOTP 方式也不提恢复码格式')
   check(!totp.html.includes('重新发送验证码'), 'TOTP 方式没有重发按钮')
+
+  // 两种方式共用同一套居中样式，不再按方式各写一份
+  const loginSrc = readFileSync(`${ROOT}/src/views/Login.vue`, 'utf8')
+  check(
+    /\.twofa-tip\s*\{[^}]*text-align:\s*center/s.test(loginSrc),
+    '第二步提示语整体居中'
+  )
+  check(!loginSrc.includes('twofa-tip--totp'), '不再按验证方式单独加居中样式')
 
   // 身份验证器要能扫码：otpauth 链接在浏览器里不一定点得动，二维码是主入口
   const tfSrc = readFileSync(`${ROOT}/src/components/TwoFactorSetting.vue`, 'utf8')
