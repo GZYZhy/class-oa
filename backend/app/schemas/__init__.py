@@ -91,6 +91,16 @@ from .attendance import (
     AttendanceRecordResponse,
     AttendanceRemarkUpdate,
 )
+from .checkin import (
+    CheckinCreate,
+    CheckinDetailResponse,
+    CheckinListItem,
+    CheckinListResponse,
+    CheckinLocationIn,
+    CheckinLocationResponse,
+    CheckinPublicResponse,
+    CheckinTargetResponse,
+)
 from .inbox import InboxListResponse, InboxMessageResponse
 from .poll import (
     PollAnswerIn,
@@ -233,6 +243,14 @@ __all__ = [
     "CertificateRequestResponse",
     "CertificateRejectRequest",
     "CertificateCorrectRequest",
+    "CheckinCreate",
+    "CheckinDetailResponse",
+    "CheckinListItem",
+    "CheckinListResponse",
+    "CheckinLocationIn",
+    "CheckinLocationResponse",
+    "CheckinPublicResponse",
+    "CheckinTargetResponse",
     "AttendanceCreate",
     "AttendanceItemIn",
     "AttendanceItemResponse",
