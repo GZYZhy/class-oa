@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.17.2，共 248 个接口。
+> 版本 1.17.2，共 252 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -26,8 +26,8 @@
 - 关于班级（1）
 - 修改申请（6）
 - 请假申请（16）
-- 考勤记录（7）
-- 签到（7）
+- 考勤记录（9）
+- 签到（9）
 - 意见反馈（8）
 - 未读红点（1）
 - 电动车通行证（17）
@@ -1468,7 +1468,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `GET /api/attendance/export`
 
-点开导出必须同时拿到点名与签到两种记录，各占一个工作表。 签到结算出来的那几条本来就在「考勤记录」里（和点名记录同表）， 这里再单列一张「签到记录」，把本人签到时间、距离和请假情况也带上， 核对时不用两个页签来回翻。
+点开导出必须同时拿到点名与签到两种记录，各占一个工作表。 两种导出方式： - 传了 `record_ids` / `checkin_ids`：只导勾选的记录（另一个页签就空着）； - 没传：按日期与关键词导出「当前筛选结果」，关键词对点名查备注、 对签到查标题，和列表页的口径完全一致。 签到结算出来的那几条本来就在「考勤记录」里（和点名记录同表）， 这里再单列一张「签到记录」，把本人签到时间、距离和请假情况也带上， 核对时不用两个页签来回翻。
 
 **参数**
 
@@ -1476,6 +1476,47 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | --- | --- | --- | --- | --- |
 | `start` | query | 否 | string，可空 | 起始日期，含当天 |
 | `end` | query | 否 | string，可空 | 结束日期，含当天 |
+| `keyword` | query | 否 | string，可空 | 按点名备注或签到标题模糊搜索 |
+| `record_ids` | query | 否 | integer[] | 只导出选中的点名记录 |
+| `checkin_ids` | query | 否 | integer[] | 只导出选中的签到 |
+
+**响应**
+
+- `200` — 成功
+
+### 点名与签到记录汇总（班委及以上）
+
+`GET /api/attendance/overview`
+
+点名与签到合成一张列表，按时间倒序排 关键词对点名查备注、对签到查标题 —— 两边能用来认出这次记录的那句话 不是同一个字段，但都是用户记得住的那句。两类数据量都是班级级， 合并后在内存里排序、分页就够了，不必依赖 UNION。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `start` | query | 否 | string，可空 | 起始日期，含当天 |
+| `end` | query | 否 | string，可空 | 结束日期，含当天 |
+| `keyword` | query | 否 | string，可空 | 按点名备注或签到标题模糊搜索 |
+| `page` | query | 否 | integer（≥1，默认 1） | 默认 `1` |
+| `page_size` | query | 否 | integer（≥1，≤100，默认 20） | 默认 `20` |
+
+**响应**
+
+- `200` `AttendanceOverviewResponse` — 成功
+  - 字段：`total`、`items`
+
+### 批量删除点名与签到记录（班委及以上）
+
+`POST /api/attendance/batch-delete`
+
+一次删掉勾选的记录。 - 签到：连它的 targets、照片、结算生成的考勤一起删，链接随即失效； - 点名：连明细一起删； - 勾了签到生成的考勤却没勾那次签到：把身后的签到也一起删， 否则会留下指空的签到，那条考勤也会变成删不得的历史记录。
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `record_ids` | integer[] | 否 | 考勤记录 id |
+| `checkin_ids` | integer[] | 否 | 签到 id |
 
 **响应**
 
@@ -1681,6 +1722,45 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 - `200` `CheckinDetailResponse` — 成功
   - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
+
+### 改签到标题（班委及以上）
+
+`PATCH /api/checkins/{checkin_id}`
+
+列表的「备注」列显示的、关键词搜索搜的，都是这里改的标题。 标题不能清空：空标题在列表里认不出是哪次签到，也没法搜。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `checkin_id` | path | 是 | integer |  |
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `title` | string | 是 | 签到标题，不能为空 |
+
+**响应**
+
+- `200` `CheckinDetailResponse` — 成功
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
+
+### 删除一次签到（班委及以上）
+
+`DELETE /api/checkins/{checkin_id}`
+
+删掉签到本身、签到照片，以及结算时生成的那条考勤记录。 反过来，在考勤列表里删那条生成的考勤也会连这次签到一起删 （见 attendance.delete_attendance），两边都不留指空的数据。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `checkin_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` — 成功
 
 ### 查看签到照片（班委及以上）
 
