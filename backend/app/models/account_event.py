@@ -6,7 +6,8 @@ from ..database import Base
 
 
 class AccountEvent(Base):
-    """账号事件：本人登录、本人自行改密
+    """账号事件：本人登录、改密，以及账号安全设置的变化
+    （访问令牌、通行密钥、二次验证、恢复码）
 
     单独一张表，不并进 operation_logs：
     - operation_logs 的定位是「内容变更」，登录是每天几十条的高频事件，
@@ -26,6 +27,9 @@ class AccountEvent(Base):
     # 会比北京时间早 8 小时（同 operation_logs.created_at）
     created_at = Column(DateTime, default=datetime.now, nullable=False, index=True, comment="事件时间")
     student_no = Column(String(20), nullable=False, index=True, comment="账号（学号 / 域外账号登录名）")
+    # 事件名全是英文、最长 20 字符（recovery_regenerate 已经 19 个）
     event = Column(String(20), nullable=False,
-                   comment="login|change_password|token_create|token_revoke")
+                   comment="login|change_password|token_create|token_revoke|"
+                           "passkey_add|passkey_delete|two_factor_enable|"
+                           "two_factor_disable|recovery_regenerate")
     ip = Column(String(45), nullable=True, comment="事件发生时的客户端 IP")

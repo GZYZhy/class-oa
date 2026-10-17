@@ -5,8 +5,9 @@
 但它是有人主动做出的动作、且有留痕价值。
 
 不记查询，也不记登录：免得日志被浏览量和高频事件淹没。
-**登录和「本人自行改密」记在另一张表 account_events**（见 models/account_event.py），
-由「按账号查日志」按 7 天窗口单独展示。两张表各管一类，不合并。
+**登录，以及本人对密码、令牌、通行密钥、二次验证的设置动作，记在另一张表
+account_events**（见 models/account_event.py），由「按账号查日志」按 7 天窗口
+单独展示。两张表各管一类，不合并。
 
 还有第三张记录表 file_access_logs（谁看了/下载了哪个公开文件），写入在
 api/announcements.py —— 它**有保留期**（见下面 FILE_ACCESS_KEEP_DAYS 一段），

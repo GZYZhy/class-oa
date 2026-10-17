@@ -226,10 +226,10 @@ class IpBanListResponse(BaseModel):
 
 
 class AccountEventResponse(BaseModel):
-    """一条账号事件（登录 / 本人自行改密）"""
+    """一条账号事件（登录、改密、账号安全设置变化）"""
     id: int
     created_at: Optional[datetime] = None
-    # login | change_password。存英文值、前端映射中文，
+    # 如 login | change_password | passkey_add。存英文值、前端映射中文，
     # 免得以后加事件类型时库里已经存了一批中文
     event: str
     ip: Optional[str] = None

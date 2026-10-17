@@ -324,6 +324,7 @@ def confirm_setup_email(
     data: TwoFactorCodeRequest,
     user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
 ):
     """输对验证码才真正把 method 改成 email，并生成恢复码
 
@@ -356,6 +357,7 @@ def confirm_setup_email(
         TwoFactorChallenge.purpose == "setup",
     ).delete(synchronize_session=False)
     codes = issue_recovery_codes(db, user)
+    auth_api._record_event(db, user.student_no, "two_factor_enable", ip)
     db.commit()
     return {"message": "已开启电子邮件二次验证", "recovery_codes": codes}
 
@@ -395,6 +397,7 @@ def confirm_totp(
     data: TwoFactorCodeRequest,
     user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
 ):
     """App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复码"""
     challenge = _setup_challenge(db, user, "totp")
@@ -427,6 +430,7 @@ def confirm_totp(
         TwoFactorChallenge.purpose == "setup",
     ).delete(synchronize_session=False)
     codes = issue_recovery_codes(db, user)
+    auth_api._record_event(db, user.student_no, "two_factor_enable", ip)
     db.commit()
     return {"message": "已开启身份验证器二次验证", "recovery_codes": codes}
 
@@ -436,6 +440,7 @@ def disable_two_factor(
     data: TwoFactorPasswordRequest,
     user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
 ):
     """关闭后回到「只要密码」的登录方式，恢复码和待确认的挑战一并清掉"""
     _check_password(user, data.password)
@@ -448,6 +453,7 @@ def disable_two_factor(
     db.query(TwoFactorChallenge).filter(
         TwoFactorChallenge.user_id == user.id
     ).delete(synchronize_session=False)
+    auth_api._record_event(db, user.student_no, "two_factor_disable", ip)
     db.commit()
     return {"message": "已关闭二次验证，之后只需密码即可登录"}
 
@@ -457,12 +463,14 @@ def regenerate_recovery_codes(
     data: TwoFactorPasswordRequest,
     user: User = Depends(require_cookie_auth),
     db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
 ):
     """旧码整批作废；新码只在这条响应里出现一次"""
     _check_password(user, data.password)
     if not user.two_factor_method:
         raise HTTPException(status_code=400, detail="二次验证还没开启")
     codes = issue_recovery_codes(db, user)
+    auth_api._record_event(db, user.student_no, "recovery_regenerate", ip)
     db.commit()
     return {
         "message": "已重新生成，旧的恢复码全部作废",
