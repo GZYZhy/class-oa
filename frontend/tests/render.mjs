@@ -4273,11 +4273,13 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
     '后端投票列表收 keyword')
   check(/keyword_like\(keyword, Poll\.title\)/.test(pollsPy), '投票按 Poll.title 过滤')
 
-  // ---------- 考勤：全局搜索（点名查备注、签到查标题） ----------
+  // ---------- 考勤：全局搜索（两类记录都搜列表里的「标题」列） ----------
   const { html: attendanceHtml } = await render('/src/views/Attendance.vue')
-  check(stripComments(attendanceHtml).includes('搜索点名备注或签到标题'),
-    '考勤页的搜索框同时搜点名备注和签到标题')
+  check(stripComments(attendanceHtml).includes('搜索标题'),
+    '考勤页的搜索框搜两类记录的标题')
   const attendanceSrc = src('/src/views/Attendance.vue')
+  check(attendanceSrc.includes('label="标题"') && !attendanceSrc.includes('label="备注"'),
+    '列表那一列统一叫「标题」，不再出现「备注」')
   check(/if \(keyword\.value\.trim\(\)\) params\.keyword = keyword\.value\.trim\(\)/
     .test(attendanceSrc), '考勤列表把关键词带给后端')
   check(/function handleReset\(\) \{[\s\S]{0,80}?keyword\.value = ''/.test(attendanceSrc),
@@ -4431,7 +4433,7 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
   const { html } = await render('/src/views/Attendance.vue')
   const text = stripComments(html)
   check(text.includes('发布签到'), '考勤页有「发布签到」按钮')
-  check(text.includes('搜索点名备注或签到标题'), '搜索框覆盖两种记录')
+  check(text.includes('搜索标题'), '搜索框覆盖两种记录')
 
   const pageSrc = readFileSync(`${ROOT}/src/views/Attendance.vue`, 'utf8')
   // 点名从学生信息页挪过来，点完的记录就落在本页列表里
@@ -4608,7 +4610,17 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(detailSrc.includes('detail.attendance_record_id'), '改的是结算生成的那条考勤明细')
   check(detailSrc.includes('updateCheckinTitle(detail.value.id')
     && detailSrc.includes('>修改<'),
-    '签到的「改备注」挪进明细，改的是标题')
+    '签到的标题在明细里改')
+  // 修改按钮跟在弹窗标题行上，正文不再重复一行「标题 xxx」
+  check(detailSrc.includes('<template #header>')
+    && detailSrc.includes('cd-header-title')
+    && /@click="editTitle">修改</.test(detailSrc),
+    '「修改」按钮直接放在明细弹窗的标题行')
+  check(!/class="cd-label">标题</.test(detailSrc), '正文里不再重复标题那一行')
+
+  const createSrc = readFileSync(`${ROOT}/src/components/CheckinCreateDialog.vue`, 'utf8')
+  check(createSrc.includes('label="说明"') && !createSrc.includes('label="备注"'),
+    '发布签到表单里的补充文字叫「说明」，不再和标题混称备注')
   // 列表里结算后的签到行显示的就是这四个计数，改完标题或状态都要刷新列表
   check(detailSrc.match(/emit\('updated'\)/g)?.length >= 2,
     '改标题和改出勤状态之后都通知父组件刷新列表')
