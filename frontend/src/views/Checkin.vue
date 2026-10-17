@@ -142,9 +142,12 @@
             <p v-if="!info.location && !info.require_photo" class="ck-tip">
               确认你已到场，点下面的按钮完成签到
             </p>
-            <el-button type="primary" size="large" :loading="submitting" @click="handleSubmit">
-              确认签到
-            </el-button>
+            <!-- 唯一的主按钮居中，和登录、已签到两个状态的按钮对齐 -->
+            <div class="ck-center">
+              <el-button type="primary" size="large" :loading="submitting" @click="handleSubmit">
+                确认签到
+              </el-button>
+            </div>
           </template>
         </div>
 

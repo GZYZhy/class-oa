@@ -4496,6 +4496,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   )
   const formText = stripComments(form)
   check(formText.includes('确认签到'), '签到表单位于页面内，不用再弹窗')
+  check(form.includes('class="ck-center"'), '确认签到按钮居中')
   check(form.includes('class="ck-block"'), '定位与照片用页面里的分块样式')
   check(formText.includes('请拍照或从相册选一张'), '要求照片时页面内给出选择入口')
 
@@ -4539,6 +4540,8 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   const detailSrc = readFileSync(`${ROOT}/src/components/CheckinDetailDialog.vue`, 'utf8')
   check(detailSrc.includes('updateAttendanceItem('), '结算后可在签到详情里直接改出勤状态')
   check(detailSrc.includes('label="出勤状态"'), '签到详情把状态列成可改的下拉框')
+  check(detailSrc.includes('FileViewer'), '签到照片复用证明材料那个预览框')
+  check(!detailSrc.includes('window.open'), '照片不再另开新窗口')
   check(detailSrc.includes('detail.attendance_record_id'), '改的是结算生成的那条考勤明细')
 
   // 公开页要暴露给没登录的人：路由必须是 public + bare
