@@ -26,6 +26,17 @@
         <span v-if="detail.closed_at" class="cd-sub">
           （已于 {{ formatDateTime(detail.closed_at) }} 结束）
         </span>
+        <!-- 只有进行中才能延长 / 提醒；到点后再点，后端也会拒 -->
+        <template v-if="detail.status === 'ongoing'">
+          <el-button link type="primary" size="small" :loading="extending"
+            @click="extend">
+            延长5分钟
+          </el-button>
+          <el-button link type="warning" size="small" :loading="reminding"
+            @click="remind">
+            提醒未签到
+          </el-button>
+        </template>
       </div>
       <div class="cd-line">
         <span class="cd-label">签到情况</span>
@@ -113,7 +124,12 @@ import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
 import FileViewer from '@/components/FileViewer.vue'
-import { getCheckin, updateCheckinTitle } from '@/api/checkin'
+import {
+  extendCheckin,
+  getCheckin,
+  remindCheckin,
+  updateCheckinTitle
+} from '@/api/checkin'
 import { updateAttendanceItem } from '@/api/attendance'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'
@@ -122,6 +138,8 @@ const emit = defineEmits(['updated'])
 const visible = ref(false)
 const loading = ref(false)
 const savingStatus = ref(false)
+const extending = ref(false)
+const reminding = ref(false)
 const detail = ref({ targets: [] })
 
 // 照片预览框的状态。只是交给 FileViewer 用，不改签到数据
@@ -186,6 +204,41 @@ async function editTitle() {
     emit('updated')
   } catch (e) {
     ElMessage.error(errText(e, '修改标题失败'))
+  }
+}
+
+/**
+ * 截止时间往后推 5 分钟
+ *
+ * 可以反复点；列表里那一行的截止时间也要跟着变，所以通知父组件刷新。
+ */
+async function extend() {
+  extending.value = true
+  try {
+    detail.value = await extendCheckin(detail.value.id)
+    ElMessage.success('已延长5分钟')
+    emit('updated')
+  } catch (e) {
+    ElMessage.error(errText(e, '延长失败'))
+  } finally {
+    extending.value = false
+  }
+}
+
+/** 给还没签到的人发站内信，已签到的不会再收到 */
+async function remind() {
+  reminding.value = true
+  try {
+    const res = await remindCheckin(detail.value.id)
+    ElMessage.success(
+      res.reminded > 0
+        ? `已提醒 ${res.reminded} 名未签到的同学`
+        : '没有未签到的同学'
+    )
+  } catch (e) {
+    ElMessage.error(errText(e, '提醒失败'))
+  } finally {
+    reminding.value = false
   }
 }
 
