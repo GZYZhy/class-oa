@@ -121,6 +121,13 @@ export function rejectCertificate(id, reason) {
 }
 
 /**
+ * 撤销已通过（管理员）：状态变已撤销，不能再编辑、不再提供成品；撤销不可恢复
+ */
+export function revokeCertificate(id) {
+  return request({ url: `/certificates/${id}/revoke`, method: 'post' })
+}
+
+/**
  * 上传成品 PDF（管理员）
  * @param {number} id
  * @param {File} file

@@ -33,6 +33,7 @@ from ..services.review_flow import (
     CLOSED,
     STATUS_CORRECTING,
     STATUS_PENDING,
+    STATUS_REVOKED,
     accept,
     correct,
     require_accepted,
@@ -406,6 +407,8 @@ def download_result(
     student = db.query(Student).filter(Student.student_no == user.student_no).first()
     if not student or req.student_id != student.id:
         raise HTTPException(status_code=403, detail="无权下载")
+    if req.status == STATUS_REVOKED:
+        raise HTTPException(status_code=400, detail="该申请已撤销，不再提供成品证明")
     if req.status != "approved":
         raise HTTPException(status_code=400, detail="申请未通过，暂不能下载")
     if not req.result_file:
@@ -431,8 +434,8 @@ def download_result(
 def list_applications(
     status: str | None = Query(
         None,
-        description="按状态筛选：pending/accepted/correcting/approved/rejected；"
-                    "open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回）",
+        description="按状态筛选：pending/accepted/correcting/approved/rejected/revoked；"
+                    "open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销）",
     ),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
@@ -443,9 +446,9 @@ def list_applications(
         # 「受理」看起来像把申请弄丢了，而菜单红点还照数它（见 review_flow.ADMIN_TODO）
         query = query.filter(CertificateRequest.status.in_(ADMIN_TODO))
     elif status == "closed":
-        # 「已办结」= 两个终态。筛选器上就四档：待处理 / 待补正 / 已办结 / 全部 ——
-        # 待受理与已受理合在「待处理」里（都要同一个人动手），已通过和已驳回合在
-        # 「已办结」里（谁都不用再动手），具体是哪个状态看行上的 tag
+        # 「已办结」= 三个终态。筛选器上就四档：待处理 / 待补正 / 已办结 / 全部 ——
+        # 待受理与已受理合在「待处理」里（都要同一个人动手），已通过、已驳回和已撤销
+        # 合在「已办结」里（谁都不用再动手），具体是哪个状态看行上的 tag
         query = query.filter(CertificateRequest.status.in_(CLOSED))
     elif status:
         query = query.filter(CertificateRequest.status == status)
@@ -663,6 +666,45 @@ def reject_application(
     return {"message": "已驳回"}
 
 
+@router.post("/{req_id}/revoke", summary="撤销已通过的申请（管理员）")
+def revoke_application(
+    req_id: int,
+    background: BackgroundTasks,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """把一条已通过的申请撤了：状态变成「已撤销」，申请人不能再编辑、不再下载成品
+
+    **撤销是终态，没有反向操作**：撤销后它也不能再批，成品也不能再上传（上传接口
+    要求已通过）。要发通知 —— 申请人可能已经拿到打印件，不喊一声不会知道作废了。
+    """
+    req = db.query(CertificateRequest).filter(CertificateRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="申请不存在")
+    if req.status != "approved":
+        raise HTTPException(status_code=400, detail="只有已通过的申请才能撤销")
+
+    req.status = STATUS_REVOKED
+    student = db.query(Student).filter(Student.id == req.student_id).first()
+    log_operation(
+        db, user, "撤销已通过的证明开具",
+        target=student.name if student else f"id={req.student_id}",
+        detail=f"标题：{req.title}",
+        ip=ip,
+    )
+    targets = recipients(db, only_no=student.student_no) if student else None
+    db.commit()
+
+    if targets:
+        notify(
+            db, background, targets, "证明开具申请已撤销",
+            f"你的证明申请（{req.title}）已被管理员撤销",
+            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+        )
+    return {"message": "已撤销"}
+
+
 @router.post("/{req_id}/result", summary="上传成品证明 PDF（管理员）")
 async def upload_result(
     req_id: int,
@@ -735,6 +777,8 @@ def admin_download_result(
     req = db.query(CertificateRequest).filter(CertificateRequest.id == req_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="申请不存在")
+    if req.status == STATUS_REVOKED:
+        raise HTTPException(status_code=400, detail="该申请已撤销，不再提供成品证明")
     if not req.result_file:
         raise HTTPException(status_code=404, detail="成品文件尚未上传")
     file_path = RESULT_DIR / req.result_file

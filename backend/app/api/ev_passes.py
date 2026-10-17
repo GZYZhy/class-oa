@@ -43,6 +43,7 @@ from ..services.review_flow import (
     CLOSED,
     STATUS_CORRECTING,
     STATUS_PENDING,
+    STATUS_REVOKED,
     accept,
     correct,
     require_accepted,
@@ -375,6 +376,8 @@ def _pdf_target(db: Session, req_id: int, user: User) -> tuple[EvPassRequest, St
         raise HTTPException(status_code=404, detail="申请人信息不存在")
     if not is_committee(user) and student.student_no != user.student_no:
         raise HTTPException(status_code=403, detail="无权下载")
+    if req.status == STATUS_REVOKED:
+        raise HTTPException(status_code=400, detail="该申请已撤销，不再提供申请表和承诺书")
     if req.status != "approved":
         raise HTTPException(status_code=400, detail="申请未通过，暂不能下载")
     return req, student
@@ -468,8 +471,8 @@ def download_promise_pdf(
 def list_applications(
     status: str | None = Query(
         None,
-        description="按状态筛选：pending/accepted/correcting/approved/rejected；"
-                    "open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回）",
+        description="按状态筛选：pending/accepted/correcting/approved/rejected/revoked；"
+                    "open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销）",
     ),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
@@ -480,9 +483,9 @@ def list_applications(
         # 「受理」看起来像把申请弄丢了，而菜单红点还照数它（见 review_flow.ADMIN_TODO）
         query = query.filter(EvPassRequest.status.in_(ADMIN_TODO))
     elif status == "closed":
-        # 「已办结」= 两个终态。筛选器上就四档：待处理 / 待补正 / 已办结 / 全部 ——
-        # 待受理与已受理合在「待处理」里（都要同一个人动手），已通过和已驳回合在
-        # 「已办结」里（谁都不用再动手），具体是哪个状态看行上的 tag
+        # 「已办结」= 三个终态。筛选器上就四档：待处理 / 待补正 / 已办结 / 全部 ——
+        # 待受理与已受理合在「待处理」里（都要同一个人动手），已通过、已驳回和已撤销
+        # 合在「已办结」里（谁都不用再动手），具体是哪个状态看行上的 tag
         query = query.filter(EvPassRequest.status.in_(CLOSED))
     elif status:
         query = query.filter(EvPassRequest.status == status)
@@ -651,6 +654,46 @@ def approve_application(
         notify(
             db, background, targets, "电动车通行证申请已通过",
             f"你的电动车通行证申请（{req.plate_number}）已通过，现在可以下载申请表和承诺书",
+            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+        )
+    return _to_response(db, req)
+
+
+@router.post("/{req_id}/revoke", response_model=EvPassRequestResponse, summary="撤销已通过的申请（管理员）")
+def revoke_application(
+    req_id: int,
+    background: BackgroundTasks,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """把一条已通过的申请撤了：状态变成「已撤销」，申请人不能再编辑、不再提供两份 PDF
+
+    **撤销是终态，没有反向操作**：撤销后它也不能再批、不能补签字。
+    要发通知 —— 申请人手里可能已经打印出来了，不喊一声不会知道作废了。
+    """
+    req = db.query(EvPassRequest).filter(EvPassRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="申请不存在")
+    if req.status != "approved":
+        raise HTTPException(status_code=400, detail="只有已通过的申请才能撤销")
+
+    req.status = STATUS_REVOKED
+    student = db.query(Student).filter(Student.id == req.student_id).first()
+    log_operation(
+        db, user, "撤销已通过的电动车通行证申请",
+        target=student.name if student else f"id={req.student_id}",
+        detail=f"品牌：{req.brand}，车牌：{req.plate_number}",
+        ip=ip,
+    )
+    targets = recipients(db, only_no=student.student_no) if student else None
+    db.commit()
+    db.refresh(req)
+
+    if targets:
+        notify(
+            db, background, targets, "电动车通行证申请已撤销",
+            f"你的电动车通行证申请（{req.plate_number}）已被管理员撤销",
             level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
         )
     return _to_response(db, req)

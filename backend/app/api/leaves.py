@@ -47,6 +47,7 @@ from ..services.review_flow import (
     CLOSED,
     STATUS_CORRECTING,
     STATUS_PENDING,
+    STATUS_REVOKED,
     accept,
     correct,
     require_accepted,
@@ -371,8 +372,9 @@ def my_proof(
 def list_leaves(
     status: str | None = Query(
         None,
-        description="pending/accepted/correcting/approved/rejected；open = 待处理（待受理+已受理），"
-                    "closed = 已办结（已通过+已驳回），不传为全部",
+        description="pending/accepted/correcting/approved/rejected/revoked；"
+                    "open = 待处理（待受理+已受理），closed = 已办结（已通过+已驳回+已撤销），"
+                    "不传为全部",
     ),
     _: User = Depends(committee_required),
     db: Session = Depends(get_db),
@@ -388,9 +390,9 @@ def list_leaves(
     if status == "open":
         query = query.filter(LeaveRequest.status.in_(ADMIN_TODO))
     elif status == "closed":
-        # 「已办结」= 两个终态。筛选器上就四档：待处理 / 待补正 / 已办结 / 全部 ——
-        # 待受理与已受理合在「待处理」里（都要同一个人动手），已通过和已驳回合在
-        # 「已办结」里（谁都不用再动手），具体是哪个状态看行上的 tag
+        # 「已办结」= 三个终态。筛选器上就四档：待处理 / 待补正 / 已办结 / 全部 ——
+        # 待受理与已受理合在「待处理」里（都要同一个人动手），已通过、已驳回和已撤销
+        # 合在「已办结」里（谁都不用再动手），具体是哪个状态看行上的 tag
         query = query.filter(LeaveRequest.status.in_(CLOSED))
     elif status:
         query = query.filter(LeaveRequest.status == status)
@@ -418,6 +420,8 @@ def download_pdf(
     # 先判权限再判状态：不是自己的单子、内容什么样都不该让他知道
     if leave.student_no != user.student_no and not is_admin(user):
         raise HTTPException(status_code=403, detail="无权下载该请假表")
+    if leave.status == STATUS_REVOKED:
+        raise HTTPException(status_code=400, detail="该申请已撤销，不再提供请假审批表")
     if leave.status != "approved":
         raise HTTPException(status_code=400, detail="仅审核通过的申请可生成请假表")
 
@@ -642,6 +646,47 @@ def approve_leave(
     notify(
         db, background, targets, "请假申请已通过",
         f"你的{leave.leave_type}（{leave.start_at:%m-%d %H时} 起）已通过审核",
+        level="timeSensitive",
+        page="/my-info?tab=workspace&sub=submitted",
+    )
+    return _to_response(leave)
+
+
+@router.post("/{leave_id}/revoke", response_model=LeaveRequestResponse, summary="撤销已通过的请假申请")
+def revoke_leave(
+    leave_id: int,
+    background: BackgroundTasks,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """管理员把一条已通过的申请撤了：状态变成「已撤销」，学生端不再显示审核意见
+
+    撤销后这条单子不能再编辑、不再生成审批表（下载接口按状态拦）；它也不再能批、
+    不能补签字 —— **撤销是终态，没有反向操作**。
+
+    要发通知：申请人手里的表可能已经打印出去了，不喊一声他不会知道这张表作废了。
+    """
+    leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=404, detail="请假记录不存在")
+    if leave.status != "approved":
+        raise HTTPException(status_code=400, detail="只有已通过的申请才能撤销")
+
+    leave.status = STATUS_REVOKED
+    log_operation(
+        db, user, "撤销已通过的请假申请",
+        target=f"{leave.student_no} {leave.student_name}",
+        detail=f"{leave.leave_type}：{leave.start_at:%Y-%m-%d %H时} ~ {leave.end_at:%Y-%m-%d %H时}",
+        ip=ip,
+    )
+    targets = recipients(db, only_no=leave.student_no)
+    db.commit()
+    db.refresh(leave)
+
+    notify(
+        db, background, targets, "请假申请已撤销",
+        f"你的{leave.leave_type}（{leave.start_at:%m-%d %H时} 起）已被管理员撤销",
         level="timeSensitive",
         page="/my-info?tab=workspace&sub=submitted",
     )
