@@ -16,6 +16,19 @@ export function listSchedules(startDate, endDate) {
 }
 
 /**
+ * 按名称搜索日程（搜我的全部日程，不限于当前这一周）
+ * 每条日程只回一行：重复日程给离今天最近的那一次，靠 instance_date 区分是哪一天
+ * @param {string} keyword - 日程名称关键词
+ */
+export function searchSchedules(keyword) {
+  return request({
+    url: '/schedules/search',
+    method: 'get',
+    params: { keyword }
+  })
+}
+
+/**
  * 各学期的周次区间。页面上的「第几周」按它算，别在前端另估一套
  * （按「9 月 1 日所在周」估出来比表名早两周，显示会整体偏早）。
  * 每项：week_start 是编号基准（第 1 周的周一，导入时按用户选的周次锚点推算写入），

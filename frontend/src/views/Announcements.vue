@@ -10,16 +10,19 @@
         </el-button>
       </div>
 
-      <!-- 搜索区：标题 + 发布时间区间 -->
+      <!-- 搜索区：一个关键词框（标题或文号，输片段即可）+ 发布时间区间 -->
       <el-form :inline="true" style="margin-top: 16px;">
-        <el-form-item label="标题">
+        <el-form-item>
           <el-input
-            v-model="searchForm.title"
-            placeholder="按标题搜索"
+            v-model="searchForm.keyword"
+            placeholder="按标题或文号搜索"
             clearable
-            style="width: 200px"
+            style="width: 240px"
             @keyup.enter="handleSearch"
-          />
+            @clear="handleSearch"
+          >
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </el-input>
         </el-form-item>
         <el-form-item label="发布时间">
           <el-date-picker
@@ -203,14 +206,14 @@ const form = reactive({
   is_public: true,
 })
 
-// 搜索表单
-const searchForm = reactive({ title: '', dateRange: [] })
+// 搜索表单：一个关键词框（标题或文号）+ 发布时间区间
+const searchForm = reactive({ keyword: '', dateRange: [] })
 
 async function fetchList() {
   loading.value = true
   try {
     list.value = await getAnnouncements({
-      title: searchForm.title || undefined,
+      keyword: searchForm.keyword.trim() || undefined,
       start_date: searchForm.dateRange?.[0] || undefined,
       end_date: searchForm.dateRange?.[1] || undefined,
     })
@@ -224,7 +227,7 @@ async function fetchList() {
 function handleSearch() { fetchList() }
 
 function handleReset() {
-  searchForm.title = ''
+  searchForm.keyword = ''
   searchForm.dateRange = []
   fetchList()
 }

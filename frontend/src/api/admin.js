@@ -199,6 +199,15 @@ export function updateResource(id, formData) {
   })
 }
 
+/** 调整资料分类的展示顺序（数组顺序即页面顺序） */
+export function reorderResourceCategories(order) {
+  return request({
+    url: '/admin/resources/categories/order',
+    method: 'put',
+    data: order
+  })
+}
+
 /** 重排某个分类下的资料顺序 */
 export function reorderResources(category, order) {
   return request({

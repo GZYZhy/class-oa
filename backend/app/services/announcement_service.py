@@ -4,25 +4,28 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from ..models import Announcement
+from .list_filters import keyword_like
 
 
 def list_announcements(
     db: Session,
-    title: Optional[str] = None,
+    keyword: Optional[str] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     public_only: bool = False,
 ) -> list[Announcement]:
-    """文件列表：按发布时间降序，支持标题模糊、时间区间搜索
+    """文件列表：按发布时间降序，支持标题/文号模糊、时间区间搜索
 
+    搜索框只有一个：输标题或文号里的任意一段都能命中（比如「2026］12」）。
     public_only=True 时只返回「向班委以外公开」的文件，供普通学生查看。
     """
     query = db.query(Announcement)
 
     if public_only:
         query = query.filter(Announcement.is_public.is_(True))
-    if title:
-        query = query.filter(Announcement.title.like(f"%{title}%"))
+    match = keyword_like(keyword, Announcement.title, Announcement.doc_number)
+    if match is not None:
+        query = query.filter(match)
     if start_date:
         query = query.filter(Announcement.publish_date >= start_date)
     if end_date:

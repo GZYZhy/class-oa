@@ -53,7 +53,7 @@ URL_PREFIX = "/api/announcements/file"
 @router.get("", response_model=list[AnnouncementResponse], summary="文件列表（按发布时间降序）")
 def get_list(
     user: User = Depends(get_current_user),
-    title: str | None = Query(None, description="按标题搜索（模糊）"),
+    keyword: str | None = Query(None, description="按标题或文号模糊搜索"),
     start_date: str | None = Query(None, description="发布时间起始（YYYY-MM-DD）"),
     end_date: str | None = Query(None, description="发布时间截止（YYYY-MM-DD）"),
     db: Session = Depends(get_db),
@@ -61,7 +61,7 @@ def get_list(
     # 普通学生只看得到「向班委以外公开」的文件；班委及以上看全部
     return list_announcements(
         db,
-        title=title,
+        keyword=keyword,
         start_date=start_date,
         end_date=end_date,
         public_only=not is_committee(user),

@@ -30,6 +30,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import Schedule, ScheduleBatch, Student, User
+from .list_filters import keyword_like
 
 # 这里的名字都**只能**在模块级 import，不能挪进函数体：下面 get_student_by_ical_token
 # 的返回注解用到了 ICalToken，而注解是在 def 执行时求值的（3.12 如此，3.14 起才改成
@@ -373,6 +374,54 @@ def list_by_range(
     # 按开始时间排序
     instances.sort(key=lambda x: x["start_time"])
     return instances
+
+
+def search_by_title(
+    db: Session,
+    student_id: int,
+    keyword: str,
+    limit: int = 100,
+) -> list[dict]:
+    """按标题搜自己的日程，每条模板只出一行
+
+    同名日程可能有很多条（导入的课表里「晚自习」就天天有），页面把它们列在
+    弹窗里让用户自己挑，所以每行都带 instance_date 当「是哪一次」的标识。
+
+    重复日程取**离今天最近的那一次**：还没开始的取第一次，已经过期的取最后一次。
+    点搜索结果跳到的就是这一天，详情弹窗里看到的也是这一天的实例。
+    """
+    match = keyword_like(keyword, Schedule.title)
+    if match is None:
+        return []
+
+    templates = (
+        db.query(Schedule)
+        .filter(Schedule.student_id == student_id, match)
+        .order_by(Schedule.start_time)
+        .limit(limit)
+        .all()
+    )
+    if not templates:
+        return []
+
+    counts = share_counts(db, templates, student_id)
+    periods = list_semester_periods(db, student_id)
+    today = date.today()
+
+    out = []
+    for tpl in templates:
+        # 单次日程只命中 _prev_occurrence 那一支；重复日程先找往后最近的一次，
+        # 整段都过完了再退回最后一次。两边都算不出来时退回开始日 —— 宁可日期
+        # 不准，也别让搜到的日程从结果里消失
+        occ = (
+            _next_occurrence(tpl, today, periods)
+            or _prev_occurrence(tpl, today, periods)
+            or tpl.start_time.date()
+        )
+        out.append(_to_instance(tpl, occ, counts.get(tpl.source_series_id, 1)))
+
+    out.sort(key=lambda x: (x["instance_date"], x["start_time"]))
+    return out
 
 
 def _to_instance(tpl: Schedule, instance_date: date, share_count: int = 1) -> dict:

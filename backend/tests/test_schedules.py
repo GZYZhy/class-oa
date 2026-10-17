@@ -100,6 +100,43 @@ def test_create_and_list(b):
     assert items[0]["repeat_type"] == "none"
 
 
+def test_search_by_title(b):
+    """按名称搜自己的日程：同名很多条就一行一条列出来，各带一个具体日期
+
+    页面上把这些结果放在弹窗里让用户挑，所以 instance_date 必须准 —— 学生搜
+    「晚自习」看到两个日期，点哪个就跳到哪一天。
+    """
+    # 管理员自己也有一条同名日程，学生那边不该搜到
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="晚自习", start="2026-10-15T19:00:00", end="2026-10-15T21:00:00"))
+    assert r.status_code == 200, r.text
+
+    c = as_student(b, 1)  # 乙
+    for day in ("2026-10-12", "2026-10-13"):
+        r = c.post("/api/schedules", json=_make_schedule(
+            title="晚自习", start=f"{day}T19:00:00", end=f"{day}T21:00:00"))
+        assert r.status_code == 200, r.text
+    r = c.post("/api/schedules", json=_make_schedule(
+        title="高等数学", start="2026-10-14T08:00:00", end="2026-10-14T09:40:00"))
+    assert r.status_code == 200, r.text
+
+    r = c.get("/api/schedules/search", params={"keyword": "晚自习"})
+    assert r.status_code == 200, r.text
+    rows = r.json()
+    assert [row["instance_date"] for row in rows] == ["2026-10-12", "2026-10-13"], \
+        "两条同名的都出来，按日期排；管理员那条不在里面"
+    assert {row["title"] for row in rows} == {"晚自习"}
+
+    # 片段匹配，不要求从头开始
+    assert [row["title"] for row in c.get(
+        "/api/schedules/search", params={"keyword": "数学"}).json()] == ["高等数学"]
+
+    # 空关键词不回整屏日程（弹窗刚打开时不该把全部日程都拉出来）
+    assert c.get("/api/schedules/search", params={"keyword": ""}).json() == []
+    assert c.get("/api/schedules/search", params={"keyword": "  "}).json() == []
+    assert c.get("/api/schedules/search", params={"keyword": "查无此程"}).json() == []
+
+
 def test_notify_default_off(b):
     """通知默认关闭——建日程时不传 notify_enabled，必须是 False"""
     data = _make_schedule(title="默认通知测试", notify_enabled=None)

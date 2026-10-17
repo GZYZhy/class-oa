@@ -305,6 +305,7 @@ console.log('\n▶ 我的成绩：位次、通过制、标记词、未录入')
   )
   const count = (s) => html.split(s).length - 1
 
+  check(html.includes('搜索考试名称'), '我的成绩顶上有考试名称搜索框')
   check(html.includes('排在前 25%'), '计分科目带位次小字')
   check(html.includes('排在前 88.9%'), '第二张测试卡片各渲染各的')
   check(!html.includes('排在前 12%'), '通过制科目不给位次（后端漏了也不显示）')
@@ -503,11 +504,48 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
 
   check(cls('all-day-item', 'theme-primary') === 1, '全天事件那块也跟着类型上色')
 
+  // 「今天」「前往」必须包在同一个容器里：各自是独立项的话，窄屏换行时
+  // 「今天」留在上一行、「前往」掉到下一行，两个同类操作就被拆散了
+  check(cls('quick-jump') === 1, '「今天」「前往」包在同一个容器里')
+
   // 紫和黄是手写的色值（Element 的调色板里没有），深色模式得各写一份 ——
   // 只写浅色那份的话，深色下这两类会跟别的事件一样是浅底，字直接糊掉
   const schedSrc = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
   check(/\.theme-purple\s*\{/.test(schedSrc) && /\.dark \.theme-purple\s*\{/.test(schedSrc),
     '紫色有浅色和深色两份色值')
+
+  // 日程搜索：同名日程可能很多，结果得在弹窗里一条条列出来让用户按日期挑。
+  // 渲染时把弹窗打开、塞两条同名的进去，断言两个日期都出现在结果列表里
+  check(schedSrc.includes('title="搜索日程"')
+    && schedSrc.includes('v-for="item in searchDialog.results"'),
+    '搜索结果在弹窗里以列表展示')
+  const scheduleApi = readFileSync(`${ROOT}src/api/schedule.js`, 'utf8')
+  check(/url: '\/schedules\/search'/.test(scheduleApi), '前端走 /schedules/search')
+  const scheduleService = readFileSync(
+    `${ROOT}../backend/app/services/schedule_service.py`, 'utf8')
+  check(/keyword_like\(keyword, Schedule\.title\)/.test(scheduleService),
+    '后端按日程标题模糊匹配')
+
+  const searchRows = [
+    {
+      template_id: 1, title: '晚自习', instance_date: '2026-10-12', all_day: false,
+      start_time: '2026-10-12T19:00:00', end_time: '2026-10-12T21:00:00',
+      location: '教学楼D 301', repeat_type: 'weekly'
+    },
+    {
+      template_id: 2, title: '晚自习', instance_date: '2026-10-13', all_day: false,
+      start_time: '2026-10-13T19:00:00', end_time: '2026-10-13T21:00:00',
+      location: '', repeat_type: 'none'
+    }
+  ]
+  const searchHtml = (await renderPatched(
+    '/src/views/Schedule.vue',
+    "const searchDialog = ref({ open: false, keyword: '', loading: false, results: [] })",
+    `const searchDialog = ref({ open: true, keyword: '晚自习', loading: false, results: ${JSON.stringify(searchRows)} })`,
+    { ElDialog: ElDialogStub }
+  )).html
+  check(searchHtml.includes('2026-10-12') && searchHtml.includes('2026-10-13'),
+    '两条同名日程在弹窗里各占一行，靠日期区分')
   check(/\.theme-yellow\s*\{/.test(schedSrc) && /\.dark \.theme-yellow\s*\{/.test(schedSrc),
     '黄色有浅色和深色两份色值')
 
@@ -884,7 +922,7 @@ console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没�
 
   const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
   // 时钟靠定时器走，离开页面必须停掉，否则每进一次日程页就多一个永不回收的定时器
-  check(/onUnmounted\(\(\) => clearInterval\(clockTimer\)\)/.test(src), '离开页面时停掉时钟定时器')
+  check(/onUnmounted\(\(\) => \{[\s\S]{0,200}?clearInterval\(clockTimer\)/.test(src), '离开页面时停掉时钟定时器')
   // 窄窗口（半屏、手机）下工具栏一行放不下，「新建日程」会被挤出可见区域点不到
   const toolbar = src.slice(src.indexOf('.toolbar {'), src.indexOf('.week-nav {'))
   check(/flex-wrap:\s*wrap/.test(toolbar), '顶部工具栏允许换行，窄屏按钮不会被挤出去')
@@ -1178,7 +1216,7 @@ console.log('\n▶ 学生信息页：低频操作收进「更多」，年龄排�
 
   // 筛选区的控件宽度都是写死的（关键词 240px、下拉 100~130px），窄屏上放不下两个，
   // 一行一个把半屏占满 —— 媒体查询里得把宽度交回容器
-  check(/@media \(max-width: 768px\)[\s\S]{0,1200}\.filter-card :deep\(\.el-form--inline \.el-form-item\)/.test(src) &&
+  check(/@media \(max-width: 768px\)[\s\S]{0,1200}\.page-card :deep\(\.el-form--inline \.el-form-item\)/.test(src) &&
     src.includes('width: 100% !important'), '窄屏下筛选区两列自适应，控件不再写死宽度')
 
   // 前两列只留够放内容的宽度：窄屏横向滚动时先露出来的就是这几列，省下几十像素
@@ -1232,6 +1270,16 @@ console.log('\n▶ 学生信息页：列表缩略图进视口才下载（别把�
   const dir = src.slice(src.indexOf('const vPhotoSrc = {'))
   const dirBody = dir.slice(0, dir.indexOf('\n}'))
   check(dirBody.includes('IntersectionObserver'), '靠 IntersectionObserver 判定是否可见')
+
+  // 缩略图和详情大头照不再固定用高考照片：与顶栏头像同一优先级
+  check(src.includes("const PRIMARY_PHOTO_ORDER = ['id', 'gaokao', 'on_site']"),
+    '名单照片的优先级：自备证件照 > 高考照片 > 实地采集')
+  check(thumb.includes('primaryPhoto(row).type'),
+    '列表缩略图挑优先级最高的那张')
+  check(src.includes('primaryPhoto(currentStudent).type'),
+    '详情大头照和缩略图用同一张，不会点开就换人似的')
+  check(/function openRowPhotos\(row\) \{\s*openPhotoViewer\(row, primaryPhoto\(row\)\?\.type/.test(src),
+    '点缩略图从当前显示的那张开始看')
   check(dirBody.includes('el.src = binding.value'), '没有 IntersectionObserver 时退回直接加载，不至于不显示')
 }
 
@@ -4154,6 +4202,7 @@ unread.value = 0
   )
 
   const src = readFileSync(`${ROOT}/src/views/Inbox.vue`, 'utf8')
+  check(!src.includes('所有推送给你的消息都在这里'), '消息页不再挂那句推送说明')
   check(src.includes('未读消息保留') && src.includes('删除后不可恢复'), '确认框说清了删什么、能不能反悔')
   check(src.includes('res.deleted'), '成功提示用的是后端真实删掉的条数')
   check(src.includes('page.value = 1'), '删完回到第一页（已读散在各页）')
@@ -4176,6 +4225,21 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
       `${title}页有标题行`
     )
   }
+
+  // ---------- 四页整页一张卡片（和审核审批一致） ----------
+  for (const [path, title] of [
+    ['/src/views/Vote.vue', '投票表决'],
+    ['/src/views/StudentList.vue', '学生信息'],
+    ['/src/views/Attendance.vue', '考勤记录'],
+    ['/src/views/Grade.vue', '成绩管理']
+  ]) {
+    const pageSrc = src(path)
+    check((pageSrc.match(/class="page-card/g) || []).length === 1,
+      `${title}页只有一张卡片：操作区和信息区合在一起`)
+  }
+  const studentSrc = src('/src/views/StudentList.vue')
+  check(!studentSrc.includes('>学生名单<'), '学生信息页不再出现「学生名单」')
+  check(!studentSrc.includes('filter-card'), '临时的 filter-card 类名清干净了')
 
   // ---------- 投票：按标题搜 ----------
   const { html: voteHtml } = await render('/src/views/Vote.vue')
@@ -4243,6 +4307,8 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
   const searchSrc = src('/src/components/ReviewSearch.vue')
   check(searchSrc.includes('value-format="YYYY-MM-DD"'), '搜索栏的日期是 YYYY-MM-DD')
   check(searchSrc.includes('@clear="emit(\'search\')"'), '清空关键词立即重查')
+  check(/<span class="review-search-actions">[\s\S]*?查询[\s\S]*?重置[\s\S]*?<\/span>/
+    .test(searchSrc), '查询和重置包成一组，窄屏换行时不会被拆散')
 
   // 后端七个列表接口都得收下这三项，少一个那个 tab 就会「搜了没反应」
   for (const file of ['leaves', 'ev_passes', 'certificates', 'change_requests',
@@ -4254,10 +4320,58 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
       `${file} 按 created_at 与日期范围过滤`)
   }
 
-  // ---------- 文件公开：文号列加宽、不再有发布人列 ----------
+  // ---------- 文件公开：一个关键词框（标题或文号片段） + 发布时间 ----------
   const annSrc = src('/src/views/Announcements.vue')
   check(/label="文号" width="220"/.test(annSrc), '文号列加宽到 220')
   check(!/label="发布人"/.test(annSrc), '发布人列已去掉')
+
+  const searchArea = annSrc.slice(
+    annSrc.indexOf('<!-- 搜索区'), annSrc.indexOf('<!-- 文件列表'))
+  check((searchArea.match(/<el-input/g) || []).length === 1,
+    '搜索区只有一个输入框，标题和文号共用一个')
+  check(searchArea.includes('按标题或文号搜索'), '搜索框说清了标题和文号都能搜')
+  check(searchArea.includes('type="daterange"'), '发布时间区间照旧留着')
+  check(/keyword: searchForm\.keyword\.trim\(\) \|\| undefined/.test(annSrc),
+    '关键词去空白后带给后端')
+  const annApi = src('/src/api/announcement.js')
+  check(/url: '\/announcements', method: 'get', params/.test(annApi),
+    '列表接口把筛选参数真的发出去了（之前这里漏了参数）')
+  const annService = src('/../backend/app/services/announcement_service.py')
+  check(/keyword_like\(keyword, Announcement\.title, Announcement\.doc_number\)/
+    .test(annService), '后端按标题或文号任一段模糊匹配')
+}
+
+console.log('\n▶ 资料下载：管理员能调整分类之间的顺序')
+{
+  const admin = readFileSync(`${ROOT}/src/views/Admin.vue`, 'utf8')
+  // 分组循环得带下标，按钮才知道自己在第几组
+  check(/v-for="\(group, gi\) in resourceGroups"/.test(admin),
+    '分类遍历带下标，整组才能上移/下移')
+  check(admin.includes('@click="moveResourceCategory(gi, -1)"')
+    && admin.includes('@click="moveResourceCategory(gi, 1)"'),
+    '每个分类标题旁有上移、下移按钮')
+  // 第一组不能再上移、最后一组不能再下移
+  check(admin.includes(':disabled="gi === 0"')
+    && admin.includes(':disabled="gi === resourceGroups.length - 1"'),
+    '到头的按钮置灰，不会发出越界请求')
+  const move = admin.slice(admin.indexOf('async function moveResourceCategory'))
+  check(move.includes('reorderResourceCategories(order)'),
+    '换完位置后把整串分类名按新顺序发给后端')
+  check(move.indexOf('reorderResourceCategories(order)') < move.indexOf('fetchResources()'),
+    '先保存成功再重新拉列表，保存失败就别刷新')
+
+  const api = readFileSync(`${ROOT}/src/api/admin.js`, 'utf8')
+  check(api.includes("url: '/admin/resources/categories/order'"),
+    '前端走专门的分类排序接口')
+
+  // 后端：接口存在，且真的落库；只动分类之间
+  const py = readFileSync(`${ROOT}/../backend/app/api/admin.py`, 'utf8')
+  check(py.includes('"/resources/categories/order"'), '后端有调整分类顺序的接口')
+  const svc = readFileSync(`${ROOT}/../backend/app/services/resource_service.py`, 'utf8')
+  check(/def reorder_categories\(db: Session, order: list\[str\]\)/.test(svc),
+    '服务层按传入顺序写 sort_order')
+  check(svc.includes('def _ordered_categories('),
+    '前台与后台共用同一套排序口径')
 }
 
 await server.close()

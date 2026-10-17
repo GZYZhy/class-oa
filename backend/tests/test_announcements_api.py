@@ -49,9 +49,9 @@ def _pdf() -> bytes:
     return doc.tobytes()
 
 
-def upload(b, title: str) -> dict:
+def upload(b, title: str, doc_number: str = "", publish_date: str = "2026-10-01") -> dict:
     r = b.client.post("/api/announcements", data={
-        "title": title, "publish_date": "2026-10-01",
+        "title": title, "doc_number": doc_number, "publish_date": publish_date,
     }, files={"file": (f"{title}.pdf", _pdf(), "application/pdf")})
     assert r.status_code == 200, r.text
     return r.json()
@@ -250,3 +250,30 @@ def test_a_living_file_still_wins_over_the_deleted_branch(b):
     assert data["file_deleted"] is False
     assert data["log_matched"] is True
     assert data["action"] == "view"
+
+
+# ---------- 搜索框：一个框，标题和文号都认 ----------
+
+def test_one_search_box_matches_title_or_a_piece_of_the_doc_number(b):
+    """文件公开只有一个关键词框：标题片段、文号片段（包括中间一段）都要能搜到
+
+    文号是「理院〔2026〕12号」这种格式，用户记得住的往往只是中间那段
+    「2026〕12」，所以按整个文号匹配是不够的。
+    """
+    upload(b, "关于评奖评优的通知", "理院〔2026〕12号", "2026-10-01")
+    upload(b, "期末考试安排", "教务处〔2026〕3号", "2026-09-20")
+
+    def titles(**params):
+        r = b.client.get("/api/announcements", params=params)
+        assert r.status_code == 200, r.text
+        return [row["title"] for row in r.json()]
+
+    assert titles(keyword="评奖") == ["关于评奖评优的通知"], "标题片段"
+    assert titles(keyword="12号") == ["关于评奖评优的通知"], "文号结尾片段"
+    assert titles(keyword="2026〕3") == ["期末考试安排"], "文号中间片段"
+    assert titles(keyword="   ") == ["关于评奖评优的通知", "期末考试安排"], "空白不过滤"
+    assert titles(keyword="不存在的文件") == []
+
+    # 发布时间区间照旧，和关键词是「并且」的关系
+    assert titles(start_date="2026-09-01", end_date="2026-09-30") == ["期末考试安排"]
+    assert titles(keyword="评奖", start_date="2026-09-01", end_date="2026-09-30") == []

@@ -100,6 +100,6 @@ export function putGradeScore(id, data) {
 }
 
 /** 我的各次成绩（学生，只看自己） */
-export function getMyGrades() {
-  return request({ url: '/grades/mine', method: 'get' })
+export function getMyGrades(keyword = '') {
+  return request({ url: '/grades/mine', method: 'get', params: keyword ? { keyword } : {} })
 }

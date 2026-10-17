@@ -4,10 +4,6 @@
       <div class="inbox-head">
         <div>
           <h3 class="page-title">我的消息</h3>
-          <p class="inbox-sub">
-            所有推送给你的消息都在这里 —— 通知公告、办件进度、审核结果、生日祝福。
-            手机推送没开也漏不掉。
-          </p>
         </div>
         <div class="inbox-actions">
           <el-button
@@ -216,13 +212,6 @@ onMounted(load)
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 18px;
-}
-
-.inbox-sub {
-  margin: 6px 0 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--el-text-color-secondary);
 }
 
 /* 两个操作按钮并排，窄屏时会换行（见下面的媒体查询） */

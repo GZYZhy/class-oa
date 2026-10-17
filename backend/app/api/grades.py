@@ -314,11 +314,12 @@ def list_grades(
 
 @router.get("/mine", response_model=list[MyGradeItem], summary="我的成绩（学生）")
 def my_grades_api(
+    keyword: str = Query("", description="按考试名称模糊搜索"),
     student: Student = Depends(get_current_student),
     db: Session = Depends(get_db),
 ):
     """只看自己的。**接口里没有任何能带别人学号的参数** —— 越权在形状上就不可能"""
-    return my_grades(db, student.student_no)
+    return my_grades(db, student.student_no, keyword)
 
 
 # ---------- 明细与编辑 ----------

@@ -988,7 +988,7 @@ def _my_entry(subject: GradeSubject, value: str, pool: dict[int, list[float]]) -
     return entry
 
 
-def my_grades(db: Session, student_no: str) -> list[dict]:
+def my_grades(db: Session, student_no: str, keyword: str = "") -> list[dict]:
     """我参加过的每次测试的各科成绩
 
     **只列我确实有成绩记录的测试**：Excel 里压根没有我的行（没参加、或录入时漏了）
@@ -996,6 +996,9 @@ def my_grades(db: Session, student_no: str) -> list[dict]:
 
     有的科目上面列**全部科目**、我没录到的那格给空串：只列我有记录的科目会让
     「这次到底考了几科」看不出来。
+
+    keyword 按考试名称过滤。这里不是分页列表，几百条也是内存里现成的，直接筛
+    结果比再拼一条 SQL 简单；空关键词（含只有空格）不过滤。
     """
     items = db.query(GradeItem).filter(GradeItem.student_no == student_no).all()
     if not items:
@@ -1041,4 +1044,8 @@ def my_grades(db: Session, student_no: str) -> list[dict]:
             }
         )
     result.sort(key=lambda row: (row["tested_at"], row["test_id"]), reverse=True)
+
+    kw = (keyword or "").strip().lower()
+    if kw:
+        result = [row for row in result if kw in row["name"].lower()]
     return result
