@@ -37,7 +37,7 @@
 <p align="center">
   <img src="docs/images/roster.png" width="49%" alt="学生名单">
   &nbsp;
-  <img src="docs/images/vote-result.png" width="49%" alt="投票结果">
+  <img src="docs/images/vote-list.png" width="49%" alt="投票表决">
 </p>
 <p align="center">
   <img src="docs/images/leave.png" width="49%" alt="请假申请">
