@@ -157,12 +157,17 @@ def backend(tmp_path):
                 # 公告 PDF 同理：上传接口会把文件写进 ANNOUNCEMENT_DIR，
                 # 不隔离的话用例一上传就落进本机演示库的真目录
                 "ANNOUNCEMENT_DIR": str(tmp_path / "announcements"),
+                # 签到照片同理：学生一签到就写进 CHECKIN_DIR，测试必须另起目录
+                "CHECKIN_DIR": str(tmp_path / "checkins"),
                 # 固定成生产容器的时区：带时区的时间会换算成「本地墙上时间」，
                 # CI 的 runner 是 UTC，不钉死的话同一份输入算出来的时刻和各人
                 # 本机（Asia/Shanghai）不一样，测试就成了看机器的运气
                 "TZ": "Asia/Shanghai",
                 # 显式置空：不给的话会从仓库根或 backend/.env 里漏进来
                 "BOOTSTRAP_PASSWORD": "",
+                # 同理。配了公网地址后，所有「链接」类断言都会拿到生产域名，
+                # 而不是这次临时起在 127.0.0.1 上的服务
+                "PUBLIC_BASE_URL": "",
                 **env,
             },
             stdout=subprocess.PIPE,

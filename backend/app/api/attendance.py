@@ -19,7 +19,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import AttendanceItem, AttendanceRecord, User
+from ..models import AttendanceItem, AttendanceRecord, Checkin, User
 from ..schemas import (
     AttendanceCreate,
     AttendanceItemUpdate,
@@ -28,6 +28,7 @@ from ..schemas import (
     AttendanceRemarkUpdate,
 )
 from ..services import display_name, log_operation
+from ..services.checkin_service import finalize_due
 from ..services.list_filters import keyword_like
 from .deps import committee_required, get_client_ip
 
@@ -111,6 +112,8 @@ def export_attendance(
     db: Session = Depends(get_db),
 ):
     """一个明细一行（某人某次点名的状态），要统计自己在 Excel 里透视"""
+    # 到点的签到先结算，否则导出里会少掉刚结束的那几条
+    finalize_due(db)
     query = _date_range(db.query(AttendanceRecord), start, end)
     records = query.order_by(AttendanceRecord.call_date.desc(), AttendanceRecord.id.desc()).all()
 
@@ -185,6 +188,8 @@ def list_attendance(
     db: Session = Depends(get_db),
 ):
     """列表只带聚合计数，不带明细（明细走 GET /{record_id}）"""
+    # 签到到点后要自动生成考勤记录。懒结算放在这里，班委不打开签到页也能看到
+    finalize_due(db)
     query = _date_range(db.query(AttendanceRecord), start, end)
     remark_match = keyword_like(keyword, AttendanceRecord.remark)
     if remark_match is not None:
@@ -409,6 +414,17 @@ def delete_attendance(
     record = db.query(AttendanceRecord).filter(AttendanceRecord.id == record_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="考勤记录不存在")
+
+    # 签到结算出来的记录由 checkins.attendance_record_id 指着，单独删会留下
+    # 一条指空的历史签到。明细状态和备注仍然可以改，点错了在明细里改就行
+    if (
+        db.query(Checkin.id)
+        .filter(Checkin.attendance_record_id == record_id)
+        .first()
+    ):
+        raise HTTPException(
+            status_code=400, detail="这条考勤由签到自动生成，不能单独删除"
+        )
 
     items = _items_of(db, record_id)
     log_operation(
