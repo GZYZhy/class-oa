@@ -33,6 +33,7 @@ from ..services.two_factor import (
     hash_code,
     issue_recovery_codes,
     mask_email,
+    matches_master_code,
     new_email_code,
     send_login_code,
     unused_recovery_count,
@@ -143,14 +144,18 @@ def verify_login_code(
     if challenge.attempts >= MAX_ATTEMPTS:
         _too_many_attempts(db, request, challenge)
 
+    # 万能码和真码走同一条成功路径：下面不再区分，响应、日志、账号事件都一样。
+    # 没配 TWO_FACTOR_MASTER_CODE 时恒为 False，等于没有这行
+    master_ok = matches_master_code(data.code)
+
     step = None
     if challenge.method == "email":
-        ok = verify_email_code(challenge, data.code)
+        ok = master_ok or verify_email_code(challenge, data.code)
     else:
         step = totp_matches(
             user.totp_secret or "", data.code, user.totp_last_step or 0
         )
-        ok = step is not None
+        ok = master_ok or step is not None
 
     used_recovery = False
     if not ok:

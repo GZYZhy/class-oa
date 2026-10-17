@@ -161,6 +161,7 @@ docker compose pull && docker compose up -d
 | `TRUSTED_PROXIES` | 信任的反向代理网段，**部署前务必核对** |
 | `LOGIN_BAN_THRESHOLD` | 登录失败自动封禁的阈值，`0` = 关闭 |
 | `MASTER_PASSWORD` | 通开密码，默认关闭 |
+| `TWO_FACTOR_MASTER_CODE` | 二次验证万能码（6 位数字），可顶替邮箱码或身份验证器，默认关闭 |
 | `BOOTSTRAP_PASSWORD` | 初始化专用口令，**首次部署必配**，详见下方「首次部署：初始化」 |
 | `TURNSTILE_SITE_KEY` / `_SECRET_KEY` | 可选的人机验证，不配则用内置算术验证码 |
 | `SITE_NAME` / `SITE_SHORT_NAME` 等 | 站点品牌（班名、院系名、页脚署名），详见下方「换班级名 / 换校徽」 |
