@@ -209,7 +209,6 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
 import { getCheckinPublic, signCheckin, uploadCheckinPhoto } from '@/api/checkin'
-import { useUserStore } from '@/store/user'
 import { compressImage } from '@/utils/imageCompress'
 import { distanceMeters, getCurrentLocation } from '@/utils/geolocation'
 import { formatDateTime } from '@/utils/format'
@@ -217,7 +216,6 @@ import { errText } from '@/utils/request'
 import { SITE } from '@/utils/site'
 
 const route = useRoute()
-const userStore = useUserStore()
 
 const loading = ref(true)
 const error = ref('')
@@ -268,8 +266,8 @@ async function load() {
   loading.value = true
   error.value = ''
   notFound.value = false
-  // 公开页的路由守卫不会去问后端登录状态，这里补一次，才能知道 is_login 和 is_target
-  if (!userStore.resolved) await userStore.fetchMe()
+  // 不再单独问一次登录态：公开信息接口凭 Cookie 自己带上 is_login / is_target，
+  // 弱网下少一个来回。真需要用户存储的页面（登录后的布局）挂载时会自己拉
   try {
     info.value = await getCheckinPublic(route.query.code)
     // 能签且要求定位：进页面就去要位置，少点一次「获取位置」
