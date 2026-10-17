@@ -1468,7 +1468,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `GET /api/attendance/export`
 
-一个明细一行（某人某次点名的状态），要统计自己在 Excel 里透视
+点开导出必须同时拿到点名与签到两种记录，各占一个工作表。 签到结算出来的那几条本来就在「考勤记录」里（和点名记录同表）， 这里再单列一张「签到记录」，把本人签到时间、距离和请假情况也带上， 核对时不用两个页签来回翻。
 
 **参数**
 
@@ -1635,7 +1635,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinDetailResponse` — 成功
-  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`targets`
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
 
 ### 签到公开信息（凭链接，无需登录）
 
@@ -1665,7 +1665,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinDetailResponse` — 成功
-  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`targets`
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
 
 ### 签到详情（班委及以上）
 
@@ -1680,7 +1680,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CheckinDetailResponse` — 成功
-  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`targets`
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
 
 ### 查看签到照片（班委及以上）
 
@@ -4279,5 +4279,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "1.16.1"}
+{"status": "ok", "app": "班级信息管理系统", "version": "1.17.1"}
 ```

@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
 from ..database import get_db
-from ..models import Checkin, CheckinTarget, Student, User
+from ..models import AttendanceItem, Checkin, CheckinTarget, Student, User
 from ..schemas import (
     CheckinCreate,
     CheckinDetailResponse,
@@ -172,6 +172,14 @@ def _detail(db: Session, request: Request, checkin: Checkin) -> CheckinDetailRes
     # 而不是「现在就在请假」。结算用的是同一个参考时刻，两处不会打架
     reference = checkin.closed_at or checkin.end_at
     leave_nos = approved_leave_nos(db, [t.student_no for t in targets], reference)
+    # 结算后的出勤状态以考勤明细为准：班委在明细里改过之后，这里要跟着变
+    status_by_no: dict[str, str] = {}
+    if checkin.attendance_record_id:
+        status_by_no = dict(
+            db.query(AttendanceItem.student_no, AttendanceItem.status)
+            .filter(AttendanceItem.record_id == checkin.attendance_record_id)
+            .all()
+        )
     base = _list_item(request, checkin, len(targets), sum(1 for t in targets if t.signed_at))
     return CheckinDetailResponse(
         **base.model_dump(),
@@ -181,6 +189,7 @@ def _detail(db: Session, request: Request, checkin: Checkin) -> CheckinDetailRes
         created_by_no=checkin.created_by_no or "",
         closed_at=checkin.closed_at,
         finalized_at=checkin.finalized_at,
+        attendance_record_id=checkin.attendance_record_id,
         targets=[
             CheckinTargetResponse(
                 student_no=t.student_no,
@@ -188,6 +197,7 @@ def _detail(db: Session, request: Request, checkin: Checkin) -> CheckinDetailRes
                 signed_at=t.signed_at,
                 distance_m=t.distance_m,
                 on_leave=t.student_no in leave_nos,
+                status=status_by_no.get(t.student_no, ""),
                 photo_url=(
                     f"/api/checkins/{checkin.id}/targets/{t.student_no}/photo"
                     if t.photo_file
@@ -572,6 +582,21 @@ def sign_checkin(
         if photo_file:
             (CHECKIN_DIR / photo_file).unlink(missing_ok=True)
         raise
+
+    # 应到的人都签到了就没必要再等截止：立即结束并结算。
+    # 最后一个签的人拿到的就是「已结束」，页面上直接能看到最终结果
+    unsigned = (
+        db.query(CheckinTarget)
+        .filter(
+            CheckinTarget.checkin_id == checkin.id,
+            CheckinTarget.signed_at.is_(None),
+        )
+        .count()
+    )
+    if unsigned == 0:
+        checkin.closed_at = datetime.now()
+        db.commit()
+        finalize_checkin(db, checkin)
 
     return _public_response(
         db,

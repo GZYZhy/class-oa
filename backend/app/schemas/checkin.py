@@ -40,12 +40,16 @@ class CheckinTargetResponse(BaseModel):
 
     `on_leave` 是「截止时刻持有已批准请假」—— 他们仍然可以签到，签了就更算「到」；
     没签才按请假结算。前端据此在「待签到」旁边标一句「请假中」。
+
+    `status` 是结算后那条考勤明细里的出勤状态（present/leave/absent），未结算为空。
+    结算后班委在详情里改状态，读写的都是考勤明细，两边不会各说各话。
     """
     student_no: str
     student_name: str
     signed_at: datetime | None = None
     distance_m: int | None = None
     on_leave: bool = False
+    status: str = ""
     photo_url: str = ""
 
 
@@ -74,6 +78,8 @@ class CheckinDetailResponse(CheckinListItem):
     created_by_no: str = ""
     closed_at: datetime | None = None
     finalized_at: datetime | None = None
+    # 结算生成的考勤记录；详情里改状态走考勤明细的接口
+    attendance_record_id: int | None = None
     targets: list[CheckinTargetResponse] = Field(default_factory=list)
 
 

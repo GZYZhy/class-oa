@@ -2,7 +2,13 @@
   <div class="attendance">
     <!-- 和审核审批一样整页一张卡片：标题、筛选和列表都在里面 -->
     <div class="page-card">
-      <h3 class="page-title">考勤记录</h3>
+      <!-- 导出放在标签页外面：不管当前在看点名还是签到，都能拿到同一份文件 -->
+      <div class="at-head">
+        <h3 class="page-title">考勤记录</h3>
+        <el-button :loading="exporting" @click="handleExport">
+          <el-icon><Download /></el-icon>导出
+        </el-button>
+      </div>
       <!-- 两个标签：原来「点名」的记录原样保留，新加的「签到」是学生自己确认到场 -->
       <el-tabs v-model="activeTab">
         <el-tab-pane label="点名记录" name="records">
@@ -36,9 +42,6 @@
               </el-button>
               <el-button @click="handleReset">
                 <el-icon><Refresh /></el-icon>重置
-              </el-button>
-              <el-button :loading="exporting" @click="handleExport">
-                <el-icon><Download /></el-icon>导出
               </el-button>
             </el-form-item>
           </el-form>
@@ -290,7 +293,9 @@ async function handleDelete(row) {
   }
 }
 
-/** 导出当前日期区间的明细。
+/** 导出当前日期区间。
+ *  一个文件两个工作表：「考勤记录」是点名与签到结算后的明细，
+ *  「签到记录」是签到本人的时间、距离和出勤状态。
  *  必须走 downloadFile（带登录态、会被 401 拦截器接住），
  *  直接用 <a href> 拿到的是一个 401 的 JSON 还当成文件存下来。
  *  存盘名要自己拼：走 blob 拿不到响应头里的名字 */
@@ -300,7 +305,7 @@ async function handleExport() {
   exporting.value = true
   try {
     await downloadFile(attendanceExportUrl(start === '全部' ? null : start, end === '全部' ? null : end),
-      `考勤记录_${start}_${end}.xlsx`)
+      `考勤与签到_${start}_${end}.xlsx`)
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e, '导出失败'))
   } finally {
@@ -321,6 +326,13 @@ onMounted(fetchList)
 .at-pager {
   margin-top: 16px;
   justify-content: flex-end;
+}
+
+.at-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .at-warn {
