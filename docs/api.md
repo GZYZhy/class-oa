@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.17.5，共 252 个接口。
+> 版本 1.17.5，共 254 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -27,7 +27,7 @@
 - 修改申请（6）
 - 请假申请（16）
 - 考勤记录（9）
-- 签到（9）
+- 签到（11）
 - 意见反馈（8）
 - 未读红点（1）
 - 电动车通行证（17）
@@ -1707,6 +1707,39 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 - `200` `CheckinDetailResponse` — 成功
   - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
+
+### 延长签到截止时间 5 分钟（班委及以上）
+
+`POST /api/checkins/{checkin_id}/extend`
+
+截止前可反复延长，每次 5 分钟，不设上限。 只能在本来的截止时间到之前操作：已经到点（哪怕还没懒结算）就不算了， 否则会把一次已经结束的签到重新拉回进行中，和结算结果对不上。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `checkin_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CheckinDetailResponse` — 成功
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
+
+### 提醒还没签到的同学（班委及以上）
+
+`POST /api/checkins/{checkin_id}/remind`
+
+只给还没签到的人发站内信，已签的、范围外的人都不打扰。 和发布时一样，notify 自己会 commit，必须放在这次请求的事务 commit 之后。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `checkin_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` — 成功
 
 ### 签到详情（班委及以上）
 

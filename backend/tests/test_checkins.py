@@ -453,6 +453,80 @@ def test_close_ends_immediately_and_blocks_late_sign(cb):
     assert cb.client.post(f"/api/checkins/{cid}/close").status_code == 400
 
 
+def test_extend_deadline_by_five_minutes(cb):
+    """截止前可以反复延 5 分钟；到点或结束后就不行了"""
+    checkin = _create(cb, [PEOPLE[0][0]])
+    cid = checkin["id"]
+    old = datetime.fromisoformat(checkin["end_at"])
+
+    r = cb.client.post(f"/api/checkins/{cid}/extend")
+    assert r.status_code == 200, r.text
+    new = datetime.fromisoformat(r.json()["end_at"])
+    assert new - old == timedelta(minutes=5)
+
+    # 无限续杯：再点一次还是 +5 分钟
+    r = cb.client.post(f"/api/checkins/{cid}/extend")
+    assert r.status_code == 200, r.text
+    assert datetime.fromisoformat(r.json()["end_at"]) - new == timedelta(minutes=5)
+
+    # 已经过了截止时间（哪怕还没懒结算）就不能再延长
+    _force_end(cb, cid)
+    r = cb.client.post(f"/api/checkins/{cid}/extend")
+    assert r.status_code == 400
+    assert "不能再延长" in r.json()["detail"]
+
+    # 已结束的签到同样拒绝
+    closed = _create(cb, [PEOPLE[1][0]], title="另一场")
+    assert cb.client.post(f"/api/checkins/{closed['id']}/close").status_code == 200
+    r = cb.client.post(f"/api/checkins/{closed['id']}/extend")
+    assert r.status_code == 400
+    assert "已经结束" in r.json()["detail"]
+
+    # 普通学生没有这个权限
+    _login(cb, PEOPLE[1][0])
+    assert cb.client.post(f"/api/checkins/{closed['id']}/extend").status_code == 403
+
+
+def test_remind_only_unsigned_targets(cb):
+    """提醒只发给还没签到的人，可以反复提醒；结束后不能提醒"""
+    checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]])
+    cid = checkin["id"]
+
+    _login(cb, PEOPLE[0][0])
+    assert _sign(cb, checkin["code"]).status_code == 200
+    _as_admin(cb)
+
+    r = cb.client.post(f"/api/checkins/{cid}/remind")
+    assert r.status_code == 200, r.text
+    assert r.json()["reminded"] == 1
+
+    # 没签到的那位收到提醒，已签到的那位不再被打扰
+    _login(cb, PEOPLE[1][0])
+    inbox = cb.client.get("/api/inbox").json()["items"]
+    hits = [m for m in inbox if m["title"] == "提醒签到：晚点名"]
+    assert len(hits) == 1
+    assert hits[0]["page"] == f"/checkin?code={checkin['code']}"
+
+    _login(cb, PEOPLE[0][0])
+    inbox = cb.client.get("/api/inbox").json()["items"]
+    assert not [m for m in inbox if m["title"] == "提醒签到：晚点名"]
+
+    # 反复提醒仍然只找没签的人
+    _as_admin(cb)
+    r = cb.client.post(f"/api/checkins/{cid}/remind")
+    assert r.status_code == 200, r.text
+    assert r.json()["reminded"] == 1
+
+    # 结束后不能提醒
+    closed = _create(cb, [PEOPLE[2][0]], title="即将结束")
+    assert cb.client.post(f"/api/checkins/{closed['id']}/close").status_code == 200
+    assert cb.client.post(f"/api/checkins/{closed['id']}/remind").status_code == 400
+
+    # 普通学生没有这个权限
+    _login(cb, PEOPLE[1][0])
+    assert cb.client.post(f"/api/checkins/{cid}/remind").status_code == 403
+
+
 def test_last_signature_ends_and_settles_immediately(cb):
     """应到的人都签完 → 不用等截止，立即结束并结算"""
     checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]])
