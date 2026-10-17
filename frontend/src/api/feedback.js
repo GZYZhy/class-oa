@@ -25,12 +25,15 @@ export function submitFeedback(formData, onProgress) {
 
 /** 下载反馈附件（index 取自 feedback.attachments[].index）
  *
- * 超时同样交给拦截器（responseType 是 blob） */
-export function downloadFeedbackAttachment(feedbackId, index) {
+ * 超时同样交给拦截器（responseType 是 blob）。
+ * onProgress：(loaded, total) => void，下载进度
+ */
+export function downloadFeedbackAttachment(feedbackId, index, onProgress) {
   return request({
     url: `/feedback/${feedbackId}/attachments/${index}`,
     method: 'get',
-    responseType: 'blob'
+    responseType: 'blob',
+    onDownloadProgress: progressHandler(onProgress)
   })
 }
 

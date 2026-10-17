@@ -165,9 +165,11 @@
                 size="small"
                 link
                 type="success"
+                :loading="isDownloading(`leave-${row.id}`)"
                 @click="handleDownloadLeavePdf(row)"
               >
-                下载请假表
+                {{ isDownloading(`leave-${row.id}`) && downloadPercent
+                  ? `${downloadPercent}%` : '下载请假表' }}
               </el-button>
               <!-- 只有「已批准但当初选了暂不签字」才有得补。已签过的后端也会 400 -->
               <el-button
@@ -273,8 +275,26 @@
               <!-- 生成的文档：班委和管理员都能下（留档、报学院盖章用）。
                    后端 _pdf_target 只在「本人或班委及以上」放行，且要已通过 -->
               <template v-if="row.status === 'approved'">
-                <el-button size="small" link type="success" @click="downloadEvPassDoc(row, 'pass')">申请表</el-button>
-                <el-button size="small" link type="success" @click="downloadEvPassDoc(row, 'promise')">承诺书</el-button>
+                <el-button
+                  size="small"
+                  link
+                  type="success"
+                  :loading="isDownloading(`evpass-pass-${row.id}`)"
+                  @click="downloadEvPassDoc(row, 'pass')"
+                >
+                  {{ isDownloading(`evpass-pass-${row.id}`) && downloadPercent
+                    ? `${downloadPercent}%` : '申请表' }}
+                </el-button>
+                <el-button
+                  size="small"
+                  link
+                  type="success"
+                  :loading="isDownloading(`evpass-promise-${row.id}`)"
+                  @click="downloadEvPassDoc(row, 'promise')"
+                >
+                  {{ isDownloading(`evpass-promise-${row.id}`) && downloadPercent
+                    ? `${downloadPercent}%` : '承诺书' }}
+                </el-button>
               </template>
               <!-- 只有「已批准但当初选了暂不签署」才有得补。已签过的后端也会 400 -->
               <el-button
@@ -373,9 +393,11 @@
                   size="small"
                   link
                   type="success"
+                  :loading="isDownloading(`cert-${row.id}`)"
                   @click="downloadCertResult(row)"
                 >
-                  成品 PDF
+                  {{ isDownloading(`cert-${row.id}`) && downloadPercent
+                    ? `${downloadPercent}%` : '成品 PDF' }}
                 </el-button>
                 <span v-if="userStore.isAdmin && !row.result_original_name" style="color: #e6a23c; font-size: 12px;">
                   待上传成品
@@ -635,7 +657,10 @@
             <span class="attachment-name" @click="downloadAttachment(currentFeedback.id, item)">
               {{ item.name }}
             </span>
-            <span class="attachment-size">{{ formatFileSize(item.size) }}</span>
+            <span class="attachment-size">
+              {{ isDownloading(`feedback-${currentFeedback.id}-${item.index}`) && downloadPercent
+                ? `${downloadPercent}%` : formatFileSize(item.size) }}
+            </span>
           </div>
         </div>
 
@@ -871,6 +896,7 @@ import { formatDate, formatDateTime, formatFileSize } from '@/utils/format'
 import Watermark from '@/components/Watermark.vue'
 import FileViewer from '@/components/FileViewer.vue'
 import { useWatermark } from '@/composables/useWatermark'
+import { useDownloadProgress } from '@/composables/useDownloadProgress'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
 import {
@@ -898,6 +924,8 @@ import {
 } from '@/api/signPhoto'
 
 const userStore = useUserStore()
+// 办件里各下载入口的进度：key 里带材料类型和行 id，同一时间只跑一个
+const { percent: downloadPercent, isDownloading, run: runDownload } = useDownloadProgress()
 const badgeStore = useBadgeStore()
 const watermarkText = useWatermark()
 
@@ -1141,18 +1169,20 @@ function handleRejectLeave(row) {
   }).catch(() => {})
 }
 
-function handleDownloadLeavePdf(row) {
-  apiDownloadLeavePdf(row.id).then(blob => {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${row.student_name}_请假审批表_${formatDate(row.start_at).replace(/-/g, '')}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
-  }).catch(() => {
-    // blob 响应里报错体也是 Blob，读不出 detail，只能给一句通用提示
-    ElMessage.error('下载失败，请稍后重试')
-  })
+async function handleDownloadLeavePdf(row) {
+  try {
+    await runDownload(`leave-${row.id}`, async (onProgress) => {
+      const blob = await apiDownloadLeavePdf(row.id, onProgress)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${row.student_name}_请假审批表_${formatDate(row.start_at).replace(/-/g, '')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    })
+  } catch (e) {
+    ElMessage.error(await blobErrorDetail(e, '下载失败，请稍后重试'))
+  }
 }
 
 // —— 电动车通行证 ——
@@ -1201,20 +1231,23 @@ function viewEvLicense(row) {
 }
 
 // 申请表 / 承诺书：班委和管理员都要留档，两种文档的处理完全一样，只是地址和名字不同
-function downloadEvPassDoc(row, kind) {
-  const [fetchBlob, label] = kind === 'promise'
-    ? [downloadEvPromisePdf, '电动车承诺书']
-    : [downloadEvPassPdf, '电动车通行证申请表']
-  fetchBlob(row.id).then(blob => {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${row.student_name}_${label}_${formatDate(row.created_at).replace(/-/g, '')}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
-  }).catch(e => {
-    ElMessage.error(e?.response?.data?.detail || '下载失败')
-  })
+async function downloadEvPassDoc(row, kind) {
+  const [fetchBlob, label, key] = kind === 'promise'
+    ? [downloadEvPromisePdf, '电动车承诺书', `evpass-promise-${row.id}`]
+    : [downloadEvPassPdf, '电动车通行证申请表', `evpass-pass-${row.id}`]
+  try {
+    await runDownload(key, async (onProgress) => {
+      const blob = await fetchBlob(row.id, onProgress)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${row.student_name}_${label}_${formatDate(row.created_at).replace(/-/g, '')}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    })
+  } catch (e) {
+    ElMessage.error(await blobErrorDetail(e, '下载失败'))
+  }
 }
 
 // 批准 / 补签字共用一套弹窗：'approve' 走通过接口，'sign' 走补签字接口
@@ -1338,17 +1371,20 @@ function viewCertAttachment(row) {
 }
 
 // 下载成品 PDF（管理员用）
-function downloadCertResult(row) {
-  downloadCertificateResult(row.id, true).then(blob => {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = row.result_original_name || `${row.student_name}_证明.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
-  }).catch(e => {
-    ElMessage.error(e?.response?.data?.detail || '下载失败')
-  })
+async function downloadCertResult(row) {
+  try {
+    await runDownload(`cert-${row.id}`, async (onProgress) => {
+      const blob = await downloadCertificateResult(row.id, true, onProgress)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = row.result_original_name || `${row.student_name}_证明.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    })
+  } catch (e) {
+    ElMessage.error(await blobErrorDetail(e, '下载失败'))
+  }
 }
 
 function handleApproveCertificate(row) {
@@ -1656,14 +1692,16 @@ async function viewFeedback(row) {
 /** index 用后端给的，不靠数组下标猜（班委和学生看到的是同一份下标） */
 async function downloadAttachment(feedbackId, item) {
   try {
-    const blob = await downloadFeedbackAttachment(feedbackId, item.index)
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    // blob: URL 上没有后端的 Content-Disposition，文件名只能自己给
-    a.download = item.name
-    a.click()
-    URL.revokeObjectURL(url)
+    await runDownload(`feedback-${feedbackId}-${item.index}`, async (onProgress) => {
+      const blob = await downloadFeedbackAttachment(feedbackId, item.index, onProgress)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      // blob: URL 上没有后端的 Content-Disposition，文件名只能自己给
+      a.download = item.name
+      a.click()
+      URL.revokeObjectURL(url)
+    })
   } catch (e) {
     ElMessage.error('附件下载失败')
   }

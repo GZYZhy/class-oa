@@ -42,9 +42,11 @@
                 </el-button>
                 <template #tip>
                   <div v-if="editingId" class="el-upload__tip">
-                    只支持图片或 PDF，大小不超过 20MB。不重选就沿用当前那张
+                    只支持图片或 PDF，大小不超过 20MB；超过 1MB 的图片会自动压缩。不重选就沿用当前那张
                   </div>
-                  <div v-else class="el-upload__tip">只支持图片或 PDF，大小不超过 20MB，必填</div>
+                  <div v-else class="el-upload__tip">
+                    只支持图片或 PDF，大小不超过 20MB，必填；超过 1MB 的图片会自动压缩
+                  </div>
                 </template>
               </el-upload>
             </el-form-item>
@@ -103,8 +105,26 @@
                 <template v-if="row.status === 'approved'">
                   <!-- 这份文档的表头写的是「电动车通行证补办登记表」，但学生拿到手
                        要交上去，按「申请表」称呼更贴合用途 -->
-                  <el-button type="success" link size="small" @click="downloadPass(row)">申请表</el-button>
-                  <el-button type="success" link size="small" @click="downloadPromise(row)">承诺书</el-button>
+                  <el-button
+                    type="success"
+                    link
+                    size="small"
+                    :loading="isDownloading(`pass-${row.id}`)"
+                    @click="downloadPass(row)"
+                  >
+                    {{ isDownloading(`pass-${row.id}`) && downloadPercent
+                      ? `${downloadPercent}%` : '申请表' }}
+                  </el-button>
+                  <el-button
+                    type="success"
+                    link
+                    size="small"
+                    :loading="isDownloading(`promise-${row.id}`)"
+                    @click="downloadPromise(row)"
+                  >
+                    {{ isDownloading(`promise-${row.id}`) && downloadPercent
+                      ? `${downloadPercent}%` : '承诺书' }}
+                  </el-button>
                 </template>
                 <!-- 待受理、待补正都能改；撤只有待受理能撤（受理过的要撤得找班委先撤回受理） -->
                 <el-button
@@ -163,7 +183,9 @@ import {
   downloadEvPromisePdf
 } from '@/api/evPass'
 import { formatDate, formatDateTime } from '@/utils/format'
+import { compressImage } from '@/utils/imageCompress'
 import { blobErrorDetail } from '@/utils/download'
+import { useDownloadProgress } from '@/composables/useDownloadProgress'
 import FileViewer from '@/components/FileViewer.vue'
 import ServiceIntro from '@/components/ServiceIntro.vue'
 
@@ -172,6 +194,8 @@ const loading = ref(false)
 const submitting = ref(false)
 // 上传进度百分比（算不出总大小时为 0，就不显示数字）
 const uploadProgress = ref(0)
+// 申请表 / 承诺书的下载进度（同一时间只跑一个）
+const { percent: downloadPercent, isDownloading, run: runDownload } = useDownloadProgress()
 const list = ref([])
 const formRef = ref(null)
 const uploadRef = ref(null)
@@ -210,7 +234,9 @@ const rules = {
 }
 
 // 选择文件
-function handleFileChange(file) {
+async function handleFileChange(file) {
+  // 手机拍的行驶证通常有好几 MB，先压小再校验（PDF 不动，规则见 utils/imageCompress.js）
+  if (file.raw) file.raw = await compressImage(file.raw)
   // 再校验一遍大小和类型（和请假证明一致）
   const raw = file.raw
   if (raw) {
@@ -333,19 +359,21 @@ function viewLicense(row) {
 // 下载申请表 / 承诺书（都是 PDF）。
 // 存盘名要自己拼（走 blob，拿不到响应头里的名字），命名沿用请假证明的模式：
 // 姓名_材料名_日期 —— 同一个人可能申请过不止一次
-async function savePdf(fetchBlob, row, label) {
-  const blob = await fetchBlob(row.id)
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${row.student_name}_${label}_${formatDate(row.created_at).replace(/-/g, '')}.pdf`
-  a.click()
-  URL.revokeObjectURL(url)
+async function savePdf(fetchBlob, row, label, key) {
+  await runDownload(key, async (onProgress) => {
+    const blob = await fetchBlob(row.id, onProgress)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${row.student_name}_${label}_${formatDate(row.created_at).replace(/-/g, '')}.pdf`
+    a.click()
+    URL.revokeObjectURL(url)
+  })
 }
 
 async function downloadPass(row) {
   try {
-    await savePdf(downloadEvPassPdf, row, '电动车通行证申请表')
+    await savePdf(downloadEvPassPdf, row, '电动车通行证申请表', `pass-${row.id}`)
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
   }
@@ -353,7 +381,7 @@ async function downloadPass(row) {
 
 async function downloadPromise(row) {
   try {
-    await savePdf(downloadEvPromisePdf, row, '电动车承诺书')
+    await savePdf(downloadEvPromisePdf, row, '电动车承诺书', `promise-${row.id}`)
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e))
   }

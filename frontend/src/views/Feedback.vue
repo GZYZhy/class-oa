@@ -40,7 +40,7 @@
                 <el-button>选择文件</el-button>
                 <template #tip>
                   <div class="el-upload__tip">
-                    最多 {{ maxCount }} 个，单个不超过 20MB；支持图片 / 视频 / 音频 / 文档
+                    最多 {{ maxCount }} 个，单个不超过 20MB；支持图片 / 视频 / 音频 / 文档。超过 1MB 的图片会自动压缩
                   </div>
                 </template>
               </el-upload>
@@ -104,7 +104,11 @@
             <span class="attachment-name" @click="downloadAttachment(current.id, item)">
               {{ item.name }}
             </span>
-            <span class="attachment-size">{{ formatFileSize(item.size) }}</span>
+            <!-- 下载时把大小换成百分比，和班委端、其他下载按钮保持一致 -->
+            <span class="attachment-size">
+              {{ isDownloading(`feedback-${current.id}-${item.index}`) && downloadPercent
+                ? `${downloadPercent}%` : formatFileSize(item.size) }}
+            </span>
           </div>
         </div>
 
@@ -134,6 +138,8 @@ import {
   downloadFeedbackAttachment
 } from '@/api/feedback'
 import { formatDateTime, formatFileSize } from '@/utils/format'
+import { compressImage } from '@/utils/imageCompress'
+import { useDownloadProgress } from '@/composables/useDownloadProgress'
 
 // 与后端 ALLOWED_ATTACHMENT_EXTENSIONS 是同一份清单，改一边要跟着改另一边
 const allowedExts = [
@@ -151,6 +157,8 @@ const activeTab = ref('submit')
 const submitting = ref(false)
 // 上传进度百分比（算不出总大小时为 0，就不显示数字）
 const uploadProgress = ref(0)
+// 附件下载进度（同一时间只跑一个）
+const { percent: downloadPercent, isDownloading, run: runDownload } = useDownloadProgress()
 const loading = ref(false)
 const list = ref([])
 const formRef = ref(null)
@@ -174,20 +182,34 @@ const rules = {
  * 用户在那台机器上仍能切到「所有文件」，所以后缀还得自己再判一次。
  */
 function handleFileChange(file) {
-  const ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase()
-  let reason = ''
-  if (!allowedExts.includes(ext)) {
-    reason = '格式不支持，仅支持图片 / 视频 / 音频 / 文档'
-  } else if ((file.size || 0) > maxSize) {
-    reason = '超过 20MB'
-  }
-  if (!reason) return
+  // 图片附件先压小再校验（视频 / 音频 / 文档原样，规则见 utils/imageCompress.js）。
+  // 压完把 el-upload 的 file 对象一起改掉：列表里显示的名字和大小、提交时取的 raw
+  // 都跟着这份对象走。任务挂在文件上，提交时会等它
+  file.__compressTask = (async () => {
+    if (!file.raw) return
+    const compressed = await compressImage(file.raw)
+    if (compressed === file.raw) return
+    file.raw = compressed
+    file.name = compressed.name
+    file.size = compressed.size
+  })()
 
-  ElMessage.error(`「${file.name}」${reason}`)
-  // 从 fileList 当前的值里摘，不用 el-upload 回调传进来的数组：
-  // 一次选中多个都不合法时，几个回调拿到的是同一份数组的旧快照，
-  // 后一个会把前一个刚摘掉的文件又算回来
-  fileList.value = fileList.value.filter((f) => f.uid !== file.uid)
+  file.__compressTask.then(() => {
+    const ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase()
+    let reason = ''
+    if (!allowedExts.includes(ext)) {
+      reason = '格式不支持，仅支持图片 / 视频 / 音频 / 文档'
+    } else if ((file.size || 0) > maxSize) {
+      reason = '超过 20MB'
+    }
+    if (!reason) return
+
+    ElMessage.error(`「${file.name}」${reason}`)
+    // 从 fileList 当前的值里摘，不用 el-upload 回调传进来的数组：
+    // 一次选中多个都不合法时，几个回调拿到的是同一份数组的旧快照，
+    // 后一个会把前一个刚摘掉的文件又算回来
+    fileList.value = fileList.value.filter((f) => f.uid !== file.uid)
+  })
 }
 
 /** 超出个数时 el-upload 默认一条提示都不弹（onExceed 默认是空函数），必须自己来 */
@@ -202,6 +224,9 @@ async function handleSubmit() {
   } catch (e) {
     return
   }
+
+  // 刚选的图可能还在压，等它们落地再提交
+  await Promise.all(fileList.value.map((f) => f.__compressTask).filter(Boolean))
 
   const fd = new FormData()
   fd.append('title', form.title.trim())
@@ -253,15 +278,17 @@ async function viewDetail(row) {
 /** index 用后端给的，不靠数组下标猜；下载名也只能自己给（见下） */
 async function downloadAttachment(feedbackId, item) {
   try {
-    const blob = await downloadFeedbackAttachment(feedbackId, item.index)
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    // blob: URL 上没有后端的 Content-Disposition，不给 download 名的话
-    // 存下来是一串 UUID，看不出是什么文件
-    a.download = item.name
-    a.click()
-    URL.revokeObjectURL(url)
+    await runDownload(`feedback-${feedbackId}-${item.index}`, async (onProgress) => {
+      const blob = await downloadFeedbackAttachment(feedbackId, item.index, onProgress)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      // blob: URL 上没有后端的 Content-Disposition，不给 download 名的话
+      // 存下来是一串 UUID，看不出是什么文件
+      a.download = item.name
+      a.click()
+      URL.revokeObjectURL(url)
+    })
   } catch (e) {
     ElMessage.error('附件下载失败')
   }
