@@ -18,7 +18,11 @@ const SITE_KEYS = [
   'SITE_COLLEGE',
   'SITE_MAJOR',
   'SITE_FOOTER',
-  'SITE_DESCRIPTION'
+  'SITE_DESCRIPTION',
+  // 高德地图 JS API 凭据。和品牌值走同一条注入链；本身就是公开值，
+  // 留空时签到页的地图降级为手填经纬度
+  'AMAP_JS_KEY',
+  'AMAP_SECURITY_CODE'
 ]
 
 /** 可选的 <head> 注入内容（统计 / 跟踪器）。不是品牌值，原样插入、不转义 */
@@ -39,7 +43,7 @@ export function renderSite(text, env) {
   values.SITE_DESCRIPTION = values.SITE_DESCRIPTION || values.SITE_NAME
   values[HEAD_KEY] = env[HEAD_KEY] || ''
 
-  return text.replace(/\$\{(SITE_[A-Z_]+|HEAD_INJECT)\}/g, (whole, key) =>
+  return text.replace(/\$\{(SITE_[A-Z_]+|AMAP_[A-Z_]+|HEAD_INJECT)\}/g, (whole, key) =>
     key in values ? values[key] : whole
   )
 }
@@ -64,7 +68,7 @@ function siteBrand() {
 
     configResolved(config) {
       // loadEnv 的第三个参数传 '' = 不过滤前缀，把 .env 里的键都读进来。
-      // 但下面只取 SITE_* 和 HEAD_INJECT 用：其余键（含 MASTER_PASSWORD 等机密）
+      // 但下面只取 SITE_*、AMAP_* 和 HEAD_INJECT 用：其余键（含 MASTER_PASSWORD 等机密）
       // 既不会进 HTML，也不会进客户端产物。
       env = loadEnv(config.mode, PROJECT_ROOT, '')
       console.log(

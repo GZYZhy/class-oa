@@ -24,7 +24,11 @@ export const SITE = Object.freeze({
   /** 所属专业 */
   major: raw.major || '',
   /** 页脚署名，**含 HTML**（.env 里可以直接写链接、换行），用 v-html 渲染 */
-  footer: raw.footer || ''
+  footer: raw.footer || '',
+  /** 高德地图 JS API Key，留空 = 地图降级为手填经纬度 */
+  amapKey: raw.amapKey || '',
+  /** 高德地图安全密钥，与上面的 Key 配套 */
+  amapSecurityCode: raw.amapSecurityCode || ''
 })
 
 /**
