@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.15.0，共 239 个接口。
+> 版本 1.16.0，共 241 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -37,11 +37,11 @@
 - 生日关怀（4）
 - 投票（12）
 - 成绩（12）
-- 日程（13）
+- 日程（14）
 - 签字（8）
 - 通行密钥（6）
 - 二次验证（9）
-- 系统管理（26）
+- 系统管理（27）
 - 健康检查（1）
 
 ## 公开信息
@@ -972,7 +972,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
-| `title` | query | 否 | string，可空 | 按标题搜索（模糊） |
+| `keyword` | query | 否 | string，可空 | 按标题或文号模糊搜索 |
 | `start_date` | query | 否 | string，可空 | 发布时间起始（YYYY-MM-DD） |
 | `end_date` | query | 否 | string，可空 | 发布时间截止（YYYY-MM-DD） |
 
@@ -2895,6 +2895,12 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 只看自己的。**接口里没有任何能带别人学号的参数** —— 越权在形状上就不可能
 
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `keyword` | query | 否 | string | 按考试名称模糊搜索 |
+
 **响应**
 
 - `200` — 成功
@@ -3116,6 +3122,23 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 
 - `200` `ScheduleResponse` — 成功
   - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
+
+### Search Schedules
+
+`GET /api/schedules/search`
+
+按名称搜自己的日程，每条日程只回一行（重复日程取离今天最近的一次） 页面上把它放在弹窗里：同名日程可能有很多条，得让用户按日期自己挑。 空关键词返回空列表，不整屏拉全班日程。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `keyword` | query | 否 | string | 日程名称关键词 |
+
+**响应**
+
+- `200` — 成功
+  - 字段：ScheduleResponse[]
 
 ### Get Semester Info
 
@@ -4049,6 +4072,20 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 
 - `200` — 成功
 
+### 调整资料分类的展示顺序
+
+`PUT /api/admin/resources/categories/order`
+
+按给定顺序显示分类（数组顺序即页面顺序） 只影响「分类之间」的先后；分类里的资料顺序仍由 /resources/reorder/{category} 管。
+
+**请求体**（`application/json`，JSON）
+
+类型：string[]
+
+**响应**
+
+- `200` — 成功
+
 ### 重排某分类下的资料顺序
 
 `PUT /api/admin/resources/reorder/{category}`
@@ -4127,5 +4164,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "1.15.0"}
+{"status": "ok", "app": "班级信息管理系统", "version": "1.16.0"}
 ```
