@@ -920,12 +920,31 @@ console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没�
   check(clock && /^\d{2}:\d{2}$/.test(clock[1]), `表头角上是 hh:mm 的当前时间（实际：${clock && clock[1]}）`)
   check(html.includes('当前时间'), '时钟上方写着「当前时间」')
 
+  // 表头两处可点：周几把自己那列居中，左上角「当前时间」跳到当前时间所在行
+  check((html.match(/title="点击把这一天移到中间"/g) || []).length === 7,
+    '七个周几表头都能点')
+  check(/title="点击跳到当前时间"/.test(html), '左上角「当前时间」那格也能点')
+
   const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
+  check(/@click="centerDay\(day\.date, true\)"/.test(src), '点周几把那一列移到中间')
+  check(/function centerDay\(date, smooth = false\)[\s\S]{0,500}?box\.scrollTo\(\{ left, behavior: 'smooth' \}\)/.test(src),
+    '表头点击用平滑滚动（首次进页面仍瞬间定位，不在眼前自己滑一下）')
+  check(/@click="scrollToNow"/.test(src), '点「当前时间」跳到当前时间附近')
+  check(/function scrollToNow\(\) \{[\s\S]{0,400}?scrollIntoView\(\{ block: 'center'[\s\S]{0,80}?behavior: 'smooth' \}\)/.test(src),
+    '按当前时间找到那一行，滚到屏幕中间')
+  check(/function nowSlotIndex\(\) \{[\s\S]{0,300}?Math\.min\(Math\.max\(idx, 0\), timeSlots\.value\.length - 1\)/.test(src),
+    '7:00 前 / 22:00 后夹到首尾两格，不越界')
   // 时钟靠定时器走，离开页面必须停掉，否则每进一次日程页就多一个永不回收的定时器
   check(/onUnmounted\(\(\) => \{[\s\S]{0,200}?clearInterval\(clockTimer\)/.test(src), '离开页面时停掉时钟定时器')
   // 窄窗口（半屏、手机）下工具栏一行放不下，「新建日程」会被挤出可见区域点不到
   const toolbar = src.slice(src.indexOf('.toolbar {'), src.indexOf('.week-nav {'))
   check(/flex-wrap:\s*wrap/.test(toolbar), '顶部工具栏允许换行，窄屏按钮不会被挤出去')
+  // 搜索/导入/订阅/新建日程必须同一行：Element 给相邻按钮的 margin-left
+  // 加上默认内边距，375px 上正好把「新建日程」顶到下一行
+  check(/\.actions \{\s*flex-wrap: nowrap;[\s\S]{0,120}?width: 100%;[\s\S]{0,120}?gap: 6px;/.test(src),
+    '手机上四个操作按钮强制同一行')
+  check(/\.actions :deep\(\.el-button \+ \.el-button\) \{\s*margin-left: 0;/.test(src),
+    '去掉相邻按钮自带的 margin-left（否则还是会换行）')
 
   // 全天条保存时把「修改范围」照用户选的传（写死 'all' 时，选「仅本次」会改掉整个序列）
   check(/scope:\s*form\.scope/.test(src), 'saveAllDay 用的是用户选的 scope')
@@ -4309,6 +4328,36 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
   check(searchSrc.includes('@clear="emit(\'search\')"'), '清空关键词立即重查')
   check(/<span class="review-search-actions">[\s\S]*?查询[\s\S]*?重置[\s\S]*?<\/span>/
     .test(searchSrc), '查询和重置包成一组，窄屏换行时不会被拆散')
+
+  // ---------- 三个筛选区在手机上的布局 ----------
+  // 全局 ≤768px 规则会把每个表单项变成整行（main.css），所以这几页要自己
+  // 把表单/控件排紧凑；SSR 不带样式，只能断源码
+  const mobileCss = (pageSrc) => {
+    const at = pageSrc.indexOf('@media (max-width: 768px)')
+    return at < 0 ? '' : pageSrc.slice(at)
+  }
+
+  const reviewMobile = mobileCss(searchSrc)
+  check(/grid-template-columns: minmax\(0, 1fr\) auto/.test(reviewMobile),
+    '审核搜索栏：关键词和按钮一行，日期范围另起一行')
+  check(/\.review-search-actions \{\s*grid-area: 1 \/ 2;/.test(searchSrc),
+    '查询/重置固定在第一行右侧')
+  check(/\.review-search :deep\(\.el-date-editor\) \{\s*width: 100% !important;/.test(searchSrc),
+    '日期范围在手机上撑满整宽，不再右侧空一片')
+
+  const studentMobile = mobileCss(studentSrc)
+  check(/\.el-form--inline\) \{\s*display: flex;\s*flex-wrap: wrap;/.test(studentMobile),
+    '学生筛选：表单变成可换行的 flex 容器，两列才落得下来')
+  check(/\.el-form-item__label\) \{\s*width: 68px;/.test(studentMobile),
+    '学生筛选：标签收到控件左侧，不再各占一行')
+  check(/width: calc\(50% - 5px\)/.test(studentMobile),
+    '学生筛选：中间五个下拉两两一行')
+
+  const voteMobile = mobileCss(voteSrc)
+  check(/<div class="vt-head">[\s\S]{0,500}?投票表决[\s\S]{0,500}?发起投票[\s\S]{0,200}?<div class="vt-bar">/
+    .test(voteSrc), '「发起投票」和标题同一行，不再悬在筛选区右侧')
+  check(/\.vt-filter :deep\(\.el-form-item__label\) \{\s*width: 44px;/.test(voteMobile),
+    '投票筛选：标签挪到控件左侧，控件占满整行')
 
   // 后端七个列表接口都得收下这三项，少一个那个 tab 就会「搜了没反应」
   for (const file of ['leaves', 'ev_passes', 'certificates', 'change_requests',

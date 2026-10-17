@@ -71,4 +71,28 @@ function reset() {
   display: inline-flex;
   gap: 8px;
 }
+
+/* 手机上别让 170px / 240px 的固定宽度各占一行、右边空一大片：
+   关键词和按钮凑成第一行，日期范围独占第二行并撑满 */
+@media (max-width: 768px) {
+  .review-search {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .review-search :deep(.el-input) {
+    width: 100% !important;
+    grid-area: 1 / 1;
+  }
+
+  .review-search-actions {
+    grid-area: 1 / 2;
+  }
+
+  .review-search :deep(.el-date-editor) {
+    width: 100% !important;
+    grid-area: 2 / 1 / 3 / 3;
+  }
+}
 </style>

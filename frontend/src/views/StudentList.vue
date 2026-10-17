@@ -2477,6 +2477,13 @@ watch(() => route.query.open, openFromQuery)
      放不下两个，于是一行一个地把半屏占满。这里改成两列自适应 —— 关键词和按钮各占
      一整行（一个要宽、一个本来就窄），中间那五个下拉两两一行；控件宽度一律交给容器
      （行内的 style="width: 240px" 压过样式表，得 !important 才盖得住） */
+  /* 表单项自己是块级盒子，不把表单变成 flex 容器的话，设了 50% 也还是一行一个 */
+  .page-card :deep(.el-form--inline) {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 10px;
+    align-items: flex-start;
+  }
   .page-card :deep(.el-form--inline .el-form-item) {
     display: flex;
     width: calc(50% - 5px);
@@ -2486,6 +2493,13 @@ watch(() => route.query.open, openFromQuery)
   .page-card :deep(.el-form--inline .el-form-item:first-child),
   .page-card :deep(.el-form--inline .el-form-item:last-child) {
     width: 100%;
+  }
+  /* 标签占一列、跟控件并排，比压在控件上方省一整行高度；固定宽度让两列对得齐 */
+  .page-card :deep(.el-form--inline .el-form-item__label) {
+    width: 68px;
+    padding-right: 8px;
+    flex-shrink: 0;
+    justify-content: flex-start;
   }
   .page-card :deep(.el-form-item__content) {
     flex: 1;
