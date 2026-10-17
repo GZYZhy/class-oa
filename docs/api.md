@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.16.1，共 241 个接口。
+> 版本 1.16.1，共 248 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -27,6 +27,7 @@
 - 修改申请（6）
 - 请假申请（16）
 - 考勤记录（7）
+- 签到（7）
 - 意见反馈（8）
 - 未读红点（1）
 - 电动车通行证（17）
@@ -1604,6 +1605,120 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 - `200` `AttendanceRecordResponse` — 成功
   - 字段：`id`、`call_date`、`scope`、`called_at`、`operator_no`、`operator_name`、`remark`、`total`、`present`、`leave`、`absent`、`items`
+
+## 签到
+
+### 签到列表（班委及以上）
+
+`GET /api/checkins`
+
+**响应**
+
+- `200` `CheckinListResponse` — 成功
+  - 字段：`total`、`items`
+
+### 发布签到（班委及以上）
+
+`POST /api/checkins`
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `title` | string | 是 | 标题 |
+| `remark` | string | 否 | 备注，空串 = 没写 |
+| `targets` | string[] | 是 | 范围内学生的学号 |
+| `end_at` | string（日期时间） | 是 | 截止时间 |
+| `require_photo` | boolean | 否 | 是否要求上传一张照片 |
+| `location` | CheckinLocationIn，可空 | 否 |  |
+
+**响应**
+
+- `200` `CheckinDetailResponse` — 成功
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`targets`
+
+### 签到公开信息（凭链接，无需登录）
+
+`GET /api/checkins/public/{code}`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `code` | path | 是 | string |  |
+
+**响应**
+
+- `200` `CheckinPublicResponse` — 成功
+  - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`signed_at`、`my_distance_m`、`on_leave`
+
+### 提前结束签到（班委及以上）
+
+`POST /api/checkins/{checkin_id}/close`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `checkin_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CheckinDetailResponse` — 成功
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`targets`
+
+### 签到详情（班委及以上）
+
+`GET /api/checkins/{checkin_id}`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `checkin_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CheckinDetailResponse` — 成功
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`targets`
+
+### 查看签到照片（班委及以上）
+
+`GET /api/checkins/{checkin_id}/targets/{student_no}/photo`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `checkin_id` | path | 是 | integer |  |
+| `student_no` | path | 是 | string |  |
+
+**响应**
+
+- `200` — 成功
+
+### 学生签到（需登录且在范围内）
+
+`POST /api/checkins/public/{code}/sign`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `code` | path | 是 | string |  |
+
+**请求体**（`multipart/form-data`，文件上传）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `lat` | number，可空 | 否 | GCJ-02 纬度 |
+| `lng` | number，可空 | 否 | GCJ-02 经度 |
+| `photo` | string，可空 | 否 |  |
+
+**响应**
+
+- `200` `CheckinPublicResponse` — 成功
+  - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`signed_at`、`my_distance_m`、`on_leave`
 
 ## 意见反馈
 
