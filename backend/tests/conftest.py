@@ -17,6 +17,14 @@ from pathlib import Path
 import httpx
 import pytest
 
+# 测试进程自身也得和后端子进程用同一个时区。用例里的 datetime.now() 拼的是
+# 不带时区的时间串（和前端 el-date-picker 的 value-format 一样），后端子进程
+# 按 TZ=Asia/Shanghai 解释它 —— 两边不一致时，在 UTC 的 CI 上「现在 + 2 小时」
+# 会被后端算成已经过去，投票类用例集体报「截止时间已经过了」。
+os.environ["TZ"] = "Asia/Shanghai"
+if hasattr(time, "tzset"):
+    time.tzset()
+
 BACKEND = Path(__file__).resolve().parent.parent
 
 # 让测试文件能直接 import app.*（比如 test_student_photos 要核对 PHOTO_FIELDS
