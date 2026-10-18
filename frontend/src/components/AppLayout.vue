@@ -4,7 +4,7 @@
       <div class="header-left">
         <!-- 手机上才显示：点开左侧菜单抽屉 -->
         <el-icon class="menu-toggle" @click="drawerOpen = true"><Menu /></el-icon>
-        <img src="/logo.png" class="logo-img" alt="校徽" />
+        <img :src="SITE.logoUrl" class="logo-img" alt="校徽" />
         <div class="title-group">
           <span class="app-title">{{ SITE.name }}</span>
           <span class="app-subtitle">{{ SITE.subtitle }}</span>

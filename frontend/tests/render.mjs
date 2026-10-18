@@ -389,7 +389,8 @@ console.log('\n▶ 我的档案：三张照片，自备证件照在里面')
   check(html.includes('上传即生效，无需审核'), '写明签字图不走审批，和上面的资料修改区分开')
   check(html.includes('文件不超过 10MB') && html.includes('1200×400'),
     '页面上写明了文件大小和尺寸建议')
-  check(html.includes('不能查看、下载或删除'), '写明本人上传后不能再查看 / 下载 / 删除')
+  check(!html.includes('管理员会收到一条提醒') && !html.includes('不能查看、下载或删除'),
+    '签字图说明不再写管理员提醒与本人不能查看 / 下载 / 删除')
   check(!html.includes('/api/sign-photos/image'),
     '学生页不出现取图地址 —— 上传接口同路径，但只该由 api 模块拼，不该出现在模板里')
 
@@ -4916,6 +4917,98 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
     && create.includes('start_at: form.start_at'), '发布弹窗可以指定开始时间并随表单提交')
   check(create.includes('开始时间必须早于截止时间'), '开始时间晚于截止时间时前端先拦一道')
   check(create.includes('label="地点展示名"'), '地点名称那一项叫「地点展示名」')
+}
+
+console.log('\n▶ 签到：发布结果页带大二维码，列表「链接」重新打开它')
+{
+  const createSrc = readFileSync(`${ROOT}/src/components/CheckinCreateDialog.vue`, 'utf8')
+  check(createSrc.includes('>复制</el-button>'), '结果页的按钮叫「复制」')
+  check(!createSrc.includes('>链接</el-button>'), '结果页不再把按钮叫「链接」')
+  check(/await import\('qrcode'\)/.test(createSrc), '二维码按需加载 qrcode，不进首屏')
+  check(/class="cc-qr"/.test(createSrc) && /width:\s*340px/.test(createSrc),
+    '结果页展示一个大号二维码，适合投屏')
+  check(createSrc.includes('function openShare(row)') &&
+    createSrc.includes('defineExpose({ open, openShare })'),
+  '弹窗对外提供 openShare，用来重新打开已有签到的分享页')
+  check(createSrc.includes('QRCode.toDataURL(link') &&
+    createSrc.includes('makeQr(created.value.link)'),
+  '发布成功和重新打开都会生成二维码')
+
+  const attendanceSrc = readFileSync(`${ROOT}/src/views/Attendance.vue`, 'utf8')
+  check(attendanceSrc.includes('createRef?.openShare(row)'),
+    '考勤列表的「链接」按钮重新打开分享弹窗')
+  check(!attendanceSrc.includes('copyText(row.link)'),
+    '列表里不再一点就只复制链接')
+
+  // 真渲染一次结果页：二维码和「复制」都在
+  const { html } = await renderPatched(
+    '/src/components/CheckinCreateDialog.vue',
+    "const qrDataUrl = ref('')",
+    `const qrDataUrl = ref('data:image/png;base64,AAAA')
+  visible.value = true
+  justCreated.value = true
+  created.value = {
+    title: '周六晚点名', target_count: 5, link: 'https://example.com/share',
+    start_at: null, end_at: '2026-10-19T19:30:00'
+  }`,
+    { ElDialog: ElDialogStub }
+  )
+  const text = stripComments(html)
+  check(text.includes('签到已发布') && text.includes('复制'), '结果页有「签到已发布」和「复制」')
+  check(/class="cc-qr"/.test(html) && text.includes('投屏后让同学用微信扫一扫'),
+    '结果页真渲染出二维码和投屏提示')
+}
+
+console.log('\n▶ 水印：成绩页、成绩弹窗、办件空间都盖上')
+{
+  const grade = readFileSync(`${ROOT}/src/views/Grade.vue`, 'utf8')
+  check(/<div class="grade">[\s\S]{0,200}?<Watermark :text="watermarkText"/.test(grade),
+    '成绩管理页整页盖水印')
+  check(grade.includes('const watermarkText = useWatermark()'), '成绩管理页用共用的水印字样')
+  check(/\.grade,\s*\n\.wm-host\s*\{\s*position:\s*relative/.test(grade),
+    '成绩管理页有定位基准')
+  check(/el-dialog v-model="editVisible"[\s\S]{0,300}<Watermark/.test(grade),
+    '「修改测试信息」弹窗也有水印')
+
+  for (const file of ['GradeDetailDialog.vue', 'GradeStatsDialog.vue', 'GradeImportDialog.vue']) {
+    const src = readFileSync(`${ROOT}/src/components/${file}`, 'utf8')
+    check(src.includes('<Watermark :text="watermarkText"'), `${file} 盖了水印`)
+    check(src.includes('const watermarkText = useWatermark()'), `${file} 用水印 composable`)
+  }
+  const detail = readFileSync(`${ROOT}/src/components/GradeDetailDialog.vue`, 'utf8')
+  check(/settingVisible[\s\S]{0,400}<Watermark/.test(detail), '科目设置小弹窗也有水印')
+
+  const my = readFileSync(`${ROOT}/src/views/MyInfo.vue`, 'utf8')
+  check(/label="我的成绩"[\s\S]{0,400}<Watermark :text="watermarkText"/.test(my),
+    '「我的成绩」页盖水印')
+  check(/label="办件空间"[\s\S]{0,400}<Watermark :text="watermarkText"/.test(my),
+    '「办件空间」页盖水印')
+  check(/\.wm-host\s*\{\s*position:\s*relative/.test(my), '两处水印都有定位基准')
+}
+
+console.log('\n▶ 公开页缓存与分享卡片')
+{
+  const entry = readFileSync(`${ROOT}docker-entrypoint.sh`, 'utf8')
+  check(entry.includes('logo-${LOGO_HASH}.png') && entry.includes('SITE_LOGO_URL'),
+    '启动时按内容哈希生成校徽副本，供长期缓存')
+  const tpl = readFileSync(`${ROOT}site-config.js.template`, 'utf8')
+  check(tpl.includes("logoUrl: '${SITE_LOGO_URL}'"), 'site-config 里下发校徽缓存地址')
+  const site = readFileSync(`${ROOT}src/utils/site.js`, 'utf8')
+  check(site.includes('logoUrl: raw.logoUrl'), '前端从 SITE 读校徽地址')
+  for (const p of ['src/views/Login.vue', 'src/views/Checkin.vue']) {
+    check(readFileSync(`${ROOT}${p}`, 'utf8').includes(':src="SITE.logoUrl"'),
+      `${p} 的校徽走缓存地址`)
+  }
+  const robots = readFileSync(`${ROOT}public/robots.txt`, 'utf8')
+  check(robots.includes('Allow: /api/checkins/share/'),
+    'robots 只对签到分享页放开抓取')
+
+  const checkin = readFileSync(`${ROOT}src/views/Checkin.vue`, 'utf8')
+  check(checkin.includes('function applyShareMeta') && checkin.includes("'og:title': title"),
+    '签到页把签到标题写进 OG 标签')
+  check(checkin.includes("robots.setAttribute('content', 'index,follow')"),
+    '签到页把 robots 改成允许抓取')
+  check(checkin.includes('document.title = title'), '签到页标题使用签到标题')
 }
 
 console.log('\n▶ 手写签名：裁边只框住墨迹，空画布不产图')

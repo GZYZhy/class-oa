@@ -25,6 +25,11 @@ export const SITE = Object.freeze({
   major: raw.major || '',
   /** 页脚署名，**含 HTML**（.env 里可以直接写链接、换行），用 v-html 渲染 */
   footer: raw.footer || '',
+  /**
+   * 校徽地址。生产环境是带内容哈希的 /assets/logo-xxxx.png，可长期缓存；
+   * 本地开发没走 entrypoint 时为空，页面回落到 /logo.png。
+   */
+  logoUrl: raw.logoUrl || '/logo.png',
   /** 高德地图 JS API Key，留空 = 地图降级为手填经纬度 */
   amapKey: raw.amapKey || '',
   /** 高德地图安全密钥，与上面的 Key 配套 */

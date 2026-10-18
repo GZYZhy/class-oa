@@ -150,8 +150,6 @@
                     文件不超过 10MB；建议白纸黑字、横向拍摄，长宽比约 3:1
                     （如 1200×400 像素），签名完整、背景干净。
                     也可以在触摸屏上用「手写签名」现场写一张，会自动裁边、生成透明背景的 PNG。
-                    上传后管理员会收到一条提醒，方便核对图片能否使用；这只是提醒，不会卡住生效。
-                    本人不能查看、下载或删除；需要更换时重新上传即可。
                   </p>
                   <div class="sign-actions">
                     <el-button type="primary" :loading="mySign.uploading" @click="pickSign">
@@ -213,6 +211,9 @@
         <!-- 我的成绩：只有学生账号才有。**必须是顶层 tab** ——
              「办件空间」那一层的二级 tab 被 ?sub= 占着，塞进去就没法从站内信直接跳过来 -->
         <el-tab-pane v-if="!userStore.isExternal" label="我的成绩" name="grades">
+          <!-- 成绩属于个人隐私，盖一层「谁在什么时候看的」 -->
+          <div class="wm-host">
+            <Watermark :text="watermarkText" />
           <!-- 考过的试会一直攒下去，翻起来累；按考试名称筛一下最省事 -->
           <div class="grades-bar">
             <el-input
@@ -264,6 +265,7 @@
               :description="gradesKeyword.trim() ? '没有找到相关成绩' : '还没有成绩记录'"
               style="margin-top: 20px;"
             />
+          </div>
           </div>
         </el-tab-pane>
 
@@ -549,6 +551,9 @@
 
         <!-- 办件空间：我申请的 / 我审批的 -->
         <el-tab-pane label="办件空间" name="workspace">
+          <!-- 这里能看见别人提交的材料摘要，同样盖一层水印 -->
+          <div class="wm-host">
+            <Watermark :text="watermarkText" />
           <el-tabs v-model="workspaceTab">
             <!-- 我申请的 -->
             <el-tab-pane label="我申请的" name="submitted">
@@ -634,6 +639,7 @@
               </div>
             </el-tab-pane>
           </el-tabs>
+          </div>
         </el-tab-pane>
       </el-tabs>
     </div>
@@ -695,6 +701,8 @@ import { getMyGrades } from '@/api/grade'
 import { getWebhookSetting } from '@/api/notifyChannels'
 import WebhookSetting from '@/components/WebhookSetting.vue'
 import SignaturePadDialog from '@/components/SignaturePadDialog.vue'
+import Watermark from '@/components/Watermark.vue'
+import { useWatermark } from '@/composables/useWatermark'
 import AccessTokenSetting from '@/components/AccessTokenSetting.vue'
 import AccountEventTag from '@/components/AccountEventTag.vue'
 import PasskeySetting from '@/components/PasskeySetting.vue'
@@ -714,6 +722,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const watermarkText = useWatermark()
 
 // 手机上 3 列会把标签挤成竖排（「政 治 面 貌」），收成 1 列
 const isMobile = useIsMobile()
@@ -1440,6 +1449,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* 水印的定位基准：成绩、办件空间各自盖在 tab 内容上 */
+.wm-host {
+  position: relative;
+}
+
 /* 账号安全里三块折叠面板上下紧挨着，每块自己带上下边框，相邻处会叠成两条线。
    去掉后一块的上边框，两块之间就只剩一条分隔线 */
 .channel-block + .channel-block :deep(.el-collapse) {

@@ -19,6 +19,7 @@ const SITE_KEYS = [
   'SITE_MAJOR',
   'SITE_FOOTER',
   'SITE_DESCRIPTION',
+  'SITE_LOGO_URL',
   // 高德地图 JS API 凭据。和品牌值走同一条注入链；本身就是公开值，
   // 留空时签到页的地图降级为手填经纬度
   'AMAP_JS_KEY',
