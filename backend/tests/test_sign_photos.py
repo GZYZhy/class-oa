@@ -258,6 +258,31 @@ def test_student_can_replace_own_sign(sp):
     assert "替换了原有签字" in last_log(sp.b)[2]
 
 
+def test_admin_is_reminded_after_student_changes_own_sign(sp):
+    """学生本人换图后，管理员收到一条站内信提醒确认；图本身当场生效，不进审批"""
+    own = sid_of(sp.b, STUDENT)
+    r = sp.student.post(
+        f"/api/sign-photos/image/{own}",
+        files={"file": ("sign.png", PNG, "image/png")},
+    )
+    assert r.status_code == 200, r.text
+    assert db_sign(sp.b, STUDENT), "学生传完就该写进档案，不然就成了待审"
+
+    inbox = sp.b.client.get("/api/inbox").json()["items"]
+    hits = [m for m in inbox if m["title"] == "学生更换了签字图"]
+    assert len(hits) == 1
+    assert STUDENT in hits[0]["body"] and "戊" in hits[0]["body"]
+    # 点进去直接打开这个学生的详情，管理员在那里看图并决定要不要处理
+    assert hits[0]["page"] == f"/students?open={own}"
+
+
+def test_admin_upload_does_not_remind_itself(sp):
+    """管理员代传、批量签字都是管理员自己的操作，不该给自己发提醒"""
+    assert upload_sign(sp).status_code == 200
+    inbox = sp.b.client.get("/api/inbox").json()["items"]
+    assert not [m for m in inbox if m["title"] == "学生更换了签字图"]
+
+
 def test_student_cannot_upload_someone_else(sp):
     """普通学生传别人的同样 403 —— 放行的是「本人」，不是「学生」这个角色"""
     r = sp.student.post(
@@ -354,6 +379,29 @@ def test_student_detail_never_carries_any_sign_key(sp):
     leaked = [k for k in body if "sign" in k.lower()]
     assert not leaked, f"学生详情里出现了签字相关的键：{leaked}"
     assert "sign_photo" not in str(body), "连值都不该出现"
+
+
+def test_list_reports_whether_a_student_has_a_sign(sp):
+    """学生列表多一个 has_sign_photo：批量签字靠它筛人
+
+    刻意放在 StudentListItem 而不是 StudentResponse 里 —— 列表需要知道「有没有」，
+    通用详情接口仍然一个签字相关的键都不带（上一条用例盯着）。
+    列表里也只有布尔值，文件名不出网。
+    """
+    upload_sign(sp)
+    r = sp.b.client.get("/api/students", params={"page_size": 100})
+    assert r.status_code == 200
+
+    items = {i["student_no"]: i for i in r.json()["items"]}
+    assert items[TARGET]["has_sign_photo"] is True
+    assert items[STUDENT]["has_sign_photo"] is False
+    for item in items.values():
+        assert "has_sign_photo" in item
+        assert "sign_photo" not in item, "列表只给布尔值，不该带文件名"
+
+    # 通用详情接口的边界不变
+    detail = sp.b.client.get(f"/api/students/{sp.target}").json()
+    assert not [k for k in detail if "sign" in k.lower()]
 
 
 # ---------- 取图权限 ----------

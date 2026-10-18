@@ -2,6 +2,7 @@
 
 签字图本身不在这里 —— 它是二进制，走 FileResponse。StudentResponse 里也**没有**
 签字字段，学生的通用详情接口永远不返回它，这正是「不向学生展示」的实现方式。
+学生列表项只多一个 has_sign_photo 布尔值（批量签字筛人用），同样不带你文件名。
 """
 
 from datetime import datetime
