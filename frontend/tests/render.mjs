@@ -1466,6 +1466,39 @@ console.log('\n▶ 点名：自动记的请假也得带上姓名（取错字段�
     '点到的人和请假的人，两个分支都从学生对象取 name')
 }
 
+console.log('\n▶ 学生详情：考勤情况 / 办件记录默认收起，展开后分页')
+{
+  const src = readFileSync(`${ROOT}/src/views/StudentList.vue`, 'utf8')
+  check(src.includes('<el-collapse') && src.includes('name="attendance"') &&
+    src.includes('name="cases"'), '详情卡片里有「考勤情况」「办件记录」两个折叠节')
+  check(src.includes('const attendanceOpen = ref([])') &&
+    src.includes('const caseOpen = ref([])'), '两节都默认收起')
+  check(src.includes('@change="handleAttendanceChange"') &&
+    src.includes('if (open) loadStudentAttendance()') &&
+    src.includes('@change="handleCaseChange"') &&
+    src.includes('if (open) loadStudentCases()'), '展开时才拉数据')
+  check(src.includes('getStudentAttendance') && src.includes('getStudentSubmitted'),
+    '接上班委查看某学生考勤 / 办件记录的接口')
+  check(src.includes('ATTENDANCE_PAGE_SIZE') && src.includes('CASE_PAGE_SIZE') &&
+    (src.match(/<el-pagination/g) || []).length >= 2, '两节展开后都分页')
+  check(src.includes('label="考勤时间"') && src.includes('label="考勤标题"') &&
+    src.includes('label="考勤类型"') && src.includes('label="参与范围"') &&
+    src.includes('label="出勤情况"'), '考勤字段与学生端一致')
+  check(src.includes('prop="type_name" label="类型"') &&
+    src.includes('prop="title" label="事项"') &&
+    src.includes('row.status_label'), '办件记录按一行一条展示')
+  check(src.includes('function goReviewTab(row)') &&
+    src.includes("router.push({ path: '/review', query: { tab } })") &&
+    src.includes('@click="goReviewTab(row)"'), '办件记录的「详情」跳到审核审批对应 tab')
+  check(src.includes('attendanceTag(row.status)'), '出勤状态同样按颜色区分')
+  const attApi = readFileSync(`${ROOT}/src/api/attendance.js`, 'utf8')
+  check(attApi.includes('url: `/attendance/student/${studentId}`'),
+    '考勤走单独的按学生查询接口')
+  const wsApi = readFileSync(`${ROOT}/src/api/workspace.js`, 'utf8')
+  check(wsApi.includes('`/workspace/student/${studentId}/submitted`'),
+    '办件记录走单独的按学生查询接口')
+}
+
 console.log('\n▶ 学生名单：签字图（管理员传、班委申请、学生看不见）')
 {
   const LIST = '/src/views/StudentList.vue'

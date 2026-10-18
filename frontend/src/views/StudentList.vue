@@ -440,6 +440,124 @@
           </div>
         </div>
 
+        <!-- 考勤情况：和学生自己看到的口径一致；默认收起，展开才拉数据 -->
+        <el-collapse
+          v-model="attendanceOpen"
+          class="detail-collapse"
+          @change="handleAttendanceChange"
+        >
+          <el-collapse-item name="attendance">
+            <template #title>
+              <span class="section-title">
+                <el-icon><Calendar /></el-icon> 考勤情况
+              </span>
+            </template>
+            <div v-loading="attendanceLoading">
+              <el-table
+                v-if="attendanceList.length"
+                :data="attendancePageRows"
+                size="small"
+                stripe
+                border
+                style="width: 100%;"
+              >
+                <el-table-column label="考勤时间" width="150">
+                  <template #default="{ row }">
+                    {{ formatDateTime(row.occurred_at).slice(0, 16) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="title" label="考勤标题" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="category" label="考勤类型" width="90" align="center" />
+                <el-table-column prop="scope" label="参与范围" width="100" align="center" />
+                <el-table-column label="出勤情况" width="100" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="attendanceTag(row.status)" size="small">
+                      {{ row.status_label }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty
+                v-if="!attendanceLoading && !attendanceList.length"
+                description="还没有考勤记录"
+                :image-size="60"
+              />
+              <el-pagination
+                v-if="attendanceList.length > ATTENDANCE_PAGE_SIZE"
+                v-model:current-page="attendancePage"
+                :page-size="ATTENDANCE_PAGE_SIZE"
+                :total="attendanceList.length"
+                layout="total, prev, pager, next"
+                small
+                class="attendance-pager"
+              />
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+
+        <!-- 办件记录：和学生自己「办件空间 → 我申请的」同源，简化成一行一条 -->
+        <el-collapse
+          v-model="caseOpen"
+          class="detail-collapse"
+          @change="handleCaseChange"
+        >
+          <el-collapse-item name="cases">
+            <template #title>
+              <span class="section-title">
+                <el-icon><Tickets /></el-icon> 办件记录
+              </span>
+            </template>
+            <div v-loading="caseLoading">
+              <el-table
+                v-if="caseList.length"
+                :data="casePageRows"
+                size="small"
+                stripe
+                border
+                style="width: 100%;"
+              >
+                <el-table-column label="提交时间" width="150">
+                  <template #default="{ row }">
+                    {{ formatDateTime(row.created_at).slice(0, 16) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="type_name" label="类型" width="120" />
+                <el-table-column prop="title" label="事项" min-width="180" show-overflow-tooltip />
+                <el-table-column label="状态" width="100" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="row.status_type" size="small">{{ row.status_label }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="reviewer_name" label="处理人" width="100" />
+                <el-table-column label="处理时间" width="150">
+                  <template #default="{ row }">
+                    {{ row.updated_at ? formatDateTime(row.updated_at).slice(0, 16) : '—' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="80" align="center">
+                  <template #default="{ row }">
+                    <el-button link type="primary" @click="goReviewTab(row)">详情</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty
+                v-if="!caseLoading && !caseList.length"
+                description="暂无办件记录"
+                :image-size="60"
+              />
+              <el-pagination
+                v-if="caseList.length > CASE_PAGE_SIZE"
+                v-model:current-page="casePage"
+                :page-size="CASE_PAGE_SIZE"
+                :total="caseList.length"
+                layout="total, prev, pager, next"
+                small
+                class="attendance-pager"
+              />
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+
         <!-- 照片展示区 -->
         <div class="photos-section" v-if="PHOTO_TYPES.some((p) => currentStudent[p.field])">
           <h4 class="section-title">
@@ -1206,6 +1324,8 @@ import { copyText } from '@/utils/clipboard'
 import { renderMarkdown, stripMarkdown, formatFileSize } from '@/utils/markdown'
 import { downloadFile } from '@/utils/download'
 import { compressImage } from '@/utils/imageCompress'
+import { getStudentAttendance } from '@/api/attendance'
+import { getStudentSubmitted } from '@/api/workspace'
 
 // 选完图到压完之间有个空档：这期间点了保存，得等它们压完再提交，
 // 不然传上去的还是原图。压完就从这个集合里删掉
@@ -1268,6 +1388,28 @@ const birthdayDialogVisible = ref(false)
 
 const detailVisible = ref(false)
 const currentStudent = ref(null)
+
+// 学生详情里的「考勤情况」：默认收起，展开时才拉数据；一次拿全再在本页分页
+const attendanceOpen = ref([])
+const attendanceLoading = ref(false)
+const attendanceList = ref([])
+const attendancePage = ref(1)
+const ATTENDANCE_PAGE_SIZE = 10
+const attendancePageRows = computed(() => {
+  const start = (attendancePage.value - 1) * ATTENDANCE_PAGE_SIZE
+  return attendanceList.value.slice(start, start + ATTENDANCE_PAGE_SIZE)
+})
+
+// 学生详情里的「办件记录」：同样默认收起、展开才拉、本页分页
+const caseOpen = ref([])
+const caseLoading = ref(false)
+const caseList = ref([])
+const casePage = ref(1)
+const CASE_PAGE_SIZE = 10
+const casePageRows = computed(() => {
+  const start = (casePage.value - 1) * CASE_PAGE_SIZE
+  return caseList.value.slice(start, start + CASE_PAGE_SIZE)
+})
 
 const editVisible = ref(false)
 const editForm = reactive({})
@@ -1541,11 +1683,72 @@ function handleCurrentChange(page) {
   fetchData()
 }
 
+/** 出勤状态的颜色，与「我的信息 → 考勤情况」保持一致 */
+function attendanceTag(status) {
+  if (status === 'present') return 'success'
+  if (status === 'leave') return 'warning'
+  if (status === 'absent') return 'danger'
+  return 'info'
+}
+
+async function loadStudentAttendance() {
+  if (!currentStudent.value) return
+  attendanceLoading.value = true
+  try {
+    const data = await getStudentAttendance(currentStudent.value.id)
+    attendanceList.value = data?.items || []
+    attendancePage.value = 1
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '加载考勤情况失败')
+  } finally {
+    attendanceLoading.value = false
+  }
+}
+
+/** 展开才拉数据：默认收起时不必为每个学生多跑一次请求 */
+function handleAttendanceChange(names) {
+  const open = Array.isArray(names) ? names.includes('attendance') : names === 'attendance'
+  if (open) loadStudentAttendance()
+}
+
+async function loadStudentCases() {
+  if (!currentStudent.value) return
+  caseLoading.value = true
+  try {
+    caseList.value = (await getStudentSubmitted(currentStudent.value.id)) || []
+    casePage.value = 1
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '加载办件记录失败')
+  } finally {
+    caseLoading.value = false
+  }
+}
+
+function handleCaseChange(names) {
+  const open = Array.isArray(names) ? names.includes('cases') : names === 'cases'
+  if (open) loadStudentCases()
+}
+
+/** 「详情」跳到审核审批页对应的 tab（各类办件的 tab 名与类型同名） */
+function goReviewTab(row) {
+  detailVisible.value = false
+  const tab = ['change', 'leave', 'evpass', 'certificate', 'export', 'feedback']
+    .includes(row.type) ? row.type : 'change'
+  router.push({ path: '/review', query: { tab } })
+}
+
 async function handleView(row) {
   // 列表数据本就是完整的学生信息，先用它打开弹窗，交互零等待；
   // 再后台请求详情接口静默刷新（差网络下也不阻塞弹窗操作）
   currentStudent.value = row
   detailVisible.value = true
+  // 每个学生重新从收起状态开始，别把上一个学生的考勤留在下面
+  attendanceOpen.value = []
+  attendanceList.value = []
+  attendancePage.value = 1
+  caseOpen.value = []
+  caseList.value = []
+  casePage.value = 1
   loadSignStatus(row.id) // 不 await：签字那个按钮晚一步出现，不该拖住弹窗
   try {
     currentStudent.value = await getStudent(row.id)
@@ -2421,6 +2624,22 @@ watch(() => route.query.open, openFromQuery)
 .detail-info {
   flex: 1;
   padding-top: 4px;
+}
+
+.detail-collapse {
+  margin-top: 20px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+/* 折叠面板的标题已经在 header 里垂直居中，去掉 section-title 自带的外边距 */
+.detail-collapse .section-title {
+  margin: 0;
+}
+
+.attendance-pager {
+  margin-top: 10px;
+  justify-content: flex-end;
 }
 
 .photos-section {

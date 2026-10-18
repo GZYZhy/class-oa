@@ -71,6 +71,11 @@ export function getMyAttendance() {
   return request({ url: '/attendance/mine', method: 'get' })
 }
 
+/** 学生详情卡片里的考勤情况（班委及以上），内容与学生端一致 */
+export function getStudentAttendance(studentId) {
+  return request({ url: `/attendance/student/${studentId}`, method: 'get' })
+}
+
 /**
  * 导出考勤记录（班委及以上）的下载地址
  *

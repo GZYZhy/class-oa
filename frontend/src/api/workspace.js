@@ -15,3 +15,8 @@ export function getMySubmitted() {
 export function getMyInvolved() {
   return request.get('/workspace/involved')
 }
+
+// 某个学生的办件记录（班委及以上，用学生详情卡片）
+export function getStudentSubmitted(studentId) {
+  return request.get(`/workspace/student/${studentId}/submitted`)
+}

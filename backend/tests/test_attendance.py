@@ -109,6 +109,46 @@ def test_my_attendance_lists_only_records_with_my_row(b):
     assert "团员" in scopes
 
 
+def test_committee_can_view_another_students_attendance(b):
+    """学生详情卡片：班委能看某学生的考勤，普通学生不能借这个接口看别人"""
+    make_record(b)
+    sid = b.rows("SELECT id FROM students WHERE student_no=?", ROSTER[1][0])[0][0]
+
+    r = b.client.get(f"/api/attendance/student/{sid}")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["total"] == 1
+    assert data["items"][0]["status_label"] == "无应答"
+
+    c = as_student(b, 1)
+    assert c.get(f"/api/attendance/student/{sid}").status_code == 403
+    assert b.client.get("/api/attendance/student/99999").status_code == 404
+
+
+def test_student_detail_can_list_submitted_cases(b):
+    """学生详情卡片：班委能看某学生的办件记录，普通学生不能"""
+    from datetime import datetime
+
+    sid = b.rows("SELECT id FROM students WHERE student_no=?", ROSTER[1][0])[0][0]
+    b.run(
+        "INSERT INTO feedbacks "
+        "(student_id, student_no, student_name, title, content, status, created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        sid, ROSTER[1][0], "乙", "宿舍建议", "内容", "unread",
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+    )
+
+    r = b.client.get(f"/api/workspace/student/{sid}/submitted")
+    assert r.status_code == 200, r.text
+    items = r.json()
+    assert len(items) == 1
+    assert (items[0]["type"], items[0]["title"]) == ("feedback", "宿舍建议")
+
+    c = as_student(b, 1)
+    assert c.get(f"/api/workspace/student/{sid}/submitted").status_code == 403
+    assert b.client.get("/api/workspace/student/99999/submitted").status_code == 404
+
+
 def test_writes_and_updates_remark(b):
     """写上、再改成别的，库里和返回值都得跟着变"""
     rid = make_record(b)
