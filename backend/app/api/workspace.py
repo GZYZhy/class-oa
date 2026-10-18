@@ -13,7 +13,7 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -27,7 +27,7 @@ from ..models import (
     Student,
     User,
 )
-from .deps import get_current_user, is_committee, ROLE_RANK
+from .deps import committee_required, get_current_user, is_committee, ROLE_RANK
 
 router = APIRouter(prefix="/api/workspace", tags=["办件空间"])
 
@@ -130,14 +130,15 @@ def _loads_json(val) -> dict:
 # 我申请的
 # ---------------------------------------------------------------------------
 
-@router.get("/submitted", summary="我申请的办件")
-def get_submitted(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+def _submitted_items(
+    db: Session, sno: str, include_export: bool
 ) -> List[Dict[str, Any]]:
-    """当前用户提交过的所有办件，按提交时间倒序。"""
+    """某个学生提交过的所有办件，按提交时间倒序
+
+    *include_export* 单独传：导出申请只有班委及以上能提交，学生自己看时按他
+    现在的角色决定显不显示；管理员看别人的记录时，要按**被查看学生**的角色算。
+    """
     items: List[Dict[str, Any]] = []
-    sno = user.student_no
 
     # ---- 1. 信息修改申请 ----
     for row in (
@@ -250,7 +251,7 @@ def get_submitted(
         })
 
     # ---- 5. 导出申请（班委及以上才能提交）----
-    if is_committee(user):
+    if include_export:
         for row in (
             db.query(ExportRequest)
             .filter(ExportRequest.student_no == sno)
@@ -304,6 +305,34 @@ def get_submitted(
     # 按提交时间倒序
     items.sort(key=lambda x: x["created_at"] or "", reverse=True)
     return items
+
+
+@router.get("/submitted", summary="我申请的办件")
+def get_submitted(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """当前用户提交过的所有办件，按提交时间倒序。"""
+    return _submitted_items(db, user.student_no, is_committee(user))
+
+
+@router.get(
+    "/student/{student_id}/submitted",
+    summary="某个学生的办件记录（班委及以上）",
+)
+def get_student_submitted(
+    student_id: int,
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """学生详情卡片里的「办件记录」，内容与该学生自己看到的「我申请的」一致"""
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+    target = db.query(User).filter(User.student_no == student.student_no).first()
+    return _submitted_items(
+        db, student.student_no, bool(target and is_committee(target))
+    )
 
 
 # ---------------------------------------------------------------------------

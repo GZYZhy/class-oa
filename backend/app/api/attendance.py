@@ -739,18 +739,10 @@ def _checkin_scope_label(db: Session, checkin_id: int, target_count: int) -> str
     return f"{len(nos)}人"
 
 
-@router.get(
-    "/mine",
-    response_model=MyAttendanceListResponse,
-    summary="我的考勤情况（学生本人）",
-)
-def my_attendance(
-    student: Student = Depends(get_current_student),
-    db: Session = Depends(get_db),
-):
-    """当前学生参与的考勤（点名 + 签到），按时间倒序
+def _student_attendance_items(db: Session, student: Student) -> list[MyAttendanceItem]:
+    """某个学生参与的考勤（点名 + 签到），按时间倒序
 
-    只列「有自己那一行」的记录：点名看 attendance_items，签到看 checkin_targets。
+    只列「有他自己那一行」的记录：点名看 attendance_items，签到看 checkin_targets。
     签到结算后会生成一条普通考勤记录，那条不再单独列出 —— 一次签到始终只占一行。
     """
     finalize_due(db)
@@ -847,6 +839,37 @@ def my_attendance(
         )
 
     items.sort(key=lambda row: row.occurred_at or datetime.min, reverse=True)
+    return items
+
+
+@router.get(
+    "/mine",
+    response_model=MyAttendanceListResponse,
+    summary="我的考勤情况（学生本人）",
+)
+def my_attendance(
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    items = _student_attendance_items(db, student)
+    return MyAttendanceListResponse(total=len(items), items=items)
+
+
+@router.get(
+    "/student/{student_id}",
+    response_model=MyAttendanceListResponse,
+    summary="某个学生的考勤情况（班委及以上）",
+)
+def student_attendance(
+    student_id: int,
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """学生详情卡片里的「考勤情况」，内容与学生端自己看到的一致"""
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+    items = _student_attendance_items(db, student)
     return MyAttendanceListResponse(total=len(items), items=items)
 
 
