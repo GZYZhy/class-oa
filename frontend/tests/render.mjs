@@ -384,13 +384,41 @@ console.log('\n▶ 我的档案：三张照片，自备证件照在里面')
   )
 
   // 签字图：学生本人可以上传，但看不到、下不了、删不掉
-  check(html.includes('签字图') && html.includes('上传签字图'), '档案页有签字图上传入口')
+  check(html.includes('签字图') && html.includes('上传签字图'), '「申请修改」里有签字图上传入口')
   check(html.includes('未上传'), '没传过时显示「未上传」')
+  check(html.includes('上传即生效，无需审核'), '写明签字图不走审批，和上面的资料修改区分开')
   check(html.includes('文件不超过 10MB') && html.includes('1200×400'),
     '页面上写明了文件大小和尺寸建议')
   check(html.includes('不能查看、下载或删除'), '写明本人上传后不能再查看 / 下载 / 删除')
   check(!html.includes('/api/sign-photos/image'),
     '学生页不出现取图地址 —— 上传接口同路径，但只该由 api 模块拼，不该出现在模板里')
+
+  // 手写签名：和上传并列的第二个入口。弹窗正文在 SSR 下不渲染，所以这里断
+  // 「入口按钮」和「确认后确实走上传那套 API」，画布本身靠真机验
+  check(html.includes('手写签名'), '「申请修改」里有手写签名入口')
+  check(html.includes('自动裁边') && html.includes('透明背景的 PNG'),
+    '写明了手写签名的产出（自动裁边、透明底 PNG）')
+  const myInfoSrc = readFileSync(`${ROOT}/src/views/MyInfo.vue`, 'utf8')
+  const applyAt = myInfoSrc.indexOf('label="申请修改"')
+  const cardAt = myInfoSrc.indexOf('class="sign-card"')
+  const recordsAt = myInfoSrc.indexOf('label="申请记录"')
+  check(applyAt > -1 && applyAt < cardAt && cardAt < recordsAt,
+    '签字图卡片确实放在「申请修改」这一页，不在档案页')
+  check(myInfoSrc.includes('<SignaturePadDialog') &&
+    myInfoSrc.includes('@confirm="handleHandSignConfirm"'),
+  '手写弹窗挂在页面上，并通过同一个上传接口保存')
+
+  // 有申请在排队时上面的表单会收起来，但换签字图是当场生效的事，不该被挡住
+  const { html: pendingHtml } = await renderPatched(
+    '/src/views/MyInfo.vue',
+    MYINFO_LOAD,
+    `me.value = ${JSON.stringify(me)};
+     records.value = [{ id: 1, status: 'pending', created_at: '2026-10-01T10:00:00', changes: {} }]`
+  )
+  check(!pendingHtml.includes('改动提交后需班委审核') && pendingHtml.includes('上传签字图'),
+    '待审期间表单收起，签字图照常能换')
+  check(/function handleHandSignConfirm\(blob\)[\s\S]{0,400}uploadSignImage\(me\.value\.id/.test(myInfoSrc),
+    '手写签名的 Blob 复用 uploadSignImage，不另开接口')
 
   // 传过之后按钮变成「重新上传」，状态变「已上传」
   const { html: uploadedHtml } = await renderPatched(
@@ -947,10 +975,11 @@ console.log('\n▶ 裸挂在 @事件 上的处理器：名字要真有，带默�
   const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
   check(src.includes('@click="openCreate()"'), '「新建日程」写的是 openCreate()，不是裸挂')
 
-  // 这次修的那一处：两个导入弹窗做完都叫调用方刷新列表
+  // 导入和批量签字都会改数据，做完都得叫调用方刷新列表
   const listSrc = readFileSync(`${ROOT}src/views/StudentList.vue`, 'utf-8')
-  check((listSrc.match(/@done="fetchData"/g) || []).length === 2,
-    '学生导入、照片导入两个弹窗，导入完都去刷新列表')
+  check(['StudentImportDialog', 'PhotoImportDialog', 'BatchSignDialog'].every((name) =>
+    new RegExp(`<${name}[^>]*@done="fetchData"`).test(listSrc)),
+  '学生导入、照片导入、批量签字三个弹窗，做完都去刷新列表')
 }
 
 console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没反应」')
@@ -1289,6 +1318,14 @@ console.log('\n▶ 学生信息页：低频操作收进「更多」，年龄排�
     '导出那一项跟着班委及以上走（和原来那个按钮的权限一致）')
   check((menu.match(/<el-dropdown-item v-if="userStore\.isAdmin" command="(import|photo-import|create)">/g) || []).length === 3,
     '管理员那三项仍只给管理员')
+
+  // 批量签字：同样是管理员工具，把表格的勾选状态一并传过去（勾了人默认覆盖）
+  check(/<el-dropdown-item v-if="userStore\.isAdmin" command="batch-sign">/.test(menu) &&
+    menu.includes('批量签字'), '「批量签字」收进「更多」，只给管理员')
+  check(src.includes('<BatchSignDialog ref="batchSignRef" @done="fetchData" />'),
+    '批量签字弹窗挂在页面上，签完刷新列表')
+  check(/command === 'batch-sign'\) batchSignRef\.value\?\.open\(selectedStudents\.value\)/.test(src),
+    '打开时把当前勾选的人交给弹窗')
 
   // 近期生日改成了弹窗：下拉项里再套一层 popover 的话，点一下两层浮层一起关，
   // 天数根本填不进去
@@ -4843,6 +4880,50 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
     && create.includes('start_at: form.start_at'), '发布弹窗可以指定开始时间并随表单提交')
   check(create.includes('开始时间必须早于截止时间'), '开始时间晚于截止时间时前端先拦一道')
   check(create.includes('label="地点展示名"'), '地点名称那一项叫「地点展示名」')
+}
+
+console.log('\n▶ 手写签名：裁边只框住墨迹，空画布不产图')
+{
+  const { findInkBounds } = await server.ssrLoadModule('/src/utils/signatureImage.js')
+  const width = 8
+  const height = 5
+  const blank = new Uint8ClampedArray(width * height * 4)
+  check(findInkBounds(blank, width, height) === null, '全透明的画布判成「没签」')
+
+  // 在 (2,1) 到 (4,3) 之间画一块不透明墨迹
+  const rgba = new Uint8ClampedArray(blank)
+  for (let y = 1; y <= 3; y += 1) {
+    for (let x = 2; x <= 4; x += 1) rgba[(y * width + x) * 4 + 3] = 255
+  }
+  const bounds = findInkBounds(rgba, width, height)
+  check(bounds?.x === 2 && bounds?.y === 1 && bounds?.width === 3 && bounds?.height === 3,
+    '包围盒正好框住落笔区域')
+
+  // alpha 极低的抗锯齿噪点不算落笔，否则裁出来会大一圈、白白多占体积
+  const faint = new Uint8ClampedArray(blank)
+  faint[(0 * width + 0) * 4 + 3] = 8
+  check(findInkBounds(faint, width, height) === null, '阈值以下的透明噪点不算落笔')
+
+  const pkg = JSON.parse(readFileSync(`${ROOT}/package.json`, 'utf8'))
+  check(!!pkg.dependencies.signature_pad, 'signature_pad 写进了正式依赖')
+
+  const pad = readFileSync(`${ROOT}/src/components/SignaturePad.vue`, 'utf8')
+  check(/penColor: '#000'/.test(pad), '墨迹固定是黑色')
+  check(pad.includes('exportSignaturePng(canvasRef.value)'), '预览 / 确认前先走裁边导出')
+  check(pad.includes('defineExpose({ init, reset })'), '对批量弹窗暴露 init / reset')
+  check(pad.includes('签名人') && pad.includes('{{ signerName'), '签名板上写着当前签名人')
+  check(!pad.includes('backgroundColor'), '没设背景色 —— 默认透明，PDF 里不会出现白底')
+
+  const batch = readFileSync(`${ROOT}/src/components/BatchSignDialog.vue`, 'utf8')
+  check(batch.includes("mode.value = selectedIds.value.length ? 'selected' : 'missing'"),
+    '勾了人默认走覆盖，没勾人默认补缺')
+  check(batch.includes('roster.value.filter((s) => !s.has_sign_photo)'),
+    '「补充缺失」按 has_sign_photo 筛人')
+  check(batch.includes('uploadSignImage(item.id, new File([blob]'),
+    '每位同学签完立刻上传，复用签字图接口')
+  check(batch.includes('skipCurrent') && batch.includes('跳过此人'), '可以跳过当前这位')
+  check(/item\.status = 'done'[\s\S]{0,200}advance\(\)/.test(batch),
+    '上传成功才换下一位，失败留在原地可重试')
 }
 
 await server.close()
