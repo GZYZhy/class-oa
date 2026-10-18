@@ -93,6 +93,27 @@ class AttendanceOverviewResponse(BaseModel):
     items: list[AttendanceOverviewItem]
 
 
+class MyAttendanceItem(BaseModel):
+    """学生本人的一条考勤记录（点名或签到）
+
+    只列「这次考勤里有我」的记录：点名看 attendance_items，
+    签到看 checkin_targets；签到结算生成的考勤记录不另外再占一行。
+    """
+    type: str = Field(..., description="attendance / checkin")
+    id: int
+    occurred_at: datetime | None = None
+    title: str = ""
+    category: str = Field("", description="点名 / 签到")
+    scope: str = Field("", description="全班 / 团员 / 班委 / N人")
+    status: str = Field("", description="present/leave/absent/pending/unsigned")
+    status_label: str = Field("", description="到 / 请假 / 无应答 / 未签到 / 未开始")
+
+
+class MyAttendanceListResponse(BaseModel):
+    total: int
+    items: list[MyAttendanceItem]
+
+
 class AttendanceItemUpdate(BaseModel):
     """改某人状态"""
     status: str = Field(..., pattern=STATUS_PATTERN)

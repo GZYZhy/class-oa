@@ -81,6 +81,34 @@ def remark_logs(b):
 
 # ---------- 写 / 改 / 清 ----------
 
+def test_my_attendance_lists_only_records_with_my_row(b):
+    """学生端只看到有自己那一行的点名，状态是点名时记下的"""
+    make_record(b)
+    c = as_student(b, 1)
+    r = c.get("/api/attendance/mine")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["total"] == 1
+    row = data["items"][0]
+    assert (row["type"], row["category"], row["scope"]) == ("attendance", "点名", "全班")
+    assert (row["status"], row["status_label"]) == ("absent", "无应答")
+
+    # 管理员自己那条是「到」
+    row = b.client.get("/api/attendance/mine").json()["items"][0]
+    assert row["status_label"] == "到"
+
+    # 另点一次只有管理员在范围里的名，普通学生不该看到
+    r = b.client.post("/api/attendance", json={
+        "scope": "共青团员",
+        "records": [{"student_no": ADMIN_NO, "name": "甲", "status": "present"}],
+    })
+    assert r.status_code < 300, r.text
+    assert c.get("/api/attendance/mine").json()["total"] == 1
+    # 「共青团员」在学生端统一叫「团员」
+    scopes = {x["scope"] for x in b.client.get("/api/attendance/mine").json()["items"]}
+    assert "团员" in scopes
+
+
 def test_writes_and_updates_remark(b):
     """写上、再改成别的，库里和返回值都得跟着变"""
     rid = make_record(b)
