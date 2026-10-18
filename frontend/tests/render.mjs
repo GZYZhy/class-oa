@@ -250,7 +250,8 @@ console.log('\n▶ 初始化浮层必须整屏换掉外壳（不是盖一层弹�
 {
   const src = readFileSync(`${ROOT}/src/App.vue`, 'utf8')
   check(/<SetupWizard v-if="userStore\.isBootstrap" \/>/.test(src), '浮层挂在 isBootstrap 上')
-  check(/<router-view v-else-if="route\.meta\.bare" \/>/.test(src), '正常布局退到 v-else-if，两者不会同时渲染')
+  check(/<template v-else>[\s\S]{0,200}?<router-view v-if="route\.meta\.bare" \/>/.test(src),
+    '正常布局退到 v-else，两者不会同时渲染')
   check(src.includes('if (userStore.isBootstrap) return'), '登录态变化时的红点/推送刷新有守卫')
 }
 
@@ -4984,6 +4985,25 @@ console.log('\n▶ 水印：成绩页、成绩弹窗、办件空间都盖上')
   check(/label="办件空间"[\s\S]{0,400}<Watermark :text="watermarkText"/.test(my),
     '「办件空间」页盖水印')
   check(/\.wm-host\s*\{\s*position:\s*relative/.test(my), '两处水印都有定位基准')
+}
+
+console.log('\n▶ 强制改密：签到深链也不能绕过，改完留在原页')
+{
+  const app = readFileSync(`${ROOT}/src/App.vue`, 'utf8')
+  check(/<template v-else>[\s\S]*<ForcePasswordDialog \/>[\s\S]*<\/template>/.test(app),
+    '强制改密浮层挂在布局外层，签到这种 bare 页也会弹')
+  check(app.includes('if (!userStore.resolved) userStore.fetchMe()'),
+    '公开页也恢复一次登录态，才知道要不要改密')
+
+  const dlg = readFileSync(`${ROOT}/src/components/ForcePasswordDialog.vue`, 'utf8')
+  check(dlg.includes(':show-close="false"') && dlg.includes(':close-on-click-modal="false"'),
+    '改密弹窗不能关掉绕过')
+  check(dlg.includes('setInitialPassword') && dlg.includes('markPasswordChanged'),
+    '设置成功后清掉 must_change_password 标记')
+  check(!dlg.includes('useRouter'), '改完不跳页 —— 从签到链接来的就留在签到页')
+  const layout = readFileSync(`${ROOT}/src/components/AppLayout.vue`, 'utf8')
+  check(!layout.includes('force-password') && !layout.includes('pwdVisible'),
+    '布局里不再重复挂一份改密弹窗')
 }
 
 console.log('\n▶ 公开页缓存与分享卡片')
