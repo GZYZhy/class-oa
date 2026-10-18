@@ -52,6 +52,7 @@ from ..services.checkin_service import (
     CHECKIN_DIR,
     CHECKIN_ENDED,
     CHECKIN_ONGOING,
+    CHECKIN_PAUSED,
     CHECKIN_PENDING,
     approved_leave_nos,
     checkin_status,
@@ -126,6 +127,8 @@ def _share_page(request: Request, checkin: Checkin, target_count: int) -> str:
     接口的口径一致；真正的签到仍然要登录。
     """
     title = (checkin.title or "签到").strip() or "签到"
+    # 微信卡片标题统一带「签到：」前缀，和站内标题区分开
+    card_title = title if title.startswith("签到：") else f"签到：{title}"
     desc = f"应到 {target_count} 人 · 截止 {checkin.end_at:%m月%d日 %H:%M}"
     if checkin.remark:
         desc = f"{checkin.remark[:60]}｜{desc}"
@@ -142,18 +145,18 @@ def _share_page(request: Request, checkin: Checkin, target_count: int) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{attr(title)}</title>
+<title>{attr(card_title)}</title>
 <meta name="description" content="{attr(desc)}">
 <meta name="robots" content="index,follow">
 <meta property="og:type" content="website">
-<meta property="og:title" content="{attr(title)}">
+<meta property="og:title" content="{attr(card_title)}">
 <meta property="og:description" content="{attr(desc)}">
 <meta property="og:url" content="{attr(share_url)}">
 <meta property="og:site_name" content="{attr(site_name)}">
 <meta property="og:image" content="{attr(logo_url)}">
 <meta property="og:locale" content="zh_CN">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="{attr(title)}">
+<meta name="twitter:title" content="{attr(card_title)}">
 <meta name="twitter:description" content="{attr(desc)}">
 <meta name="twitter:image" content="{attr(logo_url)}">
 <meta http-equiv="refresh" content="0; url={attr(page_url)}">
@@ -333,6 +336,7 @@ def _public_response(
             is_login
             and target is not None
             and target.signed_at is None
+            and checkin.paused_at is None
             and (status == CHECKIN_ONGOING or open_until is not None)
         ),
         signed_at=target.signed_at if target else None,
@@ -672,6 +676,69 @@ def share_checkin(
 
 
 @router.post(
+    "/{checkin_id}/pause",
+    response_model=CheckinDetailResponse,
+    summary="暂停签到（班委及以上）",
+)
+def pause_checkin(
+    checkin_id: int,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """暂停收签到。**暂停不是结束**：恢复后照样能签；到截止时间还没恢复则照常自动结束"""
+    finalize_due(db)
+    checkin = _get_checkin(db, checkin_id)
+    state = checkin_status(checkin)
+    # 已经暂停时幂等返回，别把「什么时候暂停的」一直往后推
+    if state == CHECKIN_PAUSED:
+        return _detail(db, request, checkin)
+    if state != CHECKIN_ONGOING:
+        raise HTTPException(status_code=400, detail="只有进行中的签到才能暂停")
+
+    checkin.paused_at = datetime.now()
+    log_operation(
+        db, user, action="暂停签到",
+        target=f"{checkin.end_at:%Y-%m-%d} {checkin.title}",
+        ip=get_client_ip(request),
+    )
+    db.commit()
+    db.refresh(checkin)
+    return _detail(db, request, checkin)
+
+
+@router.post(
+    "/{checkin_id}/resume",
+    response_model=CheckinDetailResponse,
+    summary="恢复签到（班委及以上）",
+)
+def resume_checkin(
+    checkin_id: int,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """恢复收签到。
+
+    和投票一样**不判当前状态、无条件清空**：暂停中过了截止时间的签到，
+    这时候状态已经是「已结束」了，按状态判会回一句「没有暂停」；清掉没副作用。
+    """
+    finalize_due(db)
+    checkin = _get_checkin(db, checkin_id)
+    was_paused = checkin.paused_at is not None
+    checkin.paused_at = None
+    if was_paused:
+        log_operation(
+            db, user, action="恢复签到",
+            target=f"{checkin.end_at:%Y-%m-%d} {checkin.title}",
+            ip=get_client_ip(request),
+        )
+        db.commit()
+        db.refresh(checkin)
+    return _detail(db, request, checkin)
+
+
+@router.post(
     "/{checkin_id}/close",
     response_model=CheckinDetailResponse,
     summary="提前结束签到（班委及以上）",
@@ -931,6 +998,8 @@ async def upload_checkin_photo(
     checkin = _get_by_code(db, code)
     if checkin_status(checkin, now=started_at) == CHECKIN_PENDING:
         raise HTTPException(status_code=400, detail="签到还没开始")
+    if checkin.paused_at is not None:
+        raise HTTPException(status_code=400, detail="签到已暂停，等发布人恢复后才能签到")
     # 截止前打开过页面的，补签宽限内也允许传照片（否则要求照片的签到根本补不上）
     if (
         checkin_status(checkin, now=started_at) != CHECKIN_ONGOING
@@ -982,6 +1051,8 @@ def sign_checkin(
     # 后面的宽限判据误当成「已结束但在窗口内」
     if checkin_status(checkin) == CHECKIN_PENDING:
         raise HTTPException(status_code=400, detail="签到还没开始")
+    if checkin.paused_at is not None:
+        raise HTTPException(status_code=400, detail="签到已暂停，等发布人恢复后才能签到")
 
     # 照片已经先传完了，这里只验令牌。上传统计的是「开始传」的时刻：
     # 截止前开始传、传完才点签到，仍然算数

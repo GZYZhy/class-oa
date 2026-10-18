@@ -31,6 +31,16 @@ export function closeCheckin(id) {
   return request({ url: `/checkins/${id}/close`, method: 'post' })
 }
 
+/** 暂停收签到（班委及以上）。暂停不是结束，恢复后还能签 */
+export function pauseCheckin(id) {
+  return request({ url: `/checkins/${id}/pause`, method: 'post' })
+}
+
+/** 恢复收签到（班委及以上） */
+export function resumeCheckin(id) {
+  return request({ url: `/checkins/${id}/resume`, method: 'post' })
+}
+
 /** 截止前把截止时间往后推 5 分钟，可以反复点（班委及以上） */
 export function extendCheckin(id) {
   return request({ url: `/checkins/${id}/extend`, method: 'post' })

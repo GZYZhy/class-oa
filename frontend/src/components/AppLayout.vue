@@ -75,12 +75,8 @@
       </el-main>
     </el-container>
 
-    <!-- 版权脚栏：所有登录后的页面都带，登录页是整屏布局、没有脚栏。
-         内容是 HTML（.env 的 SITE_FOOTER，运维自己写，可以放链接），所以用 v-html；
-         包一层 span 是因为 v-html 写在组件上会作用到它的根元素，容易踩坑 -->
-    <el-footer class="layout-footer">
-      <span v-html="COPYRIGHT_HTML"></span>
-    </el-footer>
+    <!-- 版权脚栏：主布局和签到页共用 -->
+    <SiteFooter />
 
     <!-- iOS 装到主屏的引导：进站 3 秒后自己升起，不需要 ref。
          ⚠️ 必须留在 el-container 内部：它 v-else 掉的就是登录页，
@@ -94,10 +90,11 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import IosInstallGuide from '@/components/IosInstallGuide.vue'
+import SiteFooter from '@/components/SiteFooter.vue'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
 import { canSee } from '@/utils/roles'
-import { SITE, COPYRIGHT_HTML } from '@/utils/site'
+import { SITE } from '@/utils/site'
 
 /**
  * 登录后的整站布局（顶栏 + 侧边菜单 + 主区 + 脚栏）
@@ -423,20 +420,6 @@ onMounted(async () => {
   background: var(--el-bg-color-page);
   padding: 20px;
   overflow-y: auto;
-}
-
-/* 版权脚栏。高度写 auto：el-footer 默认 60px，中文一行放得下，
-   压到 60px 反而把外层容器撑高、把主区挤出一截滚动条 */
-.layout-footer {
-  height: auto;
-  padding: 10px 12px;
-  text-align: center;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--el-text-color-secondary);
-  background: var(--el-bg-color);
-  border-top: 1px solid var(--el-border-color-lighter);
-  flex-shrink: 0;
 }
 
 /* ============ 手机适配（≤768px）============

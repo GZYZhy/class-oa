@@ -42,6 +42,7 @@ from ..schemas import (
 from ..services import display_name, log_operation
 from ..services.checkin_service import (
     CHECKIN_ENDED,
+    CHECKIN_PAUSED,
     CHECKIN_PENDING,
     approved_leave_nos,
     checkin_status,
@@ -462,6 +463,18 @@ def overview_attendance(
                 start_at=checkin.start_at,
                 target_count=targets.get(checkin.id, 0),
                 signed_count=signed.get(checkin.id, 0),
+                # 分享弹窗重新打开时要显示备注和签到要求
+                require_photo=bool(checkin.require_photo),
+                location=(
+                    {
+                        "lat": checkin.lat,
+                        "lng": checkin.lng,
+                        "radius_m": checkin.radius_m or 0,
+                        "name": checkin.location_name or "",
+                    }
+                    if checkin.lat is not None and checkin.lng is not None
+                    else None
+                ),
                 # 和发布接口、签到列表用同一个分享地址：hash 路由微信抓不到 OG，
                 # 这个真实路径才会被爬虫读到卡片信息
                 link=full_url(request, f"/api/checkins/share/{checkin.code}"),
@@ -842,6 +855,8 @@ def _student_attendance_items(db: Session, student: Student) -> list[MyAttendanc
             code, label = ("leave", "请假") if on_leave else ("absent", "无应答")
         elif state == CHECKIN_PENDING:
             code, label = "pending", "未开始"
+        elif state == CHECKIN_PAUSED:
+            code, label = "paused", "已暂停"
         else:
             code, label = "unsigned", "未签到"
 
