@@ -462,7 +462,9 @@ def overview_attendance(
                 start_at=checkin.start_at,
                 target_count=targets.get(checkin.id, 0),
                 signed_count=signed.get(checkin.id, 0),
-                link=full_url(request, f"/#/checkin?code={checkin.code}"),
+                # 和发布接口、签到列表用同一个分享地址：hash 路由微信抓不到 OG，
+                # 这个真实路径才会被爬虫读到卡片信息
+                link=full_url(request, f"/api/checkins/share/{checkin.code}"),
             )
         )
 

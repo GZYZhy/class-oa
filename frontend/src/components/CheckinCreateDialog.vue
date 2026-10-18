@@ -12,14 +12,7 @@
       <el-result
         icon="success"
         :title="justCreated ? '签到已发布' : (created.title || '签到链接')"
-      >
-        <template #sub-title>
-          <template v-if="justCreated">
-            范围内的 {{ created.target_count }} 名同学已收到站内信。
-          </template>
-          把下面的链接或二维码发到群里，同学打开就能签到
-        </template>
-      </el-result>
+      />
       <div class="cc-link">
         <el-input :model-value="created.link" readonly />
         <el-button type="primary" @click="copyText(created.link)">复制</el-button>
@@ -27,12 +20,10 @@
       <!-- 投屏用的大二维码：同学在教室里直接扫，不用再去找链接 -->
       <div v-if="qrDataUrl" class="cc-qr-wrap">
         <img :src="qrDataUrl" class="cc-qr" alt="签到二维码" />
-        <p class="cc-qr-tip">投屏后让同学用微信扫一扫，或直接打开上面的链接</p>
       </div>
       <p class="cc-tip">
         {{ created.start_at ? `${formatDateTime(created.start_at)} 开始，` : '' }}截止
         {{ formatDateTime(created.end_at) }} 自动结束，也可以在考勤记录里手动结束。
-        结算后会生成一条普通考勤记录
       </p>
     </div>
 
@@ -243,7 +234,9 @@ function open() {
 /** 从考勤列表的「链接」按钮打开：同一场签到的分享页，不再走表单 */
 function openShare(row) {
   justCreated.value = false
-  created.value = { ...row }
+  // 考勤列表把签到的截止时间放在 time 里（发布接口返回的才叫 end_at），
+  // 这里统一成 end_at，结果页的「截止 …」才不会显示成一个横杠
+  created.value = { ...row, end_at: row.end_at || row.time || null }
   qrDataUrl.value = ''
   visible.value = true
   makeQr(row.link)
@@ -477,9 +470,4 @@ defineExpose({ open, openShare })
   border-radius: 10px;
 }
 
-.cc-qr-tip {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-}
 </style>
