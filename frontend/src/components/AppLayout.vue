@@ -82,42 +82,6 @@
       <span v-html="COPYRIGHT_HTML"></span>
     </el-footer>
 
-    <!-- 首次登录强制设置密码：不允许关闭 -->
-    <!-- 此时用户刚用默认密码登录过一遍，因此不再要求输入原密码 -->
-    <el-dialog
-      v-model="pwdVisible"
-      title="首次登录，请设置新密码"
-      width="420px"
-      :show-close="false"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-    >
-      <el-alert
-        title="当前使用的是默认密码（身份证号后6位），为保障信息安全，请先设置新密码。"
-        type="warning"
-        :closable="false"
-        style="margin-bottom: 16px;"
-      />
-      <el-form :model="pwdForm" label-width="90px">
-        <el-form-item label="新密码">
-          <el-input
-            v-model="pwdForm.new_password"
-            type="password"
-            show-password
-            placeholder="6-32 位，需同时包含字母和数字"
-          />
-        </el-form-item>
-        <el-form-item label="确认密码">
-          <el-input v-model="pwdForm.confirm" type="password" show-password @keyup.enter="handleSetInitialPassword" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button type="primary" :loading="pwdLoading" @click="handleSetInitialPassword">
-          确认设置
-        </el-button>
-      </template>
-    </el-dialog>
-
     <!-- iOS 装到主屏的引导：进站 3 秒后自己升起，不需要 ref。
          ⚠️ 必须留在 el-container 内部：它 v-else 掉的就是登录页，
          这样才有「登录之后才弹」。挪到外面登录页也会弹。 -->
@@ -126,10 +90,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { setInitialPassword } from '@/api/auth'
 import IosInstallGuide from '@/components/IosInstallGuide.vue'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
@@ -231,49 +194,6 @@ const visibleGroups = computed(() =>
     }))
     .filter((group) => group.items.length > 0)
 )
-
-// 首次登录强制设置密码
-const pwdVisible = ref(false)
-const pwdLoading = ref(false)
-const pwdForm = reactive({ new_password: '', confirm: '' })
-
-// 登录用户带 must_change_password 标记时，自动弹出设置密码
-watch(
-  () => userStore.info?.must_change_password,
-  (need) => {
-    if (need) {
-      pwdForm.new_password = ''
-      pwdForm.confirm = ''
-      pwdVisible.value = true
-    }
-  },
-  { immediate: true }
-)
-
-// 首次设置密码：不校验原密码（用户刚用它登录过）
-async function handleSetInitialPassword() {
-  if (pwdForm.new_password.length < 6 || pwdForm.new_password.length > 32) {
-    return ElMessage.warning('新密码长度需为 6-32 位')
-  }
-  if (!/[A-Za-z]/.test(pwdForm.new_password) || !/\d/.test(pwdForm.new_password)) {
-    return ElMessage.warning('新密码必须同时包含字母和数字')
-  }
-  if (pwdForm.new_password !== pwdForm.confirm) {
-    return ElMessage.warning('两次输入的新密码不一致')
-  }
-
-  pwdLoading.value = true
-  try {
-    await setInitialPassword({ new_password: pwdForm.new_password })
-    userStore.markPasswordChanged()
-    pwdVisible.value = false
-    ElMessage.success('密码设置成功')
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '设置失败')
-  } finally {
-    pwdLoading.value = false
-  }
-}
 
 async function handleLogout() {
   drawerOpen.value = false
