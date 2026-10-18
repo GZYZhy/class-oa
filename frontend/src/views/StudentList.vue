@@ -440,6 +440,8 @@
           </div>
         </div>
 
+        <!-- 两个折叠节共用一组外框线：各自带边框的话，中间会叠成两条 -->
+        <div class="detail-collapses">
         <!-- 考勤情况：和学生自己看到的口径一致；默认收起，展开才拉数据 -->
         <el-collapse
           v-model="attendanceOpen"
@@ -557,6 +559,7 @@
             </div>
           </el-collapse-item>
         </el-collapse>
+        </div>
 
         <!-- 照片展示区 -->
         <div class="photos-section" v-if="PHOTO_TYPES.some((p) => currentStudent[p.field])">
@@ -2626,10 +2629,20 @@ watch(() => route.query.open, openFromQuery)
   padding-top: 4px;
 }
 
-.detail-collapse {
+.detail-collapses {
   margin-top: 20px;
   border-top: 1px solid var(--el-border-color-lighter);
   border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+/* 每块自己不带上下框线，只在两块之间补一条，避免中间出现两条线 */
+.detail-collapse {
+  border-top: 0;
+  border-bottom: 0;
+}
+
+.detail-collapse + .detail-collapse {
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 
 /* 折叠面板的标题已经在 header 里垂直居中，去掉 section-title 自带的外边距 */
