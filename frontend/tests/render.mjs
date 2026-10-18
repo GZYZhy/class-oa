@@ -361,6 +361,20 @@ console.log('\n▶ 我的档案：三张照片，自备证件照在里面')
   // 取图要带鉴权（学生只能取自己的），所以断的是接口地址而不是文件名
   check(html.includes('/api/students/1/photo?type=id'), '自备证件照走带鉴权的接口取，不是裸文件名')
 
+  // 身份证号只补不改：这份档案没有 id_card，补充入口要出现
+  check(html.includes('身份证号') && html.includes('18 位身份证号'),
+    '没身份证号的学生能看到补充入口')
+  check(html.includes('补充生效后就不能再自行修改'), '写明了只是一次性补充')
+
+  // 有值之后整格消失，不给「改一下试试」的机会
+  const { html: hasIdCardHtml } = await renderPatched(
+    '/src/views/MyInfo.vue',
+    MYINFO_LOAD,
+    `me.value = ${JSON.stringify({ ...me, id_card: '11010120000101001X' })}`
+  )
+  check(!hasIdCardHtml.includes('补充生效后就不能再自行修改'),
+    '已有身份证号的学生看不到补充入口')
+
   // 「申请修改」的表单和档案在同一个 html 里（el-tab-pane 默认全渲染）
   check(html.includes('选择照片'), '申请表里有换照片的按钮')
   check(html.includes('不选就是不改'), '写明了只换照片也算一次申请')
@@ -369,13 +383,43 @@ console.log('\n▶ 我的档案：三张照片，自备证件照在里面')
     '只收图片格式，和后面的后缀白名单对齐'
   )
 
+  // 签字图：学生本人可以上传，但看不到、下不了、删不掉
+  check(html.includes('签字图') && html.includes('上传签字图'), '档案页有签字图上传入口')
+  check(html.includes('未上传'), '没传过时显示「未上传」')
+  check(html.includes('文件不超过 10MB') && html.includes('1200×400'),
+    '页面上写明了文件大小和尺寸建议')
+  check(html.includes('不能查看、下载或删除'), '写明本人上传后不能再查看 / 下载 / 删除')
+  check(!html.includes('/api/sign-photos/image'),
+    '学生页不出现取图地址 —— 上传接口同路径，但只该由 api 模块拼，不该出现在模板里')
+
+  // 传过之后按钮变成「重新上传」，状态变「已上传」
+  const { html: uploadedHtml } = await renderPatched(
+    '/src/views/MyInfo.vue',
+    MYINFO_LOAD,
+    `me.value = ${JSON.stringify(me)}; mySign.uploaded = true`
+  )
+  check(uploadedHtml.includes('已上传') && uploadedHtml.includes('重新上传'),
+    '已上传后按钮提示可以重新上传（替换原图）')
+
+  const signApi = readFileSync(`${ROOT}/src/api/signPhoto.js`, 'utf8')
+  check(signApi.includes("url: '/sign-photos/my-status'"),
+    '学生状态走 /sign-photos/my-status，不复用班委那条带文件名的状态接口')
+  check(readFileSync(`${ROOT}/src/views/MyInfo.vue`, 'utf8')
+    .includes("import { getMySignStatus, uploadSignImage } from '@/api/signPhoto'"),
+    '档案页复用签字图那套 API（学生传、管理员传同一接口）')
+
   // 照片交的是文件，混进 CHANGE_FIELDS 就会被 resetForm / buildChanges / el-input
   // 当成文本框消费（界面上会多出一个要人填文件名的输入框）
   const src = readFileSync(`${ROOT}/src/utils/changeFields.js`, 'utf8')
   const list = (src.match(/CHANGE_FIELDS = \[([\s\S]*?)\]/) || [])[1] || ''
   check(!list.includes('id_photo'), '照片没有混进 CHANGE_FIELDS')
+  check(!list.includes('id_card'), '身份证号也没有混进 CHANGE_FIELDS（要按当前值决定显不显示）')
   check(list.includes("prop: 'dormitory'"), '宿舍进了 CHANGE_FIELDS')
   check(/PHOTO_FIELD = \{ prop: 'id_photo'/.test(src), '它单独是 PHOTO_FIELD')
+  check(/ID_CARD_FIELD = \{/.test(src), '身份证号单独是 ID_CARD_FIELD')
+  check(readFileSync(`${ROOT}/src/views/MyInfo.vue`, 'utf8')
+    .includes('if (needsIdCard.value)'),
+  '提交时再挡一次：已有身份证号就不带这一项')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
 }
 
@@ -407,7 +451,9 @@ console.log('\n▶ 审核页：照片给班委看新旧两张，不给文件名'
 
   check(html.includes('/api/change-requests/7/photo?side=old'), '左边那张取学生当前档案里的')
   check(html.includes('/api/change-requests/7/photo?side=new'), '右边那张取这条申请里传的')
-  check(count('diff-photo') === 2, '待审那条正好两张缩略图')
+  check((html.match(/<img[^>]*diff-photo/g) || []).length === 2, '待审那条正好两张缩略图')
+  check(count('diff-photo-click') === 2 && count('title="点击放大预览"') === 2,
+    '两张缩略图都提示可以点开预览')
   check(!/change-requests\/8\/photo/.test(html), '已处理那条一个图地址都不给')
 
   for (const name of ['a1b2c3d4-新.png', 'e5f6a7b8-旧.png', 'c9d0e1f2-已过.png', 'a3b4c5d6-更旧.png']) {
@@ -415,6 +461,19 @@ console.log('\n▶ 审核页：照片给班委看新旧两张，不给文件名'
   }
   check(html.includes('已上传新照片'), '已处理那条给一句话，而不是空着')
   check(html.includes('自备证件照'), '这一行的字段名念得出来（FIELD_LABELS 认得它）')
+
+  // 点击与弹框都只在源码里：SSR 不渲染事件监听，el-dialog 正文也不渲染
+  const reviewSrc = readFileSync(`${ROOT}/src/views/Review.vue`, 'utf8')
+  check(/@click="openChangePhoto\(row, 'old'\)"/.test(reviewSrc)
+    && /@click="openChangePhoto\(row, 'new'\)"/.test(reviewSrc),
+  '两张缩略图点开都走同一个预览入口')
+  check(reviewSrc.includes(':file-url="changePhotoUrl"')
+    && reviewSrc.includes('v-model="changePhotoViewerVisible"'),
+  '预览用的是通用 FileViewer，而不是另写一个弹窗')
+  check(reviewSrc.includes('${row.student_name}_自备证件照_${sideLabel}${ext}'),
+    '下载名换成姓名 + 原/新照片，不落 uuid 文件名')
+  check(reviewSrc.includes(".match(/\\.[^.]+$/)"),
+    '文件后缀从 current / changes 里的真实文件名取，FileViewer 才判得出图片类型')
 
   // 文本字段照旧并排原值 → 新值，别被照片的特判带歪
   check(html.includes('13800138000') && html.includes('13900139000'), '手机号仍然是原值 → 新值')

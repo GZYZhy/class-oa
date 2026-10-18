@@ -49,16 +49,20 @@
                     <img
                       v-if="row.current?.[key]"
                       :src="reviewPhotoUrl(row.id, 'old')"
-                      class="diff-photo"
+                      class="diff-photo diff-photo-click"
                       alt="原证件照"
+                      title="点击放大预览"
+                      @click="openChangePhoto(row, 'old')"
                       @error="onImgError"
                     />
                     <span v-else class="diff-old">（无）</span>
                     <el-icon class="diff-arrow"><Right /></el-icon>
                     <img
                       :src="reviewPhotoUrl(row.id, 'new')"
-                      class="diff-photo"
+                      class="diff-photo diff-photo-click"
                       alt="新证件照"
+                      title="点击放大预览"
+                      @click="openChangePhoto(row, 'new')"
                       @error="onImgError"
                     />
                   </template>
@@ -764,6 +768,15 @@
       </div>
     </el-dialog>
 
+    <!-- 信息修改申请里的证件照：点缩略图放大看原图 / 新图 -->
+    <FileViewer
+      v-model="changePhotoViewerVisible"
+      :file-url="changePhotoUrl"
+      :file-name="changePhotoFileName"
+      :download-name="changePhotoDownloadName"
+      :title="changePhotoTitle"
+    />
+
     <!-- 请假证明材料预览弹框 -->
     <FileViewer
       v-model="proofViewerVisible"
@@ -1052,6 +1065,31 @@ const changeRange = ref(null)
  */
 function reviewPhotoUrl(id, side) {
   return `/api/change-requests/${id}/photo?side=${side}`
+}
+
+// 证件照预览：缩略图太小看不清脸，点开走通用预览框，能缩放、旋转
+const changePhotoViewerVisible = ref(false)
+const changePhotoUrl = ref('')
+const changePhotoFileName = ref('')
+const changePhotoTitle = ref('')
+const changePhotoDownloadName = ref('')
+
+/**
+ * 打开待审申请里的证件照。old = 学生档案里现在那张，new = 申请里新传的自备证件照
+ *
+ * 文件名要从 current / changes 里取：取图地址上只有 side 参数、没有后缀，
+ * 而 FileViewer 靠文件名后缀判断该按图片还是 PDF 渲染。
+ * 下载名换成「姓名_自备证件照_原/新照片.ext」，免得班委存下一个 uuid 名。
+ */
+function openChangePhoto(row, side) {
+  const stored = side === 'old' ? row.current?.id_photo : row.changes?.id_photo
+  const ext = (stored || '').match(/\.[^.]+$/)?.[0] || '.jpg'
+  const sideLabel = side === 'old' ? '原照片' : '新照片'
+  changePhotoUrl.value = reviewPhotoUrl(row.id, side)
+  changePhotoFileName.value = stored || `id-photo${ext}`
+  changePhotoTitle.value = `${row.student_name} 的自备证件照（${sideLabel}）`
+  changePhotoDownloadName.value = `${row.student_name}_自备证件照_${sideLabel}${ext}`
+  changePhotoViewerVisible.value = true
 }
 
 /** 图挂了就藏起来：历史申请的照片文件可能已经被清掉，别给班委一个碎图图标 */
@@ -1980,6 +2018,16 @@ onMounted(handleTabChange)
   border-radius: 4px;
   border: 1px solid var(--el-border-color-lighter);
   vertical-align: middle;
+}
+
+/* 缩略图能点开预览：手型光标 + 悬停描边，让人看得出这不是一张死图 */
+.diff-photo-click {
+  cursor: zoom-in;
+  transition: border-color 0.2s;
+}
+
+.diff-photo-click:hover {
+  border-color: var(--el-color-primary);
 }
 
 /* 手机上「原值 → 新值」一条可能折行，改成上下排列不容易串行 */

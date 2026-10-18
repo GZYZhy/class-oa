@@ -25,9 +25,21 @@ export const CHANGE_FIELDS = [
  */
 export const PHOTO_FIELD = { prop: 'id_photo', label: '自备证件照' }
 
+/**
+ * 身份证号：唯一一个「只补不改」的字段。档案里没有时才会出现在申请表单里，
+ * 有值之后整格隐藏；后端也挡着已有值的申请（见 change_requests.py）。
+ * 同样不并进 CHANGE_FIELDS —— 那个数组全量渲染，不会按当前值决定显不显示。
+ */
+export const ID_CARD_FIELD = {
+  prop: 'id_card',
+  label: '身份证号',
+  maxLength: 18,
+  placeholder: '请输入 18 位身份证号（最后一位可为 X）'
+}
+
 /** 字段名 → 中文标签 */
 export const FIELD_LABELS = Object.fromEntries(
-  [...CHANGE_FIELDS, PHOTO_FIELD].map((f) => [f.prop, f.label])
+  [...CHANGE_FIELDS, PHOTO_FIELD, ID_CARD_FIELD].map((f) => [f.prop, f.label])
 )
 
 export const STATUS_LABELS = {

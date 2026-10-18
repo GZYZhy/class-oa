@@ -1,7 +1,9 @@
 """学生信息修改申请：学生提交 → 班委审核 → 通过后才写入学生表
 
-白名单之外的字段不开放申请：学号、姓名、身份证号、班委职务属于身份标识（改了等于换个人），
+白名单之外的字段不开放申请：学号、姓名、班委职务属于身份标识（改了等于换个人），
 「是否贫困生」属于内部认定事项 —— 都由班委/管理员在名单页直接维护，学生不能自己发起变更。
+身份证号是唯一的半开放项：档案里没有时允许学生申请「补充」，一旦有值就关闭，
+再想改只能找管理员。
 
 唯一一个不走「学生填值」的字段是自备证件照：学生交的是文件，得先落盘才有值可存。
 所以它由服务端在 multipart 分支里注入，见 PHOTO_EDITABLE_FIELDS。
@@ -44,6 +46,9 @@ EDITABLE_FIELDS = (
     "league_position",
     "dormitory",
     "bed",
+    # 身份证号只允许「补空」：有值的申请在这里也会被拒，闸门在 submit / approve，
+    # 不能只靠前端把输入框藏起来
+    "id_card",
 )
 
 # 学生能申请改、但**不能自己填值**的字段：值由服务端在落盘之后注入。
@@ -69,8 +74,11 @@ def _describe(student: Student, changes: dict) -> str:
     照片单独成句：那一项的值是 uuid 文件名（`a1b2…jpg → c3d4…jpg`），
     对学生和班委都不构成信息，还把一句话撑得没法读。
     """
-    texts = {k: v for k, v in changes.items() if k in EDITABLE_FIELDS}
+    texts = {k: v for k, v in changes.items() if k in EDITABLE_FIELDS and k != "id_card"}
     parts = [describe_changes({k: getattr(student, k, None) for k in texts}, texts)]
+    if changes.get("id_card"):
+        # 身份证号写进日志就是完整号码，学生和班委都不该在日志里看到它
+        parts.append("补充了身份证号")
     if changes.get("id_photo"):
         parts.append("换了一张自备证件照")
     return "；".join(p for p in parts if p)
@@ -128,6 +136,17 @@ async def submit(
         for key, value in payload.model_dump(exclude_unset=True).items()
         if key in EDITABLE_FIELDS
     }
+    # 身份证号只能补空：已有值的直接拒，别让一条申请绕过「有值就不能改」的规则
+    if "id_card" in changes:
+        if (student.id_card or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="你的档案里已有身份证号，不能通过修改申请更改；如确有误请联系管理员",
+            )
+        if not (changes.get("id_card") or "").strip():
+            raise HTTPException(status_code=400, detail="身份证号不能为空")
+        changes["id_card"] = changes["id_card"].strip().upper()
+
     # 只传了照片也算一次有效申请，所以判据要带上传
     if not changes and not upload:
         raise HTTPException(status_code=400, detail="没有要修改的内容")
@@ -311,6 +330,17 @@ def approve(
         for key, value in json.loads(req.changes or "{}").items()
         if key in ALL_EDITABLE_FIELDS
     }
+
+    # 身份证号只能补空。提交之后管理员可能已经手填了，通过前必须再核一次，
+    # 否则这条申请会把管理员刚录的值覆盖掉
+    if "id_card" in changes:
+        if (student.id_card or "").strip():
+            raise HTTPException(
+                status_code=400, detail="该学生的身份证号已有值，这条申请只能驳回"
+            )
+        if not (changes.get("id_card") or "").strip():
+            raise HTTPException(status_code=400, detail="申请里的身份证号为空，请驳回")
+        changes["id_card"] = changes["id_card"].strip().upper()
 
     # 待审照片的文件得先在：文件丢了还照写，学生的档案就指向一张打不开的图
     new_photo = changes.get("id_photo")

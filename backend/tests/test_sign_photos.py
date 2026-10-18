@@ -208,22 +208,129 @@ def test_bad_file_type_is_refused(sp):
     assert files_in(sp.photos) == [], "被拒的那次不该在盘上留下东西"
 
 
-def test_only_admin_can_upload(sp):
-    """班委和普通学生都传不了"""
+def test_committee_cannot_upload_for_others(sp):
+    """班委不能替别人传：「能看名单」不等于「能替人签字」"""
     r = sp.cm1.post(
         f"/api/sign-photos/image/{sp.target}",
         files={"file": ("sign.png", PNG, "image/png")},
     )
     assert r.status_code == 403
+    assert "自己的" in r.json()["detail"]
+
+
+# ---------- 学生本人上传（只能传，不能看 / 删 / 下载） ----------
+
+def test_student_can_upload_own_sign(sp):
+    """学生本人可以传自己的签字图，落盘、写库、日志标明是本人上传"""
+    own = sid_of(sp.b, STUDENT)
+    r = sp.student.post(
+        f"/api/sign-photos/image/{own}",
+        files={"file": ("sign.png", PNG, "image/png")},
+    )
+    assert r.status_code == 200, r.text
+
+    name = db_sign(sp.b, STUDENT)
+    assert name and (sp.photos / name).exists()
+    action, target, detail = last_log(sp.b)
+    assert action == "上传签字图片"
+    assert target == f"{STUDENT} 戊"
+    assert "本人上传" in detail
+
+
+def test_student_can_replace_own_sign(sp):
+    """重新上传就是换一张：旧文件不留在盘上，新图字节确实换掉了"""
+    own = sid_of(sp.b, STUDENT)
+
+    def upload(data):
+        return sp.student.post(
+            f"/api/sign-photos/image/{own}",
+            files={"file": ("sign.png", data, "image/png")},
+        )
+
+    assert upload(PNG).status_code == 200
+    old = db_sign(sp.b, STUDENT)
+    assert upload(PNG2).status_code == 200
+    new = db_sign(sp.b, STUDENT)
+
+    assert new != old
+    assert (sp.photos / new).read_bytes() == PNG2
+    assert not (sp.photos / old).exists()
+    assert "替换了原有签字" in last_log(sp.b)[2]
+
+
+def test_student_cannot_upload_someone_else(sp):
+    """普通学生传别人的同样 403 —— 放行的是「本人」，不是「学生」这个角色"""
+    r = sp.student.post(
+        f"/api/sign-photos/image/{sp.target}",
+        files={"file": ("sign.png", PNG, "image/png")},
+    )
+    assert r.status_code == 403
+    assert db_sign(sp.b) is None
+
+
+def test_student_cannot_delete_own_sign(sp):
+    """允许上传，但不给删除权：删自己的也 403，库和文件都不动"""
+    own = sid_of(sp.b, STUDENT)
+    assert sp.student.post(
+        f"/api/sign-photos/image/{own}",
+        files={"file": ("sign.png", PNG, "image/png")},
+    ).status_code == 200
+    name = db_sign(sp.b, STUDENT)
+
+    r = sp.student.delete(f"/api/sign-photos/image/{own}")
+    assert r.status_code == 403
+    assert db_sign(sp.b, STUDENT) == name
+    assert (sp.photos / name).exists()
+
+
+def test_student_cannot_view_own_sign(sp):
+    """传完也看不到自己的图：取图那条路的门槛是「班委 + 管理员批准」"""
+    own = sid_of(sp.b, STUDENT)
+    assert sp.student.post(
+        f"/api/sign-photos/image/{own}",
+        files={"file": ("sign.png", PNG, "image/png")},
+    ).status_code == 200
+
+    r = sp.student.get(f"/api/sign-photos/image/{own}")
+    assert r.status_code == 403
+
+
+def test_student_own_status_is_only_a_boolean(sp):
+    """状态接口只回 uploaded，连文件名都不给 —— 学生拿不到任何取图线索"""
+    r = sp.student.get("/api/sign-photos/my-status")
+    assert r.status_code == 200
+    assert r.json() == {"uploaded": False}
+
+    own = sid_of(sp.b, STUDENT)
+    assert sp.student.post(
+        f"/api/sign-photos/image/{own}",
+        files={"file": ("sign.png", PNG, "image/png")},
+    ).status_code == 200
+
+    r = sp.student.get("/api/sign-photos/my-status")
+    assert r.status_code == 200
+    assert r.json() == {"uploaded": True}
+    assert "sign" not in str(r.json()), "文件名 / 路径一个字段都不该出现"
+
+
+def test_student_own_upload_checks_format(sp):
+    """学生这条路同样过后缀白名单，报错文案说「签字图片」"""
+    own = sid_of(sp.b, STUDENT)
+    r = sp.student.post(
+        f"/api/sign-photos/image/{own}",
+        files={"file": ("sign.txt", PNG, "text/plain")},
+    )
+    assert r.status_code == 400
+    assert "签字图片" in r.json()["detail"]
 
 
 # ---------- 「不向学生展示」 ----------
 
-def test_student_role_is_shut_out_everywhere(sp):
-    """普通学生：取图、申请、查状态三条路全 403
+def test_student_role_is_shut_out_of_viewing(sp):
+    """普通学生：取图、申请查看、查别人的状态三条路全 403
 
-    403 而不是 404 —— 得让学生看不出「有这么个东西」。前端也只在 isCommittee
-    时才渲染那个按钮，学生端连「签字」两个字都不出现。
+    学生现在可以上传自己的签字（见下面的「学生本人上传」一组），但查看这条链
+    仍然只对班委开放。403 而不是 404 —— 得让学生看不出能不能看别人那张。
     """
     upload_sign(sp)
 
