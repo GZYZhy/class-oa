@@ -241,6 +241,11 @@ export SITE_NAME SITE_SHORT_NAME SITE_SUBTITLE SITE_COLLEGE SITE_MAJOR SITE_FOOT
 export AMAP_JS_KEY="${AMAP_JS_KEY:-}"
 export AMAP_SECURITY_CODE="${AMAP_SECURITY_CODE:-}"
 
+# 对外基址，给 index.html 里的 og:image 拼绝对地址。留空时就是相对路径，
+# 一般只在本地开发出现（生产 .env 里的 PUBLIC_BASE_URL 本来就该配）。
+SITE_PUBLIC_URL="${PUBLIC_BASE_URL:-}"
+export SITE_PUBLIC_URL="${SITE_PUBLIC_URL%/}"
+
 # 校徽地址。下面复制完最终校徽后会改成带内容哈希的 /assets/logo-xxxx.png，
 # 让登录页、签到页这些公开页可以长期缓存；先给一个安全的默认值。
 export SITE_LOGO_URL="${SITE_LOGO_URL:-/logo.png}"
@@ -250,7 +255,7 @@ export SITE_LOGO_URL="${SITE_LOGO_URL:-/logo.png}"
 # （此时 nginx 还没启动，也不会有人请求到 .tmp）。
 render_brand() {
     # $1=源文件  $2=输出文件
-    if envsubst '${SITE_NAME} ${SITE_SHORT_NAME} ${SITE_SUBTITLE} ${SITE_COLLEGE} ${SITE_MAJOR} ${SITE_FOOTER} ${SITE_DESCRIPTION} ${SITE_LOGO_URL} ${HEAD_INJECT} ${AMAP_JS_KEY} ${AMAP_SECURITY_CODE}' \
+    if envsubst '${SITE_NAME} ${SITE_SHORT_NAME} ${SITE_SUBTITLE} ${SITE_COLLEGE} ${SITE_MAJOR} ${SITE_FOOTER} ${SITE_DESCRIPTION} ${SITE_LOGO_URL} ${SITE_PUBLIC_URL} ${HEAD_INJECT} ${AMAP_JS_KEY} ${AMAP_SECURITY_CODE}' \
         < "$1" \
         > "$2.tmp"; then
         mv -f "$2.tmp" "$2"

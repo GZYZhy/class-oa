@@ -78,6 +78,8 @@ services:
       - SITE_FOOTER=${SITE_FOOTER:-}
       # SEO 描述；留空时由 entrypoint 取 SITE_NAME
       - SITE_DESCRIPTION=${SITE_DESCRIPTION:-}
+      # 对外基址，用来给 index.html 里的 og:image 拼绝对地址
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
       # 可选的 <head> 注入内容（统计 / 跟踪器等第三方脚本）。
       # 原样插入，不转义；多行写法见 .env.example
       - HEAD_INJECT=${HEAD_INJECT:-}

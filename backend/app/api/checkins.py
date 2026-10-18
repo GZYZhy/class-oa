@@ -134,7 +134,8 @@ def _share_page(request: Request, checkin: Checkin, target_count: int) -> str:
         desc = f"{checkin.remark[:60]}｜{desc}"
     share_url = _link(request, checkin)
     page_url = full_url(request, f"/#/checkin?code={checkin.code}")
-    logo_url = full_url(request, "/logo.png")
+    # 用 512 的图标：logo.png 往往只有一百多像素，微信卡片可能因尺寸太小不显示图
+    logo_url = full_url(request, "/icons/icon-512.png")
     site_name = settings.site_name or settings.app_name
 
     def attr(value: str) -> str:
@@ -154,6 +155,8 @@ def _share_page(request: Request, checkin: Checkin, target_count: int) -> str:
 <meta property="og:url" content="{attr(share_url)}">
 <meta property="og:site_name" content="{attr(site_name)}">
 <meta property="og:image" content="{attr(logo_url)}">
+<meta property="og:image:width" content="512">
+<meta property="og:image:height" content="512">
 <meta property="og:locale" content="zh_CN">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="{attr(card_title)}">

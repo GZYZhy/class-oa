@@ -520,6 +520,7 @@ async function handleSubmit() {
 // 这里再补一份，给会执行 JS 的客户端，以及从站内信直接进到 hash 页的情况。
 const OG_FLAG = 'data-checkin-og'
 let originalRobots = null
+let originalDescription = null
 
 function setOgMeta(property, content) {
   let el = document.head.querySelector(`meta[property="${property}"][${OG_FLAG}]`)
@@ -547,10 +548,21 @@ function applyShareMeta(data) {
     'og:type': 'website',
     'og:url': data.link || location.href,
     'og:site_name': SITE.name,
-    'og:image': new URL(SITE.logoUrl, location.origin).href,
+    // 用 512 的图标：logo.png 往往只有一百多像素，微信卡片可能不显示
+    'og:image': new URL('/icons/icon-512.png', location.origin).href,
     'og:locale': 'zh_CN'
   }
   for (const [key, value] of Object.entries(pairs)) setOgMeta(key, value)
+
+  // 微信卡片摘要用的普通 description 也一起改掉
+  let meta = document.head.querySelector('meta[name="description"]')
+  if (!meta) {
+    meta = document.createElement('meta')
+    meta.setAttribute('name', 'description')
+    document.head.appendChild(meta)
+  }
+  if (originalDescription === null) originalDescription = meta.getAttribute('content') || ''
+  meta.setAttribute('content', desc)
 
   // 全站默认 noindex；签到分享页要允许抓取，离开时恢复
   const robots = document.head.querySelector('meta[name="robots"]')
@@ -565,6 +577,11 @@ function clearShareMeta() {
   const robots = document.head.querySelector('meta[name="robots"]')
   if (robots && originalRobots !== null) robots.setAttribute('content', originalRobots)
   originalRobots = null
+  if (originalDescription !== null) {
+    const meta = document.head.querySelector('meta[name="description"]')
+    if (meta) meta.setAttribute('content', originalDescription)
+    originalDescription = null
+  }
 }
 
 onMounted(load)

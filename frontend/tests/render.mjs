@@ -3060,17 +3060,31 @@ console.log('\n▶ 投票分享：管理里给链接、复制和二维码')
     '管理下拉里有「分享」')
   check(voteSrc.includes('function openShare(row)') &&
     voteSrc.includes('voteShareLink(row.id)') &&
-    voteSrc.includes('<VoteShareDialog v-model="shareVisible" :link="shareLink" />'),
+    voteSrc.includes('<VoteShareDialog v-model="shareVisible" :link="shareLink" :poll="sharePoll" />'),
   '分享打开弹窗，链接就是投票页本身')
   check(voteSrc.includes("`${window.location.origin}/#/vote?id=${id}`"),
     '分享链接指向 /#/vote?id=，没有单独的分享页')
   check(voteSrc.includes('function applyPollShareMeta') &&
     voteSrc.includes("'og:title': title") && voteSrc.includes("`投票：${poll.title"),
   '打开投票 / 分享时把投票标题写进 OG')
+  check(voteSrc.includes("/icons/icon-512.png"),
+    '分享图用 512 图标，避免小图在微信卡片里不显示')
+  check(voteSrc.includes('setPollDescription') && voteSrc.includes('og:image:width'),
+    '摘要和图片尺寸也一起写进页面头')
+  const indexHtml = readFileSync(`${ROOT}index.html`, 'utf8')
+  check(indexHtml.includes('og:image') && indexHtml.includes('icons/icon-512.png') &&
+    indexHtml.includes('SITE_PUBLIC_URL'), '静态首页也有站点级 OG 图兜底')
 
   const shareSrc = readFileSync(`${ROOT}/src/components/VoteShareDialog.vue`, 'utf8')
   check(shareSrc.includes('>复制</el-button>') && shareSrc.includes('class="vs-qr"'),
     '弹窗有链接、复制和二维码')
+  check(shareSrc.includes('`投票：${poll?.title') &&
+    shareSrc.includes("poll?.anonymous ? '不记名' : '记名'") &&
+    shareSrc.includes('应投 {{ poll?.target_count || 0 }} 人') &&
+    shareSrc.includes('{{ poll?.question_count || 0 }} 道题') &&
+    shareSrc.includes('formatDateTime(poll?.end_at)') &&
+    shareSrc.includes('备注'),
+  '弹窗展示标题、记名标记、备注、人数、题数和截止时间')
   check(shareSrc.includes('makeQrDataUrl'), '二维码复用公共生成工具')
   const qrUtil = readFileSync(`${ROOT}/src/utils/qr.js`, 'utf8')
   check(qrUtil.includes("errorCorrectionLevel: 'H'") && qrUtil.includes('drawImage(logo'),

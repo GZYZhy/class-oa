@@ -225,6 +225,7 @@ def test_share_page_carries_og_and_allows_crawlers(cb):
     assert 'name="robots" content="index,follow"' in html
     # 卡片描述里带上人数和截止时间，转发出去能看出是什么
     assert "og:description" in html and "应到 1 人" in html
+    assert "icons/icon-512.png" in html, "卡片图用 512 图标，小图微信可能不显示"
     # 浏览器最终落到真正的签到页
     assert f"/#/checkin?code={checkin['code']}" in html
     # 不存在的 code：和公开信息接口一样 404，不泄露「有这一场」
