@@ -12,6 +12,7 @@ const SITE_TEMPLATE = fileURLToPath(new URL('./site-config.js.template', import.
 
 /** 模板里出现过的、需要替换的键。名字必须和 docker-entrypoint.sh 的白名单一致 */
 const SITE_KEYS = [
+  'SITE_PUBLIC_URL',
   'SITE_NAME',
   'SITE_SHORT_NAME',
   'SITE_SUBTITLE',
@@ -40,6 +41,8 @@ const HEAD_KEY = 'HEAD_INJECT'
  */
 export function renderSite(text, env) {
   const values = Object.fromEntries(SITE_KEYS.map((key) => [key, env[key] || '']))
+  // 本地没有 entrypoint 的 SITE_PUBLIC_URL，从 PUBLIC_BASE_URL 取一份
+  values.SITE_PUBLIC_URL = (env.PUBLIC_BASE_URL || '').replace(/\/$/, '')
   // SEO 描述留空时取站名，和 entrypoint 里的处理保持一致
   values.SITE_DESCRIPTION = values.SITE_DESCRIPTION || values.SITE_NAME
   values[HEAD_KEY] = env[HEAD_KEY] || ''

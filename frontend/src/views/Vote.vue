@@ -340,7 +340,7 @@
     </el-dialog>
 
     <PollCreateDialog ref="createRef" @saved="handleSaved" />
-    <VoteShareDialog v-model="shareVisible" :link="shareLink" />
+    <VoteShareDialog v-model="shareVisible" :link="shareLink" :poll="sharePoll" />
   </div>
 </template>
 
@@ -408,6 +408,7 @@ const draft = reactive({})
 
 const shareVisible = ref(false)
 const shareLink = ref('')
+const sharePoll = ref({})
 const resultVisible = ref(false)
 const resultLoading = ref(false)
 const resultPoll = ref({})
@@ -648,18 +649,36 @@ function setPollOg(property, content) {
   el.setAttribute('content', content)
 }
 
+let originalDescription = null
+
+function setPollDescription(text) {
+  let el = document.head.querySelector('meta[name="description"]')
+  if (!el) {
+    el = document.createElement('meta')
+    el.setAttribute('name', 'description')
+    document.head.appendChild(el)
+  }
+  if (originalDescription === null) originalDescription = el.getAttribute('content') || ''
+  el.setAttribute('content', text)
+}
+
 /** 打开一场投票 / 分享时，把标题和说明写进 OG，微信转发尽量带出投票信息 */
 function applyPollShareMeta(poll) {
   if (!poll?.id) return
   const title = `投票：${poll.title || '投票表决'}`
   document.title = title
+  const desc = poll.description || '班级投票表决'
+  setPollDescription(desc)
   const pairs = {
     'og:title': title,
-    'og:description': poll.description || '班级投票表决',
+    'og:description': desc,
     'og:type': 'website',
     'og:url': voteShareLink(poll.id),
     'og:site_name': SITE.name,
-    'og:image': new URL(SITE.logoUrl, window.location.origin).href,
+    // 用 512 的图标：logo.png 往往只有一百多像素，微信卡片可能因尺寸太小不显示图
+    'og:image': new URL('/icons/icon-512.png', window.location.origin).href,
+    'og:image:width': '512',
+    'og:image:height': '512',
     'og:locale': 'zh_CN'
   }
   for (const [key, value] of Object.entries(pairs)) setPollOg(key, value)
@@ -667,12 +686,18 @@ function applyPollShareMeta(poll) {
 
 function clearPollShareMeta() {
   document.querySelectorAll(`meta[${POLL_OG_FLAG}]`).forEach((el) => el.remove())
+  if (originalDescription !== null) {
+    const el = document.head.querySelector('meta[name="description"]')
+    if (el) el.setAttribute('content', originalDescription)
+    originalDescription = null
+  }
   document.title = `投票表决 - ${SITE.shortName}`
 }
 
 /** 「管理 → 分享」：链接 + 复制 + 二维码，不额外生成分享页 */
 function openShare(row) {
   applyPollShareMeta(row)
+  sharePoll.value = { ...row }
   shareLink.value = voteShareLink(row.id)
   shareVisible.value = true
 }

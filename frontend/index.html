@@ -12,6 +12,16 @@
          字段清单见 frontend/site-config.js.template。 -->
     <title>${SITE_NAME}</title>
     <meta name="description" content="${SITE_DESCRIPTION}" />
+
+    <!-- 站点级 OG 兜底：hash 路由的分享链接（如签到、投票）在爬虫不执行页面
+         JS 时也至少有站名、摘要和校徽，不会只剩一条光秃秃的链接。
+         具体页面的动态 OG 会在打开后覆盖这些值。 -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="${SITE_NAME}" />
+    <meta property="og:description" content="${SITE_DESCRIPTION}" />
+    <meta property="og:image" content="${SITE_PUBLIC_URL}/icons/icon-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
     <!-- 站内有身份证号、住址等隐私数据：默认拒绝一切抓取。
          robots.txt 的 Disallow 只挡住抓取，挡不住别人从别处链接过来时
          我们的 URL 以裸链接出现在结果里，所以这里再加一道 noindex。 -->
