@@ -74,10 +74,13 @@ watch(
 )
 
 onMounted(() => {
-  // 公开页（登录、签到、通知公告）路由守卫直接放行，不会问后端登录状态。
+  // 公开页（签到、通知公告）路由守卫直接放行，不会问后端登录状态。
   // 这里补一次，强制改密浮层才知道当前用户是不是还带着 must_change_password；
   // 未登录时 /auth/me 返回 401，fetchMe 会吞掉，不会把游客赶去登录页。
-  if (!userStore.resolved) userStore.fetchMe()
+  //
+  // 登录页除外：那里的 fetchMe 是必 401 的，如果它比用户登录请求晚回来，
+  // 会把刚写进 store 的登录态覆盖成 null。登录页本来也不需要这个探测。
+  if (!userStore.resolved && route.name !== 'Login') userStore.fetchMe()
 
   // 接住浏览器的 PWA 安装提示事件（Chrome/Edge/Android 才有，iOS 没有）
   captureInstallPrompt()
