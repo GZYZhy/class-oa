@@ -120,7 +120,12 @@
             </el-form-item>
 
             <el-form-item prop="signConfirmed">
-              <el-checkbox v-model="form.signConfirmed" class="agree-checkbox">
+              <!-- 勾上就检查签字图：没有就当场手写，别等到点了提交才发现 -->
+              <el-checkbox
+                v-model="form.signConfirmed"
+                class="agree-checkbox"
+                @change="handleSignConfirmedChange"
+              >
                 <div>我确认在请假审批表上签字</div>
               </el-checkbox>
             </el-form-item>
@@ -232,6 +237,9 @@
       :file-name="proofFileName"
       title="我的证明材料"
     />
+
+    <!-- 没有签字图时先让人手写一张：请假审批表上要印本人签字 -->
+    <QuickSignDialog ref="signGuard" />
   </div>
 </template>
 
@@ -245,6 +253,7 @@ import { blobErrorDetail } from '@/utils/download'
 import { useDownloadProgress } from '@/composables/useDownloadProgress'
 import FileViewer from '@/components/FileViewer.vue'
 import ServiceIntro from '@/components/ServiceIntro.vue'
+import QuickSignDialog from '@/components/QuickSignDialog.vue'
 
 const activeTab = ref('apply')
 const submitting = ref(false)
@@ -256,6 +265,8 @@ const loading = ref(false)
 const leaves = ref([])
 const formRef = ref(null)
 const fileList = ref([])
+// 签名检查：勾「确认签字」或提交时发现没有签字图，就弹窗手写
+const signGuard = ref(null)
 // 正在修改的那条记录（null = 新建）。改完走 PUT 覆盖原记录，不会又多出一条
 const editingId = ref(null)
 
@@ -393,6 +404,16 @@ function toPickerValue(value) {
   return value ? formatDateTime(value).slice(0, 13) + ':00' : ''
 }
 
+/**
+ * 勾选「我确认在请假审批表上签字」时顺手检查签字图：没有就当场手写。
+ * 手写被取消时把这个勾去掉 —— 没提供签名就不算确认过。
+ */
+async function handleSignConfirmedChange(value) {
+  if (!value) return
+  if (await signGuard.value?.ensure()) return
+  form.signConfirmed = false
+}
+
 async function handleSubmit() {
   if (!formRef.value) return
   try {
@@ -408,6 +429,9 @@ async function handleSubmit() {
   if (!editingId.value && !fileList.value.length) {
     return ElMessage.warning('请上传请假辅助证明')
   }
+
+  // 审批表上要印本人签字，系统里没有就先手写一张（签完自动保存并继续提交）
+  if (!(await signGuard.value?.ensure())) return
 
   const fd = new FormData()
   fd.append('leave_type', form.leave_type)
