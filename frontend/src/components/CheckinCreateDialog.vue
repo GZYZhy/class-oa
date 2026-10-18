@@ -174,6 +174,7 @@ import { isLeagueMember } from '@/utils/roster'
 import { errText } from '@/utils/request'
 import { useUserStore } from '@/store/user'
 import { SITE } from '@/utils/site'
+import { makeQrDataUrl } from '@/utils/qr'
 
 const emit = defineEmits(['saved'])
 const userStore = useUserStore()
@@ -277,75 +278,13 @@ function reset() {
   nameTouched.value = false
 }
 
-/** 加载一张图，失败就 reject（调用方决定怎么降级） */
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = reject
-    img.src = src
-  })
-}
-
-function roundedRect(ctx, x, y, width, height, radius) {
-  ctx.beginPath()
-  ctx.moveTo(x + radius, y)
-  ctx.arcTo(x + width, y, x + width, y + height, radius)
-  ctx.arcTo(x + width, y + height, x, y + height, radius)
-  ctx.arcTo(x, y + height, x, y, radius)
-  ctx.arcTo(x, y, x + width, y, radius)
-  ctx.closePath()
-}
-
-/**
- * 把链接画成大二维码，中间嵌校徽。
- *
- * 用最高纠错级别 H：中间那块白色校徽会遮住一部分码点，H 留的冗余足够扫。
- * 校徽加载失败就保留纯二维码，不能因为一张图让整个弹窗没有码。
- */
+/** 把链接画成带校徽的大二维码；画不出来就只保留链接 */
 async function makeQr(link) {
   if (!link) return
-
-  let plain
   try {
-    const QRCode = (await import('qrcode')).default
-    plain = await QRCode.toDataURL(link, {
-      width: 720,
-      margin: 1,
-      errorCorrectionLevel: 'H',
-      color: { dark: '#000000', light: '#ffffff' }
-    })
-    qrDataUrl.value = plain
+    qrDataUrl.value = await makeQrDataUrl(link, { logoUrl: SITE.logoUrl })
   } catch (e) {
     qrDataUrl.value = ''
-    return
-  }
-
-  try {
-    const [qrImage, logo] = await Promise.all([
-      loadImage(plain),
-      loadImage(SITE.logoUrl || '/logo.png').catch(() => null)
-    ])
-    if (!logo) return
-
-    const canvas = document.createElement('canvas')
-    canvas.width = 720
-    canvas.height = 720
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(qrImage, 0, 0, 720, 720)
-
-    // 白色圆角底 + 校徽：约占二维码 23%，在 H 级纠错的可恢复范围内
-    const box = 168
-    const left = (720 - box) / 2
-    ctx.fillStyle = '#ffffff'
-    roundedRect(ctx, left, left, box, box, 24)
-    ctx.fill()
-    const pad = 12
-    ctx.drawImage(logo, left + pad, left + pad, box - pad * 2, box - pad * 2)
-
-    qrDataUrl.value = canvas.toDataURL('image/png')
-  } catch (e) {
-    // 校徽加载/绘制失败：保留已经生成好的纯二维码
   }
 }
 
