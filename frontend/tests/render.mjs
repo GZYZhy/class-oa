@@ -2090,6 +2090,42 @@ console.log('\n▶ 请假与电动车：承诺语照抄表上原话，各加一�
   check((E.match(/class="confirm-item"/g) || []).length === 2,
     '电动车两个勾选项都挂着 confirm-item')
   check(hasWrap(E, 'confirm-item'), 'confirm-item 放开了 nowrap 和固定高度')
+
+  // 没有签字图时先手写：勾上「我确认签字」那一刻就弹，不用等点提交
+  for (const [name, src] of [['请假', L], ['电动车', E]]) {
+    check(src.includes('<QuickSignDialog ref="signGuard" />'),
+      `${name}：页面上挂了签字弹窗`)
+    check(/prop="signConfirmed"[\s\S]{0,220}@change="handleSignConfirmedChange"/.test(src),
+      `${name}：「我确认签字」的勾选框触发签名检查`)
+    check(/async function handleSignConfirmedChange\(value\)[\s\S]{0,180}form\.signConfirmed = false/.test(src),
+      `${name}：手写被取消时把勾去掉，不能留下一个假确认`)
+    check(src.includes('await signGuard.value?.ensure()'),
+      `${name}：提交前再兜底检查一次签字图`)
+    const guardAt = src.indexOf('signGuard.value?.ensure()')
+    check(guardAt > -1 && guardAt < src.indexOf('submitting.value = true'),
+      `${name}：先签完再开始上传材料`)
+  }
+
+  const quick = readFileSync(`${ROOT}/src/components/QuickSignDialog.vue`, 'utf8')
+  check(quick.includes('getMySignStatus') && quick.includes('if (uploaded) return true'),
+    '快捷手签先查 /my-status，已经有图就直接放行')
+  check(quick.includes('uploadSignImage') && quick.includes('if (!value) settle(false)'),
+    '签完走同一个上传接口；取消则中止提交')
+  check(quick.includes('还没有签名，请先手写一张'), '弹窗标题说清楚为什么要签')
+
+  // 真渲染一次：弹窗打开时确实是一块能写的签名板，签名人不是空的
+  const { html: quickHtml, warns: qw } = await renderPatched(
+    '/src/components/QuickSignDialog.vue',
+    'const visible = ref(false)',
+    `const visible = ref(true)
+  userStore.info = { name: '测试同学', student_no: '2026001' }`,
+    { ElDialog: ElDialogStub }
+  )
+  const qh = stripComments(quickHtml)
+  check(qh.includes('请在此处签名') && qh.includes('测试同学') &&
+    qh.includes('2026001'), '弹窗打开就是签名板，签名人和学号都对')
+  check(!qw.some((w) => /Failed to resolve (component|directive)/.test(w)),
+    '快捷手签没有未解析的组件/指令')
 }
 
 console.log('\n▶ 三个办件的顶部说明：办件详情、提交材料、办结材料一套写法')
