@@ -40,36 +40,6 @@
                   </div>
                   <p class="photos-tip">点击照片可放大查看</p>
 
-                  <!-- 签字图：本人只能上传，不能查看 / 下载 / 删除 —— 取图要班委申请、
-                       管理员批准，所以这里一个预览都不渲染，只显示「已上传 / 未上传」 -->
-                  <div class="sign-card">
-                    <div class="sign-card-head">
-                      <span class="section-title">签字图</span>
-                      <el-tag :type="mySign.uploaded ? 'success' : 'info'" size="small">
-                        {{ mySign.uploaded ? '已上传' : '未上传' }}
-                      </el-tag>
-                    </div>
-                    <p class="sign-card-tip">
-                      用于请假单等材料的落款。支持 JPG / JPEG / PNG / GIF / BMP / WebP，
-                      文件不超过 10MB；建议白纸黑字、横向拍摄，长宽比约 3:1
-                      （如 1200×400 像素），签名完整、背景干净。
-                      上传后本人不能查看、下载或删除；需要更换时重新上传即可。
-                    </p>
-                    <el-button type="primary" :loading="mySign.uploading" @click="pickSign">
-                      {{ mySign.uploading
-                        ? `上传中 ${mySign.progress}%`
-                        : (mySign.uploaded ? '重新上传' : '上传签字图') }}
-                    </el-button>
-                    <!-- 隐藏的文件框：选完立即上传，页面上不出现第二个「提交」按钮 -->
-                    <input
-                      ref="signInput"
-                      type="file"
-                      accept=".jpg,.jpeg,.png,.gif,.bmp,.webp"
-                      style="display: none"
-                      @change="handleSignPicked"
-                    />
-                  </div>
-
                   <el-descriptions :column="detailColumns" border style="margin-top: 16px;">
                     <el-descriptions-item label="学号">{{ me.student_no || '-' }}</el-descriptions-item>
                     <el-descriptions-item label="姓名">{{ me.name || '-' }}</el-descriptions-item>
@@ -161,6 +131,47 @@
                     </el-form-item>
                   </el-form>
                 </template>
+
+                <!-- 签字图：换签字图是学生自己的事，上传即生效，不走上面的审核流程。
+                     放在待审提示外面，有申请排队时也能换。
+                     本人只能上传，不能查看 / 下载 / 删除 —— 取图要班委申请、管理员批准，
+                     所以这里一个预览都不渲染，只显示「已上传 / 未上传」 -->
+                <el-divider content-position="left">签字图</el-divider>
+                <div class="sign-card">
+                  <div class="sign-card-head">
+                    <span class="section-title">签字图</span>
+                    <el-tag :type="mySign.uploaded ? 'success' : 'info'" size="small">
+                      {{ mySign.uploaded ? '已上传' : '未上传' }}
+                    </el-tag>
+                    <el-tag type="primary" size="small" effect="plain">上传即生效，无需审核</el-tag>
+                  </div>
+                  <p class="sign-card-tip">
+                    用于请假单等材料的落款。支持 JPG / JPEG / PNG / GIF / BMP / WebP，
+                    文件不超过 10MB；建议白纸黑字、横向拍摄，长宽比约 3:1
+                    （如 1200×400 像素），签名完整、背景干净。
+                    也可以在触摸屏上用「手写签名」现场写一张，会自动裁边、生成透明背景的 PNG。
+                    上传后管理员会收到一条提醒，方便核对图片能否使用；这只是提醒，不会卡住生效。
+                    本人不能查看、下载或删除；需要更换时重新上传即可。
+                  </p>
+                  <div class="sign-actions">
+                    <el-button type="primary" :loading="mySign.uploading" @click="pickSign">
+                      {{ mySign.uploading
+                        ? `上传中 ${mySign.progress}%`
+                        : (mySign.uploaded ? '重新上传' : '上传签字图') }}
+                    </el-button>
+                    <el-button :disabled="mySign.uploading" @click="signPadVisible = true">
+                      手写签名
+                    </el-button>
+                  </div>
+                  <!-- 隐藏的文件框：选完立即上传，页面上不出现第二个「提交」按钮 -->
+                  <input
+                    ref="signInput"
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.gif,.bmp,.webp"
+                    style="display: none"
+                    @change="handleSignPicked"
+                  />
+                </div>
               </div>
             </el-tab-pane>
 
@@ -634,6 +645,15 @@
       :initial-index="viewerIndex"
       @close="viewerVisible = false"
     />
+
+    <!-- 手写签名：和上传走同一个接口，签完立刻上传 -->
+    <SignaturePadDialog
+      v-model="signPadVisible"
+      :signer-name="me?.name"
+      :signer-no="me?.student_no"
+      :submitting="handSignSubmitting"
+      @confirm="handleHandSignConfirm"
+    />
   </div>
 </template>
 
@@ -674,6 +694,7 @@ import { getMySubmitted, getMyInvolved } from '@/api/workspace'
 import { getMyGrades } from '@/api/grade'
 import { getWebhookSetting } from '@/api/notifyChannels'
 import WebhookSetting from '@/components/WebhookSetting.vue'
+import SignaturePadDialog from '@/components/SignaturePadDialog.vue'
 import AccessTokenSetting from '@/components/AccessTokenSetting.vue'
 import AccountEventTag from '@/components/AccountEventTag.vue'
 import PasskeySetting from '@/components/PasskeySetting.vue'
@@ -760,6 +781,9 @@ const photoPreview = ref('')
 // 这里不保存任何图片地址 —— 后端也不给，学生端拿不到自己那张图
 const signInput = ref(null)
 const mySign = reactive({ uploaded: false, uploading: false, progress: 0 })
+// 手写签名弹窗。上传中同样锁住弹窗里的按钮，失败时留在预览页可以直接重试
+const signPadVisible = ref(false)
+const handSignSubmitting = ref(false)
 // 与后端 save_photo 的白名单 / 10MB 上限保持一致，先在浏览器拦一道，少一次往返
 const SIGN_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
 const SIGN_MAX_SIZE = 10 * 1024 * 1024
@@ -1046,6 +1070,28 @@ async function handleSignPicked(e) {
     ElMessage.error(e?.response?.data?.detail || '上传失败')
   } finally {
     mySign.uploading = false
+  }
+}
+
+/**
+ * 手写签名确认后上传。
+ *
+ * 和选图上传共用 /sign-photos/image/{id}：对学生来说都是「换掉自己那张签字图」，
+ * 后端按后缀白名单收图，所以这里一定要带 .png 的文件名。
+ */
+async function handleHandSignConfirm(blob) {
+  if (!me.value) return
+  handSignSubmitting.value = true
+  try {
+    const fileName = `sign-${me.value.student_no || me.value.id}.png`
+    await uploadSignImage(me.value.id, new File([blob], fileName, { type: 'image/png' }))
+    mySign.uploaded = true
+    signPadVisible.value = false
+    ElMessage.success('签字图已保存')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '上传失败')
+  } finally {
+    handSignSubmitting.value = false
   }
 }
 
@@ -1541,6 +1587,14 @@ onMounted(async () => {
   font-size: 12px;
   line-height: 1.7;
   color: var(--el-text-color-secondary);
+}
+
+/* 上传和手写两个入口并排；窄屏放不下就换行 */
+.sign-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .section-title {

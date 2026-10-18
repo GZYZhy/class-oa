@@ -88,10 +88,19 @@ class StudentResponse(StudentBase):
         from_attributes = True
 
 
+class StudentListItem(StudentResponse):
+    """列表项：比通用字段多一个「有没有签字图」
+
+    只暴露存在与否，不给文件名 —— 签字图本身仍然只能走审批查看。
+    批量签字工具靠它筛出还没签字的人，省得逐个查状态接口。
+    """
+    has_sign_photo: bool = False
+
+
 class StudentListResponse(BaseModel):
     """学生列表响应"""
     total: int
-    items: list[StudentResponse]
+    items: list[StudentListItem]
 
 
 class StudentCreateResponse(BaseModel):

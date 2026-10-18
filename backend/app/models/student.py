@@ -50,3 +50,8 @@ class Student(Base):
     # 照片那条链路是「班委看得见这个学生就能看他的照片」，签字要凭审批，
     # 混进去等于给签字开一条绕过审批的直通车。取图走 api/sign_photos.py
     sign_photo = Column(String(200), comment="签字图片路径")
+
+    @property
+    def has_sign_photo(self) -> bool:
+        """有没有签字图。只给「批量签字」筛人用，不暴露文件名 —— 看图仍要走审批"""
+        return bool(self.sign_photo)

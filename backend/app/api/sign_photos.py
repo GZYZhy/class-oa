@@ -376,6 +376,7 @@ def get_sign_image(
 @router.post("/image/{student_id}", summary="上传/替换签字图（管理员，或学生本人）")
 def upload_sign_image(
     student_id: int,
+    background: BackgroundTasks,
     file: UploadFile = File(..., description="签字图片"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -392,6 +393,8 @@ def upload_sign_image(
 
     换图之后**已批准的班委自动看到新图**，旧的有效期不作废 —— 权限是「看这个学生的
     签字」，不是「看这一版签字」。要作废得另说。
+
+    学生本人上传后会提醒管理员「确认一下」，但**不进入审批**：图已经生效。
     """
     student = get_student(db, student_id)
     if not student:
@@ -432,6 +435,19 @@ def upload_sign_image(
 
     if old_name and old_name != new_name:
         remove_photo(old_name)
+
+    # 学生本人换图后给管理员发条站内信，提醒看一眼 —— **只是确认，不是审批**：
+    # 图已经生效，学生可以立刻拿去用，管理员看到不对再另行处理（删图只有管理员能做）。
+    # 管理员代传、批量签字不提醒：那是管理员自己的操作，推给自己是纯噪音。
+    if is_self and not is_admin(user):
+        notify(
+            db, background,
+            recipients(db, roles=["admin"]),
+            "学生更换了签字图",
+            f"{student.name}（{student.student_no}）更换了自己的签字图，请确认是否可用",
+            level="timeSensitive",
+            page=f"/students?open={student.id}",
+        )
     return {"message": "签字图片已上传"}
 
 
