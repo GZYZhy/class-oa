@@ -6,7 +6,7 @@
     <div class="ck-card">
       <div class="ck-head">
         <img :src="SITE.logoUrl" class="ck-logo" alt="校徽" />
-        <h1 class="ck-site">{{ SITE.name }}</h1>
+        <h1 class="ck-site">{{ SITE.name }}｜签到</h1>
       </div>
 
       <div v-if="loading" class="ck-loading">正在读取签到信息…</div>
@@ -63,6 +63,21 @@
               签到将于 {{ formatDateTime(info.start_at) }} 开始，到时间后刷新本页即可签到
             </p>
           </div>
+        </div>
+
+        <!-- ---------- 已暂停：不收签到，等发布人恢复 ---------- -->
+        <div v-else-if="info.status === 'paused'" class="ck-actions">
+          <div v-if="info.signed_at" class="ck-center">
+            <p class="ck-tip ck-ok">
+              你已于 {{ formatDateTime(info.signed_at) }} 签到
+            </p>
+            <a href="#/my-info?tab=attendance">
+              <el-button size="large">查看考勤情况</el-button>
+            </a>
+          </div>
+          <p v-else class="ck-tip ck-center">
+            签到已暂停，等发布人恢复后才能签到
+          </p>
         </div>
 
         <!-- ---------- 进行中；或已结束但页面是截止前打开的（补签宽限） ---------- -->
@@ -199,14 +214,16 @@
               <el-button size="large">查看考勤情况</el-button>
             </a>
           </div>
-          <p v-else-if="!info.is_login" class="ck-tip">这次签到已经结束</p>
-          <p v-else-if="info.on_leave" class="ck-tip">
+          <p v-else-if="!info.is_login" class="ck-tip ck-center">这次签到已经结束</p>
+          <p v-else-if="info.on_leave" class="ck-tip ck-center">
             你没有签到，但截止时持有已批准的请假，记为「请假」
           </p>
-          <p v-else class="ck-tip ck-warn">你没有签到，记为「无应答」</p>
+          <p v-else class="ck-tip ck-center ck-warn">你没有签到，记为「无应答」</p>
         </div>
       </template>
     </div>
+    <!-- 和主布局共用同一个版权脚栏 -->
+    <SiteFooter class="ck-site-footer" />
   </div>
 </template>
 
@@ -215,6 +232,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
+import SiteFooter from '@/components/SiteFooter.vue'
 import { getCheckinPublic, signCheckin, uploadCheckinPhoto } from '@/api/checkin'
 import { compressImage } from '@/utils/imageCompress'
 import {
@@ -236,10 +254,12 @@ const info = ref(null)
 
 const statusText = computed(() => {
   if (info.value?.status === 'pending') return '未开始'
+  if (info.value?.status === 'paused') return '已暂停'
   return info.value?.status === 'ongoing' ? '进行中' : '已结束'
 })
 const statusTag = computed(() => {
   if (info.value?.status === 'pending') return 'warning'
+  if (info.value?.status === 'paused') return 'warning'
   return info.value?.status === 'ongoing' ? 'success' : 'info'
 })
 
@@ -516,11 +536,13 @@ function setOgMeta(property, content) {
 function applyShareMeta(data) {
   if (!data) return
   const title = data.title || '签到'
-  document.title = title
+  // 微信卡片 / 浏览器标题统一带「签到：」前缀
+  const cardTitle = title.startsWith('签到：') ? title : `签到：${title}`
+  document.title = cardTitle
   const tail = `应到 ${data.target_count} 人 · 截止 ${formatDateTime(data.end_at)}`
   const desc = data.remark ? `${data.remark}｜${tail}` : tail
   const pairs = {
-    'og:title': title,
+    'og:title': cardTitle,
     'og:description': desc,
     'og:type': 'website',
     'og:url': data.link || location.href,
@@ -554,11 +576,18 @@ onUnmounted(clearShareMeta)
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
   padding: 32px 12px;
   box-sizing: border-box;
   background: linear-gradient(135deg, #1f2d3d 0%, #2c3e50 55%, #3a5169 100%);
+}
+
+/* 脚栏铺满整个页面底部，抵消页面左右/底部的内边距 */
+.ck-site-footer {
+  width: calc(100% + 24px);
+  margin: auto -12px -32px;
 }
 
 .ck-card {

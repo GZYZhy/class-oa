@@ -119,11 +119,11 @@
                 已签 {{ row.signed_count }} / {{ row.target_count }}
               </span>
               <el-tag
-                :type="row.status === 'pending' ? 'warning' : 'success'"
+                :type="checkinStatusType(row.status)"
                 size="small"
                 class="at-tag"
               >
-                {{ row.status === 'pending' ? '未开始' : '进行中' }}
+                {{ checkinStatusLabel(row.status) }}
               </el-tag>
             </template>
           </template>
@@ -137,7 +137,7 @@
             <span v-else class="at-empty">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <div class="at-ops">
               <template v-if="row.type === 'attendance'">
@@ -149,6 +149,18 @@
                 <!-- 和刚发布完是同一个弹窗：链接 + 大二维码，方便再投屏或复制 -->
                 <el-button link type="primary" @click="createRef?.openShare(row)">链接</el-button>
                 <el-button link type="primary" @click="openCheckinDetail(row)">明细</el-button>
+                <el-button
+                  v-if="row.status === 'ongoing'"
+                  link
+                  type="warning"
+                  @click="handleTogglePauseCheckin(row)"
+                >暂停</el-button>
+                <el-button
+                  v-else-if="row.status === 'paused'"
+                  link
+                  type="success"
+                  @click="handleTogglePauseCheckin(row)"
+                >恢复</el-button>
                 <el-button link type="danger" @click="handleDeleteCheckin(row)">删除</el-button>
                 <!-- 未开始的也能取消：发布错了，按结束走同一条结算路径 -->
                 <el-button
@@ -246,7 +258,12 @@ import {
   updateAttendanceItem,
   updateAttendanceRemark
 } from '@/api/attendance'
-import { closeCheckin, deleteCheckin } from '@/api/checkin'
+import {
+  closeCheckin,
+  deleteCheckin,
+  pauseCheckin,
+  resumeCheckin
+} from '@/api/checkin'
 import { blobErrorDetail, downloadFile } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'
@@ -491,6 +508,51 @@ async function handleBatchDelete() {
  * 结束不是「关掉入口」这么简单：它会立刻生成考勤记录，之后就不能再签了。
  * 所以给一次确认，并说清后果
  */
+const CHECKIN_STATUS_LABELS = {
+  pending: '未开始',
+  paused: '已暂停',
+  ongoing: '进行中',
+  ended: '已结束'
+}
+const CHECKIN_STATUS_TYPES = {
+  pending: 'warning',
+  paused: 'warning',
+  ongoing: 'success',
+  ended: 'info'
+}
+
+function checkinStatusLabel(status) {
+  return CHECKIN_STATUS_LABELS[status] || status
+}
+
+function checkinStatusType(status) {
+  return CHECKIN_STATUS_TYPES[status] || 'info'
+}
+
+/** 暂停 / 恢复：暂停不是结束，恢复后还能接着签；到点没恢复会照常结算 */
+async function handleTogglePauseCheckin(row) {
+  const pausing = row.status === 'ongoing'
+  const tip = pausing
+    ? '暂停期间谁都不能签到；到截止时间还没恢复的话，会照常自动结束并结算。'
+    : '恢复后范围内的人又能接着签到。'
+  try {
+    await ElMessageBox.confirm(
+      `${tip}确定${pausing ? '暂停' : '恢复'}「${row.title}」吗？`,
+      pausing ? '暂停签到' : '恢复签到',
+      { type: 'warning', confirmButtonText: pausing ? '暂停' : '恢复', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await (pausing ? pauseCheckin : resumeCheckin)(row.id)
+    ElMessage.success(pausing ? '已暂停' : '已恢复')
+    fetchList()
+  } catch (e) {
+    ElMessage.error(errText(e, pausing ? '暂停失败' : '恢复失败'))
+  }
+}
+
 async function handleCloseCheckin(row) {
   try {
     await ElMessageBox.confirm(

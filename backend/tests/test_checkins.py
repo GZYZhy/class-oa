@@ -220,8 +220,8 @@ def test_share_page_carries_og_and_allows_crawlers(cb):
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("text/html")
     html = r.text
-    assert "<title>周六晚点名</title>" in html
-    assert '<meta property="og:title" content="周六晚点名">' in html
+    assert "<title>签到：周六晚点名</title>" in html
+    assert '<meta property="og:title" content="签到：周六晚点名">' in html
     assert 'name="robots" content="index,follow"' in html
     # 卡片描述里带上人数和截止时间，转发出去能看出是什么
     assert "og:description" in html and "应到 1 人" in html
@@ -229,6 +229,84 @@ def test_share_page_carries_og_and_allows_crawlers(cb):
     assert f"/#/checkin?code={checkin['code']}" in html
     # 不存在的 code：和公开信息接口一样 404，不泄露「有这一场」
     assert cb.client.get("/api/checkins/share/does-not-exist").status_code == 404
+
+
+def test_pause_blocks_sign_and_resume_allows_it(cb):
+    """暂停期间不能签到；恢复后照常能签，重复暂停幂等"""
+    checkin = _create(cb, [PEOPLE[0][0]], title="暂停测试")
+
+    r = cb.client.post(f"/api/checkins/{checkin['id']}/pause")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "paused"
+    # 再点一次暂停：不报错，也不改暂停时刻
+    assert cb.client.post(f"/api/checkins/{checkin['id']}/pause").json()["status"] == "paused"
+
+    _login(cb, PEOPLE[0][0])
+    data = cb.client.get(f"/api/checkins/public/{checkin['code']}").json()
+    assert data["status"] == "paused"
+    assert data["can_sign"] is False
+    r = _sign(cb, checkin["code"])
+    assert r.status_code == 400
+    assert "暂停" in r.json()["detail"]
+
+    _as_admin(cb)
+    r = cb.client.post(f"/api/checkins/{checkin['id']}/resume")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ongoing"
+
+    _login(cb, PEOPLE[0][0])
+    assert _sign(cb, checkin["code"]).status_code == 200
+
+
+def test_paused_checkin_still_settles_at_end(cb):
+    """暂停中到了截止时间：照常结算，不会因为锁着就永远挂着"""
+    checkin = _create(cb, [PEOPLE[0][0]], title="暂停到点")
+    assert cb.client.post(f"/api/checkins/{checkin['id']}/pause").status_code == 200
+    _force_end(cb, checkin["id"])
+
+    data = cb.client.get(f"/api/checkins/public/{checkin['code']}").json()
+    assert data["status"] == "ended"
+    overview = cb.client.get("/api/attendance/overview").json()
+    row = next(i for i in overview["items"] if i["type"] == "checkin")
+    assert row["status"] == "ended"
+
+    # 恢复是无条件的（和投票 unlock 一样），但状态早已是已结束
+    r = cb.client.post(f"/api/checkins/{checkin['id']}/resume")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ended"
+
+
+def test_pause_rejects_pending_and_ended(cb):
+    pending = _create(
+        cb, [PEOPLE[0][0]], title="未开始",
+        start_at=_end_at(20), end_at=_end_at(40),
+    )
+    r = cb.client.post(f"/api/checkins/{pending['id']}/pause")
+    assert r.status_code == 400
+    assert "进行中" in r.json()["detail"]
+
+    ended = _create(cb, [PEOPLE[0][0]], title="已结束")
+    _force_end(cb, ended["id"])
+    cb.client.get(f"/api/checkins/public/{ended['code']}")
+    r = cb.client.post(f"/api/checkins/{ended['id']}/pause")
+    assert r.status_code == 400
+
+
+def test_share_page_works_before_and_after_end(cb):
+    """未开始 / 已结束的签到，转发出去的微信卡片也要正常"""
+    pending = _create(
+        cb, [PEOPLE[0][0]], title="未开始签到",
+        start_at=_end_at(20), end_at=_end_at(40),
+    )
+    r = cb.client.get(f"/api/checkins/share/{pending['code']}")
+    assert r.status_code == 200, r.text
+    assert '<meta property="og:title" content="签到：未开始签到">' in r.text
+
+    ended = _create(cb, [PEOPLE[0][0]], title="已经结束的签到")
+    _force_end(cb, ended["id"])
+    r = cb.client.get(f"/api/checkins/share/{ended['code']}")
+    assert r.status_code == 200, r.text
+    assert '<meta property="og:title" content="签到：已经结束的签到">' in r.text
 
 
 def test_location_radius_bounds_and_default(cb):
@@ -478,6 +556,13 @@ def test_location_radius_and_distance(cb):
     checkin = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]], location=loc)
     code = checkin["code"]
     assert checkin["location"]["radius_m"] == 100
+
+    # 考勤列表也要带上分享弹窗重新打开时需要的备注与要求
+    overview = cb.client.get("/api/attendance/overview").json()
+    row = next(i for i in overview["items"] if i["type"] == "checkin")
+    assert row["remark"] == "宿舍区集合"
+    assert row["require_photo"] is False
+    assert row["location"]["radius_m"] == 100
 
     _login(cb, PEOPLE[0][0])
     # 没带坐标直接拒

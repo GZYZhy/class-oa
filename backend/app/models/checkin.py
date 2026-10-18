@@ -44,6 +44,9 @@ class Checkin(Base):
     start_at = Column(DateTime, index=True, comment="开始时间，可空 = 发布即可签")
     end_at = Column(DateTime, index=True, comment="截止时间")
     closed_at = Column(DateTime, comment="提前结束的时刻，可空")
+    # 「暂停」不是结束：只是暂时不收签到，恢复后还能继续签。
+    # 暂停期间到了截止时间照样自动结束并结算（状态判断里 end_at 排在它前面）。
+    paused_at = Column(DateTime, nullable=True, comment="暂停的时刻，空=没暂停")
 
     require_photo = Column(Boolean, default=False, comment="是否要求上传一张照片")
 

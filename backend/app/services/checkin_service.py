@@ -17,6 +17,7 @@ from ..models import AttendanceItem, AttendanceRecord, Checkin, CheckinTarget, L
 
 CHECKIN_PENDING = "pending"
 CHECKIN_ONGOING = "ongoing"
+CHECKIN_PAUSED = "paused"
 CHECKIN_ENDED = "ended"
 
 # 签到照片单独一个目录，不和学生照片/请假证明混在一起。
@@ -29,11 +30,13 @@ EARTH_RADIUS_M = 6371000
 
 
 def checkin_status(checkin: Checkin, now: datetime | None = None) -> str:
-    """未开始 / 进行中 / 已结束
+    """未开始 / 进行中 / 已暂停 / 已结束
 
     `finalized_at` 优先于时间判断：提前结束的签到 closed_at 已经落了，
     再怎么等也不会重新变成进行中。
     `start_at` 为空 = 老数据（发布即可签），不做开始时间判断。
+    **暂停排在截止之后**：暂停只是暂时不收签到，不是把终点推后；到点了
+    照样自动结束并结算，锁着不放不会让这场签到永远挂着。
     """
     if checkin.finalized_at is not None:
         return CHECKIN_ENDED
@@ -42,6 +45,8 @@ def checkin_status(checkin: Checkin, now: datetime | None = None) -> str:
         return CHECKIN_ENDED
     if checkin.start_at is not None and now < checkin.start_at:
         return CHECKIN_PENDING
+    if checkin.paused_at is not None:
+        return CHECKIN_PAUSED
     return CHECKIN_ONGOING
 
 

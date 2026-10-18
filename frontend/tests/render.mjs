@@ -4681,7 +4681,7 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
     '勾选后才能批量删除')
   check(pageSrc.includes('batchDeleteAttendance') && pageSrc.includes('clearSelection'),
     '批量删除后清空勾选')
-  check(pageSrc.includes('label="操作" width="220"'), '操作列收窄，按钮不折行')
+  check(pageSrc.includes('label="操作" width="300"'), '操作列放得下链接、明细、暂停、删除等按钮')
   check(!pageSrc.includes('handleCheckinRemark'),
     '签到的改备注挪进明细，列表上少一个按钮')
 
@@ -4812,6 +4812,8 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
     checkinSrc.includes('restorePhotoToken'), '照片凭证按签到 code 暂存，刷新后能恢复')
   check(checkinSrc.includes("detail.includes('已签到')") && checkinSrc.includes('await load()'),
     '「已签到」的 400 按成功处理并刷新状态')
+  check(/class="ck-tip ck-center">这次签到已经结束/.test(checkinSrc),
+    '已结束的提示语居中')
 
   // 已结束 + 有有效请假 → 记为请假
   const { html: ended } = await renderPatched(
@@ -4988,6 +4990,29 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
   check(create.includes('label="地点展示名"'), '地点名称那一项叫「地点展示名」')
 }
 
+console.log('\n▶ 签到暂停：暂停中到点照常结算')
+{
+  const api = readFileSync(`${ROOT}/src/api/checkin.js`, 'utf8')
+  check(api.includes('/checkins/${id}/pause') && api.includes('/checkins/${id}/resume'),
+    '前端有暂停 / 恢复接口')
+
+  const att = readFileSync(`${ROOT}/src/views/Attendance.vue`, 'utf8')
+  check(att.includes('handleTogglePauseCheckin') &&
+    att.includes('>暂停</el-button>') && att.includes('>恢复</el-button>'),
+  '考勤列表提供暂停 / 恢复')
+  check(att.includes("paused: '已暂停'") && att.includes("ended: '已结束'"),
+    '列表状态能显示已暂停 / 已结束')
+
+  const pub = readFileSync(`${ROOT}/src/views/Checkin.vue`, 'utf8')
+  check(pub.includes("info.status === 'paused'") &&
+    pub.includes('签到已暂停，等发布人恢复后才能签到'),
+  '签到页暂停时不给签到表单，只说明等恢复')
+
+  const detail = readFileSync(`${ROOT}/src/components/CheckinDetailDialog.vue`, 'utf8')
+  check(detail.includes("detail.status === 'paused' ? '已暂停'"),
+    '明细弹窗也认得已暂停')
+}
+
 console.log('\n▶ 签到：发布结果页带大二维码，列表「链接」重新打开它')
 {
   const createSrc = readFileSync(`${ROOT}/src/components/CheckinCreateDialog.vue`, 'utf8')
@@ -4996,6 +5021,10 @@ console.log('\n▶ 签到：发布结果页带大二维码，列表「链接」�
   check(/await import\('qrcode'\)/.test(createSrc), '二维码按需加载 qrcode，不进首屏')
   check(/class="cc-qr"/.test(createSrc) && /width:\s*340px/.test(createSrc),
     '结果页展示一个大号二维码，适合投屏')
+  check(createSrc.includes("errorCorrectionLevel: 'H'") &&
+    createSrc.includes('drawImage(logo') && createSrc.includes('roundedRect'),
+  '二维码中间嵌校徽（高纠错 + 白色圆角底）')
+  check(createSrc.includes('SITE.logoUrl'), '校徽地址走站点配置')
   check(createSrc.includes('function openShare(row)') &&
     createSrc.includes('defineExpose({ open, openShare })'),
   '弹窗对外提供 openShare，用来重新打开已有签到的分享页')
@@ -5019,13 +5048,19 @@ console.log('\n▶ 签到：发布结果页带大二维码，列表「链接」�
   visible.value = true
   justCreated.value = true
   created.value = {
-    title: '周六晚点名', target_count: 5, link: 'https://example.com/share',
+    title: '周六晚点名', remark: '宿舍区集合', require_photo: true,
+    location: { lat: 39.9, lng: 116.4, radius_m: 500, name: '一公寓门口' },
+    target_count: 5, link: 'https://example.com/share',
     start_at: null, end_at: '2026-10-19T19:30:00'
   }`,
     { ElDialog: ElDialogStub }
   )
   const text = stripComments(html)
-  check(text.includes('签到已发布') && text.includes('复制'), '结果页有「签到已发布」和「复制」')
+  check(text.includes('签到：周六晚点名') && text.includes('复制'),
+    '结果页第一行是「签到：标题」，旁边有复制')
+  check(text.includes('宿舍区集合'), '有备注时显示在标题下面')
+  check(text.includes('在「一公寓门口」500 米范围内') && text.includes('上传一张照片'),
+    '备注下面列出签到要求')
   check(/class="cc-qr"/.test(html), '结果页真渲染出二维码')
   check(!text.includes('投屏后让同学用微信扫一扫') &&
     !text.includes('把下面的链接或二维码发到群里') &&
@@ -5097,11 +5132,18 @@ console.log('\n▶ 公开页缓存与分享卡片')
     'robots 只对签到分享页放开抓取')
 
   const checkin = readFileSync(`${ROOT}src/views/Checkin.vue`, 'utf8')
-  check(checkin.includes('function applyShareMeta') && checkin.includes("'og:title': title"),
-    '签到页把签到标题写进 OG 标签')
+  check(checkin.includes('function applyShareMeta') && checkin.includes("'og:title': cardTitle") &&
+    checkin.includes("`签到：${title}`"), '签到页把带「签到：」前缀的标题写进 OG 标签')
+  check(checkin.includes('{{ SITE.name }}｜签到'), '签到页顶部显示「站名｜签到」')
+  check(checkin.includes('<SiteFooter'), '签到页复用全站底栏')
+  const footer = readFileSync(`${ROOT}/src/components/SiteFooter.vue`, 'utf8')
+  check(footer.includes('COPYRIGHT_HTML'), '底栏组件渲染版权信息')
+  check(readFileSync(`${ROOT}/src/components/AppLayout.vue`, 'utf8').includes('<SiteFooter />'),
+    '主布局也用同一个底栏组件')
   check(checkin.includes("robots.setAttribute('content', 'index,follow')"),
     '签到页把 robots 改成允许抓取')
-  check(checkin.includes('document.title = title'), '签到页标题使用签到标题')
+  check(checkin.includes('document.title = cardTitle') &&
+    checkin.includes("`签到：${title}`"), '签到页标题带「签到：」前缀')
 }
 
 console.log('\n▶ 签到定位：高精度失败后自动降级，权限拒绝不降级')

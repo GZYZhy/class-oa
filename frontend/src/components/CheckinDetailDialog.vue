@@ -10,10 +10,12 @@
     <div v-loading="loading" class="cd-body">
       <div class="cd-meta">
         <el-tag
-          :type="detail.status === 'pending' ? 'warning' : detail.status === 'ongoing' ? 'success' : 'info'"
+          :type="detail.status === 'pending' || detail.status === 'paused' ? 'warning' : detail.status === 'ongoing' ? 'success' : 'info'"
           size="small"
         >
-          {{ detail.status === 'pending' ? '未开始' : detail.status === 'ongoing' ? '进行中' : '已结束' }}
+          {{ detail.status === 'pending' ? '未开始'
+            : detail.status === 'paused' ? '已暂停'
+              : detail.status === 'ongoing' ? '进行中' : '已结束' }}
         </el-tag>
         <span class="cd-sub">
           {{ detail.created_by_name }} 发布于 {{ formatDateTime(detail.created_at) }}

@@ -11,8 +11,17 @@
     <div v-if="created" class="cc-done">
       <el-result
         icon="success"
-        :title="justCreated ? '签到已发布' : (created.title || '签到链接')"
-      />
+        :title="createdTitle"
+      >
+        <template v-if="created.remark" #sub-title>
+          {{ created.remark }}
+        </template>
+      </el-result>
+      <!-- 签到要求：和学生打开链接看到的是同一套口径 -->
+      <ul v-if="createdRequirements.length" class="cc-req-list">
+        <li v-for="(item, i) in createdRequirements" :key="i">{{ item }}</li>
+      </ul>
+      <p v-else class="cc-req-list cc-req-empty">无需定位和照片，确认到场即可</p>
       <div class="cc-link">
         <el-input :model-value="created.link" readonly />
         <el-button type="primary" @click="copyText(created.link)">复制</el-button>
@@ -164,6 +173,7 @@ import { formatDateTime } from '@/utils/format'
 import { isLeagueMember } from '@/utils/roster'
 import { errText } from '@/utils/request'
 import { useUserStore } from '@/store/user'
+import { SITE } from '@/utils/site'
 
 const emit = defineEmits(['saved'])
 const userStore = useUserStore()
@@ -219,6 +229,21 @@ const iAmOutOfScope = computed(() => {
   return !!myNo && form.targets.length > 0 && !form.targets.includes(myNo)
 })
 
+/** 结果页第一行：统一带「签到：」前缀，标题本身已经带了就不重复加 */
+const createdTitle = computed(() => {
+  const title = created.value?.title || '签到'
+  return title.startsWith('签到：') ? title : `签到：${title}`
+})
+
+/** 结果页的签到要求，和签到页上的要求同一个口径 */
+const createdRequirements = computed(() => {
+  const items = []
+  const loc = created.value?.location
+  if (loc) items.push(`在「${loc.name || '指定地点'}」${loc.radius_m} 米范围内`)
+  if (created.value?.require_photo) items.push('上传一张照片')
+  return items
+})
+
 function open() {
   Object.assign(form, blankForm())
   roster.value = []
@@ -252,18 +277,75 @@ function reset() {
   nameTouched.value = false
 }
 
-/** 把链接画成大二维码。画不出来不影响复制链接，所以失败时静默 */
+/** 加载一张图，失败就 reject（调用方决定怎么降级） */
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+}
+
+function roundedRect(ctx, x, y, width, height, radius) {
+  ctx.beginPath()
+  ctx.moveTo(x + radius, y)
+  ctx.arcTo(x + width, y, x + width, y + height, radius)
+  ctx.arcTo(x + width, y + height, x, y + height, radius)
+  ctx.arcTo(x, y + height, x, y, radius)
+  ctx.arcTo(x, y, x + width, y, radius)
+  ctx.closePath()
+}
+
+/**
+ * 把链接画成大二维码，中间嵌校徽。
+ *
+ * 用最高纠错级别 H：中间那块白色校徽会遮住一部分码点，H 留的冗余足够扫。
+ * 校徽加载失败就保留纯二维码，不能因为一张图让整个弹窗没有码。
+ */
 async function makeQr(link) {
   if (!link) return
+
+  let plain
   try {
     const QRCode = (await import('qrcode')).default
-    qrDataUrl.value = await QRCode.toDataURL(link, {
+    plain = await QRCode.toDataURL(link, {
       width: 720,
       margin: 1,
-      errorCorrectionLevel: 'M'
+      errorCorrectionLevel: 'H',
+      color: { dark: '#000000', light: '#ffffff' }
     })
+    qrDataUrl.value = plain
   } catch (e) {
     qrDataUrl.value = ''
+    return
+  }
+
+  try {
+    const [qrImage, logo] = await Promise.all([
+      loadImage(plain),
+      loadImage(SITE.logoUrl || '/logo.png').catch(() => null)
+    ])
+    if (!logo) return
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 720
+    canvas.height = 720
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(qrImage, 0, 0, 720, 720)
+
+    // 白色圆角底 + 校徽：约占二维码 23%，在 H 级纠错的可恢复范围内
+    const box = 168
+    const left = (720 - box) / 2
+    ctx.fillStyle = '#ffffff'
+    roundedRect(ctx, left, left, box, box, 24)
+    ctx.fill()
+    const pad = 12
+    ctx.drawImage(logo, left + pad, left + pad, box - pad * 2, box - pad * 2)
+
+    qrDataUrl.value = canvas.toDataURL('image/png')
+  } catch (e) {
+    // 校徽加载/绘制失败：保留已经生成好的纯二维码
   }
 }
 
@@ -442,6 +524,23 @@ defineExpose({ open, openShare })
 
 .cc-done {
   padding: 0 12px 8px;
+}
+
+/* 结果页的要求列表：和签到页一样逐条编号，宽度收窄便于阅读 */
+.cc-req-list {
+  max-width: 420px;
+  margin: 0 auto 12px;
+  padding-left: 22px;
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.cc-req-empty {
+  padding-left: 0;
+  text-align: center;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
 
 .cc-link {

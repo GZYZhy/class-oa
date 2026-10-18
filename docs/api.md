@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.17.25，共 259 个接口。
+> 版本 1.17.25，共 261 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -27,7 +27,7 @@
 - 修改申请（6）
 - 请假申请（16）
 - 考勤记录（11）
-- 签到（12）
+- 签到（14）
 - 意见反馈（8）
 - 未读红点（1）
 - 电动车通行证（17）
@@ -1719,6 +1719,40 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 - `200` `CheckinPublicResponse` — 成功
   - 字段：`code`、`title`、`remark`、`status`、`created_by_name`、`created_at`、`start_at`、`end_at`、`require_photo`、`location`、`target_count`、`link`、`is_login`、`is_target`、`can_sign`、`grace_until`、`signed_at`、`my_distance_m`、`on_leave`
+
+### 暂停签到（班委及以上）
+
+`POST /api/checkins/{checkin_id}/pause`
+
+暂停收签到。**暂停不是结束**：恢复后照样能签；到截止时间还没恢复则照常自动结束
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `checkin_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CheckinDetailResponse` — 成功
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`start_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
+
+### 恢复签到（班委及以上）
+
+`POST /api/checkins/{checkin_id}/resume`
+
+恢复收签到。 和投票一样**不判当前状态、无条件清空**：暂停中过了截止时间的签到， 这时候状态已经是「已结束」了，按状态判会回一句「没有暂停」；清掉没副作用。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `checkin_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CheckinDetailResponse` — 成功
+  - 字段：`id`、`code`、`title`、`status`、`created_by_name`、`created_at`、`start_at`、`end_at`、`target_count`、`signed_count`、`link`、`remark`、`require_photo`、`location`、`created_by_no`、`closed_at`、`finalized_at`、`attendance_record_id`、`targets`
 
 ### 提前结束签到（班委及以上）
 
@@ -4462,5 +4496,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "1.17.21"}
+{"status": "ok", "app": "班级信息管理系统", "version": "1.17.25"}
 ```
