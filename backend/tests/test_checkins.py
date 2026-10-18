@@ -231,6 +231,28 @@ def test_share_page_carries_og_and_allows_crawlers(cb):
     assert cb.client.get("/api/checkins/share/does-not-exist").status_code == 404
 
 
+def test_my_attendance_lists_only_my_checkins(cb):
+    """学生端考勤情况：有自己那一行的签到才出现，结算后也不重复成两条"""
+    checkin = _create(cb, [PEOPLE[0][0]])
+
+    _login(cb, PEOPLE[0][0])
+    data = cb.client.get("/api/attendance/mine").json()
+    assert data["total"] == 1
+    row = data["items"][0]
+    assert (row["type"], row["category"], row["status_label"]) == ("checkin", "签到", "未签到")
+    assert row["scope"] == "1人"
+
+    # 签完只圈了一个人，会立即结算；仍应只有签到这一行
+    assert _sign(cb, checkin["code"]).status_code == 200
+    data = cb.client.get("/api/attendance/mine").json()
+    assert data["total"] == 1
+    assert data["items"][0]["status_label"] == "到"
+
+    # 没被圈进范围的另一名学生看不到这次签到
+    _login(cb, PEOPLE[1][0])
+    assert cb.client.get("/api/attendance/mine").json()["total"] == 0
+
+
 def test_create_rejects_past_end_and_unknown_student(cb):
     past = datetime.now() - timedelta(minutes=1)
     r = cb.client.post("/api/checkins", json={

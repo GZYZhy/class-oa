@@ -63,6 +63,15 @@ export function getAttendanceOverview(params) {
 }
 
 /**
+ * 我的考勤情况（学生本人）：只包含自己参与的点名与签到
+ *
+ * 返回 { total, items }，每行带 category（点名/签到）、scope、status_label。
+ */
+export function getMyAttendance() {
+  return request({ url: '/attendance/mine', method: 'get' })
+}
+
+/**
  * 导出考勤记录（班委及以上）的下载地址
  *
  * 两种模式二选一：

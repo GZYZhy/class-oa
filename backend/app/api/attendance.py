@@ -19,7 +19,14 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import AttendanceItem, AttendanceRecord, Checkin, CheckinTarget, User
+from ..models import (
+    AttendanceItem,
+    AttendanceRecord,
+    Checkin,
+    CheckinTarget,
+    Student,
+    User,
+)
 from ..schemas import (
     AttendanceBatchDelete,
     AttendanceCreate,
@@ -29,9 +36,13 @@ from ..schemas import (
     AttendanceOverviewResponse,
     AttendanceRecordResponse,
     AttendanceRemarkUpdate,
+    MyAttendanceItem,
+    MyAttendanceListResponse,
 )
 from ..services import display_name, log_operation
 from ..services.checkin_service import (
+    CHECKIN_ENDED,
+    CHECKIN_PENDING,
     approved_leave_nos,
     checkin_status,
     finalize_due,
@@ -40,7 +51,7 @@ from ..services.checkin_service import (
 )
 from ..services.list_filters import keyword_like
 from ..utils.links import full_url
-from .deps import committee_required, get_client_ip
+from .deps import committee_required, get_client_ip, get_current_student
 
 router = APIRouter(prefix="/api/attendance", tags=["考勤记录"])
 
@@ -680,6 +691,161 @@ def create_attendance(
     db.commit()
     db.refresh(record)
     return _to_response(record, items)
+
+
+def _manual_scope_label(scope: str) -> str:
+    """点名的范围落库时是「共青团员」，学生端统一说「团员」"""
+    value = (scope or "").strip()
+    if value == "共青团员":
+        return "团员"
+    return value or "—"
+
+
+def _checkin_scope_label(db: Session, checkin_id: int, target_count: int) -> str:
+    """把签到的目标集合说成「全班 / 团员 / 班委 / N人」"""
+    total = db.query(Student).count()
+    if target_count and total and target_count >= total:
+        return "全班"
+    nos = [
+        no
+        for (no,) in db.query(CheckinTarget.student_no).filter(
+            CheckinTarget.checkin_id == checkin_id
+        )
+    ]
+    if not nos:
+        return "0人"
+    league = (
+        db.query(Student)
+        .filter(
+            Student.student_no.in_(nos),
+            Student.political_status == "共青团员",
+        )
+        .count()
+    )
+    if league == len(nos):
+        return "团员"
+    committee = (
+        db.query(User)
+        .filter(
+            User.student_no.in_(nos),
+            User.role.in_(("committee", "admin")),
+        )
+        .count()
+    )
+    if committee == len(nos):
+        return "班委"
+    return f"{len(nos)}人"
+
+
+@router.get(
+    "/mine",
+    response_model=MyAttendanceListResponse,
+    summary="我的考勤情况（学生本人）",
+)
+def my_attendance(
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    """当前学生参与的考勤（点名 + 签到），按时间倒序
+
+    只列「有自己那一行」的记录：点名看 attendance_items，签到看 checkin_targets。
+    签到结算后会生成一条普通考勤记录，那条不再单独列出 —— 一次签到始终只占一行。
+    """
+    finalize_due(db)
+    settled_ids = {
+        rid
+        for (rid,) in db.query(Checkin.attendance_record_id).filter(
+            Checkin.attendance_record_id.isnot(None)
+        )
+    }
+    items: list[MyAttendanceItem] = []
+
+    # ---------- 点名 ----------
+    rows = (
+        db.query(AttendanceItem, AttendanceRecord)
+        .join(AttendanceRecord, AttendanceRecord.id == AttendanceItem.record_id)
+        .filter(AttendanceItem.student_no == student.student_no)
+        .all()
+    )
+    for item, record in rows:
+        # 签到结算出来的那条考勤归到签到那一行，不重复展示
+        if record.id in settled_ids:
+            continue
+        occurred = record.called_at or datetime.combine(
+            record.call_date, datetime.min.time()
+        )
+        items.append(
+            MyAttendanceItem(
+                type="attendance",
+                id=record.id,
+                occurred_at=occurred,
+                title=(record.remark or "").strip() or "点名",
+                category="点名",
+                scope=_manual_scope_label(record.scope),
+                status=item.status or "",
+                status_label=STATUS_LABELS.get(item.status or "", item.status or ""),
+            )
+        )
+
+    # ---------- 签到 ----------
+    targets = (
+        db.query(CheckinTarget, Checkin)
+        .join(Checkin, Checkin.id == CheckinTarget.checkin_id)
+        .filter(CheckinTarget.student_no == student.student_no)
+        .all()
+    )
+    for target, checkin in targets:
+        # 请假判定看截止（含提前结束）那一刻；列表上的「考勤时间」用签到开始的时间
+        reference = checkin.closed_at or checkin.end_at
+        occurred = checkin.start_at or checkin.created_at or reference
+        state = checkin_status(checkin)
+
+        # 已结算的以考勤明细为准（班委可能改过状态），没结算的才按签到事实推
+        final_status = None
+        if checkin.attendance_record_id:
+            final = (
+                db.query(AttendanceItem)
+                .filter(
+                    AttendanceItem.record_id == checkin.attendance_record_id,
+                    AttendanceItem.student_no == student.student_no,
+                )
+                .first()
+            )
+            final_status = final.status if final else None
+
+        if final_status:
+            code = final_status
+            label = STATUS_LABELS.get(final_status, final_status)
+        elif target.signed_at:
+            code, label = "present", "到"
+        elif state == CHECKIN_ENDED:
+            on_leave = approved_leave_nos(db, [student.student_no], reference)
+            code, label = ("leave", "请假") if on_leave else ("absent", "无应答")
+        elif state == CHECKIN_PENDING:
+            code, label = "pending", "未开始"
+        else:
+            code, label = "unsigned", "未签到"
+
+        target_count = (
+            db.query(CheckinTarget)
+            .filter(CheckinTarget.checkin_id == checkin.id)
+            .count()
+        )
+        items.append(
+            MyAttendanceItem(
+                type="checkin",
+                id=checkin.id,
+                occurred_at=occurred,
+                title=(checkin.title or "").strip() or "签到",
+                category="签到",
+                scope=_checkin_scope_label(db, checkin.id, target_count),
+                status=code,
+                status_label=label,
+            )
+        )
+
+    items.sort(key=lambda row: row.occurred_at or datetime.min, reverse=True)
+    return MyAttendanceListResponse(total=len(items), items=items)
 
 
 @router.get("/{record_id}", response_model=AttendanceRecordResponse, summary="考勤详情（班委及以上）")

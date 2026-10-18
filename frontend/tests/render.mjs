@@ -338,6 +338,27 @@ console.log('\n▶ 我的成绩：位次、通过制、标记词、未录入')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
 }
 
+console.log('\n▶ 考勤情况：我的信息页新增 tab，只列自己的考勤')
+{
+  const my = readFileSync(`${ROOT}/src/views/MyInfo.vue`, 'utf8')
+  check(my.includes('label="考勤情况"') && my.includes('name="attendance"'),
+    '我的信息页有「考勤情况」tab')
+  check(my.includes("const known = ['info', 'grades', 'attendance', 'account', 'workspace']"),
+    'URL 参数认识 attendance')
+  check(my.includes("if (val === 'attendance') fetchMyAttendance()"),
+    '切到这个 tab 才拉数据')
+  check(my.includes('getMyAttendance') && my.includes('attendanceLoading'),
+    '接上了自己的考勤接口与加载状态')
+  check(/label="考勤情况"[\s\S]{0,600}<Watermark :text="watermarkText"/.test(my),
+    '考勤情况页盖水印')
+  check(my.includes('label="考勤时间"') && my.includes('label="考勤标题"') &&
+    my.includes('label="考勤类型"') && my.includes('label="参与范围"') &&
+    my.includes('label="我的出勤"'), '五个字段都在表里')
+  check(my.includes('attendanceTag(row.status)'), '出勤状态按颜色区分')
+  const api = readFileSync(`${ROOT}/src/api/attendance.js`, 'utf8')
+  check(api.includes("url: '/attendance/mine'"), '走自己的考勤接口')
+}
+
 console.log('\n▶ 我的档案：三张照片，自备证件照在里面')
 {
   // records 留空 → pending 为空 → 「申请修改」那一格渲染表单而不是「有待审」的提示
@@ -4747,7 +4768,8 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
     inject({ is_login: true, is_target: true, signed_at: '2026-10-18T19:05:00' })
   )
   check(stripComments(signed).includes('你已于 2026-10-18 19:05 签到'), '签过了就显示签到时间')
-  check(stripComments(signed).includes('回首页'), '签完后给一个回首页的按钮')
+  check(stripComments(signed).includes('查看考勤情况'), '签完后给一个去考勤情况的按钮')
+  check(signed.includes('#/my-info?tab=attendance'), '「查看考勤情况」跳自己的考勤页')
 
   // 已结束 + 有有效请假 → 记为请假
   const { html: ended } = await renderPatched(

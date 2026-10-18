@@ -88,6 +88,8 @@ from .attendance import (
     AttendanceItemIn,
     AttendanceItemResponse,
     AttendanceItemUpdate,
+    MyAttendanceItem,
+    MyAttendanceListResponse,
     AttendanceListResponse,
     AttendanceOverviewItem,
     AttendanceOverviewResponse,

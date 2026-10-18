@@ -82,7 +82,9 @@
                 ，距签到地点约 {{ info.my_distance_m }} 米
               </template>
             </p>
-            <a href="#/"><el-button size="large">回首页</el-button></a>
+            <a href="#/my-info?tab=attendance">
+              <el-button size="large">查看考勤情况</el-button>
+            </a>
           </div>
 
           <!-- ---------- 签到表单（就在页面里） ---------- -->
@@ -177,7 +179,9 @@
             <p class="ck-tip ck-ok">
               你已于 {{ formatDateTime(info.signed_at) }} 签到，记为「到」
             </p>
-            <a href="#/"><el-button size="large">回首页</el-button></a>
+            <a href="#/my-info?tab=attendance">
+              <el-button size="large">查看考勤情况</el-button>
+            </a>
           </div>
           <p v-else-if="!info.is_login" class="ck-tip">这次签到已经结束</p>
           <p v-else-if="info.on_leave" class="ck-tip">

@@ -269,6 +269,42 @@
           </div>
         </el-tab-pane>
 
+        <!-- 考勤情况：只列出有自己那一行的点名和签到 -->
+        <el-tab-pane v-if="!userStore.isExternal" label="考勤情况" name="attendance">
+          <div class="wm-host">
+            <Watermark :text="watermarkText" />
+            <div v-loading="attendanceLoading" class="workspace-list">
+              <el-table
+                v-if="attendanceList.length"
+                :data="attendanceList"
+                size="small"
+                stripe
+                border
+                style="width: 100%;"
+              >
+                <el-table-column label="考勤时间" width="160">
+                  <template #default="{ row }">{{ formatDateTime(row.occurred_at) }}</template>
+                </el-table-column>
+                <el-table-column prop="title" label="考勤标题" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="category" label="考勤类型" width="100" align="center" />
+                <el-table-column prop="scope" label="参与范围" width="110" align="center" />
+                <el-table-column label="我的出勤" width="110" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="attendanceTag(row.status)" size="small">
+                      {{ row.status_label }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty
+                v-if="!attendanceLoading && !attendanceList.length"
+                description="还没有考勤记录"
+                style="margin-top: 20px;"
+              />
+            </div>
+          </div>
+        </el-tab-pane>
+
         <!-- 账户设置：改密码 + 通知设置，所有登录用户都能看到 -->
         <el-tab-pane label="账户设置" name="account">
           <!-- 账户设置内部再分三个子 tab。原来是一长条滚动页，加了 webhook 和邮件
@@ -698,6 +734,7 @@ import { useUserStore } from '@/store/user'
 import { rankOf } from '@/utils/roles'
 import { getMySubmitted, getMyInvolved } from '@/api/workspace'
 import { getMyGrades } from '@/api/grade'
+import { getMyAttendance } from '@/api/attendance'
 import { getWebhookSetting } from '@/api/notifyChannels'
 import WebhookSetting from '@/components/WebhookSetting.vue'
 import SignaturePadDialog from '@/components/SignaturePadDialog.vue'
@@ -737,10 +774,10 @@ const activeTab = ref('info')
 watch(
   () => route.query.tab,
   (val) => {
-    // 域外账号没有「基本信息」和「我的成绩」——这两块都挂在学生身份上，
-    // 带 ?tab=grades 进来若放行，pane 是 v-if 掉的、内容区空白，还会白拉一次接口吃 403
-    const known = ['info', 'grades', 'account', 'workspace']
-    const hidden = (val === 'info' || val === 'grades') && userStore.isExternal
+    // 域外账号没有「基本信息」「我的成绩」「考勤情况」——这些都挂在学生身份上，
+    // 带 ?tab=grades 之类进来若放行，pane 是 v-if 掉的、内容区空白，还会白拉一次接口吃 403
+    const known = ['info', 'grades', 'attendance', 'account', 'workspace']
+    const hidden = (val === 'info' || val === 'grades' || val === 'attendance') && userStore.isExternal
     if (known.includes(val) && !hidden) {
       activeTab.value = val
     } else {
@@ -928,6 +965,31 @@ async function fetchMyGrades() {
   }
 }
 
+// ---------- 考勤情况 ----------
+
+const attendanceList = ref([])
+const attendanceLoading = ref(false)
+
+/** 出勤状态的颜色：到绿、请假橙、无应答红，还没签到的灰 */
+function attendanceTag(status) {
+  if (status === 'present') return 'success'
+  if (status === 'leave') return 'warning'
+  if (status === 'absent') return 'danger'
+  return 'info'
+}
+
+async function fetchMyAttendance() {
+  attendanceLoading.value = true
+  try {
+    const data = await getMyAttendance()
+    attendanceList.value = data?.items || []
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '加载失败')
+  } finally {
+    attendanceLoading.value = false
+  }
+}
+
 async function fetchSubmitted() {
   submittedLoading.value = true
   try {
@@ -969,6 +1031,7 @@ watch(
     }
     if (val === 'account') fetchMyLogs()
     if (val === 'grades') fetchMyGrades()
+    if (val === 'attendance') fetchMyAttendance()
   },
   { immediate: true }
 )
