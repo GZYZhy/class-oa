@@ -1,22 +1,33 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="发布签到"
+    :title="created ? (justCreated ? '签到已发布' : '签到链接') : '发布签到'"
     width="720px"
     :close-on-click-modal="false"
     @closed="reset"
   >
-    <!-- 发布成功后整个弹窗换成「链接 + 复制」，避免有人以为还要再点一次 -->
+    <!-- 发布成功 / 从考勤列表重新打开：整块换成「链接 + 二维码 + 复制」，
+         避免有人以为还要再点一次 -->
     <div v-if="created" class="cc-done">
-      <el-result icon="success" title="签到已发布">
+      <el-result
+        icon="success"
+        :title="justCreated ? '签到已发布' : (created.title || '签到链接')"
+      >
         <template #sub-title>
-          范围内的 {{ created.target_count }} 名同学已收到站内信。
-          把下面的链接发到群里，同学打开就能签到
+          <template v-if="justCreated">
+            范围内的 {{ created.target_count }} 名同学已收到站内信。
+          </template>
+          把下面的链接或二维码发到群里，同学打开就能签到
         </template>
       </el-result>
       <div class="cc-link">
         <el-input :model-value="created.link" readonly />
-        <el-button type="primary" @click="copyText(created.link)">链接</el-button>
+        <el-button type="primary" @click="copyText(created.link)">复制</el-button>
+      </div>
+      <!-- 投屏用的大二维码：同学在教室里直接扫，不用再去找链接 -->
+      <div v-if="qrDataUrl" class="cc-qr-wrap">
+        <img :src="qrDataUrl" class="cc-qr" alt="签到二维码" />
+        <p class="cc-qr-tip">投屏后让同学用微信扫一扫，或直接打开上面的链接</p>
       </div>
       <p class="cc-tip">
         {{ created.start_at ? `${formatDateTime(created.start_at)} 开始，` : '' }}截止
@@ -172,6 +183,10 @@ const rosterLoading = ref(false)
 const roster = ref([])
 /** 发布成功后的详情（带 link）。非空时弹窗显示结果页 */
 const created = ref(null)
+/** true = 刚发布成功；false = 从考勤列表重新打开的分享弹窗 */
+const justCreated = ref(false)
+/** 大二维码（data URL）。生成失败就只显示链接，不影响复制 */
+const qrDataUrl = ref('')
 /** 地图选点；和表单里的 radius/name 分开存，MapPicker 只认坐标 */
 const point = ref(null)
 /** 手动改过地点名之后，反查回来的地址不再覆盖它 */
@@ -218,9 +233,20 @@ function open() {
   roster.value = []
   point.value = null
   created.value = null
+  justCreated.value = false
+  qrDataUrl.value = ''
   nameTouched.value = false
   visible.value = true
   fetchRoster()
+}
+
+/** 从考勤列表的「链接」按钮打开：同一场签到的分享页，不再走表单 */
+function openShare(row) {
+  justCreated.value = false
+  created.value = { ...row }
+  qrDataUrl.value = ''
+  visible.value = true
+  makeQr(row.link)
 }
 
 function reset() {
@@ -228,7 +254,24 @@ function reset() {
   roster.value = []
   point.value = null
   created.value = null
+  justCreated.value = false
+  qrDataUrl.value = ''
   nameTouched.value = false
+}
+
+/** 把链接画成大二维码。画不出来不影响复制链接，所以失败时静默 */
+async function makeQr(link) {
+  if (!link) return
+  try {
+    const QRCode = (await import('qrcode')).default
+    qrDataUrl.value = await QRCode.toDataURL(link, {
+      width: 720,
+      margin: 1,
+      errorCorrectionLevel: 'M'
+    })
+  } catch (e) {
+    qrDataUrl.value = ''
+  }
 }
 
 async function fetchRoster() {
@@ -304,6 +347,8 @@ async function handleSubmit() {
   submitting.value = true
   try {
     created.value = await createCheckin(payload)
+    justCreated.value = true
+    makeQr(created.value.link)
     ElMessage.success('签到已发布')
     emit('saved')
   } catch (e) {
@@ -313,7 +358,7 @@ async function handleSubmit() {
   }
 }
 
-defineExpose({ open })
+defineExpose({ open, openShare })
 </script>
 
 <style scoped>
@@ -414,5 +459,27 @@ defineExpose({ open })
 .cc-done .cc-tip {
   margin-top: 14px;
   text-align: center;
+}
+
+/* 投屏用：尽量大，但别在手机上顶出弹窗 */
+.cc-qr-wrap {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.cc-qr {
+  width: 340px;
+  max-width: 82vw;
+  padding: 12px;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+}
+
+.cc-qr-tip {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 </style>

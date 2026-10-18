@@ -146,7 +146,8 @@
                 <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
               </template>
               <template v-else>
-                <el-button link type="primary" @click="copyText(row.link)">链接</el-button>
+                <!-- 和刚发布完是同一个弹窗：链接 + 大二维码，方便再投屏或复制 -->
+                <el-button link type="primary" @click="createRef?.openShare(row)">链接</el-button>
                 <el-button link type="primary" @click="openCheckinDetail(row)">明细</el-button>
                 <el-button link type="danger" @click="handleDeleteCheckin(row)">删除</el-button>
                 <!-- 未开始的也能取消：发布错了，按结束走同一条结算路径 -->
@@ -246,7 +247,6 @@ import {
   updateAttendanceRemark
 } from '@/api/attendance'
 import { closeCheckin, deleteCheckin } from '@/api/checkin'
-import { copyText } from '@/utils/clipboard'
 import { blobErrorDetail, downloadFile } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'

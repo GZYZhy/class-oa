@@ -192,7 +192,8 @@ def test_create_returns_code_and_link(cb):
 
     assert code and len(code) >= 10
     base = str(cb.client.base_url).rstrip("/")
-    assert checkin["link"] == f"{base}/#/checkin?code={code}"
+    # 分享地址走服务端渲染的分享页（微信抓得到 OG），再把浏览器带到 hash 路由
+    assert checkin["link"] == f"{base}/api/checkins/share/{code}"
     assert checkin["status"] == "ongoing"
     assert checkin["target_count"] == 2
     assert checkin["signed_count"] == 0
@@ -209,6 +210,25 @@ def test_create_returns_code_and_link(cb):
     })
     assert r.status_code == 403, r.text
     assert cb.client.get("/api/checkins").status_code == 403
+
+
+def test_share_page_carries_og_and_allows_crawlers(cb):
+    """分享地址是真实路径，微信爬虫能读到标题；浏览器再跳到签到页"""
+    checkin = _create(cb, [PEOPLE[0][0]], title="周六晚点名")
+    r = cb.client.get(f"/api/checkins/share/{checkin['code']}")
+
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("text/html")
+    html = r.text
+    assert "<title>周六晚点名</title>" in html
+    assert '<meta property="og:title" content="周六晚点名">' in html
+    assert 'name="robots" content="index,follow"' in html
+    # 卡片描述里带上人数和截止时间，转发出去能看出是什么
+    assert "og:description" in html and "应到 1 人" in html
+    # 浏览器最终落到真正的签到页
+    assert f"/#/checkin?code={checkin['code']}" in html
+    # 不存在的 code：和公开信息接口一样 404，不泄露「有这一场」
+    assert cb.client.get("/api/checkins/share/does-not-exist").status_code == 404
 
 
 def test_create_rejects_past_end_and_unknown_student(cb):

@@ -241,12 +241,16 @@ export SITE_NAME SITE_SHORT_NAME SITE_SUBTITLE SITE_COLLEGE SITE_MAJOR SITE_FOOT
 export AMAP_JS_KEY="${AMAP_JS_KEY:-}"
 export AMAP_SECURITY_CODE="${AMAP_SECURITY_CODE:-}"
 
-# 白名单只列这 7 个 SITE_*、HEAD_INJECT 和两个 AMAP_*，页面里别的 $ 一律不动。
+# 校徽地址。下面复制完最终校徽后会改成带内容哈希的 /assets/logo-xxxx.png，
+# 让登录页、签到页这些公开页可以长期缓存；先给一个安全的默认值。
+export SITE_LOGO_URL="${SITE_LOGO_URL:-/logo.png}"
+
+# 白名单只列这几个 SITE_*、HEAD_INJECT 和两个 AMAP_*，页面里别的 $ 一律不动。
 # 先写 .tmp 再 mv：envsubst 中途失败也不会把 index.html 截断成半个文件
 # （此时 nginx 还没启动，也不会有人请求到 .tmp）。
 render_brand() {
     # $1=源文件  $2=输出文件
-    if envsubst '${SITE_NAME} ${SITE_SHORT_NAME} ${SITE_SUBTITLE} ${SITE_COLLEGE} ${SITE_MAJOR} ${SITE_FOOTER} ${SITE_DESCRIPTION} ${HEAD_INJECT} ${AMAP_JS_KEY} ${AMAP_SECURITY_CODE}' \
+    if envsubst '${SITE_NAME} ${SITE_SHORT_NAME} ${SITE_SUBTITLE} ${SITE_COLLEGE} ${SITE_MAJOR} ${SITE_FOOTER} ${SITE_DESCRIPTION} ${SITE_LOGO_URL} ${HEAD_INJECT} ${AMAP_JS_KEY} ${AMAP_SECURITY_CODE}' \
         < "$1" \
         > "$2.tmp"; then
         mv -f "$2.tmp" "$2"
@@ -339,6 +343,22 @@ if [ -d "$BRANDING_DIR" ]; then
                 echo "[品牌] 已使用自定义 icons/$(basename "$IMG")"
             fi
         done
+    fi
+fi
+
+# ==================== 校徽的长期缓存地址 ====================
+# /logo.png 本身必须 no-cache（换校徽后老访客要立刻看到），但登录页、签到页
+# 只是展示这张图，不该每次访问都回源。这里按文件内容算一个哈希，复制成
+# /assets/logo-<hash>.png —— 这个路径命中下面那条 1 年 immutable 规则。
+# 换了 logo 重启后哈希变化，页面自然拿到新地址，不会一年都显示旧图。
+if [ -f "$WEBROOT/logo.png" ]; then
+    mkdir -p "$WEBROOT/assets"
+    LOGO_HASH="$(md5sum "$WEBROOT/logo.png" | cut -c1-10)"
+    if [ -n "$LOGO_HASH" ] && cp -f "$WEBROOT/logo.png" "$WEBROOT/assets/logo-${LOGO_HASH}.png"; then
+        export SITE_LOGO_URL="/assets/logo-${LOGO_HASH}.png"
+        # 前面渲染 site-config.js 时最终校徽还没确定，这里用新地址再渲染一次
+        render_brand /etc/nginx/templates/site-config.js.template "$WEBROOT/site-config.js"
+        echo "[品牌] 校徽缓存地址：${SITE_LOGO_URL}"
     fi
 fi
 

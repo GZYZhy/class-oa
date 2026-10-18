@@ -1,5 +1,7 @@
 <template>
   <div class="grade">
+    <!-- 全班成绩都在这一页，盖一层「谁在什么时候看的」 -->
+    <Watermark :text="watermarkText" />
     <div class="page-card">
       <h3 class="page-title">成绩管理</h3>
       <div class="gd-bar">
@@ -77,22 +79,25 @@
 
     <!-- 改测试信息。日期该成哪天、备注写什么，都是录完才发现要改的 -->
     <el-dialog v-model="editVisible" title="修改测试信息" width="480px">
-      <el-form label-width="88px">
-        <el-form-item label="测试名称">
-          <el-input v-model="editForm.name" maxlength="100" />
-        </el-form-item>
-        <el-form-item label="测试日期">
-          <el-date-picker
-            v-model="editForm.tested_at"
-            type="date"
-            value-format="YYYY-MM-DD"
-            style="width: 180px"
-          />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="editForm.remark" type="textarea" :rows="3" maxlength="2000" />
-        </el-form-item>
-      </el-form>
+      <div class="wm-host">
+        <Watermark :text="watermarkText" />
+        <el-form label-width="88px">
+          <el-form-item label="测试名称">
+            <el-input v-model="editForm.name" maxlength="100" />
+          </el-form-item>
+          <el-form-item label="测试日期">
+            <el-date-picker
+              v-model="editForm.tested_at"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 180px"
+            />
+          </el-form-item>
+          <el-form-item label="备注">
+            <el-input v-model="editForm.remark" type="textarea" :rows="3" maxlength="2000" />
+          </el-form-item>
+        </el-form>
+      </div>
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" :loading="editLoading" @click="handleEditSave">保存</el-button>
@@ -110,7 +115,10 @@ import { errText } from '@/utils/request'
 import GradeDetailDialog from '@/components/GradeDetailDialog.vue'
 import GradeImportDialog from '@/components/GradeImportDialog.vue'
 import GradeStatsDialog from '@/components/GradeStatsDialog.vue'
+import Watermark from '@/components/Watermark.vue'
+import { useWatermark } from '@/composables/useWatermark'
 
+const watermarkText = useWatermark()
 const loading = ref(false)
 const rows = ref([])
 const total = ref(0)
@@ -210,6 +218,12 @@ async function handleDelete(row) {
 </script>
 
 <style scoped>
+/* 水印的定位基准 */
+.grade,
+.wm-host {
+  position: relative;
+}
+
 .gd-bar {
   display: flex;
   align-items: center;

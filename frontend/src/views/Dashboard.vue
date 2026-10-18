@@ -3,7 +3,7 @@
     <!-- 欢迎横幅：品牌信息都集中在这一块 —— 班级简称 + 一句副标题 + 学院/专业两个标签。
          配色是写死的紫蓝渐变，**刻意不跟深色模式**（同顶栏那个白底校徽） -->
     <div class="welcome-banner">
-      <img src="/logo.png" class="banner-logo" alt="校徽" />
+      <img :src="SITE.logoUrl" class="banner-logo" alt="校徽" />
       <div class="banner-text">
         <h1>欢迎来到{{ SITE.shortName }}</h1>
         <p v-if="SITE.subtitle" class="banner-subtitle">{{ SITE.subtitle }}</p>

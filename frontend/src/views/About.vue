@@ -3,7 +3,7 @@
     <!-- 班级概况 -->
     <div class="page-card">
       <div class="about-header">
-        <img src="/logo.png" class="about-logo" alt="校徽" />
+        <img :src="SITE.logoUrl" class="about-logo" alt="校徽" />
         <div>
           <h2 style="margin: 0 0 6px 0;">{{ SITE.shortName }}</h2>
           <p style="margin: 0; color: var(--el-text-color-secondary); font-size: 14px;">

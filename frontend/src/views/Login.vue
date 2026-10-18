@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-card">
       <div class="login-head">
-        <img src="/logo.png" class="login-logo" alt="校徽" />
+        <img :src="SITE.logoUrl" class="login-logo" alt="校徽" />
         <h1 class="login-title">{{ SITE.name }}</h1>
         <p class="login-sub">{{ SITE.subtitle }}</p>
       </div>

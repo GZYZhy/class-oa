@@ -5,7 +5,7 @@
   <div class="checkin-page">
     <div class="ck-card">
       <div class="ck-head">
-        <img src="/logo.png" class="ck-logo" alt="校徽" />
+        <img :src="SITE.logoUrl" class="ck-logo" alt="校徽" />
         <h1 class="ck-site">{{ SITE.name }}</h1>
       </div>
 
@@ -191,7 +191,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
@@ -275,6 +275,7 @@ async function load() {
   // 弱网下少一个来回。真需要用户存储的页面（登录后的布局）挂载时会自己拉
   try {
     info.value = await getCheckinPublic(route.query.code)
+    applyShareMeta(info.value)
     // 能签且要求定位：进页面就去要位置，少点一次「获取位置」
     if (info.value.can_sign && info.value.location) locate()
   } catch (e) {
@@ -364,6 +365,7 @@ async function handleSubmit() {
       lng: position.value?.lng,
       photoToken: photoToken.value
     })
+    applyShareMeta(info.value)
     ElMessage.success('签到成功')
   } catch (e) {
     ElMessage.error(errText(e, '签到失败'))
@@ -372,7 +374,58 @@ async function handleSubmit() {
   }
 }
 
+// ---------- 分享卡片：<head> 里的 OG 标签 ----------
+// 真链接是后端的 /api/checkins/share/{code}（服务端先把 OG 写给微信爬虫）；
+// 这里再补一份，给会执行 JS 的客户端，以及从站内信直接进到 hash 页的情况。
+const OG_FLAG = 'data-checkin-og'
+let originalRobots = null
+
+function setOgMeta(property, content) {
+  let el = document.head.querySelector(`meta[property="${property}"][${OG_FLAG}]`)
+  if (!el) {
+    el = document.createElement('meta')
+    el.setAttribute('property', property)
+    el.setAttribute(OG_FLAG, '1')
+    document.head.appendChild(el)
+  }
+  el.setAttribute('content', content)
+}
+
+/** 标题固定用签到标题：转发出去的卡片就是这一场的名字 */
+function applyShareMeta(data) {
+  if (!data) return
+  const title = data.title || '签到'
+  document.title = title
+  const tail = `应到 ${data.target_count} 人 · 截止 ${formatDateTime(data.end_at)}`
+  const desc = data.remark ? `${data.remark}｜${tail}` : tail
+  const pairs = {
+    'og:title': title,
+    'og:description': desc,
+    'og:type': 'website',
+    'og:url': data.link || location.href,
+    'og:site_name': SITE.name,
+    'og:image': new URL(SITE.logoUrl, location.origin).href,
+    'og:locale': 'zh_CN'
+  }
+  for (const [key, value] of Object.entries(pairs)) setOgMeta(key, value)
+
+  // 全站默认 noindex；签到分享页要允许抓取，离开时恢复
+  const robots = document.head.querySelector('meta[name="robots"]')
+  if (robots) {
+    if (originalRobots === null) originalRobots = robots.getAttribute('content') || ''
+    robots.setAttribute('content', 'index,follow')
+  }
+}
+
+function clearShareMeta() {
+  document.querySelectorAll(`meta[${OG_FLAG}]`).forEach((el) => el.remove())
+  const robots = document.head.querySelector('meta[name="robots"]')
+  if (robots && originalRobots !== null) robots.setAttribute('content', originalRobots)
+  originalRobots = null
+}
+
 onMounted(load)
+onUnmounted(clearShareMeta)
 </script>
 
 <style scoped>
