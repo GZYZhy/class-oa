@@ -107,6 +107,7 @@
                 <el-dropdown-menu>
                   <el-dropdown-item command="edit">编辑</el-dropdown-item>
                   <el-dropdown-item command="roster">投票名单</el-dropdown-item>
+                  <el-dropdown-item command="share">分享</el-dropdown-item>
                   <!-- 一个入口两用，文案跟着状态走。暂停不是结束：解锁后照样能投 -->
                   <el-dropdown-item command="toggleLock" :disabled="!canToggleLock(row)">
                     {{ row.status === 'locked' ? '恢复投票' : '暂停投票' }}
@@ -339,14 +340,16 @@
     </el-dialog>
 
     <PollCreateDialog ref="createRef" @saved="handleSaved" />
+    <VoteShareDialog v-model="shareVisible" :link="shareLink" />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PollCreateDialog from '@/components/PollCreateDialog.vue'
+import VoteShareDialog from '@/components/VoteShareDialog.vue'
 import Watermark from '@/components/Watermark.vue'
 import {
   closePoll,
@@ -361,6 +364,7 @@ import {
   votePoll as submitVote
 } from '@/api/vote'
 import { useWatermark } from '@/composables/useWatermark'
+import { SITE } from '@/utils/site'
 import { errText } from '@/utils/request'
 import { formatDateTime } from '@/utils/format'
 import {
@@ -402,6 +406,8 @@ const votePoll = ref({})
 /** 我的勾选：{题目 ID: 下标数组}。单选也存数组，两种题型提交时形状一致 */
 const draft = reactive({})
 
+const shareVisible = ref(false)
+const shareLink = ref('')
 const resultVisible = ref(false)
 const resultLoading = ref(false)
 const resultPoll = ref({})
@@ -452,6 +458,7 @@ function handleSizeChange() {
 /** 打开投票弹窗。preloaded 是深链那条路径已经取到的详情，省一次请求 */
 async function openVote(row, preloaded = null) {
   voteVisible.value = true
+  applyPollShareMeta(row)
   Object.keys(draft).forEach((key) => delete draft[key])
   if (preloaded) {
     fillVote(preloaded)
@@ -470,6 +477,7 @@ async function openVote(row, preloaded = null) {
 
 function fillVote(detail) {
   votePoll.value = detail
+  applyPollShareMeta(detail)
   ;(detail.questions || []).forEach((q) => {
     draft[q.id] = []
   })
@@ -549,6 +557,7 @@ async function refreshResult(silent = false) {
   try {
     const detail = await getPoll(id)
     resultPoll.value = detail
+    applyPollShareMeta(detail)
     ballots.value = detail.can_manage
       ? await getBallots(id)
       : { total: 0, voted_count: 0, rows: [] }
@@ -620,7 +629,56 @@ async function handleRemind() {
 
 // ---------- 管理动作 ----------
 
+/** 投票分享链接就是投票页本身，不另做公开分享页 */
+function voteShareLink(id) {
+  return `${window.location.origin}/#/vote?id=${id}`
+}
+
+// ---------- 分享卡片：投票页 <head> 里的 OG 标签 ----------
+const POLL_OG_FLAG = 'data-poll-og'
+
+function setPollOg(property, content) {
+  let el = document.head.querySelector(`meta[property="${property}"][${POLL_OG_FLAG}]`)
+  if (!el) {
+    el = document.createElement('meta')
+    el.setAttribute('property', property)
+    el.setAttribute(POLL_OG_FLAG, '1')
+    document.head.appendChild(el)
+  }
+  el.setAttribute('content', content)
+}
+
+/** 打开一场投票 / 分享时，把标题和说明写进 OG，微信转发尽量带出投票信息 */
+function applyPollShareMeta(poll) {
+  if (!poll?.id) return
+  const title = `投票：${poll.title || '投票表决'}`
+  document.title = title
+  const pairs = {
+    'og:title': title,
+    'og:description': poll.description || '班级投票表决',
+    'og:type': 'website',
+    'og:url': voteShareLink(poll.id),
+    'og:site_name': SITE.name,
+    'og:image': new URL(SITE.logoUrl, window.location.origin).href,
+    'og:locale': 'zh_CN'
+  }
+  for (const [key, value] of Object.entries(pairs)) setPollOg(key, value)
+}
+
+function clearPollShareMeta() {
+  document.querySelectorAll(`meta[${POLL_OG_FLAG}]`).forEach((el) => el.remove())
+  document.title = `投票表决 - ${SITE.shortName}`
+}
+
+/** 「管理 → 分享」：链接 + 复制 + 二维码，不额外生成分享页 */
+function openShare(row) {
+  applyPollShareMeta(row)
+  shareLink.value = voteShareLink(row.id)
+  shareVisible.value = true
+}
+
 function handleCommand(command, row) {
+  if (command === 'share') return openShare(row)
   if (command === 'edit') return handleEdit(row)
   if (command === 'roster') return openDetail(row, 'roster')
   if (command === 'toggleLock') return handleToggleLock(row)
@@ -754,6 +812,15 @@ onMounted(async () => {
 })
 
 onUnmounted(stopPolling)
+onUnmounted(clearPollShareMeta)
+
+// 两个详情弹窗和分享弹窗都关掉后，标题和 OG 回到列表页
+watch(
+  [voteVisible, resultVisible, shareVisible],
+  ([vote, result, share]) => {
+    if (!vote && !result && !share) clearPollShareMeta()
+  }
+)
 </script>
 
 <style scoped>
