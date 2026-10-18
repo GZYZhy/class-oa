@@ -98,10 +98,15 @@
             <!-- 地点在上面的要求里已经写明，这里只报本人位置，不重复地点名 -->
             <div v-if="info.location" class="ck-line">
               <span class="ck-label">我的位置</span>
-              <template v-if="locating">定位中…</template>
+              <template v-if="locating">
+                {{ locatingStage === GEO_STAGE_LOW ? '正在尝试低精度定位…' : '定位中…' }}
+              </template>
               <template v-else-if="position">
                 <span :class="{ 'ck-warn': !withinRadius }">
                   距签到地点约 {{ distance }} 米（允许 {{ info.location.radius_m }} 米）
+                  <template v-if="position.accuracy">
+                    · 精度约 {{ position.accuracy }} 米
+                  </template>
                 </span>
               </template>
               <span v-else class="ck-warn">还没有定位</span>
@@ -109,8 +114,17 @@
                 {{ position ? '重新定位' : '获取位置' }}
               </el-button>
             </div>
+            <p v-if="locateError" class="ck-tip ck-warn">{{ locateError }}</p>
             <p v-if="position && !withinRadius" class="ck-tip ck-warn">
-              当前位置超出允许范围，请到签到地点附近再试
+              <template v-if="accuracyPoor">
+                可能因室内定位偏差，先到窗边或地面重新定位再试
+              </template>
+              <template v-else>
+                当前位置超出允许范围，请到签到地点附近再试
+              </template>
+            </p>
+            <p v-else-if="position && accuracyPoor" class="ck-tip ck-warn">
+              室内定位可能有偏差，建议到窗边或地面再试一次
             </p>
 
             <template v-if="info.require_photo">
@@ -203,7 +217,11 @@ import { ElMessage } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
 import { getCheckinPublic, signCheckin, uploadCheckinPhoto } from '@/api/checkin'
 import { compressImage } from '@/utils/imageCompress'
-import { distanceMeters, getCurrentLocation } from '@/utils/geolocation'
+import {
+  GEO_STAGE_LOW,
+  distanceMeters,
+  getCurrentLocationStaged
+} from '@/utils/geolocation'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'
 import { SITE } from '@/utils/site'
@@ -237,6 +255,10 @@ const requirements = computed(() => {
 // 签到表单的状态。签到成功后整块被「已签到」替换，这些值不用再清
 const position = ref(null)
 const locating = ref(false)
+// 定位进行到哪一步：高精度失败后会降到低精度，页面上要说一声
+const locatingStage = ref('')
+// 两步都失败时的常驻提示。toast 会消失，室内/地下室的用户需要一直看到该怎么换位置
+const locateError = ref('')
 // 照片选中就上传：photoFile 是压缩后的文件，photoToken 是上传成功拿到的凭证
 const photoFile = ref(null)
 const photoName = ref('')
@@ -266,6 +288,18 @@ const withinRadius = computed(() => {
   if (!loc) return true
   if (distance.value == null) return false
   return distance.value <= loc.radius_m
+})
+
+/**
+ * 定位精度是否差到值得提醒。阈值取「100 米」和「半径的一半」中更小的那个：
+ * 半径 100 米时，精度 60 米就已经很粗了；半径 500 米时，100 米以内还算能接受。
+ * 只用于提示，不参与能不能签到的判断。
+ */
+const accuracyPoor = computed(() => {
+  const accuracy = position.value?.accuracy || 0
+  const radius = info.value?.location?.radius_m || 0
+  if (!accuracy || !radius) return false
+  return accuracy > Math.min(100, radius / 2)
 })
 
 // ---------- 照片凭证的本地暂存 ----------
@@ -357,13 +391,22 @@ async function load({ retry = true } = {}) {
 
 async function locate() {
   locating.value = true
+  locatingStage.value = ''
+  locateError.value = ''
   try {
-    position.value = await getCurrentLocation()
+    position.value = await getCurrentLocationStaged((stage) => {
+      locatingStage.value = stage
+    })
   } catch (e) {
     position.value = null
-    ElMessage.error(e?.message || '定位失败，请重试')
+    // 权限被拒和「信号弱」要分开说：前者去设置里开权限，后者换位置重试
+    locateError.value = e?.code === 1
+      ? (e.message || '定位权限被拒绝')
+      : '暂时获取不到位置。地下室或室内深处信号可能太弱，请到地面、窗边或楼门口重试。'
+    ElMessage.error(locateError.value)
   } finally {
     locating.value = false
+    locatingStage.value = ''
   }
 }
 
