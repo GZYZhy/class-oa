@@ -1052,7 +1052,7 @@ def test_overview_merges_rollcall_and_checkin(cb):
     assert chk["title"] == "晚点名"
     assert chk["status"] == "ended"
     assert chk["time"] is not None
-    assert chk["link"].endswith(checkin["code"])
+    assert chk["link"].endswith(f"/api/checkins/share/{checkin['code']}")
     # 结算后人数就是标准四计数：签到的算到，没签的算无应答
     assert (chk["total"], chk["present"], chk["leave"], chk["absent"]) == (2, 1, 0, 1)
 
