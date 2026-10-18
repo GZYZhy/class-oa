@@ -1,16 +1,17 @@
-"""签字图：管理员上传，班委申请、管理员批准后才看得到
+"""签字图：学生本人上传自己的，也允许管理员代传；看要审批，删只有管理员
 
 签字和另外三张照片（高考照、实地采集、自备证件照）敏感度不在一个量级 —— 签字能
 被拿去伪造请假条和证明材料，所以不能沿用照片那条「班委看得见这个学生就能看他的
 照片」的规则，这里是一条完整的申请-审批链：
 
-    管理员上传（admin_required）
+    上传（学生本人，或管理员代传）
     → 班委申请（committee_required）
     → 管理员批准
     → **只有提出申请的那一个班委**在 1 小时内能取图；管理员自己不受限
 
-学生完全不参与：StudentResponse 里没有签字字段，取图接口对非班委一律 403，
-前端也只在 isCommittee 时才渲染那个按钮，学生端连「签字」两个字都不出现。
+**学生对本人的签字图只有「上传」这一项权限**：取图接口对非班委一律 403，删除接口
+只给管理员，状态接口只回一个「传没传」的布尔值（连文件名都不给）。学生页面上因此
+不渲染任何预览，只显示已上传 / 未上传。
 
 查看行为不写操作日志 —— operation_logs 的原则是「只记内容变更、不记查询」
 （见 models/file_access_log.py 的注释）。「谁被批准看谁的签字」由本表自身的
@@ -43,6 +44,7 @@ from .deps import (
     admin_required,
     committee_required,
     get_client_ip,
+    get_current_student,
     get_current_user,
     is_admin,
     is_committee,
@@ -233,6 +235,17 @@ def list_requests(
     return {"total": total, "items": items}
 
 
+@router.get("/my-status", summary="我自己的签字图状态（学生本人）")
+def my_sign_status(student: Student = Depends(get_current_student)):
+    """只回答「传没传」，**连文件名都不给**
+
+    学生可以上传自己的签字图，但不能查看、下载或删除，所以这里不能复用
+    /status/{student_id}（那条要班委且会返回 download_name）。页面只靠这个
+    布尔值决定按钮写「上传签字图」还是「重新上传」。
+    """
+    return {"uploaded": bool(student.sign_photo)}
+
+
 @router.get("/status/{student_id}", response_model=SignPhotoStatusResponse,
             summary="我对某学生签字的状态（班委及以上）")
 def sign_status(
@@ -360,15 +373,18 @@ def get_sign_image(
     return photo_response(student.sign_photo, cache="no-store")
 
 
-@router.post("/image/{student_id}", summary="上传/替换签字图（仅管理员）")
+@router.post("/image/{student_id}", summary="上传/替换签字图（管理员，或学生本人）")
 def upload_sign_image(
     student_id: int,
     file: UploadFile = File(..., description="签字图片"),
-    user: User = Depends(admin_required),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
-    """管理员传签字图。**前端编辑弹窗里不显示这张图**，只显示「已上传 / 未上传」
+    """管理员可以给任何学生传，学生只能传自己的。页面里都不显示这张图
+
+    权限判定只有两种放行情形：管理员；或当前账号就是这个学生本人。班委传别人的
+    一律 403 —— 「能看名单」不等于「能替人签字」。
 
     落盘顺序照项目既有约定：新文件先写盘 → 写库 → 提交成功后才删旧文件。任何一步
     失败，库里那行指向的文件都还在（宁可留一个没人引用的孤儿文件，也不能让档案
@@ -381,6 +397,12 @@ def upload_sign_image(
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
 
+    # 学生本人的判据是学号相等，且不能是域外账号 —— 域外账号的 student_no 是
+    # 管理员指定的登录名，理论上可能和某个学号撞上
+    is_self = not user.is_external and user.student_no == student.student_no
+    if not (is_admin(user) or is_self):
+        raise HTTPException(status_code=403, detail="只能上传自己的签字图")
+
     try:
         new_name = save_photo(file)
     except ValueError as e:
@@ -389,10 +411,14 @@ def upload_sign_image(
 
     old_name = student.sign_photo
     student.sign_photo = new_name
+    detail = "替换了原有签字" if old_name else ""
+    if is_self and not is_admin(user):
+        # 本人上传和「管理员代传」在日志里要分得开：事后查争议时这是关键信息
+        detail = f"{detail}（本人上传）" if detail else "本人上传"
     log_operation(
         db, user, "上传签字图片",
         target=f"{student.student_no} {student.name}",
-        detail="替换了原有签字" if old_name else "",
+        detail=detail,
         ip=ip,
         target_student_nos=[student.student_no],
     )

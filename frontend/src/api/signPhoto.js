@@ -4,7 +4,8 @@ import request, { progressHandler } from '@/utils/request'
  * 签字图相关接口（后端 api/sign_photos.py）
  *
  * 和另外三张照片不是一条链路：照片是「能看这个学生就能看」，签字是
- * 「班委申请 → 管理员批准 → 只有申请人在一小时内能看」，管理员自己不受限。
+ * 「学生本人（或管理员）上传 → 班委申请 → 管理员批准 → 只有申请人在一小时内能看」，
+ * 管理员自己不受限。学生对本人的签字图只能上传，不能查看 / 下载 / 删除。
  * 所以取图不在这里，图片走 request.js 的 blob 通道（见 utils/download.js 的 fetchBlob）。
  */
 
@@ -12,6 +13,18 @@ import request, { progressHandler } from '@/utils/request'
 export function getSignStatus(studentId) {
   return request({
     url: `/sign-photos/status/${studentId}`,
+    method: 'get'
+  })
+}
+
+/**
+ * 我自己的签字图状态（学生本人）：只返回 { uploaded: 布尔值 }
+ *
+ * 学生只有「上传」这一项权限，不能查看 / 下载 / 删除，所以这个接口连文件名都不给。
+ */
+export function getMySignStatus() {
+  return request({
+    url: '/sign-photos/my-status',
     method: 'get'
   })
 }
@@ -61,7 +74,7 @@ export function rejectSignRequest(id, reason) {
   })
 }
 
-/** 上传 / 替换签字图（仅管理员） */
+/** 上传 / 替换签字图（管理员可传任何学生，学生只能传自己的） */
 export function uploadSignImage(studentId, file, onProgress) {
   const formData = new FormData()
   formData.append('file', file)

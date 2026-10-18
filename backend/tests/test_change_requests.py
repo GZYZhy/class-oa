@@ -239,3 +239,68 @@ def test_dormitory_length_capped(cr):
     """长度上限跟 students.dormitory 的 String(50) 对齐"""
     assert submit_json(cr, {"dormitory": "x" * 51}).status_code == 422
     assert submit_json(cr, {"dormitory": "x" * 50}).status_code == 200
+
+
+# ---------- 身份证号：只补不改 ----------
+
+NO_ID = "2024000003"
+NO_ID_PW = "000003"   # 没有身份证号时默认密码退化成学号后 6 位
+ID_CARD = "11010120000101001x"
+
+
+def make_no_id_client(cr) -> httpx.Client:
+    """新建一个没有身份证号的学生并登录 —— 只有这种档案才允许申请补充"""
+    r = cr.b.client.post("/api/students", json={"student_no": NO_ID, "name": "丙"})
+    assert r.status_code < 300, r.text
+    c = httpx.Client(base_url=str(cr.b.client.base_url), timeout=10)
+    assert c.post("/api/auth/login", json={
+        "student_no": NO_ID, "password": NO_ID_PW,
+    }).status_code == 200
+    return c
+
+
+def db_id_card(b, no=NO_ID):
+    return b.rows("SELECT id_card FROM students WHERE student_no = ?", no)[0][0]
+
+
+def test_id_card_can_be_supplemented(cr):
+    """档案里没有身份证号时允许申请补充，通过后写进档案；末位 x 统一成大写"""
+    c = make_no_id_client(cr)
+    r = c.post("/api/change-requests", json={"id_card": ID_CARD})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["changes"]["id_card"] == ID_CARD.upper()
+    assert body["current"]["id_card"] is None, "原先没有，出参如实给 null"
+    assert db_id_card(cr.b) is None, "没通过之前不能写进档案"
+
+    assert cr.b.client.post(f"/api/change-requests/{body['id']}/approve").status_code == 200
+    assert db_id_card(cr.b) == ID_CARD.upper()
+
+    # 日志里只说「补了身份证号」，不落完整号码
+    detail = cr.b.rows("SELECT detail FROM operation_logs ORDER BY id DESC LIMIT 1")[0][0]
+    assert "补充了身份证号" in detail
+    assert ID_CARD.upper() not in detail
+
+
+def test_id_card_cannot_change_once_present(cr):
+    """档案里已有身份证号的，提交这一项直接 400 —— 前端藏输入框不算数"""
+    r = submit_json(cr, {"id_card": "110101200001010099"})
+    assert r.status_code == 400 and "已有身份证号" in r.json()["detail"]
+
+    # 班委审批前管理员补录了身份证号：这条申请也不能再通过，免得覆盖管理员的值
+    c = make_no_id_client(cr)
+    rid = c.post("/api/change-requests", json={"id_card": ID_CARD}).json()["id"]
+    cr.b.run("UPDATE students SET id_card = ? WHERE student_no = ?",
+             "11010120000202002X", NO_ID)
+
+    resp = cr.b.client.post(f"/api/change-requests/{rid}/approve")
+    assert resp.status_code == 400 and "已有值" in resp.json()["detail"]
+    assert db_id_card(cr.b) == "11010120000202002X", "管理员刚录的值不能被申请覆盖"
+
+
+def test_id_card_format_checked(cr):
+    """位数不对的号码在提交阶段就被挡掉，不留给班委去猜"""
+    c = make_no_id_client(cr)
+    assert c.post("/api/change-requests", json={"id_card": "123"}).status_code == 422
+    assert c.post("/api/change-requests", json={"id_card": ""}).status_code == 422
+    assert db_id_card(cr.b) is None
