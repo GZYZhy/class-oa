@@ -9,6 +9,7 @@
     @closed="reset"
   >
     <div v-loading="loading" class="gs-body">
+      <Watermark :text="watermarkText" />
       <div class="gs-meta">
         <span>{{ formatDate(stats?.tested_at) }}</span>
         <span class="gs-count">名单 {{ stats?.roster_count || 0 }} 人</span>
@@ -90,7 +91,10 @@ import { ElMessage } from 'element-plus'
 import { getGradeStats } from '@/api/grade'
 import { formatDate } from '@/utils/format'
 import { errText } from '@/utils/request'
+import Watermark from '@/components/Watermark.vue'
+import { useWatermark } from '@/composables/useWatermark'
 
+const watermarkText = useWatermark()
 const visible = ref(false)
 const loading = ref(false)
 const stats = ref(null)
@@ -127,7 +131,9 @@ defineExpose({ open })
 </script>
 
 <style scoped>
+/* 水印的定位基准 */
 .gs-body {
+  position: relative;
   min-height: 200px;
 }
 

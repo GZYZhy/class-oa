@@ -9,6 +9,7 @@
     @closed="reset"
   >
     <div v-loading="loading" class="gd-body">
+      <Watermark :text="watermarkText" />
       <div class="gd-meta">
         <span>{{ formatDate(data?.tested_at) }}</span>
         <span v-if="data?.remark" class="gd-remark">{{ data.remark }}</span>
@@ -105,31 +106,34 @@
   <!-- 改一科的形态 / 满分。做成小弹窗而不是行内改：改形态可能被后端挡回来，
        得有一行地方把「这科已有分数，不能改成通过制」这种话写清楚 -->
   <el-dialog v-model="settingVisible" title="科目设置" width="400px" append-to-body>
-    <el-form label-width="72px">
-      <el-form-item label="科目">
-        <span>{{ setting.name }}</span>
-      </el-form-item>
-      <el-form-item label="形态">
-        <el-radio-group v-model="setting.mode">
-          <el-radio value="score">计分</el-radio>
-          <el-radio value="pass_fail">通过制</el-radio>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item v-if="setting.mode === 'score'" label="满分">
-        <el-input-number
-          v-model="setting.full_score"
-          :min="1"
-          :max="1000"
-          :controls="false"
-          style="width: 90px"
-        />
-        <span class="gd-hint">及格线 {{ passLine }} 分</span>
-      </el-form-item>
-      <div class="gd-hint">
-        通过制只记「通过 / 不通过」，不算平均分、最高最低和位次。
-        改形态时若这一科已有对不上的成绩，会先拦住并告诉你还有多少条
-      </div>
-    </el-form>
+    <div class="wm-host">
+      <Watermark :text="watermarkText" />
+      <el-form label-width="72px">
+        <el-form-item label="科目">
+          <span>{{ setting.name }}</span>
+        </el-form-item>
+        <el-form-item label="形态">
+          <el-radio-group v-model="setting.mode">
+            <el-radio value="score">计分</el-radio>
+            <el-radio value="pass_fail">通过制</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="setting.mode === 'score'" label="满分">
+          <el-input-number
+            v-model="setting.full_score"
+            :min="1"
+            :max="1000"
+            :controls="false"
+            style="width: 90px"
+          />
+          <span class="gd-hint">及格线 {{ passLine }} 分</span>
+        </el-form-item>
+        <div class="gd-hint">
+          通过制只记「通过 / 不通过」，不算平均分、最高最低和位次。
+          改形态时若这一科已有对不上的成绩，会先拦住并告诉你还有多少条
+        </div>
+      </el-form>
+    </div>
     <template #footer>
       <el-button @click="settingVisible = false">取消</el-button>
       <el-button type="primary" :loading="settingLoading" @click="handleSaveSetting">保存</el-button>
@@ -154,9 +158,12 @@ import {
 import { formatDate } from '@/utils/format'
 import { errText } from '@/utils/request'
 import GradeStatsDialog from '@/components/GradeStatsDialog.vue'
+import Watermark from '@/components/Watermark.vue'
+import { useWatermark } from '@/composables/useWatermark'
 
 const emit = defineEmits(['done'])
 
+const watermarkText = useWatermark()
 const visible = ref(false)
 const loading = ref(false)
 const subjectLoading = ref(false)
@@ -377,6 +384,12 @@ defineExpose({ open })
 </script>
 
 <style scoped>
+/* 水印的定位基准：弹窗正文、科目设置的小表单各盖一层 */
+.gd-body,
+.wm-host {
+  position: relative;
+}
+
 .gd-body {
   min-height: 200px;
 }

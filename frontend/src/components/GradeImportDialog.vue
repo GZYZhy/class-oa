@@ -7,8 +7,11 @@
     :close-on-click-modal="false"
     @closed="reset"
   >
-    <!-- 第一步：传 Excel -->
-    <div v-if="step === 1" class="gi-step">
+    <div class="wm-host">
+      <Watermark :text="watermarkText" />
+
+      <!-- 第一步：传 Excel -->
+      <div v-if="step === 1" class="gi-step">
       <el-upload
         ref="uploadRef"
         drag
@@ -157,6 +160,7 @@
         </ul>
       </el-alert>
     </div>
+    </div>
 
     <template #footer>
       <template v-if="step === 1">
@@ -181,9 +185,12 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { gradeImportConfirm, gradeImportPreview } from '@/api/grade'
 import { errText } from '@/utils/request'
+import Watermark from '@/components/Watermark.vue'
+import { useWatermark } from '@/composables/useWatermark'
 
 const emit = defineEmits(['done'])
 
+const watermarkText = useWatermark()
 const visible = ref(false)
 const step = ref(1) // 1=上传 2=确认 3=结果
 const file = ref(null)
@@ -350,6 +357,11 @@ defineExpose({ open })
 </script>
 
 <style scoped>
+/* 水印的定位基准 */
+.wm-host {
+  position: relative;
+}
+
 .gi-step {
   min-height: 200px;
 }
