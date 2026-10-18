@@ -4804,6 +4804,15 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(stripComments(signed).includes('查看考勤情况'), '签完后给一个去考勤情况的按钮')
   check(signed.includes('#/my-info?tab=attendance'), '「查看考勤情况」跳自己的考勤页')
 
+  // 弱网兜底：可重试、照片凭证不怕刷新、重复签到的报错按成功收尾
+  const checkinSrc = readFileSync(`${ROOT}/src/views/Checkin.vue`, 'utf8')
+  check(checkinSrc.includes('重新加载') && checkinSrc.includes('retry && (!status || status >= 500)'),
+    '公开信息失败时给重新加载，并自动重试一次')
+  check(checkinSrc.includes('sessionStorage.setItem(photoStorageKey') &&
+    checkinSrc.includes('restorePhotoToken'), '照片凭证按签到 code 暂存，刷新后能恢复')
+  check(checkinSrc.includes("detail.includes('已签到')") && checkinSrc.includes('await load()'),
+    '「已签到」的 400 按成功处理并刷新状态')
+
   // 已结束 + 有有效请假 → 记为请假
   const { html: ended } = await renderPatched(
     '/src/views/Checkin.vue',

@@ -18,6 +18,8 @@
         :sub-title="error"
       >
         <template #extra>
+          <!-- 弱网下一次超时很常见，给一个明确的重新加载，不用让用户自己刷新 -->
+          <el-button v-if="!notFound" type="primary" @click="load()">重新加载</el-button>
           <a href="#/" class="ck-plain-link">回首页</a>
         </template>
       </el-result>
@@ -266,7 +268,54 @@ const withinRadius = computed(() => {
   return distance.value <= loc.radius_m
 })
 
-async function load() {
+// ---------- 照片凭证的本地暂存 ----------
+// 照片传完后如果页面刷新，内存里的 token 会丢。按签到 code 存一份到 sessionStorage，
+// 刷新后仍能直接提交签到，不用在弱网下再传一次照片。token 本身是服务端签的，
+// 有截止时间约束，存储它不会扩大权限。
+
+function photoStorageKey() {
+  return `checkin-photo-${info.value?.code || route.query.code || ''}`
+}
+
+function savePhotoToken() {
+  if (!photoToken.value) return
+  try {
+    sessionStorage.setItem(photoStorageKey(), JSON.stringify({
+      token: photoToken.value,
+      name: photoName.value
+    }))
+  } catch (e) {
+    /* 隐私模式等写不进去：不影响本次提交 */
+  }
+}
+
+function restorePhotoToken() {
+  try {
+    const raw = sessionStorage.getItem(photoStorageKey())
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    if (saved?.token) {
+      photoToken.value = saved.token
+      photoName.value = saved.name || '已上传的照片'
+    }
+  } catch (e) {
+    clearPhotoToken()
+  }
+}
+
+function clearPhotoToken() {
+  try {
+    sessionStorage.removeItem(photoStorageKey())
+  } catch (e) {
+    /* 忽略 */
+  }
+}
+
+// 连续点「重新加载」时只认最后一次请求，避免先发的慢响应把新结果盖掉
+let loadSeq = 0
+
+async function load({ retry = true } = {}) {
+  const seq = ++loadSeq
   if (!route.query.code) {
     loading.value = false
     error.value = '链接不完整，请向发布人重新要一次签到链接'
@@ -278,18 +327,31 @@ async function load() {
   // 不再单独问一次登录态：公开信息接口凭 Cookie 自己带上 is_login / is_target，
   // 弱网下少一个来回。真需要用户存储的页面（登录后的布局）挂载时会自己拉
   try {
-    info.value = await getCheckinPublic(route.query.code)
-    applyShareMeta(info.value)
+    const data = await getCheckinPublic(route.query.code)
+    if (seq !== loadSeq) return
+    info.value = data
+    applyShareMeta(data)
+    // 已经签过 / 不需要照片时，本地那份 token 没有用了
+    if (data.signed_at || !data.require_photo) clearPhotoToken()
+    else restorePhotoToken()
     // 能签且要求定位：进页面就去要位置，少点一次「获取位置」
-    if (info.value.can_sign && info.value.location) locate()
+    if (data.can_sign && data.location) locate()
   } catch (e) {
+    if (seq !== loadSeq) return
+    const status = e?.response?.status
+    // 纯网络错误 / 超时 / 服务端 5xx：自动再试一次，弱网下很多是瞬时失败
+    if (retry && (!status || status >= 500)) {
+      await new Promise((resolve) => setTimeout(resolve, 800))
+      if (seq !== loadSeq) return
+      return load({ retry: false })
+    }
     // 签到被删后链接就查不到了：单独给一句能看懂的话，不暴露「读取失败」
-    notFound.value = e?.response?.status === 404
+    notFound.value = status === 404
     error.value = notFound.value
       ? '这次签到不存在或已被删除。如确实有这次签到，请向发布人重新要一次链接。'
       : errText(e, '读取签到信息失败')
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -319,6 +381,7 @@ async function uploadPhoto() {
       }
     })
     photoToken.value = res.token
+    savePhotoToken()
   } catch (e) {
     uploadError.value = errText(e, '照片上传失败，请重试')
     ElMessage.error(uploadError.value)
@@ -335,6 +398,7 @@ async function onFileChange(event) {
   compressing.value = true
   uploadError.value = ''
   photoToken.value = ''
+  clearPhotoToken()
   try {
     // 手机直出的照片好几 MB，压缩是优化；失败时原样上传（见 imageCompress.js）
     photoFile.value = await compressImage(picked)
@@ -370,8 +434,18 @@ async function handleSubmit() {
       photoToken: photoToken.value
     })
     applyShareMeta(info.value)
+    clearPhotoToken()
     ElMessage.success('签到成功')
   } catch (e) {
+    // 上一次请求其实已经成功、只是响应在弱网下丢了：再点时后端会说「已签到」。
+    // 这不是失败，按成功处理并刷新页面状态，别让人以为没签上。
+    const detail = e?.response?.data?.detail
+    if (e?.response?.status === 400 && typeof detail === 'string' && detail.includes('已签到')) {
+      clearPhotoToken()
+      ElMessage.success('你已经签过到了')
+      await load()
+      return
+    }
     ElMessage.error(errText(e, '签到失败'))
   } finally {
     submitting.value = false
