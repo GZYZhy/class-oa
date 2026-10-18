@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from typing import Any, Optional
 
@@ -10,7 +11,8 @@ from ..utils.email_addr import is_valid_email
 class ChangeRequestCreate(BaseModel):
     """学生提交的信息修改申请
 
-    字段与 student_service 的可修改白名单一一对应（学号、姓名、身份证号等不开放）。
+    字段与 student_service 的可修改白名单一一对应（学号、姓名等不开放）。
+    身份证号是个例外：只允许「补空」，档案里一旦有值就不能再改（见 change_requests.py）。
     没传的字段表示不改；显式传 null 表示要清空。
     """
     qq: Optional[str] = Field(None, max_length=30, description="QQ号码")
@@ -22,6 +24,8 @@ class ChangeRequestCreate(BaseModel):
     league_position: Optional[str] = Field(None, max_length=50, description="团学会职务")
     dormitory: Optional[str] = Field(None, max_length=50, description="宿舍")
     bed: Optional[str] = Field(None, max_length=20, description="床位号")
+    # 只用于档案里还没有身份证号时补录；已有值的学生连这一格都看不到
+    id_card: Optional[str] = Field(None, max_length=20, description="身份证号（仅在缺失时补充）")
 
     # 照片字段在这里只当**探测器**用：它不开放给学生填值（值由后端落盘后注入），
     # 声明出来是为了明确拒绝，而不是静默丢掉。不声明的话，学生塞进来的
@@ -34,6 +38,20 @@ class ChangeRequestCreate(BaseModel):
     def reject_id_photo(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
             raise ValueError("自备证件照请通过上传文件的方式提交")
+        return v
+
+    @field_validator("id_card")
+    @classmethod
+    def check_id_card(cls, v: Optional[str]) -> Optional[str]:
+        """只接受 18 位号码；末位小写 x 统一成大写
+
+        这一项进了改动就一定是「补充」，空值不该出现在申请里 —— 想留空就别传。
+        """
+        if v is None:
+            return v
+        v = v.strip().upper()
+        if not re.fullmatch(r"\d{17}[\dX]", v):
+            raise ValueError("身份证号应为 18 位，最后一位可以是 X")
         return v
 
     @field_validator("email")

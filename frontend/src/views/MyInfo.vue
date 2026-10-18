@@ -40,6 +40,36 @@
                   </div>
                   <p class="photos-tip">点击照片可放大查看</p>
 
+                  <!-- 签字图：本人只能上传，不能查看 / 下载 / 删除 —— 取图要班委申请、
+                       管理员批准，所以这里一个预览都不渲染，只显示「已上传 / 未上传」 -->
+                  <div class="sign-card">
+                    <div class="sign-card-head">
+                      <span class="section-title">签字图</span>
+                      <el-tag :type="mySign.uploaded ? 'success' : 'info'" size="small">
+                        {{ mySign.uploaded ? '已上传' : '未上传' }}
+                      </el-tag>
+                    </div>
+                    <p class="sign-card-tip">
+                      用于请假单等材料的落款。支持 JPG / JPEG / PNG / GIF / BMP / WebP，
+                      文件不超过 10MB；建议白纸黑字、横向拍摄，长宽比约 3:1
+                      （如 1200×400 像素），签名完整、背景干净。
+                      上传后本人不能查看、下载或删除；需要更换时重新上传即可。
+                    </p>
+                    <el-button type="primary" :loading="mySign.uploading" @click="pickSign">
+                      {{ mySign.uploading
+                        ? `上传中 ${mySign.progress}%`
+                        : (mySign.uploaded ? '重新上传' : '上传签字图') }}
+                    </el-button>
+                    <!-- 隐藏的文件框：选完立即上传，页面上不出现第二个「提交」按钮 -->
+                    <input
+                      ref="signInput"
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.gif,.bmp,.webp"
+                      style="display: none"
+                      @change="handleSignPicked"
+                    />
+                  </div>
+
                   <el-descriptions :column="detailColumns" border style="margin-top: 16px;">
                     <el-descriptions-item label="学号">{{ me.student_no || '-' }}</el-descriptions-item>
                     <el-descriptions-item label="姓名">{{ me.name || '-' }}</el-descriptions-item>
@@ -77,6 +107,17 @@
                 <template v-else>
                   <p class="section-sub">改动提交后需班委审核，审核通过才会真正生效</p>
                   <el-form :model="form" label-width="100px" style="max-width: 640px; margin-top: 12px;">
+                    <!-- 身份证号只补不改：有值的学生在这里根本看不到这一格 -->
+                    <el-form-item v-if="needsIdCard" label="身份证号">
+                      <el-input
+                        v-model="form.id_card"
+                        :maxlength="ID_CARD_FIELD.maxLength"
+                        :placeholder="ID_CARD_FIELD.placeholder"
+                      />
+                      <div style="font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.6;">
+                        档案里还没有身份证号，可以在这里补充；补充生效后就不能再自行修改。
+                      </div>
+                    </el-form-item>
                     <el-form-item v-for="f in CHANGE_FIELDS" :key="f.prop" :label="f.label">
                       <el-input
                         v-model="form[f.prop]"
@@ -602,6 +643,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import { getMyInfo } from '@/api/student'
+import { getMySignStatus, uploadSignImage } from '@/api/signPhoto'
 import { changePassword, getMyLogs } from '@/api/auth'
 import { submitChangeRequest, getMyChangeRequests } from '@/api/changeRequest'
 import {
@@ -618,6 +660,7 @@ import {
 import {
   CHANGE_FIELDS,
   FIELD_LABELS,
+  ID_CARD_FIELD,
   PHOTO_FIELD,
   STATUS_LABELS,
   STATUS_TYPES
@@ -700,13 +743,26 @@ const records = ref([])
 const submitting = ref(false)
 
 // 表单先摆全部字段，拿到自己的信息后再回填
-const form = reactive(Object.fromEntries(CHANGE_FIELDS.map((f) => [f.prop, ''])))
+const form = reactive(
+  Object.fromEntries([...CHANGE_FIELDS, ID_CARD_FIELD].map((f) => [f.prop, '']))
+)
+
+/** 身份证号只补不改：档案里没有时才显示这一格，有值之后彻底不出现 */
+const needsIdCard = computed(() => !(me.value?.id_card || '').trim())
 
 // 申请修改里选中的新证件照。文件不进 form（form 里全是字符串），单独放这里：
 // 提交时作为 multipart 的 photo 一并发出，后端落盘后自己填 id_photo
 const photoFile = ref(null)
 // 本地预览地址。提交前就能看到选的这张，不用先传后端
 const photoPreview = ref('')
+
+// 签字图：学生只有上传权限，状态只有一个「传没传」的布尔值。
+// 这里不保存任何图片地址 —— 后端也不给，学生端拿不到自己那张图
+const signInput = ref(null)
+const mySign = reactive({ uploaded: false, uploading: false, progress: 0 })
+// 与后端 save_photo 的白名单 / 10MB 上限保持一致，先在浏览器拦一道，少一次往返
+const SIGN_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
+const SIGN_MAX_SIZE = 10 * 1024 * 1024
 
 /** 已经有一条排队等着审，就锁住表单（后端也会拒，前端锁住体验更好） */
 const pending = computed(() => records.value.find((r) => r.status === 'pending'))
@@ -946,11 +1002,60 @@ function clearPhoto() {
   photoFile.value = null
 }
 
+// ---------- 本人签字图 ----------
+
+/** 只问「传没传」；接口失败时保持默认的「未上传」，不影响档案其它内容 */
+async function loadMySign() {
+  try {
+    const data = await getMySignStatus()
+    mySign.uploaded = !!data.uploaded
+  } catch (e) {
+    // 旧后端还没有这条接口（滚动升级期间），忽略即可
+  }
+}
+
+function pickSign() {
+  signInput.value?.click()
+}
+
+/** 选完立即上传。签名不做压缩：canvas 重编码会让笔迹变糊，10MB 以内直接原样传 */
+async function handleSignPicked(e) {
+  const input = e.target
+  const file = input.files?.[0]
+  // 清掉选择值：不清的话再选同一个文件不会再触发 change
+  input.value = ''
+  if (!file) return
+
+  const ext = `.${(file.name.split('.').pop() || '').toLowerCase()}`
+  if (!SIGN_EXTENSIONS.includes(ext)) {
+    return ElMessage.warning('只支持 JPG / JPEG / PNG / GIF / BMP / WebP 格式')
+  }
+  if (file.size > SIGN_MAX_SIZE) {
+    return ElMessage.warning('图片不能超过 10MB')
+  }
+
+  mySign.uploading = true
+  mySign.progress = 0
+  try {
+    await uploadSignImage(me.value.id, file, (loaded, total) => {
+      mySign.progress = total ? Math.round((loaded / total) * 100) : 0
+    })
+    mySign.uploaded = true
+    ElMessage.success('签字图已上传')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '上传失败')
+  } finally {
+    mySign.uploading = false
+  }
+}
+
 /** 回填表单：显示当前值，学生在此基础上改 */
 function resetForm() {
   for (const { prop } of CHANGE_FIELDS) {
     form[prop] = me.value?.[prop] ?? ''
   }
+  // 身份证号不回填：有值时这一格不显示，没值时也从空的开始填
+  form.id_card = ''
 }
 
 /** 只把改动过的字段提交上去，避免整表覆盖 */
@@ -961,10 +1066,19 @@ function buildChanges() {
     const old = (me.value?.[prop] ?? '').trim()
     if (next !== old) changes[prop] = next
   }
+  // 已有身份证号就不再提交这一项，哪怕表单里残留了旧值
+  if (needsIdCard.value) {
+    const next = (form.id_card ?? '').trim()
+    if (next) changes.id_card = next
+  }
   return changes
 }
 
 function validate() {
+  if (needsIdCard.value && form.id_card && !/^\d{17}[\dXx]$/.test(form.id_card.trim())) {
+    ElMessage.warning('身份证号应为 18 位，最后一位可以是 X')
+    return false
+  }
   if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
     ElMessage.warning('电子邮箱格式不正确')
     return false
@@ -1223,6 +1337,7 @@ async function fetchStudentData() {
   if (userStore.isExternal) return
   me.value = await getMyInfo()
   records.value = await getMyChangeRequests()
+  await loadMySign()
   resetForm()
 }
 
@@ -1403,6 +1518,29 @@ onMounted(async () => {
   margin: 8px 0 0 0;
   width: 100%;
   max-width: 420px;
+}
+
+/* 签字图那一块：和照片区分开，说明文字要能读清楚，所以用浅底卡片 */
+.sign-card {
+  margin-top: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+  max-width: 640px;
+}
+
+.sign-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sign-card-tip {
+  margin: 8px 0 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--el-text-color-secondary);
 }
 
 .section-title {
