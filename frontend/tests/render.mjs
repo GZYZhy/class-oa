@@ -4953,6 +4953,8 @@ console.log('\n▶ 签到：发布结果页带大二维码，列表「链接」�
   check(createSrc.includes('function openShare(row)') &&
     createSrc.includes('defineExpose({ open, openShare })'),
   '弹窗对外提供 openShare，用来重新打开已有签到的分享页')
+  check(createSrc.includes('end_at: row.end_at || row.time'),
+    '列表行的 time 映射成 end_at，重新打开时截止时间不会变横杠')
   check(createSrc.includes('QRCode.toDataURL(link') &&
     createSrc.includes('makeQr(created.value.link)'),
   '发布成功和重新打开都会生成二维码')
@@ -4978,8 +4980,11 @@ console.log('\n▶ 签到：发布结果页带大二维码，列表「链接」�
   )
   const text = stripComments(html)
   check(text.includes('签到已发布') && text.includes('复制'), '结果页有「签到已发布」和「复制」')
-  check(/class="cc-qr"/.test(html) && text.includes('投屏后让同学用微信扫一扫'),
-    '结果页真渲染出二维码和投屏提示')
+  check(/class="cc-qr"/.test(html), '结果页真渲染出二维码')
+  check(!text.includes('投屏后让同学用微信扫一扫') &&
+    !text.includes('把下面的链接或二维码发到群里') &&
+    !text.includes('结算后会生成一条普通考勤记录'),
+  '不再显示扫码提示、转发说明与结算说明')
 }
 
 console.log('\n▶ 水印：成绩页、成绩弹窗、办件空间都盖上')
