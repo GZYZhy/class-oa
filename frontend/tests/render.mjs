@@ -5014,8 +5014,8 @@ console.log('\n▶ 强制改密：签到深链也不能绕过，改完留在原�
   const app = readFileSync(`${ROOT}/src/App.vue`, 'utf8')
   check(/<template v-else>[\s\S]*<ForcePasswordDialog \/>[\s\S]*<\/template>/.test(app),
     '强制改密浮层挂在布局外层，签到这种 bare 页也会弹')
-  check(app.includes('if (!userStore.resolved) userStore.fetchMe()'),
-    '公开页也恢复一次登录态，才知道要不要改密')
+  check(app.includes("if (!userStore.resolved && route.name !== 'Login') userStore.fetchMe()"),
+    '公开页也恢复一次登录态（登录页除外，避免覆盖刚登录的状态）')
 
   const dlg = readFileSync(`${ROOT}/src/components/ForcePasswordDialog.vue`, 'utf8')
   check(dlg.includes(':show-close="false"') && dlg.includes(':close-on-click-modal="false"'),
