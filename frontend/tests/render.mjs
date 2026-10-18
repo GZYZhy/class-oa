@@ -3053,6 +3053,30 @@ console.log('\n▶ 投票能暂停：暂停不是结束')
     '接口文档里的 status 说明补上了第四种取值')
 }
 
+console.log('\n▶ 投票分享：管理里给链接、复制和二维码')
+{
+  const voteSrc = readFileSync(`${ROOT}/src/views/Vote.vue`, 'utf8')
+  check(voteSrc.includes('<el-dropdown-item command="share">分享</el-dropdown-item>'),
+    '管理下拉里有「分享」')
+  check(voteSrc.includes('function openShare(row)') &&
+    voteSrc.includes('voteShareLink(row.id)') &&
+    voteSrc.includes('<VoteShareDialog v-model="shareVisible" :link="shareLink" />'),
+  '分享打开弹窗，链接就是投票页本身')
+  check(voteSrc.includes("`${window.location.origin}/#/vote?id=${id}`"),
+    '分享链接指向 /#/vote?id=，没有单独的分享页')
+  check(voteSrc.includes('function applyPollShareMeta') &&
+    voteSrc.includes("'og:title': title") && voteSrc.includes("`投票：${poll.title"),
+  '打开投票 / 分享时把投票标题写进 OG')
+
+  const shareSrc = readFileSync(`${ROOT}/src/components/VoteShareDialog.vue`, 'utf8')
+  check(shareSrc.includes('>复制</el-button>') && shareSrc.includes('class="vs-qr"'),
+    '弹窗有链接、复制和二维码')
+  check(shareSrc.includes('makeQrDataUrl'), '二维码复用公共生成工具')
+  const qrUtil = readFileSync(`${ROOT}/src/utils/qr.js`, 'utf8')
+  check(qrUtil.includes("errorCorrectionLevel: 'H'") && qrUtil.includes('drawImage(logo'),
+    '二维码中间同样嵌校徽')
+}
+
 console.log('\n▶ 投票能改时间：没开始的都能改，开始了只能改截止时间')
 {
   const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
@@ -5018,19 +5042,21 @@ console.log('\n▶ 签到：发布结果页带大二维码，列表「链接」�
   const createSrc = readFileSync(`${ROOT}/src/components/CheckinCreateDialog.vue`, 'utf8')
   check(createSrc.includes('>复制</el-button>'), '结果页的按钮叫「复制」')
   check(!createSrc.includes('>链接</el-button>'), '结果页不再把按钮叫「链接」')
-  check(/await import\('qrcode'\)/.test(createSrc), '二维码按需加载 qrcode，不进首屏')
   check(/class="cc-qr"/.test(createSrc) && /width:\s*340px/.test(createSrc),
     '结果页展示一个大号二维码，适合投屏')
-  check(createSrc.includes("errorCorrectionLevel: 'H'") &&
-    createSrc.includes('drawImage(logo') && createSrc.includes('roundedRect'),
+  check(createSrc.includes('makeQrDataUrl') && createSrc.includes('SITE.logoUrl'),
+    '结果页二维码复用公共工具，校徽地址走站点配置')
+  const qrUtil = readFileSync(`${ROOT}/src/utils/qr.js`, 'utf8')
+  check(/await import\('qrcode'\)/.test(qrUtil), '二维码按需加载 qrcode，不进首屏')
+  check(qrUtil.includes("errorCorrectionLevel: 'H'") &&
+    qrUtil.includes('drawImage(logo') && qrUtil.includes('roundedRect'),
   '二维码中间嵌校徽（高纠错 + 白色圆角底）')
-  check(createSrc.includes('SITE.logoUrl'), '校徽地址走站点配置')
   check(createSrc.includes('function openShare(row)') &&
     createSrc.includes('defineExpose({ open, openShare })'),
   '弹窗对外提供 openShare，用来重新打开已有签到的分享页')
   check(createSrc.includes('end_at: row.end_at || row.time'),
     '列表行的 time 映射成 end_at，重新打开时截止时间不会变横杠')
-  check(createSrc.includes('QRCode.toDataURL(link') &&
+  check(createSrc.includes('makeQrDataUrl(link') &&
     createSrc.includes('makeQr(created.value.link)'),
   '发布成功和重新打开都会生成二维码')
 
