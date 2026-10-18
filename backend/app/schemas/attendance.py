@@ -85,6 +85,9 @@ class AttendanceOverviewItem(BaseModel):
     target_count: int = 0
     signed_count: int = 0
     link: str = ""
+    # 分享弹窗重新打开时要显示备注和签到要求
+    require_photo: bool = False
+    location: dict | None = None
 
 
 class AttendanceOverviewResponse(BaseModel):

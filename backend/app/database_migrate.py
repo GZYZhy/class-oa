@@ -55,6 +55,8 @@ NEW_COLUMNS = [
     ("announcements", "view_count", "INTEGER NOT NULL DEFAULT 0"),
     # 资料下载的下载次数。资料功能上线时就没有访问日志，没有历史可回填
     ("resources", "download_count", "INTEGER NOT NULL DEFAULT 0"),
+    # 签到的暂停时刻。可空：补列前发布过的签到一律视为没暂停
+    ("checkins", "paused_at", "DATETIME"),
     # 批量操作涉及的多个学号（JSON 数组）。用于被操作记录反查：
     # 一次导出涉及几十人，每个人查被操作记录时都能找到这条
     ("operation_logs", "target_student_nos", "TEXT DEFAULT ''"),
