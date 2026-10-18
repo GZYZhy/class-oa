@@ -231,6 +231,28 @@ def test_share_page_carries_og_and_allows_crawlers(cb):
     assert cb.client.get("/api/checkins/share/does-not-exist").status_code == 404
 
 
+def test_location_radius_bounds_and_default(cb):
+    """允许半径限制在 100 米～10 公里，不传时默认 500 米"""
+    payload = {
+        "title": "范围测试",
+        "targets": [PEOPLE[0][0]],
+        "end_at": _end_at().strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    for radius in (99, 10001):
+        r = cb.client.post("/api/checkins", json={
+            **payload,
+            "location": {"lat": LAT, "lng": LNG, "radius_m": radius, "name": "地点"},
+        })
+        assert r.status_code == 422, f"radius={radius}: {r.text}"
+
+    r = cb.client.post("/api/checkins", json={
+        **payload,
+        "location": {"lat": LAT, "lng": LNG, "name": "地点"},
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["location"]["radius_m"] == 500
+
+
 def test_my_attendance_lists_only_my_checkins(cb):
     """学生端考勤情况：有自己那一行的签到才出现，结算后也不重复成两条"""
     checkin = _create(cb, [PEOPLE[0][0]])
@@ -408,7 +430,7 @@ def test_public_info_works_anonymously(cb):
 
 def test_public_info_still_readable_after_end(cb):
     """截止之后链接照样能打开：地点、地图和要求的字段都还在，只是不能再签"""
-    loc = {"lat": LAT, "lng": LNG, "radius_m": 80, "name": "一公寓门口"}
+    loc = {"lat": LAT, "lng": LNG, "radius_m": 100, "name": "一公寓门口"}
     checkin = _create(cb, [PEOPLE[0][0]], require_photo=True, location=loc)
     _force_end(cb, checkin["id"])
     cb.logout()
@@ -420,7 +442,7 @@ def test_public_info_still_readable_after_end(cb):
     assert data["title"] == "晚点名"
     assert data["require_photo"] is True
     assert data["location"] == {
-        "lat": LAT, "lng": LNG, "radius_m": 80, "name": "一公寓门口",
+        "lat": LAT, "lng": LNG, "radius_m": 100, "name": "一公寓门口",
     }
     assert data["can_sign"] is False
 

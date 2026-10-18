@@ -119,13 +119,13 @@
           <span class="cc-label">允许半径</span>
           <el-input-number
             v-model="form.radius_m"
-            :min="10"
-            :max="5000"
+            :min="100"
+            :max="10000"
             :step="10"
             controls-position="right"
             style="width: 130px;"
           />
-          <span class="cc-tip cc-inline">米（10～5000）</span>
+          <span class="cc-tip cc-inline">米（100～10000）</span>
         </div>
         <el-form label-width="118px" class="cc-loc-name">
           <el-form-item label="地点展示名">
@@ -207,7 +207,7 @@ function blankForm() {
     require_photo: false,
     targets: [],
     useLocation: false,
-    radius_m: 100,
+    radius_m: 500,
     location_name: ''
   }
 }
@@ -311,7 +311,7 @@ function firstError() {
   if (!form.targets.length) return '至少要选一名同学'
   if (form.useLocation) {
     if (!point.value) return '已打开「要求定位」，请先选择签到地点'
-    if (form.radius_m < 10 || form.radius_m > 5000) return '允许半径要在 10 到 5000 米之间'
+    if (form.radius_m < 100 || form.radius_m > 10000) return '允许半径要在 100 到 10000 米之间'
   }
   return ''
 }
