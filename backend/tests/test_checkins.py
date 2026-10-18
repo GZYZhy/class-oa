@@ -253,6 +253,22 @@ def test_my_attendance_lists_only_my_checkins(cb):
     assert cb.client.get("/api/attendance/mine").json()["total"] == 0
 
 
+def test_scope_says_league_only_when_whole_group(cb):
+    """只圈了一名团员时显示「1人」，圈了全部团员才显示「团员」"""
+    cb.run(
+        "UPDATE students SET political_status='共青团员' WHERE student_no IN (?,?)",
+        PEOPLE[0][0], PEOPLE[1][0],
+    )
+    one = _create(cb, [PEOPLE[0][0]])
+    both = _create(cb, [PEOPLE[0][0], PEOPLE[1][0]])
+
+    _login(cb, PEOPLE[0][0])
+    items = cb.client.get("/api/attendance/mine").json()["items"]
+    by_id = {(i["type"], i["id"]): i for i in items}
+    assert by_id[("checkin", one["id"])]["scope"] == "1人"
+    assert by_id[("checkin", both["id"])]["scope"] == "团员"
+
+
 def test_create_rejects_past_end_and_unknown_student(cb):
     past = datetime.now() - timedelta(minutes=1)
     r = cb.client.post("/api/checkins", json={

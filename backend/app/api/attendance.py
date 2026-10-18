@@ -704,7 +704,11 @@ def _manual_scope_label(scope: str) -> str:
 
 
 def _checkin_scope_label(db: Session, checkin_id: int, target_count: int) -> str:
-    """把签到的目标集合说成「全班 / 团员 / 班委 / N人」"""
+    """把签到的目标集合说成「全班 / 团员 / 班委 / N人」
+
+    **必须是「刚好圈了全部团员 / 全部班委」才这么叫**：只圈了一名团员时，
+    他本人虽然是团员，但这次范围并不等于「团员」，应该如实显示「1人」。
+    """
     total = db.query(Student).count()
     if target_count and total and target_count >= total:
         return "全班"
@@ -716,26 +720,47 @@ def _checkin_scope_label(db: Session, checkin_id: int, target_count: int) -> str
     ]
     if not nos:
         return "0人"
-    league = (
+
+    league_total = (
         db.query(Student)
-        .filter(
-            Student.student_no.in_(nos),
-            Student.political_status == "共青团员",
-        )
+        .filter(Student.political_status == "共青团员")
         .count()
     )
-    if league == len(nos):
-        return "团员"
-    committee = (
+    if league_total and len(nos) == league_total:
+        league = (
+            db.query(Student)
+            .filter(
+                Student.student_no.in_(nos),
+                Student.political_status == "共青团员",
+            )
+            .count()
+        )
+        if league == league_total:
+            return "团员"
+
+    committee_total = (
         db.query(User)
+        .join(Student, Student.student_no == User.student_no)
         .filter(
-            User.student_no.in_(nos),
             User.role.in_(("committee", "admin")),
+            User.is_external == False,  # noqa: E712
         )
         .count()
     )
-    if committee == len(nos):
-        return "班委"
+    if committee_total and len(nos) == committee_total:
+        committee = (
+            db.query(User)
+            .join(Student, Student.student_no == User.student_no)
+            .filter(
+                User.student_no.in_(nos),
+                User.role.in_(("committee", "admin")),
+                User.is_external == False,  # noqa: E712
+            )
+            .count()
+        )
+        if committee == committee_total:
+            return "班委"
+
     return f"{len(nos)}人"
 
 
