@@ -4,10 +4,15 @@
        底下的路由页面照样挂载、onMounted 照样发请求，然后撞一堵 403 墙 -->
   <SetupWizard v-if="userStore.isBootstrap" />
 
-  <!-- 登录页、签到页使用独立全屏布局，不套侧边栏 -->
-  <router-view v-else-if="route.meta.bare" />
+  <template v-else>
+    <!-- 登录页、签到页使用独立全屏布局，不套侧边栏 -->
+    <router-view v-if="route.meta.bare" />
 
-  <AppLayout v-else />
+    <AppLayout v-else />
+
+    <!-- 强制改密挂在布局外面：签到/登录这种 bare 页也要弹，改完留在原页面 -->
+    <ForcePasswordDialog />
+  </template>
 </template>
 
 <script setup>
@@ -17,6 +22,7 @@ import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
 import { saveWebpushSubscription } from '@/api/webpush'
 import { captureInstallPrompt, currentSubscription, unsubscribe } from '@/utils/webpush'
+import ForcePasswordDialog from '@/components/ForcePasswordDialog.vue'
 
 // 布局和初始化浮层都按需加载：签到、登录这类整屏页（meta.bare）用不到整套菜单与弹窗。
 // 这样签到页在弱网下只需等这份小外壳，不用先下载用不上的布局代码
@@ -68,6 +74,11 @@ watch(
 )
 
 onMounted(() => {
+  // 公开页（登录、签到、通知公告）路由守卫直接放行，不会问后端登录状态。
+  // 这里补一次，强制改密浮层才知道当前用户是不是还带着 must_change_password；
+  // 未登录时 /auth/me 返回 401，fetchMe 会吞掉，不会把游客赶去登录页。
+  if (!userStore.resolved) userStore.fetchMe()
+
   // 接住浏览器的 PWA 安装提示事件（Chrome/Edge/Android 才有，iOS 没有）
   captureInstallPrompt()
 })
