@@ -81,13 +81,16 @@ export function getCurrentLocation(options = {}) {
         resolve({ ...gcj, accuracy: Math.round(pos.coords.accuracy || 0) })
       },
       (err) => {
-        // 浏览器的错误对象里只有英文/代码，这里换成能看懂的中文
+        // 浏览器的错误对象里只有英文/代码，这里换成能看懂的中文。
+        // code 要带出去：降级逻辑靠它判断「权限被拒」还是「信号不好」。
         const messages = {
           1: '定位权限被拒绝，请在浏览器设置里允许本站获取位置',
           2: '暂时获取不到位置，请到室外或信号好的地方重试',
           3: '定位超时，请重试'
         }
-        reject(new Error(messages[err?.code] || '定位失败，请重试'))
+        const error = new Error(messages[err?.code] || '定位失败，请重试')
+        error.code = err?.code
+        reject(error)
       },
       {
         enableHighAccuracy: true,
@@ -97,4 +100,41 @@ export function getCurrentLocation(options = {}) {
       }
     )
   })
+}
+
+/** 两步定位的阶段：high = 高精度，low = 低精度兜底 */
+export const GEO_STAGE_HIGH = 'high'
+export const GEO_STAGE_LOW = 'low'
+
+/**
+ * 签到用的两步定位：先高精度（8 秒），失败再走低精度（12 秒）
+ *
+ * 室外第一次通常就成功。室内 / 地下室 GPS 弱，高精度可能一直等不到；
+ * 低精度会走 Wi-Fi / 基站，往往更快，但精度可能差几百米 —— 精度只用于
+ * 提示用户，**不拿它去放宽签到半径**（半径是发布人定的）。
+ *
+ * maximumAge 适当放宽：刚进楼、GPS 刚丢时，30 秒内的位置通常还在同一栋楼；
+ * 低精度阶段允许用 2 分钟内的 Wi-Fi / 基站定位。位置再旧就可能不是这个人
+ * 此刻所在的地方了，不再放宽。
+ *
+ * 权限被拒绝时直接抛出，不做第二次：浏览器不会因为换参数就放行。
+ *
+ * @param {(stage: 'high'|'low') => void} [onStage] 进入某个阶段时回调（页面显示「正在尝试低精度定位」）
+ */
+export async function getCurrentLocationStaged(onStage) {
+  try {
+    return await getCurrentLocation({
+      enableHighAccuracy: true,
+      timeout: 8000,
+      maximumAge: 30000           // 刚进楼时，30 秒内的位置通常还能用
+    })
+  } catch (e) {
+    if (e?.code === 1) throw e    // 权限拒绝，再试也没用
+    onStage?.(GEO_STAGE_LOW)
+    return getCurrentLocation({
+      enableHighAccuracy: false,
+      timeout: 12000,
+      maximumAge: 120000          // 最近 2 分钟内的 Wi-Fi / 基站定位可以用
+    })
+  }
 }

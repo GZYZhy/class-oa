@@ -13,7 +13,7 @@ class CheckinLocationIn(BaseModel):
     """发布时选的地点。坐标必须是 GCJ-02（高德坐标系）"""
     lat: float = Field(..., ge=-90, le=90, description="纬度")
     lng: float = Field(..., ge=-180, le=180, description="经度")
-    radius_m: int = Field(100, ge=10, le=5000, description="允许的偏移范围（米）")
+    radius_m: int = Field(500, ge=100, le=10000, description="允许的偏移范围（米）")
     name: str = Field("", max_length=200, description="地点名称，可手填")
 
 

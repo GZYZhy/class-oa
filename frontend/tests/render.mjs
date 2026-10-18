@@ -4971,6 +4971,10 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
 
   const create = readFileSync(`${ROOT}/src/components/CheckinCreateDialog.vue`, 'utf8')
   check(create.includes(':radius="form.radius_m"'), '发布弹窗把半径传给地图')
+  check(create.includes('radius_m: 500'), '允许半径默认 500 米')
+  check(create.includes(':min="100"') && create.includes(':max="10000"'),
+    '半径允许范围是 100 米到 10 公里')
+  check(create.includes('100 到 10000 米之间'), '前端先拦一次越界半径')
   check(/if \(!point\.value\) return '已打开「要求定位」，请先选择签到地点'/.test(create),
     '打开定位却没选点时不让发布')
   check(create.includes('function defaultEnd()')
@@ -5098,6 +5102,62 @@ console.log('\n▶ 公开页缓存与分享卡片')
   check(checkin.includes("robots.setAttribute('content', 'index,follow')"),
     '签到页把 robots 改成允许抓取')
   check(checkin.includes('document.title = title'), '签到页标题使用签到标题')
+}
+
+console.log('\n▶ 签到定位：高精度失败后自动降级，权限拒绝不降级')
+{
+  const geo = await server.ssrLoadModule('/src/utils/geolocation.js')
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  try {
+    const calls = []
+    let stage = null
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        geolocation: {
+          getCurrentPosition(ok, fail, options) {
+            calls.push(options)
+            if (calls.length === 1) fail({ code: 3 })
+            else ok({ coords: { latitude: 39.9, longitude: 116.4, accuracy: 120 } })
+          }
+        }
+      }
+    })
+
+    const pos = await geo.getCurrentLocationStaged((s) => { stage = s })
+    check(calls.length === 2, '高精度超时后自动再试一次')
+    check(calls[0].enableHighAccuracy === true && calls[0].timeout === 8000 &&
+      calls[0].maximumAge === 30000, '第一步高精度 8 秒、可用 30 秒内的位置')
+    check(calls[1].enableHighAccuracy === false && calls[1].timeout === 12000 &&
+      calls[1].maximumAge === 120000, '第二步低精度 12 秒，可复用两分钟内的位置')
+    check(stage === geo.GEO_STAGE_LOW, '低精度阶段会通知页面')
+    check(pos.accuracy === 120 && typeof pos.lat === 'number' && typeof pos.lng === 'number',
+      '返回坐标和精度')
+
+    const denied = []
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        geolocation: {
+          getCurrentPosition(ok, fail, options) {
+            denied.push(options)
+            fail({ code: 1 })
+          }
+        }
+      }
+    })
+    let err = null
+    try {
+      await geo.getCurrentLocationStaged(() => {})
+    } catch (e) {
+      err = e
+    }
+    check(denied.length === 1, '权限被拒不再试第二次')
+    check(err?.code === 1 && /权限/.test(err.message), '权限原因会带出来')
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'navigator', original)
+    else delete globalThis.navigator
+  }
 }
 
 console.log('\n▶ 手写签名：裁边只框住墨迹，空画布不产图')
