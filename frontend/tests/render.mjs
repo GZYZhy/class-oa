@@ -3059,11 +3059,16 @@ console.log('\n▶ 投票分享：管理里给链接、复制和二维码')
   check(voteSrc.includes('<el-dropdown-item command="share">分享</el-dropdown-item>'),
     '管理下拉里有「分享」')
   check(voteSrc.includes('function openShare(row)') &&
-    voteSrc.includes('voteShareLink(row.id)') &&
+    voteSrc.includes('voteShareLink(row)') &&
     voteSrc.includes('<VoteShareDialog v-model="shareVisible" :link="shareLink" :poll="sharePoll" />'),
-  '分享打开弹窗，链接就是投票页本身')
-  check(voteSrc.includes("`${window.location.origin}/#/vote?id=${id}`"),
-    '分享链接指向 /#/vote?id=，没有单独的分享页')
+  '分享打开弹窗，链接由投票行里的签名串生成')
+  check(voteSrc.includes('`${window.location.origin}/api/polls/share/${poll.share_token}`'),
+    '分享链接指向服务端 OG 分享页，微信能抓到具体摘要')
+  check(voteSrc.includes('function keepShareUrl') &&
+    voteSrc.includes('keepShareUrl(poll)') &&
+    voteSrc.includes('function restoreAppUrl') &&
+    voteSrc.includes("startsWith('/api/polls/share/')"),
+  '二级跳之后地址栏留在分享页，关闭弹窗再还原')
   check(voteSrc.includes('function applyPollShareMeta') &&
     voteSrc.includes("'og:title': title") && voteSrc.includes("`投票：${poll.title"),
   '打开投票 / 分享时把投票标题写进 OG')
@@ -5168,8 +5173,9 @@ console.log('\n▶ 公开页缓存与分享卡片')
       `${p} 的校徽走缓存地址`)
   }
   const robots = readFileSync(`${ROOT}public/robots.txt`, 'utf8')
-  check(robots.includes('Allow: /api/checkins/share/'),
-    'robots 只对签到分享页放开抓取')
+  check(robots.includes('Allow: /api/checkins/share/') &&
+    robots.includes('Allow: /api/polls/share/'),
+  'robots 只对签到 / 投票分享页放开抓取')
 
   const checkin = readFileSync(`${ROOT}src/views/Checkin.vue`, 'utf8')
   check(checkin.includes('function applyShareMeta') && checkin.includes("'og:title': cardTitle") &&
@@ -5182,6 +5188,14 @@ console.log('\n▶ 公开页缓存与分享卡片')
     '主布局也用同一个底栏组件')
   check(checkin.includes("robots.setAttribute('content', 'index,follow')"),
     '签到页把 robots 改成允许抓取')
+  check(checkin.includes('function keepShareUrl') &&
+    checkin.includes("history.replaceState(history.state, '', url.pathname)") &&
+    checkin.includes('keepShareUrl(data.link)'),
+  '二级跳之后地址栏留在分享页，微信转发才能抓到具体摘要')
+  check(checkin.includes('function restoreAppUrl') &&
+    checkin.includes("startsWith('/api/checkins/share/')") &&
+    checkin.includes("'/' + location.hash"),
+  '离开签到页时把路径还原成 hash 路由')
   check(checkin.includes('document.title = cardTitle') &&
     checkin.includes("`签到：${title}`"), '签到页标题带「签到：」前缀')
 }

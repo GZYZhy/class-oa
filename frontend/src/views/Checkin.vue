@@ -570,6 +570,40 @@ function applyShareMeta(data) {
     if (originalRobots === null) originalRobots = robots.getAttribute('content') || ''
     robots.setAttribute('content', 'index,follow')
   }
+
+  keepShareUrl(data.link)
+}
+
+/**
+ * 把地址栏留在分享页上。
+ *
+ * 分享链接是 /api/checkins/share/{code}，打开后会被二级跳到 /#/checkin?code=…
+ * 微信在「转发」时抓的是当前地址：跳到 hash 页之后，# 后面的内容不发给服务器，
+ * 抓到的只有 index.html 的站点级 OG，卡片于是只剩标题是对的。
+ *
+ * replaceState 只改地址、不触发路由，所以页面仍然停在签到页；离开时
+ * onUnmounted 再把路径还原成 /#/…，刷新和前进后退都不受影响。
+ */
+function keepShareUrl(link) {
+  if (!link) return
+  try {
+    const url = new URL(link, location.origin)
+    // 只接受同源的分享地址，避免把地址栏改到别处
+    if (url.origin !== location.origin) return
+    history.replaceState(history.state, '', url.pathname)
+  } catch (e) {
+    // 地址栏保持不动也能用，只是微信卡片会退回站点级摘要
+  }
+}
+
+/** 离开签到页：把分享页路径还原成正常的 hash 地址 */
+function restoreAppUrl() {
+  if (!location.pathname.startsWith('/api/checkins/share/')) return
+  try {
+    history.replaceState(history.state, '', '/' + location.hash)
+  } catch (e) {
+    // 地址没还原也不影响页面本身
+  }
 }
 
 function clearShareMeta() {
@@ -585,7 +619,10 @@ function clearShareMeta() {
 }
 
 onMounted(load)
-onUnmounted(clearShareMeta)
+onUnmounted(() => {
+  restoreAppUrl()
+  clearShareMeta()
+})
 </script>
 
 <style scoped>

@@ -15,12 +15,15 @@
 
 import json
 from datetime import datetime, timedelta
+from html import escape
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..models import Poll, PollAnswer, PollQuestion, PollTarget, Student, User
 from ..schemas import (
@@ -48,10 +51,13 @@ from ..services.poll_service import (
     has_voted,
     is_target,
     list_items,
+    parse_poll_share_token,
+    poll_share_token,
     poll_status,
     question_options,
     voted_count,
 )
+from ..utils.links import full_url
 from .deps import (
     ROLE_RANK,
     committee_required,
@@ -310,6 +316,105 @@ def get_roster(
             for student in students
         ]
     }
+
+
+def _share_link(request: Request, poll: Poll) -> str:
+    """对外的分享地址：带签名的服务端页面，微信爬虫能在这里读到 OG 标签"""
+    return full_url(request, f"/api/polls/share/{poll_share_token(poll.id)}")
+
+
+def _share_page(
+    request: Request, poll: Poll, target_count: int, question_count: int
+) -> str:
+    """分享页 HTML：只给微信 / 爬虫看 OG 卡片，随后把浏览器送进投票页
+
+    和签到分享页同一个套路。投票页在 hash 路由后面，`#` 后的内容不会到达
+    服务器，直接分享 `/#/vote?id=…` 的话微信只能抓到站点的通用摘要。
+    **这里不做鉴权**：只输出标题、备注、记名方式、人数、题数和截止时间；
+    题目和选项、谁投了什么都仍然要登录且有权限才能看。
+    """
+    title = (poll.title or "投票表决").strip() or "投票表决"
+    card_title = title if title.startswith("投票：") else f"投票：{title}"
+    state = {
+        STATUS_PENDING: "未开始",
+        STATUS_OPEN: "进行中",
+        STATUS_LOCKED: "已暂停",
+        STATUS_CLOSED: "已结束",
+    }.get(poll_status(poll), "进行中")
+    desc = (
+        f"{state} · {'不记名' if poll.anonymous else '记名'}"
+        f" · 应投 {target_count} 人 · {question_count} 道题"
+        f" · 截止 {poll.end_at:%m月%d日 %H:%M}"
+    )
+    if poll.description:
+        desc = f"{poll.description[:60]}｜{desc}"
+    share_url = _share_link(request, poll)
+    page_url = full_url(request, f"/#/vote?id={poll.id}")
+    logo_url = full_url(request, "/icons/icon-512.png")
+    site_name = settings.site_name or settings.app_name
+
+    def attr(value: str) -> str:
+        return escape(value, quote=True)
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{attr(card_title)}</title>
+<meta name="description" content="{attr(desc)}">
+<meta name="robots" content="index,follow">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{attr(card_title)}">
+<meta property="og:description" content="{attr(desc)}">
+<meta property="og:url" content="{attr(share_url)}">
+<meta property="og:site_name" content="{attr(site_name)}">
+<meta property="og:image" content="{attr(logo_url)}">
+<meta property="og:image:width" content="512">
+<meta property="og:image:height" content="512">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{attr(card_title)}">
+<meta name="twitter:description" content="{attr(desc)}">
+<meta name="twitter:image" content="{attr(logo_url)}">
+<meta http-equiv="refresh" content="0; url={attr(page_url)}">
+<style>
+  body {{ margin: 0; padding: 48px 20px; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+         color: #303133; text-align: center; background: #f5f7fa; }}
+  a {{ color: #409eff; text-decoration: none; }}
+</style>
+</head>
+<body>
+<p>正在打开投票「{attr(title)}」…</p>
+<p><a href="{attr(page_url)}">如果没有自动跳转，点这里</a></p>
+</body>
+</html>"""
+
+
+@router.get(
+    "/share/{token}",
+    response_class=HTMLResponse,
+    summary="投票分享页（公开，只用于微信卡片）",
+)
+def share_poll(token: str, request: Request, db: Session = Depends(get_db)):
+    """公开的分享页：微信爬虫不登录，只能靠签名串换出这一场投票
+
+    签名串对不上和投票不存在都回 404 —— 和范围外的人看投票一样，
+    不泄露「有这一场」这件事。
+    """
+    poll_id = parse_poll_share_token(token)
+    poll = db.query(Poll).filter(Poll.id == poll_id).first() if poll_id else None
+    if not poll:
+        raise HTTPException(status_code=404, detail="分享链接无效")
+    target_count = (
+        db.query(PollTarget).filter(PollTarget.poll_id == poll.id).count()
+    )
+    question_count = (
+        db.query(PollQuestion).filter(PollQuestion.poll_id == poll.id).count()
+    )
+    return HTMLResponse(
+        _share_page(request, poll, target_count, question_count)
+    )
 
 
 @router.post("", response_model=PollDetailResponse, summary="发起投票（班委及以上）")
