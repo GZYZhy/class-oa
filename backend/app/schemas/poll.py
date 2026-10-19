@@ -119,6 +119,9 @@ class PollListItem(BaseModel):
     看不到结果的人也不该看到投票率（照用户口径，参与者要等投票结束才看得到）。
     """
     id: int
+    share_token: str = Field(
+        "", description="分享页地址里的签名串（微信卡片用），前端拼 /api/polls/share/{token}"
+    )
     title: str
     description: str = ""
     anonymous: bool = Field(False, description="不记名：界面上要标出来，记名反而不标")
