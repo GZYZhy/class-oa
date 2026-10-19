@@ -7,12 +7,16 @@
 所以需要「是不是管理员」的地方一律由调用方传一个 admin 布尔进来。
 """
 
+import hashlib
+import hmac
 import json
 from datetime import datetime
+from functools import lru_cache
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from ..config import resolve_session_secret
 from ..models import Poll, PollAnswer, PollQuestion, PollTarget, Student, User
 
 # 四种状态。前端在 views/Vote.vue 和 utils/poll.js 里按这几个值分支，改的时候一起改
@@ -21,6 +25,40 @@ STATUS_OPEN = "open"
 STATUS_CLOSED = "closed"
 # 已暂停：发起人临时停止收票，**不是结束** —— 解锁后还能继续投
 STATUS_LOCKED = "locked"
+
+
+# ---------- 分享链接 ----------
+
+@lru_cache(maxsize=1)
+def _share_key() -> bytes:
+    """分享签名的密钥。进程内只读一次，避免列表里每行都去读一次密钥文件"""
+    return resolve_session_secret().encode("utf-8")
+
+
+def poll_share_token(poll_id: int) -> str:
+    """对外分享用的签名串，形如 `12.9f3a…`
+
+    分享页要公开给微信爬虫（它不会登录），所以不能直接把自增 id 放在地址里 ——
+    换个数字就能把全班的投票标题、截止时间看一遍。这里用会话密钥做 HMAC：
+    同一个 id 永远得到同一个串，链接稳定；不知道密钥就伪造不出来。
+    """
+    sig = hmac.new(
+        _share_key(), f"poll-share:{poll_id}".encode("utf-8"), hashlib.sha256
+    ).hexdigest()[:16]
+    return f"{poll_id}.{sig}"
+
+
+def parse_poll_share_token(token: str) -> int | None:
+    """校验分享串，返回投票 id。格式不对或签名不符一律 None（接口回 404）"""
+    try:
+        raw_id, _ = token.split(".", 1)
+        poll_id = int(raw_id)
+    except (AttributeError, ValueError):
+        return None
+    # compare_digest：别用 == 比签名，免得留下时序侧信道
+    if not hmac.compare_digest(poll_share_token(poll_id), token):
+        return None
+    return poll_id
 
 
 # ---------- 状态与可见性 ----------
@@ -259,6 +297,8 @@ def list_items(db: Session, polls: list[Poll], student_no: str, admin: bool) -> 
         items.append(
             {
                 "id": poll.id,
+                # 分享页地址里的签名串：前端用它拼微信卡片链接
+                "share_token": poll_share_token(poll.id),
                 "title": poll.title,
                 "description": poll.description or "",
                 "anonymous": bool(poll.anonymous),

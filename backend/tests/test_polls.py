@@ -755,6 +755,42 @@ def test_times_and_anonymous_can_change_in_one_request(pe):
     assert r.json()["anonymous"] is True
 
 
+# ---------- 分享页 ----------
+
+def test_share_page_is_public_and_carries_poll_og(pe):
+    """微信爬虫不登录：分享页只凭签名串给出标题、人数、题数和截止时间
+
+    这一页存在的意义就是给 hash 路由补上服务端 OG。要是它要求登录，
+    微信抓到的仍然是通用摘要 —— 所以「不带 cookie 也能读」必须是断言。
+    """
+    pid = _create(pe, title="入党推优第三轮选举")
+    row = pe.client.get("/api/polls").json()["items"][0]
+    token = row["share_token"]
+    assert token.startswith(f"{pid}."), "分享串要带上投票 id，签名用来防枚举"
+    # 同一场投票的签名串必须稳定，否则每次刷新列表都会换一个新链接
+    assert pe.client.get("/api/polls").json()["items"][0]["share_token"] == token
+    assert pe.client.get(f"/api/polls/{pid}").json()["share_token"] == token
+
+    pe.logout()  # 模拟微信爬虫：没有登录态
+    r = pe.client.get(f"/api/polls/share/{token}")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    html = r.text
+    assert '<meta property="og:title" content="投票：入党推优第三轮选举">' in html
+    assert "应投 1 人" in html and "1 道题" in html and "记名" in html
+    assert "截止" in html
+    assert "icons/icon-512.png" in html, "卡片图要用 512 图标"
+    assert f"/#/vote?id={pid}" in html, "看的人还是要进投票页"
+
+
+def test_share_page_rejects_forged_tokens(pe):
+    """换成别的数字 / 乱写签名都 404，不能靠遍历 id 把全班投票标题看一遍"""
+    pid = _create(pe)
+    assert pe.client.get(f"/api/polls/share/{pid}").status_code == 404
+    assert pe.client.get("/api/polls/share/999.0123456789abcdef").status_code == 404
+    assert pe.client.get("/api/polls/share/abc").status_code == 404
+
+
 # ---------- 迁移 ----------
 
 def test_migration_adds_locked_at(backend):

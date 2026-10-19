@@ -630,8 +630,18 @@ async function handleRemind() {
 
 // ---------- 管理动作 ----------
 
-/** 投票分享链接就是投票页本身，不另做公开分享页 */
-function voteShareLink(id) {
+/**
+ * 分享链接走后端的签名分享页，不再直接给 /#/vote?id=…
+ *
+ * 直接分享 hash 链接时，`#` 后面的内容不会到达服务器，微信只能抓到 index.html
+ * 的通用摘要。分享页在服务端就把这一场投票的 OG 写好，再把浏览器送进投票页。
+ * 没拿到 token（老接口 / 老数据）时退回原来的 hash 链接，功能不断。
+ */
+function voteShareLink(poll) {
+  const id = poll?.id ?? poll
+  if (poll?.share_token) {
+    return `${window.location.origin}/api/polls/share/${poll.share_token}`
+  }
   return `${window.location.origin}/#/vote?id=${id}`
 }
 
@@ -673,7 +683,7 @@ function applyPollShareMeta(poll) {
     'og:title': title,
     'og:description': desc,
     'og:type': 'website',
-    'og:url': voteShareLink(poll.id),
+    'og:url': voteShareLink(poll),
     'og:site_name': SITE.name,
     // 用 512 的图标：logo.png 往往只有一百多像素，微信卡片可能因尺寸太小不显示图
     'og:image': new URL('/icons/icon-512.png', window.location.origin).href,
@@ -682,6 +692,35 @@ function applyPollShareMeta(poll) {
     'og:locale': 'zh_CN'
   }
   for (const [key, value] of Object.entries(pairs)) setPollOg(key, value)
+  keepShareUrl(poll)
+}
+
+/**
+ * 把地址栏留在分享页上（和签到页同一个理由）。
+ *
+ * 分享页会二级跳到 /#/vote?id=…；微信转发时抓的是当前地址，跳到 hash 页之后
+ * 就只能拿到站点级摘要。replaceState 只换地址、不触发路由，投票弹窗照常开着。
+ * 关闭弹窗时再还原，列表页本身仍然是普通的 hash 地址。
+ */
+function keepShareUrl(poll) {
+  if (!poll?.share_token) return
+  try {
+    const url = new URL(voteShareLink(poll), window.location.origin)
+    if (url.origin !== window.location.origin) return
+    history.replaceState(history.state, '', url.pathname)
+  } catch (e) {
+    // 地址栏保持不动也能用，只是微信卡片退回通用摘要
+  }
+}
+
+/** 关闭弹窗 / 离开投票页：把分享页路径还原成正常的 hash 地址 */
+function restoreAppUrl() {
+  if (!window.location.pathname.startsWith('/api/polls/share/')) return
+  try {
+    history.replaceState(history.state, '', '/' + window.location.hash)
+  } catch (e) {
+    // 地址没还原也不影响页面本身
+  }
 }
 
 function clearPollShareMeta() {
@@ -692,13 +731,14 @@ function clearPollShareMeta() {
     originalDescription = null
   }
   document.title = `投票表决 - ${SITE.shortName}`
+  restoreAppUrl()
 }
 
-/** 「管理 → 分享」：链接 + 复制 + 二维码，不额外生成分享页 */
+/** 「管理 → 分享」：链接 + 复制 + 二维码，链接是服务端的分享页 */
 function openShare(row) {
   applyPollShareMeta(row)
   sharePoll.value = { ...row }
-  shareLink.value = voteShareLink(row.id)
+  shareLink.value = voteShareLink(row)
   shareVisible.value = true
 }
 

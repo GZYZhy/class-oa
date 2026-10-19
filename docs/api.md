@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.17.28，共 261 个接口。
+> 版本 1.17.29，共 262 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -36,7 +36,7 @@
 - 办件空间（3）
 - 站内信（4）
 - 生日关怀（4）
-- 投票（12）
+- 投票（13）
 - 成绩（12）
 - 日程（14）
 - 签字（9）
@@ -2956,7 +2956,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 出卷可选的学生名单（班委及以上）
 
@@ -2968,6 +2968,22 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 - `200` `PollRosterResponse` — 成功
   - 字段：`items`
+
+### 投票分享页（公开，只用于微信卡片）
+
+`GET /api/polls/share/{token}`
+
+公开的分享页：微信爬虫不登录，只能靠签名串换出这一场投票 签名串对不上和投票不存在都回 404 —— 和范围外的人看投票一样， 不泄露「有这一场」这件事。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `token` | path | 是 | string |  |
+
+**响应**
+
+- `200` — 成功
 
 ### 投票详情
 
@@ -2984,7 +3000,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 编辑投票（发起人/管理员）
 
@@ -3012,7 +3028,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 删除投票（发起人/管理员）
 
@@ -3056,7 +3072,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 投票名单与记名明细（发起人/管理员）
 
@@ -3124,7 +3140,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 恢复投票（发起人/管理员）
 
@@ -3141,7 +3157,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ## 成绩
 
@@ -4496,5 +4512,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "1.17.25"}
+{"status": "ok", "app": "班级信息管理系统", "version": "1.17.29"}
 ```
