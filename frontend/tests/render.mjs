@@ -3067,8 +3067,9 @@ console.log('\n▶ 投票分享：管理里给链接、复制和二维码')
   check(voteSrc.includes('function keepShareUrl') &&
     voteSrc.includes('keepShareUrl(poll)') &&
     voteSrc.includes('function restoreAppUrl') &&
-    voteSrc.includes("startsWith('/api/polls/share/')"),
-  '二级跳之后地址栏留在分享页，关闭弹窗再还原')
+    voteSrc.includes("startsWith('/api/polls/share/')") &&
+    voteSrc.includes("'/#' + route.fullPath"),
+  '二级跳之后地址栏留在分享页，关闭弹窗按当前路由还原')
   check(voteSrc.includes('function applyPollShareMeta') &&
     voteSrc.includes("'og:title': title") && voteSrc.includes("`投票：${poll.title"),
   '打开投票 / 分享时把投票标题写进 OG')

@@ -717,7 +717,9 @@ function keepShareUrl(poll) {
 function restoreAppUrl() {
   if (!window.location.pathname.startsWith('/api/polls/share/')) return
   try {
-    history.replaceState(history.state, '', '/' + window.location.hash)
+    // 用路由的 fullPath 而不是 location.hash：replaceState 去掉 hash 之后
+    // location.hash 是空的，直接拼会把地址变成根路径，一刷新就回首页了
+    history.replaceState(history.state, '', '/#' + route.fullPath)
   } catch (e) {
     // 地址没还原也不影响页面本身
   }
