@@ -786,7 +786,7 @@ def test_share_link_redirects_and_meta_is_server_rendered(pe):
     assert "应投 1 人" in html and "1 道题" in html and "记名" in html
     assert "定向 1 人" in html, "公开范围要写进卡片"
     assert "截止" in html
-    assert "icons/icon-512.png" in html, "卡片图要用 512 图标"
+    assert "icons/share-512.jpg" in html, "卡片图用优化过的 512 JPEG"
     assert f"/share/vote/{token}" in html, "卡片地址是新的真实路径"
 
 

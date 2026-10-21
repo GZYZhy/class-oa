@@ -3087,8 +3087,8 @@ console.log('\n▶ 投票分享：管理里给链接、复制和二维码')
     voteSrc.includes('pollCard(poll)') && voteSrc.includes('applyShareMeta'),
   '打开分享弹窗时把投票标题和摘要写进 meta')
   const shareMetaSrc = readFileSync(`${ROOT}src/utils/share-meta.js`, 'utf8')
-  check(shareMetaSrc.includes('/icons/icon-512.png'),
-    '分享图用 512 图标，避免小图在微信卡片里不显示')
+  check(shareMetaSrc.includes('/icons/share-512.jpg'),
+    '分享图用优化过的 512 JPEG，尺寸够大、体积小')
   check(shareMetaSrc.includes('og:image:width') && shareMetaSrc.includes('og:locale'),
     '摘要和图片尺寸也一起写进页面头')
   check(voteSrc.includes('function openSharePage(row)') &&
@@ -3098,7 +3098,7 @@ console.log('\n▶ 投票分享：管理里给链接、复制和二维码')
   check(voteSrc.includes("router.replace({ name: 'SharePage'"),
     '旧站内信 ?id= 深链仍能落到分享页')
   const indexHtml = readFileSync(`${ROOT}index.html`, 'utf8')
-  check(indexHtml.includes('og:image') && indexHtml.includes('icons/icon-512.png') &&
+  check(indexHtml.includes('og:image') && indexHtml.includes('icons/share-512.jpg') &&
     indexHtml.includes('SITE_PUBLIC_URL'), '静态首页也有站点级 OG 图兜底')
 
   const shareSrc = readFileSync(`${ROOT}/src/components/VoteShareDialog.vue`, 'utf8')

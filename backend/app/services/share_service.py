@@ -65,7 +65,9 @@ def render_meta_html(request, meta: ShareMeta | None) -> str:
     原样插进 <head>。meta 为 None 或已失效时返回统一的失效卡片。
     """
     site_name = settings.site_name or settings.app_name
-    logo_url = full_url(request, "/icons/icon-512.png")
+    # 512×512 的 JPEG 只有几十 KB：尺寸够大，体积又远小于原 PNG，
+    # 微信抓缩略图时不容易因为文件太大而放弃
+    logo_url = full_url(request, "/icons/share-512.jpg")
 
     if meta is None or not meta.valid:
         title = f"链接已失效 - {site_name}" if site_name else "链接已失效"
@@ -84,21 +86,27 @@ def render_meta_html(request, meta: ShareMeta | None) -> str:
     site_attr = _esc(site_name)
     logo_attr = _esc(logo_url)
 
-    return (
-        f"<title>{title_attr}</title>"
-        f'<meta name="description" content="{description_attr}">'
-        f'<meta name="robots" content="{robots}">'
-        f'<meta property="og:type" content="website">'
-        f'<meta property="og:title" content="{title_attr}">'
-        f'<meta property="og:description" content="{description_attr}">'
-        f'<meta property="og:url" content="{url_attr}">'
-        f'<meta property="og:site_name" content="{site_attr}">'
-        f'<meta property="og:image" content="{logo_attr}">'
-        f'<meta property="og:image:width" content="512">'
-        f'<meta property="og:image:height" content="512">'
-        f'<meta property="og:locale" content="zh_CN">'
-        f'<meta name="twitter:card" content="summary">'
-        f'<meta name="twitter:title" content="{title_attr}">'
-        f'<meta name="twitter:description" content="{description_attr}">'
-        f'<meta name="twitter:image" content="{logo_attr}">'
+    # 每个标签单独一行：微信/QQ 的抓取器对压缩成一行的 head 兼容性不稳定，
+    # 分行输出不改变 HTML 语义，但能避开这类解析问题
+    return "\n".join(
+        [
+            f"<title>{title_attr}</title>",
+            f'<meta name="description" content="{description_attr}">',
+            f'<meta name="robots" content="{robots}">',
+            '<meta property="og:type" content="website">',
+            f'<meta property="og:title" content="{title_attr}">',
+            f'<meta property="og:description" content="{description_attr}">',
+            f'<meta property="og:url" content="{url_attr}">',
+            f'<meta property="og:site_name" content="{site_attr}">',
+            f'<meta property="og:image" content="{logo_attr}">',
+            '<meta property="og:image:type" content="image/jpeg">',
+            '<meta property="og:image:width" content="512">',
+            '<meta property="og:image:height" content="512">',
+            '<meta property="og:locale" content="zh_CN">',
+            f'<link rel="image_src" href="{logo_attr}">',
+            '<meta name="twitter:card" content="summary">',
+            f'<meta name="twitter:title" content="{title_attr}">',
+            f'<meta name="twitter:description" content="{description_attr}">',
+            f'<meta name="twitter:image" content="{logo_attr}">',
+        ]
     )
