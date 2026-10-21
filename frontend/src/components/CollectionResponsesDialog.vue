@@ -35,12 +35,20 @@
           <el-button size="small" :loading="exporting" @click="handleExport">导出 Excel</el-button>
           <el-button
             size="small"
-            type="primary"
-            :loading="reminding"
-            :disabled="!canRemind || remindableCount === 0"
-            @click="handleRemind"
+            :loading="reminding === 'unfilled'"
+            :disabled="!canRemind || pending.unfilled_count === 0"
+            @click="handleRemind('unfilled')"
           >
-            提醒未填（{{ remindableCount }}）
+            提醒未填（{{ pending.unfilled_count }}）
+          </el-button>
+          <el-button
+            size="small"
+            type="primary"
+            :loading="reminding === 'partial'"
+            :disabled="!canRemind || pending.partial_count === 0"
+            @click="handleRemind('partial')"
+          >
+            提醒未填满（{{ pending.partial_count }}）
           </el-button>
         </div>
       </div>
@@ -128,9 +136,10 @@
         </el-tab-pane>
 
         <!-- ---------- 未填名单 ---------- -->
-        <el-tab-pane :label="`未填（${pending.total}）`" name="pending">
+        <el-tab-pane :label="`未填满（${pending.total}）`" name="pending">
           <p class="cr-sub cr-hint">
-            按「提交份数 &lt; 每人份数」统计；催填会跳过你自己和冻结账号
+            「提醒未填」只催一份都没交的，「提醒未填满」只催交过但没填满的；
+            两者都会跳过你自己和冻结账号
             <template v-if="detail.anonymous">。不记名收集不显示每个人交了几份</template>
           </p>
           <el-table
@@ -281,20 +290,22 @@ const pageSize = ref(20)
 const order = ref('asc')
 const selectedIds = ref([])
 
-const pending = reactive({ total: 0, items: [] })
+const pending = reactive({
+  total: 0,
+  items: [],
+  unfilled_count: 0,
+  partial_count: 0
+})
 const pendingLoading = ref(false)
 const statistics = ref({ items: [] })
 const statsLoading = ref(false)
 
 const exporting = ref(false)
-const reminding = ref(false)
+/** 哪个提醒按钮正在发请求：'' / unfilled / partial */
+const reminding = ref('')
 
 const canRemind = computed(
   () => detail.value.status === 'open' && !detail.value.cap_reached
-)
-/** 催填会跳过本人和冻结账号，按钮上的数字必须和后面端口径一致 */
-const remindableCount = computed(
-  () => pending.items.filter((row) => !row.frozen && !row.is_self).length
 )
 
 let timer = null
@@ -346,6 +357,8 @@ async function loadPending(silent = false) {
     const data = await getCollectionPending(detail.value.id)
     pending.items = data.items || []
     pending.total = data.total || 0
+    pending.unfilled_count = data.unfilled_count || 0
+    pending.partial_count = data.partial_count || 0
   } catch (e) {
     if (!silent) ElMessage.error(errText(e, '读取未填名单失败'))
   } finally {
@@ -468,30 +481,35 @@ async function handleExport() {
   }
 }
 
-async function handleRemind() {
-  const count = remindableCount.value
+/** scope: unfilled 只催一份没交的；partial 只催交过但没填满的 */
+async function handleRemind(scope) {
+  const count = scope === 'unfilled' ? pending.unfilled_count : pending.partial_count
   if (!count) {
-    return ElMessage.info('没有可提醒的人（冻结账号会被跳过）')
+    return ElMessage.info(
+      scope === 'unfilled' ? '没有一份都没交的人了' : '没有交过但还没填满的人了'
+    )
   }
+  const who = scope === 'unfilled' ? '还没填过任何一份的' : '交过但还没填满的'
+  const title = scope === 'unfilled' ? '提醒未填' : '提醒未填满'
   try {
     await ElMessageBox.confirm(
-      `会给还没填满的 ${count} 人各推一条提醒，可能打扰到他们。确定提醒吗？`,
-      '提醒未填',
+      `会给${who} ${count} 人各推一条提醒，可能打扰到他们。确定提醒吗？`,
+      title,
       { type: 'warning', confirmButtonText: '提醒', cancelButtonText: '取消' }
     )
   } catch {
     return
   }
-  reminding.value = true
+  reminding.value = scope
   try {
-    const { reminded } = await remindCollection(detail.value.id)
+    const { reminded } = await remindCollection(detail.value.id, scope)
     ElMessage.success(`已提醒 ${reminded} 人`)
     // 提醒不改答卷，只刷新未填名单；不动表格就不会把用户的勾选弄丢
     await loadPending(true)
   } catch (e) {
     ElMessage.error(errText(e, '提醒失败'))
   } finally {
-    reminding.value = false
+    reminding.value = ''
   }
 }
 
@@ -532,6 +550,7 @@ onBeforeUnmount(stopPolling)
 
 .cr-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
