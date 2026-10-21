@@ -14,22 +14,12 @@
     </div>
 
     <el-alert
-      v-if="poll.anonymous"
-      type="warning"
-      :closable="false"
-      show-icon
-      class="vb-alert"
-      title="本次投票不记名"
-      description="发起人也看不到你选了什么。只有「谁投了、谁还没投」是公开的"
-    />
-    <el-alert
       v-if="!canVote && poll.has_voted"
       type="success"
       :closable="false"
       show-icon
       class="vb-alert"
       title="你已经投过票了"
-      description="投出去就定死了，不能改票也不能重投。下面是你的选择"
     />
     <el-alert
       v-else-if="!canVote"

@@ -69,7 +69,6 @@
             show-icon
             class="sv-alert"
             title="投票已提交"
-            description="投出去就定死了，不能改票。下面是你的选择"
           />
           <VoteBallot
             :poll="poll"
@@ -81,7 +80,13 @@
 
         <!-- 结果：只对能看到结果的人（发起人/管理员/投票已结束的参与者）出现 -->
         <div v-if="poll.in_scope && poll.results_visible && poll.questions?.length" class="sv-results">
-          <h3 class="sv-results-title">投票结果</h3>
+          <div class="sv-results-head">
+            <h3 class="sv-results-title">投票结果</h3>
+            <!-- 纯前端重排，不改票数：选举时先看谁领先 -->
+            <el-button size="small" @click="tallySorted = !tallySorted">
+              {{ tallySorted ? '按选项顺序' : '按得票排序' }}
+            </el-button>
+          </div>
           <p class="sv-hint">
             已投 {{ poll.voted_count }} / {{ poll.target_count }} 人。
             多选题每人可选的项数不止一个，所以一道题的票数之和会大于人数
@@ -92,7 +97,7 @@
               <el-tag v-if="q.multiple" size="small" type="info" effect="plain">多选</el-tag>
               <span class="sv-sub">共 {{ sumOf(q) }} 项选择</span>
             </div>
-            <div v-for="j in tallyOrder(q, false)" :key="j" class="sv-opt">
+            <div v-for="j in tallyOrder(q, tallySorted)" :key="j" class="sv-opt">
               <span class="sv-opt-name">
                 <span class="sv-opt-letter">{{ letters[j] }}.</span> {{ q.options[j] }}
               </span>
@@ -147,6 +152,8 @@ const notFound = ref(false)
 const poll = ref(null)
 const submitting = ref(false)
 const justVoted = ref(false)
+/** 结果是否按得票从多到少排；只是看的习惯，换一场不用重设 */
+const tallySorted = ref(false)
 
 const loginHref = computed(() => `#/login?redirect=${encodeURIComponent(route.fullPath)}`)
 
@@ -322,8 +329,16 @@ onUnmounted(() => {
   border-top: 1px solid var(--el-border-color-lighter);
 }
 
+.sv-results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
 .sv-results-title {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 16px;
   color: var(--el-text-color-primary);
 }

@@ -5,78 +5,34 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- 下面这些 ${SITE_*} 是给容器启动时替换的占位符，值来自项目根的 .env：
-         生产走 frontend/docker-entrypoint.sh 的 envsubst，
-         本地 npm run dev 走 frontend/vite.config.js 里的同名插件。
-         所以**不要**把占位符改成写死的班名 —— 那样换学校就得重编镜像。
-         字段清单见 frontend/site-config.js.template。 -->
-
-    <!-- 外链分享页（/share/{kind}/{token}）的 head 片段：nginx 只在这个前缀下
-         开启 SSI。普通页面上这一行只是一句 HTML 注释，不会发额外请求；
-         分享页上 nginx 会把对应场次的 title/description/og 插进来。
-         ${request_uri} 不在 envsubst / Vite 的替换白名单里，会原样保留。
-         必须用 $request_uri：rewrite 到 /index.html 之后 $uri 已经变了。 -->
     <!--# include virtual="/api/share-meta${request_uri}" -->
-
-    <!-- 站点级 meta 与分享页的 meta 二选一：分享页的标签由上面的 include 提供，
-         普通页面走 else 分支。会冲突的标签（title / description / og:description /
-         robots）只能出现在一个分支里，否则微信可能读到站点级的通用摘要。
-         条件语法用 nginx SSI 的 /regex/ 写法（~ 不认）；非分享页不开 SSI，
-         这些指令只是注释，else 分支里的标签照常输出。 -->
     <!--# if expr="$request_uri = /^\/share\//" -->
     <!--# else -->
     <title>${SITE_NAME}</title>
     <meta name="description" content="${SITE_DESCRIPTION}" />
-
-    <!-- 站点级 OG 兜底：爬虫不执行页面 JS 时也至少有站名、摘要和校徽，
-         不会只剩一条光秃秃的链接。具体页面的动态 OG 由上面的 include 提供。 -->
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="${SITE_NAME}" />
+    <meta property="og:title" content="${SITE_NAME}" />
     <meta property="og:description" content="${SITE_DESCRIPTION}" />
+    <meta property="og:url" content="${SITE_PUBLIC_URL}/" />
+    <meta property="og:site_name" content="${SITE_NAME}" />
     <meta property="og:image" content="${SITE_PUBLIC_URL}/icons/icon-512.png" />
     <meta property="og:image:width" content="512" />
     <meta property="og:image:height" content="512" />
-    <!-- 站内有身份证号、住址等隐私数据：默认拒绝一切抓取。
-         robots.txt 的 Disallow 只挡住抓取，挡不住别人从别处链接过来时
-         我们的 URL 以裸链接出现在结果里，所以这里再加一道 noindex。
-         分享页由 include 片段改成 index,follow。 -->
+    <meta property="og:locale" content="zh_CN" />
     <meta name="robots" content="noindex, nofollow" />
     <!--# endif -->
 
-    <!-- PWA：让「添加到主屏」变成一个独立应用。
-         这不只是为了像原生应用 —— iPhone 上 Safari 只有在添加到主屏、并且
-         从主屏图标启动之后，才允许这个站点申请通知权限，普通标签页里连
-         权限弹窗都弹不出来。所以以下这几行是 iOS 收推送的前置条件。 -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <!-- iOS 不认 manifest 里的 icons，主屏图标只认这一行 -->
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="theme-color" content="#409EFF" />
-    <!-- 没有这一行，iOS 添加到主屏后点开还是带地址栏的浏览器视图。
-         前缀 apple- 的那个已被标准废弃，Chrome / Edge 控制台会警告，
-         所以两条都留着：iOS 只认 apple- 的，Chromium 系认下面这条标准写法。
-         用 content="yes" 是历史写法，规范里的值是 "webapp"，浏览器两个都认 -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="${SITE_SHORT_NAME}" />
 
-    <!-- 品牌配置。必须是普通脚本（不是 module）：module 天生 defer，
-         那样这个文件会在 src/main.js 之后才执行，应用启动时读不到品牌值。
-         普通脚本在这里同步执行，window.__SITE__ 一定比 main.js 先就绪。
-         Service Worker 也 importScripts 同一个文件。 -->
     <script src="/site-config.js"></script>
-
-    <!-- 分享页启动引导：把真实路径 /share/{kind}/{token} 映射成 hash 路由，
-         让应用第一次启动就渲染对应的分享页，不再有第二次跳转。
-         必须是普通同步脚本（module 会 defer，晚于路由初始化）；普通页面里
-         它匹配不到路径，直接 return。 -->
     <script src="/share-boot.js"></script>
 
-    <!-- 可选：.env 里 HEAD_INJECT 的内容会**原样**插在这里，
-         用来放统计 / 跟踪器等第三方脚本。不填就是空行，什么都不加载。
-         原样插入意味着值里的引号、尖括号、反斜杠、$ 和换行都不会被转义，
-         所以 .env 里要按 Docker Compose 的规则写多行值（见 .env.example）。
-         这段配置的权限等同服务器本身：只放自己信任的代码。 -->
     ${HEAD_INJECT}
   </head>
   <body>

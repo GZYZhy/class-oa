@@ -97,8 +97,9 @@
       </el-table-column>
       <el-table-column label="操作" width="150" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openSharePage(row)">
-            {{ collectionActionText(row) }}
+          <!-- 普通参与者去统一填写页；发起人/管理员看实时答卷仍用弹窗 -->
+          <el-button link type="primary" @click="openMainAction(row)">
+            {{ row.can_manage ? '实时预览' : collectionActionText(row) }}
           </el-button>
           <el-dropdown
             v-if="row.can_manage"
@@ -112,6 +113,10 @@
               <el-dropdown-menu>
                 <el-dropdown-item command="edit">编辑</el-dropdown-item>
                 <el-dropdown-item command="responses">答卷详情</el-dropdown-item>
+                <!-- 管理入口走弹窗后，仍从这里去统一填写页（自己也要填的时候用） -->
+                <el-dropdown-item command="openFillPage">
+                  {{ row.can_submit ? '去填写' : '打开填写页' }}
+                </el-dropdown-item>
                 <el-dropdown-item command="share">分享</el-dropdown-item>
                 <el-dropdown-item
                   command="remind"
@@ -165,7 +170,6 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Refresh, Search } from '@element-plus/icons-vue'
 import CollectionCreateDialog from '@/components/CollectionCreateDialog.vue'
@@ -189,9 +193,7 @@ import {
 } from '@/utils/collection'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'
-import { shareUrl } from '@/utils/share-url'
-
-const router = useRouter()
+import { openShareInNewTab, shareUrl } from '@/utils/share-url'
 
 const loading = ref(false)
 const rows = ref([])
@@ -252,16 +254,21 @@ function canExtend(row) {
   return canPause(row)
 }
 
-/** 主按钮：站内站外统一跳到整页分享页 */
+/** 主按钮：普通参与者去统一填写页；发起人/管理员用实时答卷弹窗 */
+function openMainAction(row) {
+  if (row.can_manage) return openResponses(row)
+  openSharePage(row)
+}
+
+/** 新标签页打开统一的填写页（管理下拉里的「去填写 / 打开填写页」也走这里） */
 function openSharePage(row) {
-  if (row.share_token) {
-    router.push({ name: 'SharePage', params: { kind: 'collect', token: row.share_token } })
-  }
+  if (row.share_token) openShareInNewTab('collect', row.share_token)
 }
 
 function handleCommand(command, row) {
   if (command === 'edit') return createRef.value?.openForEdit(row)
   if (command === 'responses') return openResponses(row)
+  if (command === 'openFillPage') return openSharePage(row)
   if (command === 'share') return openShare(row)
   if (command === 'remind') return handleRemind(row)
   if (command === 'togglePause') return handleTogglePause(row)

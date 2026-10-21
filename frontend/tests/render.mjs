@@ -7,7 +7,7 @@
 //   - el-dialog 的正文不渲染（弹窗里的文案断不到，只能断源码）；
 //   - el-table 的数据行和表头都不渲染（行补了桩，表头没有 —— 见下面的 ElTableStub）；
 //   - 没有 window、也没有 vue-router（两边都给了最小的桩，见下面）。
-import { readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'vite'
 import { createSSRApp, h, inject } from 'vue'
 import { renderToString } from 'vue/server-renderer'
@@ -2692,7 +2692,7 @@ console.log('\n▶ 共青团员：点名能选、出卷能筛，判据只有一�
   check(pollSrc.includes('>仅团员<'), '出卷「有权表决的人」多了一枚「仅团员」')
   check(/roster\.value\.filter\(isLeagueMember\)/.test(pollSrc),
     '「仅团员」调的是共用判据，不是在这儿再比一遍「共青团员」四个字')
-  check(/import \{ isLeagueMember \} from '@\/utils\/roster'/.test(pollSrc),
+  check(/import \{[^}]*isLeagueMember[^}]*\} from '@\/utils\/roster'/.test(pollSrc),
     '判据是从 utils/roster.js 引进来的，不是本地又定义了一个')
 
   // 后端得把政治面貌带出来，否则上面这个判据没有数据可判
@@ -2921,22 +2921,37 @@ console.log('\n▶ 出卷能复用旧卷子：只搬题目，其余重新填')
   check(/<div v-if="!isEdit" class="pc-reuse">/.test(pollSrc),
     '复用入口只在出卷时出现 —— 编辑时题目本来就在表单里')
   check(pollSrc.includes('从之前的投票复制题目（可选）'), '下拉框写明了这是干什么的')
-  check(pollSrc.includes('只复制题目') && pollSrc.includes('标题、时间、表决范围和记名方式'),
-    '旁边说清楚只搬题目，免得以为整场都沿用了')
+  check(pollSrc.includes('表决范围也会一起复制') &&
+    pollSrc.includes('标题、时间和记名方式仍按本次填写'),
+  '旁边说清楚：题目和能管理时的表决范围会复制，标题/时间/记名不复制')
   check(/getPolls\(\{ page: 1, page_size: 100 \}\)/.test(pollSrc),
     '拉可见的投票列表（100 是列表接口的上限）')
   check(/filter\(\(p\) => p\.question_count > 0\)/.test(pollSrc),
     '一道题都没有的投票不列出来')
   check(/await getPoll\(id\)[\s\S]{0,120}?form\.questions = questionsFromPoll\(detail\)/.test(pollSrc),
-    '列表行里没有题目，选中后拉详情，只替换 questions')
+    '列表行里没有题目，选中后拉详情，替换 questions')
 
   const reuseFn = (pollSrc.match(/async function reuseQuestions[\s\S]*?\n}/) || [''])[0]
   check(/hasQuestionContent\(form\.questions\)/.test(reuseFn) && /ElMessageBox\.confirm/.test(reuseFn),
     '当前题目有内容时先确认，覆盖不可撤销')
-  check(!/form\.(title|description|start_at|end_at|targets|anonymous)\s*=/.test(reuseFn),
-    '复用只换题目：标题、时间、范围、记名方式一律不碰')
+  check(/getBallots\(id\)/.test(reuseFn) && /scopeFromRows\(/.test(reuseFn) &&
+    /form\.targets = targets/.test(reuseFn),
+  '能管理的旧投票：表决范围也一起带过来，并按当前名单过滤')
+  check(!/form\.(title|description|start_at|end_at|anonymous)\s*=/.test(reuseFn),
+    '复用不动标题、时间和记名方式')
 
-  check(/function open\(\)[\s\S]{0,200}?fetchReusePolls\(\)/.test(pollSrc),
+  const { scopeFromRows } = await server.ssrLoadModule('/src/utils/roster.js')
+  check(
+    JSON.stringify(scopeFromRows(
+      [{ student_no: 'a' }, { student_no: 'b' }, { student_no: 'a' }],
+      [{ student_no: 'a' }, { student_no: 'c' }]
+    )) === '["a"]',
+    '复用范围：只留当前名单里还有的人，并去重'
+  )
+  check(scopeFromRows([{ student_no: 'a' }], []).length === 0,
+    '当前名单为空时不把旧学号硬塞进来（提交会被后端拒）')
+
+  check(/function open\(\)[\s\S]{0,300}?fetchReusePolls\(\)/.test(pollSrc),
     '每次打开出卷弹窗都重拉一遍，刚建的那场也能马上复用')
 }
 
@@ -3077,9 +3092,11 @@ console.log('\n▶ 投票分享：管理里给链接、复制和二维码')
   check(shareMetaSrc.includes('og:image:width') && shareMetaSrc.includes('og:locale'),
     '摘要和图片尺寸也一起写进页面头')
   check(voteSrc.includes('function openSharePage(row)') &&
-    voteSrc.includes("params: { kind: 'vote'") &&
+    voteSrc.includes("openShareInNewTab('vote'") &&
     !voteSrc.includes('v-model="voteVisible"'),
-  '列表主按钮跳到整页分享页，投票弹窗已经移除')
+  '列表主按钮在新标签页打开整页分享页，投票弹窗已经移除')
+  check(voteSrc.includes("router.replace({ name: 'SharePage'"),
+    '旧站内信 ?id= 深链仍能落到分享页')
   const indexHtml = readFileSync(`${ROOT}index.html`, 'utf8')
   check(indexHtml.includes('og:image') && indexHtml.includes('icons/icon-512.png') &&
     indexHtml.includes('SITE_PUBLIC_URL'), '静态首页也有站点级 OG 图兜底')
@@ -3439,6 +3456,14 @@ console.log('\n▶ 结果页的「按得票排序」：只是换个看的顺序�
   check(/\{\{ tallySorted \? '按选项顺序' : '按得票排序' \}\}/.test(voteSrc),
     '按钮上的字跟着当前状态变，按下去会变成什么一看就知道')
   check(/const tallySorted = ref\(false\)/.test(voteSrc), '开关默认关着，进页面不会无端重排')
+
+  // 参与者看的外链整页也要能排序（管理员看的是上面的旧弹窗）
+  const shareVoteSource = src('/src/views/share/ShareVote.vue')
+  check(/v-for="j in tallyOrder\(q, tallySorted\)"/.test(shareVoteSource),
+    '分享页结果也按 tallyOrder 的次序渲染')
+  check(/@click="tallySorted = !tallySorted"/.test(shareVoteSource) &&
+    shareVoteSource.includes("'按得票排序'"),
+  '分享页也有一枚按得票排序的开关')
 
   // ---------- 真渲染：两行的先后，以及字母跟不跟着走 ----------
   const RESULT = {
@@ -4563,6 +4588,34 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   check(/question\.qtype === 'multiple'/.test(dlgSrc) && /typeHint\('image'\)|qtype === 'image'/.test(dlgSrc),
     '多选上限和图片提示都在出卷里')
 
+  // ---------- 复用旧卷：收集也要能复制题目和范围 ----------
+  const { questionsFromCollection } = await server.ssrLoadModule('/src/utils/collection.js')
+  const oldCollection = {
+    questions: [
+      { id: 1, title: '旧单选', qtype: 'single', required: true, options: ['甲', '乙'], max_choices: 1 },
+      { id: 2, title: '旧图片', qtype: 'image', required: false, options: [], max_choices: null }
+    ]
+  }
+  const copiedQuestions = questionsFromCollection(oldCollection)
+  check(copiedQuestions.length === 2 && copiedQuestions[0].title === '旧单选' &&
+    copiedQuestions[1].qtype === 'image', '旧收集的题目按题型搬进表单')
+  check(JSON.stringify(copiedQuestions[0].options) === '["甲","乙"]', '选项和顺序原样照抄')
+  copiedQuestions[0].options[0] = '改过'
+  check(oldCollection.questions[0].options[0] === '甲', '复制的是深拷贝，接着改不会动到旧收集')
+  check(questionsFromCollection({ questions: [] }).length === 1, '旧收集没有题时回一道空题')
+
+  check(dlgSrc.includes('从之前的收集复制题目（可选）') &&
+    dlgSrc.includes('可填写范围也会一起复制'), '收集出卷里有复用入口，并说明范围也会复制')
+  check(/getCollections\(\{ page: 1, page_size: 100 \}\)/.test(dlgSrc),
+    '拉最近 100 场可见收集（和投票复用同一上限）')
+  check(/getCollectionTargets\(id\)/.test(dlgSrc) && /scopeFromRows\(/.test(dlgSrc) &&
+    /form\.targets = targets/.test(dlgSrc),
+  '能管理的旧收集：范围一起带过来，并按当前名单过滤')
+  const collectionReuseFn =
+    (dlgSrc.match(/async function reuseQuestions[\s\S]*?\n}/) || [''])[0]
+  check(!/form\.(title|description|start_at|end_at|anonymous|submit_quota|max_responses)\s*=/
+    .test(collectionReuseFn), '复用不动标题、时间、份数、记名方式')
+
   // ---------- 答卷表单：六种控件 ----------
   const sample = {
     id: 1,
@@ -4607,6 +4660,51 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
     '打开期间按间隔刷新答卷/未填/统计')
   check(/batchDeleteCollectionResponses/.test(respSrc), '支持批量删除')
   check(/CollectionAnswers/.test(respSrc), '展开行复用同一份答卷展示')
+  check(/row\.is_self/.test(respSrc) &&
+    /!row\.frozen && !row\.is_self/.test(respSrc),
+  '未填名单包含本人，但催填人数排除本人和冻结账号')
+  check(respSrc.includes('应填 {{ detail.target_count ?? 0 }} 人') &&
+    respSrc.includes('未填 {{ pending.total }} 人'),
+  '头部同时给出应填 / 已填 / 未填人数')
+  check(/<el-tag v-if="row\.is_self"/.test(respSrc), '本人那一行单独标出来')
+
+  // 管理员 / 发起人的主入口回到实时预览弹窗
+  const voteListSrc = src('/src/views/Vote.vue')
+  check(/row\.can_manage \? '实时预览' : actionText\(row\)/.test(voteListSrc) &&
+    /function openMainAction/.test(voteListSrc),
+  '投票：管理员/发起人主按钮打开旧的实时结果弹窗')
+  check(/command="openSharePage"/.test(voteListSrc), '管理下拉仍保留去投票页的入口')
+  check(/row\.can_manage \? '实时预览' : collectionActionText\(row\)/.test(panelSrc) &&
+    /function openMainAction/.test(panelSrc),
+  '收集：管理员/发起人主按钮打开实时答卷弹窗')
+  check(/command="openFillPage"/.test(panelSrc), '管理下拉仍保留去填写页的入口')
+
+  // 所有打开分享页的入口都开新标签：列表的填写/投票、管理下拉、站内信
+  check(panelSrc.includes("openShareInNewTab('collect'"),
+    '收集列表的填写入口在新标签页打开分享页')
+  check(voteListSrc.includes("openShareInNewTab('vote'"),
+    '投票列表的投票入口也在新标签页打开')
+  check(/item\.page\?\.startsWith\('\/share\/'\)/.test(src('/src/views/Inbox.vue')) &&
+    /window\.open\(item\.page, '_blank', 'noopener,noreferrer'\)/
+      .test(src('/src/views/Inbox.vue')),
+  '站内信的分享页「前往查看」也开新标签页')
+  check(/window\.open\(sharePath\(kind, token\), '_blank', 'noopener,noreferrer'\)/
+    .test(src('/src/utils/share-url.js')),
+  '统一用真实分享路径新开标签，meta 由服务端注入')
+
+  // ---------- 不记名只留徽章，去掉重复说明 ----------
+  const ballotSrc = src('/src/components/VoteBallot.vue')
+  check(!ballotSrc.includes('本次投票不记名'), '投票不记名不再出专门的横幅')
+  check(!ballotSrc.includes('下面是你的选择') &&
+    !src('/src/views/share/ShareVote.vue').includes('下面是你的选择'),
+  '去掉「下面是你的选择」这句重复说明')
+  check(!src('/src/views/share/ShareCollect.vue').includes('本次收集不记名'),
+    '收集不记名同样只用徽章')
+  check(/\.share-card\s*\{[^}]*margin-bottom: 32px/
+    .test(src('/src/components/share/ShareLayout.vue')),
+  '分享卡片和底栏之间留出空隙，长表单不会直接顶到页脚')
+  check(existsSync(`${ROOT}/public/favicon.ico`),
+    '根路径有实体 favicon.ico：浏览器自动请求不再 404')
 
   // ---------- 答过打开就是查看自己的答卷；允许时能撤回 ----------
   const myInfo = `info.value = {
@@ -4661,6 +4759,16 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   const shareSrc = src('/src/views/share/ShareCollect.vue')
   check(/my_responses/.test(shareSrc) && /withdrawCollectionResponse/.test(shareSrc),
     '撤回走独立接口，撤回后重新拉公开信息')
+  check(/\.sc-mine \{[^}]*margin-bottom: 18px/.test(shareSrc) &&
+    !/\.sc-mine \{[^}]*border-bottom/.test(shareSrc),
+  '我的答卷区和作答区之间只留一条分割线，不再画两条')
+  check(/async function fetchInfo\(\{ retry = true \}/.test(shareSrc) &&
+    /setTimeout\(resolve, 800\)/.test(shareSrc),
+  '弱网下自动重试一次')
+  check(shareSrc.includes('syncError') && shareSrc.includes('显示的是刚才加载的内容'),
+    '已有内容时刷新失败不整页变错误页，只给一条重试提示')
+  check(shareSrc.includes('答卷已提交，但刷新页面状态失败'),
+    '交卷成功但刷新失败时，不会误报成「提交失败」让人再交一遍')
 
   // ---------- 三处 Markdown 展示 ----------
   check(src('/src/views/share/ShareVote.vue').includes('renderMarkdown(poll.description)'),

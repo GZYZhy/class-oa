@@ -149,6 +149,7 @@ class PollListItem(BaseModel):
     start_notified_at: datetime | None = None
 
     question_count: int = 0
+    scope_label: str = Field("", description="全班 / 班委 / 团员 / 定向 N 人")
     target_count: int = Field(0, description="应投人数，投票率的分母")
     voted_count: int = Field(0, description="已投人数")
     is_target: bool = Field(False, description="我在不在表决范围内")

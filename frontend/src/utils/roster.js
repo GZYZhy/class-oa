@@ -42,6 +42,24 @@ export function hasPosition(field) {
   return (s) => !!s?.[field] && s[field] !== '无'
 }
 
+/**
+ * 复用旧活动的范围：把旧名单里的学号还原成**当前名单里还能选的人**
+ *
+ * rows 来自投票名单（ballots.rows）或收集范围接口（items），都带 student_no。
+ * 学生删档后旧范围里可能留着已经不在名单里的学号；带过来提交会被后端拒，
+ * 所以一律和当前名单求交集，并去重。
+ */
+export function scopeFromRows(rows, students) {
+  const allowed = new Set((students || []).map((s) => s.student_no))
+  const result = []
+  for (const row of rows || []) {
+    const no = row?.student_no
+    if (!no || !allowed.has(no) || result.includes(no)) continue
+    result.push(no)
+  }
+  return result
+}
+
 /** 按范围取人。显示人数和实际取人共用它，就不会再各写一套比法 */
 export function pickByScope(list, scopeName) {
   if (scopeName === '全班') return [...list]

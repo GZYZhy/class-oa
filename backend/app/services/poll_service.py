@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..config import resolve_session_secret
 from ..models import Poll, PollAnswer, PollQuestion, PollTarget, Student, User
-from .scope_service import target_scope_label
+from .scope_service import target_scope_label, target_scope_labels
 
 # 四种状态。前端在 views/Vote.vue 和 utils/poll.js 里按这几个值分支，改的时候一起改
 STATUS_PENDING = "pending"
@@ -301,6 +301,15 @@ def list_items(db: Session, polls: list[Poll], student_no: str, admin: bool) -> 
     counts = _counts_of(db, poll_ids)
     my_targets = _my_poll_ids(db, PollTarget, poll_ids, student_no)
     my_votes = _my_poll_ids(db, PollAnswer, poll_ids, student_no)
+    # 复用旧卷要显示「上一场是什么范围」，一次把这一页的名单都查出来算标签
+    target_sets: dict[int, set[str]] = {}
+    for poll_id, target_no in (
+        db.query(PollTarget.poll_id, PollTarget.student_no)
+        .filter(PollTarget.poll_id.in_(poll_ids))
+        .all()
+    ):
+        target_sets.setdefault(poll_id, set()).add(target_no)
+    scope_labels = target_scope_labels(db, target_sets)
 
     items = []
     for poll in polls:
@@ -327,6 +336,7 @@ def list_items(db: Session, polls: list[Poll], student_no: str, admin: bool) -> 
                 "notify_on_start": bool(poll.notify_on_start),
                 "start_notified_at": poll.start_notified_at,
                 "question_count": counts["questions"].get(poll.id, 0),
+                "scope_label": scope_labels.get(poll.id, ""),
                 "target_count": counts["targets"].get(poll.id, 0) if visible else 0,
                 "voted_count": counts["voted"].get(poll.id, 0) if visible else 0,
                 "is_target": in_target,

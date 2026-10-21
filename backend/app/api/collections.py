@@ -66,6 +66,7 @@ from ..schemas import (
     CollectionStatisticsResponse,
     CollectionSubmitIn,
     CollectionSubmitResponse,
+    CollectionTargetList,
     CollectionUpdate,
     CollectionWithdrawResponse,
 )
@@ -1184,15 +1185,14 @@ def get_pending(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """按「提交份数 < 每人配额」算人；匿名时只返回是否未完成，不返回份数"""
+    """按「提交份数 < 每人配额」算人；匿名时只返回是否未完成，不返回份数
+
+    **本人也列出来**：发起人常常把自己放进范围里，只排除他的话，他明明没填，
+    未填名单却是 0，看上去像「所有人都填满了」。提醒接口仍会跳过本人。
+    """
     collection = _load_manageable(db, collection_id, user, is_admin(user))
-    rows = [
-        row
-        for row in pending_rows(db, collection)
-        if row["student_no"] != user.student_no
-    ]
     items = []
-    for row in rows:
+    for row in pending_rows(db, collection):
         items.append(
             {
                 "student_no": row["student_no"],
@@ -1200,9 +1200,43 @@ def get_pending(
                 "submitted_count": None if collection.anonymous else row["submitted_count"],
                 "remaining": None if collection.anonymous else row["remaining"],
                 "frozen": row["frozen"],
+                "is_self": row["student_no"] == user.student_no,
             }
         )
     return {"total": len(items), "items": items}
+
+
+@router.get(
+    "/{collection_id}/targets",
+    response_model=CollectionTargetList,
+    summary="可填写名单（发起人/管理员，复用范围用）",
+)
+def get_targets(
+    collection_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """复用旧收集时把范围一并带过来
+
+    只给发起人/管理员：范围标签是公开的，但具体名单不是。
+    """
+    collection = _load_manageable(db, collection_id, user, is_admin(user))
+    targets = (
+        db.query(CollectionTarget)
+        .filter(CollectionTarget.collection_id == collection.id)
+        .order_by(CollectionTarget.id)
+        .all()
+    )
+    return {
+        "total": len(targets),
+        "items": [
+            {
+                "student_no": target.student_no,
+                "student_name": target.student_name or "",
+            }
+            for target in targets
+        ],
+    }
 
 
 @router.delete(

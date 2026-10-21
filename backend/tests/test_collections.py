@@ -262,6 +262,49 @@ def test_per_person_quota(cb):
     assert row["my_submitted_count"] == 0
 
 
+def test_pending_includes_self_but_remind_skips_self(cb):
+    """发起人自己也在范围里时，未填名单要算上他；提醒仍然跳过本人"""
+    collection = _create(cb, targets=[CREATOR, VOTER])
+    cid = collection["id"]
+
+    pending = cb.client.get(f"/api/collections/{cid}/pending").json()
+    assert pending["total"] == 2
+    by_no = {row["student_no"]: row for row in pending["items"]}
+    assert by_no[CREATOR]["is_self"] is True
+    assert by_no[VOTER]["is_self"] is False
+
+    reminded = cb.client.post(f"/api/collections/{cid}/remind")
+    assert reminded.status_code == 200, reminded.text
+    assert reminded.json()["reminded"] == 1
+
+    # 只有自己一个人在范围里：未填显示 1 人，但催填不会给自己发
+    solo = _create(cb, targets=[CREATOR], title="只给自己填")
+    solo_pending = cb.client.get(
+        f"/api/collections/{solo['id']}/pending"
+    ).json()
+    assert solo_pending["total"] == 1
+    assert solo_pending["items"][0]["is_self"] is True
+    assert cb.client.post(
+        f"/api/collections/{solo['id']}/remind"
+    ).json()["reminded"] == 0
+
+
+def test_collection_targets_only_for_managers(cb):
+    """复用范围用的名单接口只给发起人/管理员"""
+    collection = _create(cb)
+    cid = collection["id"]
+
+    own = cb.client.get(f"/api/collections/{cid}/targets")
+    assert own.status_code == 200, own.text
+    assert [row["student_no"] for row in own.json()["items"]] == [VOTER]
+
+    _login(cb, VOTER, VOTER_PW)
+    assert cb.client.get(f"/api/collections/{cid}/targets").status_code == 404
+
+    _login(cb, ADMIN, ADMIN_PW)
+    assert cb.client.get(f"/api/collections/{cid}/targets").status_code == 200
+
+
 def test_competitive_cap_and_delete_releases_slot(cb):
     collection = _create(
         cb,

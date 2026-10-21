@@ -189,6 +189,12 @@ async function deleteRead() {
 }
 
 function go(item) {
+  // 分享页（投票 / 收集 / 签到 / 公告）统一在新标签页打开：
+  // 用真实路径，nginx 注入的卡片 meta 也在，站内消息列表不会被带走
+  if (item.page?.startsWith('/share/')) {
+    window.open(item.page, '_blank', 'noopener,noreferrer')
+    return
+  }
   router.push(item.page)
 }
 

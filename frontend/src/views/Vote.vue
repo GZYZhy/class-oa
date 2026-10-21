@@ -97,8 +97,10 @@
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <!-- 站内站外统一：点进同一张整页分享页，不再弹窗 -->
-            <el-button link type="primary" @click="openSharePage(row)">{{ actionText(row) }}</el-button>
+            <!-- 普通参与者进统一的外链整页；发起人/管理员看实时票数仍用旧的结果弹窗 -->
+            <el-button link type="primary" @click="openMainAction(row)">
+              {{ row.can_manage ? '实时预览' : actionText(row) }}
+            </el-button>
             <!-- 管理动作收进下拉：行内五个按钮太挤，也容易误点「立即结束」 -->
             <el-dropdown
               v-if="row.can_manage"
@@ -112,6 +114,10 @@
                 <el-dropdown-menu>
                   <el-dropdown-item command="edit">编辑</el-dropdown-item>
                   <el-dropdown-item command="roster">投票名单</el-dropdown-item>
+                  <!-- 管理入口走弹窗后，仍要从这里去到统一的投票页（自己也要投的时候用） -->
+                  <el-dropdown-item command="openSharePage">
+                    {{ row.can_vote ? '去投票' : '打开投票页' }}
+                  </el-dropdown-item>
                   <el-dropdown-item command="share">分享</el-dropdown-item>
                   <!-- 一个入口两用，文案跟着状态走。暂停不是结束：解锁后照样能投 -->
                   <el-dropdown-item command="toggleLock" :disabled="!canToggleLock(row)">
@@ -294,7 +300,12 @@ import {
   tallyOrder
 } from '@/utils/poll'
 import { applyShareMeta, resetShareMeta } from '@/utils/share-meta'
-import { attachSharePath, detachSharePath, shareUrl } from '@/utils/share-url'
+import {
+  attachSharePath,
+  detachSharePath,
+  openShareInNewTab,
+  shareUrl
+} from '@/utils/share-url'
 import { markdownPreview } from '@/utils/collection'
 import { useUserStore } from '@/store/user'
 
@@ -378,14 +389,21 @@ function canExtendPoll(row) {
 // ---------- 站内外统一入口 ----------
 
 /**
- * 列表主按钮：跳到整页分享页
+ * 列表主按钮：普通参与者在新标签页打开整页分享页；发起人/管理员仍看旧的实时结果弹窗
  *
  * 站内站外是同一张页面（/share/vote/{token}）。后端每一场都会现算 token，
  * 所以正常情况下一定有；真遇到老数据没有 token，就退回原来的查看方式。
  */
+function openMainAction(row) {
+  if (row.can_manage) return openDetail(row, 'tally')
+  openSharePage(row)
+}
+
+/** 新标签页打开统一的投票页（管理下拉里的「去投票 / 打开投票页」也走这里） */
 function openSharePage(row) {
   if (!row.share_token) return openDetail(row)
-  router.push({ name: 'SharePage', params: { kind: 'vote', token: row.share_token } })
+  if (openShareInNewTab('vote', row.share_token)) return
+  return openDetail(row)
 }
 
 // ---------- 结果与名单 ----------
@@ -549,6 +567,7 @@ function openShare(row) {
 
 function handleCommand(command, row) {
   if (command === 'share') return openShare(row)
+  if (command === 'openSharePage') return openSharePage(row)
   if (command === 'edit') return handleEdit(row)
   if (command === 'roster') return openDetail(row, 'roster')
   if (command === 'toggleLock') return handleToggleLock(row)
