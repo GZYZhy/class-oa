@@ -192,8 +192,8 @@ def test_create_returns_code_and_link(cb):
 
     assert code and len(code) >= 10
     base = str(cb.client.base_url).rstrip("/")
-    # 分享地址走服务端渲染的分享页（微信抓得到 OG），再把浏览器带到 hash 路由
-    assert checkin["link"] == f"{base}/api/checkins/share/{code}"
+    # 分享地址是真实路径：服务器能按场次写 meta，微信抓得到卡片
+    assert checkin["link"] == f"{base}/share/checkin/{code}"
     assert checkin["status"] == "ongoing"
     assert checkin["target_count"] == 2
     assert checkin["signed_count"] == 0
@@ -212,12 +212,16 @@ def test_create_returns_code_and_link(cb):
     assert cb.client.get("/api/checkins").status_code == 403
 
 
-def test_share_page_carries_og_and_allows_crawlers(cb):
-    """分享地址是真实路径，微信爬虫能读到标题；浏览器再跳到签到页"""
+def test_share_link_redirects_and_meta_is_server_rendered(cb):
+    """旧地址 302 到真实路径；新 meta 由服务端渲染，爬虫能读到"""
     checkin = _create(cb, [PEOPLE[0][0]], title="周六晚点名")
-    r = cb.client.get(f"/api/checkins/share/{checkin['code']}")
 
-    assert r.status_code == 200, r.text
+    r = cb.client.get(f"/api/checkins/share/{checkin['code']}")
+    assert r.status_code == 302
+    assert r.headers["location"].endswith(f"/share/checkin/{checkin['code']}")
+
+    r = cb.client.get(f"/api/share-meta/share/checkin/{checkin['code']}")
+    assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
     html = r.text
     assert "<title>签到：周六晚点名</title>" in html
@@ -226,8 +230,7 @@ def test_share_page_carries_og_and_allows_crawlers(cb):
     # 卡片描述里带上人数和截止时间，转发出去能看出是什么
     assert "og:description" in html and "应到 1 人" in html
     assert "icons/icon-512.png" in html, "卡片图用 512 图标，小图微信可能不显示"
-    # 浏览器最终落到真正的签到页
-    assert f"/#/checkin?code={checkin['code']}" in html
+    assert f"/share/checkin/{checkin['code']}" in html
     # 不存在的 code：和公开信息接口一样 404，不泄露「有这一场」
     assert cb.client.get("/api/checkins/share/does-not-exist").status_code == 404
 
@@ -299,15 +302,17 @@ def test_share_page_works_before_and_after_end(cb):
         cb, [PEOPLE[0][0]], title="未开始签到",
         start_at=_end_at(20), end_at=_end_at(40),
     )
-    r = cb.client.get(f"/api/checkins/share/{pending['code']}")
+    r = cb.client.get(f"/api/share-meta/share/checkin/{pending['code']}")
     assert r.status_code == 200, r.text
     assert '<meta property="og:title" content="签到：未开始签到">' in r.text
+    assert "未开始" in r.text
 
     ended = _create(cb, [PEOPLE[0][0]], title="已经结束的签到")
     _force_end(cb, ended["id"])
-    r = cb.client.get(f"/api/checkins/share/{ended['code']}")
+    r = cb.client.get(f"/api/share-meta/share/checkin/{ended['code']}")
     assert r.status_code == 200, r.text
     assert '<meta property="og:title" content="签到：已经结束的签到">' in r.text
+    assert "已结束" in r.text
 
 
 def test_location_radius_bounds_and_default(cb):
@@ -460,7 +465,7 @@ def test_targets_and_creator_in_range_get_inbox_message(cb):
     assert r.status_code == 200, r.text
     hits = [m for m in r.json()["items"] if m["title"] == "新签到：晚点名"]
     assert len(hits) == 1, "目标学生应当收到一条站内信"
-    assert hits[0]["page"] == f"/checkin?code={code}"
+    assert hits[0]["page"] == f"/share/checkin/{code}"
     assert hits[0]["level"] == "timeSensitive"
 
     # 发布人自己在范围内时同样要签到，也该收到这条信
@@ -938,7 +943,7 @@ def test_remind_only_unsigned_targets(cb):
     inbox = cb.client.get("/api/inbox").json()["items"]
     hits = [m for m in inbox if m["title"] == "提醒签到：晚点名"]
     assert len(hits) == 1
-    assert hits[0]["page"] == f"/checkin?code={checkin['code']}"
+    assert hits[0]["page"] == f"/share/checkin/{checkin['code']}"
 
     _login(cb, PEOPLE[0][0])
     inbox = cb.client.get("/api/inbox").json()["items"]
@@ -1176,7 +1181,7 @@ def test_overview_merges_rollcall_and_checkin(cb):
     assert chk["title"] == "晚点名"
     assert chk["status"] == "ended"
     assert chk["time"] is not None
-    assert chk["link"].endswith(f"/api/checkins/share/{checkin['code']}")
+    assert chk["link"].endswith(f"/share/checkin/{checkin['code']}")
     # 结算后人数就是标准四计数：签到的算到，没签的算无应答
     assert (chk["total"], chk["present"], chk["leave"], chk["absent"]) == (2, 1, 0, 1)
 

@@ -62,6 +62,18 @@ class Poll(Base):
 
     created_at = Column(DateTime, default=datetime.now, comment="发起时间")
 
+    # 开始时提醒：由发起人在出卷时指定。**不再创建即通知** —— 通知统一由
+    # services/start_notify_service.py 在 start_at 到达时发一次，改开始时间就跟着新时间走。
+    notify_on_start = Column(
+        Boolean, nullable=False, default=True, server_default=text("1"),
+        comment="到开始时间是否提醒范围内的人",
+    )
+    # 非空 = 已经开始提醒过了，避免巡检线程重复发。
+    # 老投票升级时补成 created_at（它们早就按旧逻辑通知过），不会补发。
+    start_notified_at = Column(
+        DateTime, nullable=True, comment="开始提醒已发送的时刻，空=还没发",
+    )
+
 
 class PollTarget(Base):
     """谁有权表决（一人一行）

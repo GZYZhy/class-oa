@@ -72,6 +72,53 @@ server {
         include /etc/nginx/security-headers.conf;
     }
 
+    # ==================== 外链分享页 ====================
+    # /share/{kind}/{token} 是真实路径，服务器能看到是哪一场。这里返回 SPA 的
+    # index.html，但开启 SSI：index.html 里的 include 会把这一场的 title/description/og
+    # 在同一次响应里插进 <head>，微信爬虫不执行 JS 也能读到。
+    #
+    # 为什么是 rewrite 而不是 try_files：try_files 会内部重定向到 /index.html，
+    # 随后命中 `location = /index.html`，那里的 ssi 是关的；rewrite ... break
+    # 留在当前 location 里处理，ssi 才会生效。rewrite 之后 $uri 变成 /index.html，
+    # 所以 index.html 里的 SSI 必须用 $request_uri（它保留原始路径）。
+    location ^~ /share/ {
+        rewrite ^ /index.html break;
+        ssi on;
+        # 上游出错时不要把错误正文拼进 head（配合下面的静态兜底片段）
+        ssi_silent_errors on;
+        # 分享页的 head 依赖请求路径，而 ETag 只看 index.html 本身：
+        # 不关掉的话，换一个 token 可能命中上一个 token 的 304
+        etag off;
+        if_modified_since off;
+        add_header Cache-Control "no-store" always;
+        # 本 location 写了 add_header，server 级的安全头会被整份顶掉，必须重新 include
+        include /etc/nginx/security-headers.conf;
+    }
+
+    # 启动引导脚本不能落进下面 .js 的 1 年 immutable 规则，否则改完用户一年看不到
+    location = /share-boot.js {
+        add_header Cache-Control "no-cache";
+    }
+
+    # SSI 子请求单独走一个 location：后端完全不可用时用静态片段兜底，
+    # 保证 head 里至少还有标题和 noindex，而不是一段 nginx 502 页面。
+    # 前缀比 /api/ 更长，nginx 会优先匹配这里。
+    location ^~ /api/share-meta/ {
+        proxy_pass http://backend:8000/api/share-meta/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_intercept_errors on;
+        error_page 404 500 502 503 504 =200 /share-meta-fallback.html;
+    }
+
+    # 只给内部 error_page 用，不允许外部直接访问
+    location = /share-meta-fallback.html {
+        internal;
+    }
+
     # 密码管理器 / 浏览器的「修改密码」探路地址（W3C Change Password URL）：
     # 302 到账户设置里的改密表单。没登录的话前端路由守卫会先带去登录页。
     # 地址里的 # 必须用引号包起来，否则 nginx 会把它当成注释开头。

@@ -11,6 +11,7 @@ from ..database import get_db
 from ..models import AccessToken, User, Student
 from ..services import token_guard
 from ..utils.ip import ip_in_cidrs, normalize_ip, parse_cidrs, pick_client_ip
+from ..utils.roles import ROLE_RANK
 from ..utils.security import TOKEN_PREFIX, hash_token
 
 
@@ -367,8 +368,8 @@ def require_cookie_auth(
 
 # ---------- 角色权限 ----------
 
-# 角色等级：数值越大权限越高，等级 >= 要求即放行
-ROLE_RANK = {"student": 0, "committee": 1, "admin": 2}
+# 角色等级定义在 utils/roles.py：services 层（如投票分享范围反推）也要用，
+# services 不 import api，所以口径不能留在本文件里。
 
 
 def require_role(minimum: str):

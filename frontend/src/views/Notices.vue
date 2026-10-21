@@ -93,6 +93,17 @@
               <el-tag v-if="item.updated_at" size="small" type="warning" effect="plain">
                 已于 {{ formatDateTime(item.updated_at) }} 更新
               </el-tag>
+              <!-- 分享对所有人可见（通知公告本身就是公开的）；stop 防止点一下把折叠面板收起来 -->
+              <el-button
+                link
+                type="primary"
+                size="small"
+                class="notice-share-btn"
+                @click.stop="openShare(item)"
+              >
+                <el-icon><Link /></el-icon>
+                分享
+              </el-button>
             </div>
           </template>
 
@@ -340,6 +351,15 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 分享弹窗：每条通知都有，所有人可见 -->
+    <ShareLinkDialog
+      v-model="shareVisible"
+      dialog-title="分享公告"
+      :title="shareTitle"
+      :subtitle="shareSubtitle"
+      :link="shareLink"
+    />
   </div>
 </template>
 
@@ -362,6 +382,8 @@ import { renderMarkdown, formatFileSize } from '@/utils/markdown'
 import { copyText } from '@/utils/clipboard'
 import { noticeIdFromQuery } from '@/utils/notice'
 import { compressImage } from '@/utils/imageCompress'
+import ShareLinkDialog from '@/components/ShareLinkDialog.vue'
+import { shareUrl } from '@/utils/share-url'
 
 // 正在压缩的图片附件：提交时等它们压完，不然传上去的还是原图
 const compressTasks = new Set()
@@ -382,6 +404,20 @@ const badgeStore = useBadgeStore()
 const list = ref([])
 const loading = ref(false)
 const activeNames = ref([])
+
+// 分享弹窗：每条公告都有人人可见的「分享」入口，链接是稳定的真实路径
+const shareVisible = ref(false)
+const shareTitle = ref('')
+const shareSubtitle = ref('')
+const shareLink = ref('')
+
+/** 打开某条公告的分享弹窗：标题、可复制链接、二维码 */
+function openShare(item) {
+  shareTitle.value = `公告：${item.title}`
+  shareSubtitle.value = [item.publisher, item.publish_date].filter(Boolean).join(' · ')
+  shareLink.value = shareUrl('notice', item.id)
+  shareVisible.value = true
+}
 
 const searchForm = reactive({ title: '', dateRange: [] })
 
@@ -838,6 +874,11 @@ watch(() => route.query.id, focusFromQuery)
 .title-date {
   font-size: 13px;
   color: var(--el-text-color-secondary);
+}
+
+/* 每条公告的分享入口：所有人可见，不跟着管理按钮一起隐藏 */
+.notice-share-btn {
+  flex: none;
 }
 
 /* 发布人标签组：自动换行，手机端不挤 */

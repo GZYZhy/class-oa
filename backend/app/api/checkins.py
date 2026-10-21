@@ -16,7 +16,6 @@ import hashlib
 import hmac
 import secrets
 import uuid
-from html import escape
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -30,11 +29,11 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..config import resolve_session_secret, settings
+from ..config import resolve_session_secret
 from ..database import get_db
 from ..models import AttendanceItem, Checkin, CheckinTarget, Student, User
 from ..schemas import (
@@ -62,6 +61,7 @@ from ..services.checkin_service import (
     remove_checkin,
     remove_photos,
 )
+from ..services.share_service import share_path
 from ..utils.links import full_url
 from .deps import (
     committee_required,
@@ -111,69 +111,13 @@ def _new_code(db: Session) -> str:
 
 
 def _link(request: Request, checkin: Checkin) -> str:
-    """对外分享的链接。
+    """对外分享的链接：真实路径，服务器能看到是哪一场
 
-    不再直接把 `/#/checkin?code=…` 发出去：hash 后面的内容不会到达服务器，
-    微信抓不到页面，转发出去就只有一条光秃秃的链接。这里指向后端的分享页，
-    那一页在 <head> 里写了 OG 标签，再把浏览器跳到真正的签到页。
+    不能用 `/#/checkin?code=…`：hash 后面的内容不会发给服务器，微信爬虫
+    读不到这一场的 meta。真实路径由 nginx 返回 index.html 并注入 head 片段，
+    浏览器落地后由 share-boot.js 映射到同一个应用内路由。
     """
-    return full_url(request, f"/api/checkins/share/{checkin.code}")
-
-
-def _share_page(request: Request, checkin: Checkin, target_count: int) -> str:
-    """分享页 HTML：给微信 / 爬虫看的 OG 卡片，同时把用户送进签到页
-
-    **不要在这里做鉴权**：它只输出标题、备注、人数和截止时间，和公开信息
-    接口的口径一致；真正的签到仍然要登录。
-    """
-    title = (checkin.title or "签到").strip() or "签到"
-    # 微信卡片标题统一带「签到：」前缀，和站内标题区分开
-    card_title = title if title.startswith("签到：") else f"签到：{title}"
-    desc = f"应到 {target_count} 人 · 截止 {checkin.end_at:%m月%d日 %H:%M}"
-    if checkin.remark:
-        desc = f"{checkin.remark[:60]}｜{desc}"
-    share_url = _link(request, checkin)
-    page_url = full_url(request, f"/#/checkin?code={checkin.code}")
-    # 用 512 的图标：logo.png 往往只有一百多像素，微信卡片可能因尺寸太小不显示图
-    logo_url = full_url(request, "/icons/icon-512.png")
-    site_name = settings.site_name or settings.app_name
-
-    def attr(value: str) -> str:
-        return escape(value, quote=True)
-
-    return f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{attr(card_title)}</title>
-<meta name="description" content="{attr(desc)}">
-<meta name="robots" content="index,follow">
-<meta property="og:type" content="website">
-<meta property="og:title" content="{attr(card_title)}">
-<meta property="og:description" content="{attr(desc)}">
-<meta property="og:url" content="{attr(share_url)}">
-<meta property="og:site_name" content="{attr(site_name)}">
-<meta property="og:image" content="{attr(logo_url)}">
-<meta property="og:image:width" content="512">
-<meta property="og:image:height" content="512">
-<meta property="og:locale" content="zh_CN">
-<meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="{attr(card_title)}">
-<meta name="twitter:description" content="{attr(desc)}">
-<meta name="twitter:image" content="{attr(logo_url)}">
-<meta http-equiv="refresh" content="0; url={attr(page_url)}">
-<style>
-  body {{ margin: 0; padding: 48px 20px; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
-         color: #303133; text-align: center; background: #f5f7fa; }}
-  a {{ color: #409eff; text-decoration: none; }}
-</style>
-</head>
-<body>
-<p>正在打开签到「{attr(title)}」…</p>
-<p><a href="{attr(page_url)}">如果没有自动跳转，点这里</a></p>
-</body>
-</html>"""
+    return full_url(request, share_path("checkin", checkin.code))
 
 
 def _location_of(checkin: Checkin) -> CheckinLocationResponse | None:
@@ -574,7 +518,8 @@ def create_checkin(
             f"新签到：{title}",
             body,
             level="timeSensitive",
-            page=f"/checkin?code={checkin.code}",
+            # 站内信直接落到分享落地页：和列表、外链是同一张整页
+            page=share_path("checkin", checkin.code),
         )
 
     db.refresh(checkin)
@@ -650,8 +595,7 @@ def public_checkin(
 
 @router.get(
     "/share/{code}",
-    response_class=HTMLResponse,
-    summary="签到分享页（OG 卡片 + 跳转到签到页）",
+    summary="旧签到分享链接（302 到新地址）",
     include_in_schema=False,
 )
 def share_checkin(
@@ -659,22 +603,16 @@ def share_checkin(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """微信 / 浏览器打开的分享入口
+    """兼容老聊天里的链接：校验通过就 302 到新的真实路径
 
-    hash 路由的签到页在 `#` 后面，服务器根本看不到，微信爬虫也就抓不到标题。
-    这个地址是真实路径，<head> 里带 OG 标签，浏览器再跳到 `/#/checkin?code=`。
-    同一份 code 的信息量和 /public/{code} 完全一致，不需要登录。
+    新链接由 _link 直接给出 `/share/checkin/{code}`，这个接口只为已经发出去的
+    旧链接保留。302 不用 301：以后路径再调时不会被浏览器永久锁死。
     """
-    finalize_due(db)
-    checkin = _get_by_code(db, code)
-    target_count = (
-        db.query(CheckinTarget)
-        .filter(CheckinTarget.checkin_id == checkin.id)
-        .count()
-    )
-    return HTMLResponse(
-        _share_page(request, checkin, target_count),
-        headers={"X-Robots-Tag": "all"},
+    _get_by_code(db, code)
+    return RedirectResponse(
+        full_url(request, share_path("checkin", code)),
+        status_code=302,
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -858,7 +796,7 @@ def remind_checkin(
             f"提醒签到：{checkin.title}",
             body,
             level="timeSensitive",
-            page=f"/checkin?code={checkin.code}",
+            page=share_path("checkin", checkin.code),
         )
     return {"ok": True, "reminded": len(unsigned)}
 
