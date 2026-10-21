@@ -4660,6 +4660,9 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
     '打开期间按间隔刷新答卷/未填/统计')
   check(/batchDeleteCollectionResponses/.test(respSrc), '支持批量删除')
   check(/CollectionAnswers/.test(respSrc), '展开行复用同一份答卷展示')
+  check(/<el-table-column label="序号"[\s\S]{0,160}?\{\{ row\.seq_no \}\}/
+    .test(respSrc) && !respSrc.includes('第 {{ row.seq_no }} 份'),
+  '序号列只写数字，不再写「第 x 份」')
   check(/row\.is_self/.test(respSrc) &&
     /!row\.frozen && !row\.is_self/.test(respSrc),
   '未填名单包含本人，但催填人数排除本人和冻结账号')
