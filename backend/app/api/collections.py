@@ -1192,7 +1192,16 @@ def get_pending(
     """
     collection = _load_manageable(db, collection_id, user, is_admin(user))
     items = []
+    unfilled_count = 0
+    partial_count = 0
     for row in pending_rows(db, collection):
+        remindable = not row["frozen"] and row["student_no"] != user.student_no
+        if remindable:
+            # 匿名时行里不返回份数，但聚合口径仍按库里的真实份数算
+            if row["submitted_count"] == 0:
+                unfilled_count += 1
+            else:
+                partial_count += 1
         items.append(
             {
                 "student_no": row["student_no"],
@@ -1203,7 +1212,12 @@ def get_pending(
                 "is_self": row["student_no"] == user.student_no,
             }
         )
-    return {"total": len(items), "items": items}
+    return {
+        "total": len(items),
+        "items": items,
+        "unfilled_count": unfilled_count,
+        "partial_count": partial_count,
+    }
 
 
 @router.get(
@@ -1456,6 +1470,11 @@ def get_statistics(
 def remind_collection(
     collection_id: int,
     background: BackgroundTasks,
+    scope: str = Query(
+        "all",
+        pattern="^(all|unfilled|partial)$",
+        description="unfilled=一份都没交；partial=交过但没填满；all=两者",
+    ),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
@@ -1471,10 +1490,19 @@ def remind_collection(
         for row in pending_rows(db, collection)
         if not row["frozen"] and row["student_no"] != user.student_no
     ]
+    # 两个功能分开：一份没交的 / 交过但没填满的
+    if scope == "unfilled":
+        pending = [row for row in pending if row["submitted_count"] == 0]
+    elif scope == "partial":
+        pending = [row for row in pending if row["submitted_count"] > 0]
+
     page = share_path("collect", collection_share_token(collection.id))
     for row in pending:
-        if collection.anonymous:
+        if row["submitted_count"] == 0:
             body = f"还未填写，{collection.end_at:%m-%d %H:%M} 截止"
+        elif collection.anonymous:
+            # 匿名时不暴露「交了几份」，只说还没填满
+            body = f"还未填满，{collection.end_at:%m-%d %H:%M} 截止"
         else:
             body = (
                 f"已填 {row['submitted_count']}/{collection.submit_quota} 份，"
@@ -1490,10 +1518,11 @@ def remind_collection(
             page=page,
         )
 
+    action = {"unfilled": "提醒未填", "partial": "提醒未填满"}.get(scope, "提醒填写")
     log_operation(
         db,
         user,
-        action="提醒填写",
+        action=action,
         target=collection.title,
         detail=f"已提醒 {len(pending)} 人",
         ip=ip,

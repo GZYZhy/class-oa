@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.19.1，共 286 个接口。
+> 版本 1.19.2，共 286 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -3501,7 +3501,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CollectionPendingResponse` — 成功
-  - 字段：`total`、`items`
+  - 字段：`total`、`items`、`unfilled_count`、`partial_count`
 
 ### 可填写名单（发起人/管理员，复用范围用）
 
@@ -3599,6 +3599,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `collection_id` | path | 是 | integer |  |
+| `scope` | query | 否 | string | unfilled=一份都没交；partial=交过但没填满；all=两者 默认 `all` |
 
 **响应**
 
@@ -4972,5 +4973,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "1.19.1"}
+{"status": "ok", "app": "班级信息管理系统", "version": "1.19.2"}
 ```
