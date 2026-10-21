@@ -4518,6 +4518,17 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
     '投票管理里也能延长5分钟')
 
   const panelSrc = src('/src/views/CollectPanel.vue')
+  const { collectionMyState, collectionActionText } = await server.ssrLoadModule(
+    '/src/utils/collection.js'
+  )
+  check(
+    collectionMyState({ status: 'paused', is_target: true, my_submitted_count: 0 }) === '已暂停',
+    '暂停且还没填时，我的状态显示已暂停而不是待填写'
+  )
+  check(
+    collectionActionText({ quota_reached: true, my_submitted_count: 1 }) === '查看答卷',
+    '填满后列表按钮写「查看答卷」，不是不能点的「已填完」'
+  )
   check(/const keyword = ref\(''\)/.test(panelSrc) && /const status = ref\(''\)/.test(panelSrc),
     '收集自己维护关键词和状态，不串到投票')
   check(/params\.keyword = keyword\.value\.trim\(\)/.test(panelSrc),

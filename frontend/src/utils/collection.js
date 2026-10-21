@@ -112,7 +112,10 @@ export function collectionActionText(row) {
   if (row?.can_submit) {
     return row.my_submitted_count > 0 ? '继续填写' : '填写'
   }
-  if (row?.quota_reached) return '已填完'
+  if (row?.quota_reached) {
+    // 填满后主按钮仍然点得动：进去看自己的答卷（允许时还能撤回）
+    return row.my_submitted_count > 0 ? '查看答卷' : '已填完'
+  }
   return '查看'
 }
 
@@ -123,6 +126,8 @@ export function collectionMyState(row) {
   if (row.my_submitted_count > 0) return `已填 ${row.my_submitted_count}/${row.submit_quota}`
   if (row.status === 'pending') return '未开始'
   if (row.status === 'closed') return '未填写'
+  // 已经填过一部分的，进度比「暂停」更值得看（上面那条已经返回了）
+  if (row.status === 'paused') return '已暂停'
   if (row.cap_reached) return '名额已满'
   return '待填写'
 }
