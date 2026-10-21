@@ -40,11 +40,16 @@ export function openShareInNewTab(kind, token) {
 export function attachSharePath(path) {
   if (!path) return
   try {
-    if (window.location.pathname === path) return
+    const hash = window.location.hash
+    // 分享页的 hash 路由和真实路径本来就是同一段（#/share/notice/5）。
+    // 路由已经按 hash 初始化完了，这里把地址栏里重复的那一段去掉：
+    // replaceState 不触发导航，页面停在原处；复制/转发时拿到的就是干净的真实路径。
+    const cleanHash = hash === `#${path}` ? '' : hash
+    if (window.location.pathname === path && cleanHash === hash) return
     window.history.replaceState(
       window.history.state,
       '',
-      path + window.location.search + window.location.hash
+      path + window.location.search + cleanHash
     )
   } catch (e) {
     /* 地址栏保持不动也能用，只是转发时卡片退回站点级摘要 */
