@@ -42,7 +42,7 @@ function removeMeta(key, attr = 'property') {
 
 /** 512 的图标：logo.png 往往只有一百多像素，微信卡片可能因尺寸太小不显示图 */
 function defaultImage() {
-  return new URL('/icons/icon-512.png', window.location.origin).href
+  return new URL('/icons/share-512.jpg', window.location.origin).href
 }
 
 /**
