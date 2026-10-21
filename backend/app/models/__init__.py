@@ -21,10 +21,17 @@ from .attendance import AttendanceRecord, AttendanceItem
 from .checkin import Checkin, CheckinTarget
 from .inbox_message import InboxMessage
 from .poll import Poll, PollAnswer, PollQuestion, PollTarget
+from .collection import (
+    Collection,
+    CollectionAnswer,
+    CollectionQuestion,
+    CollectionSubmission,
+    CollectionTarget,
+)
 from .grade import GradeItem, GradeSubject, GradeTest
 from .schedule import Schedule, ScheduleBatch, ICalToken
 from .sign_photo_request import SignPhotoRequest
 from .passkey import PasskeyCredential
 from .two_factor import TwoFactorChallenge, TwoFactorRecoveryCode
 
-__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "ResourceCategory", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AttendanceRecord", "AttendanceItem", "Checkin", "CheckinTarget", "InboxMessage", "Poll", "PollQuestion", "PollTarget", "PollAnswer", "GradeTest", "GradeSubject", "GradeItem", "Schedule", "ScheduleBatch", "ICalToken", "SignPhotoRequest", "PasskeyCredential", "TwoFactorChallenge", "TwoFactorRecoveryCode"]
+__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "ResourceCategory", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AttendanceRecord", "AttendanceItem", "Checkin", "CheckinTarget", "InboxMessage", "Poll", "PollQuestion", "PollTarget", "PollAnswer", "Collection", "CollectionQuestion", "CollectionTarget", "CollectionSubmission", "CollectionAnswer", "GradeTest", "GradeSubject", "GradeItem", "Schedule", "ScheduleBatch", "ICalToken", "SignPhotoRequest", "PasskeyCredential", "TwoFactorChallenge", "TwoFactorRecoveryCode"]

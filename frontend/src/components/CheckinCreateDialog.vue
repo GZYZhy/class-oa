@@ -55,8 +55,9 @@
             :rows="2"
             maxlength="500"
             show-word-limit
-            placeholder="选填。写清集合地点、注意事项"
+            placeholder="选填。写清集合地点、注意事项；支持 Markdown"
           />
+          <div class="ck-form-tip">支持 Markdown：标题、列表、加粗、链接</div>
         </el-form-item>
         <el-form-item label="开始时间" required>
           <el-date-picker
@@ -506,6 +507,13 @@ defineExpose({ open, openShare })
   background: #fff;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 10px;
+}
+
+.ck-form-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
 }
 
 </style>

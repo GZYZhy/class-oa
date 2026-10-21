@@ -1,35 +1,29 @@
 <template>
-  <!-- 公开页：从链接或站内信直接进来，不套侧边栏（路由 meta.bare）。
+  <!-- 外链分享页：从链接或站内信直接进来，不套侧边栏（路由 meta.bare）。
        没登录也能看到这次签到是什么；真正签到要登录，登录后自动回到这里。
-       签到表单直接长在这张卡片里，不再另开弹窗 —— 入口只有一个，样子也一致 -->
-  <div class="checkin-page">
-    <div class="ck-card">
-      <div class="ck-head">
-        <img :src="SITE.logoUrl" class="ck-logo" alt="校徽" />
-        <h1 class="ck-site">{{ SITE.name }}｜签到</h1>
-      </div>
+       外壳（背景、卡片、页头、页脚）统一由 ShareLayout 提供。 -->
+  <ShareLayout kind-label="签到" :back-to="info?.is_login ? '/my-info?tab=attendance' : ''">
+    <ShareState v-if="loading" type="loading" title="正在读取签到信息…" />
 
-      <div v-if="loading" class="ck-loading">正在读取签到信息…</div>
+    <ShareState
+      v-else-if="error"
+      :type="notFound ? 'invalid' : 'network'"
+      :title="notFound ? '' : '打不开这次签到'"
+      :description="error"
+      :retry="!notFound"
+      @retry="load()"
+    />
 
-      <el-result
-        v-else-if="error"
-        icon="warning"
-        :title="notFound ? '链接已失效' : '打不开这次签到'"
-        :sub-title="error"
-      >
-        <template #extra>
-          <!-- 弱网下一次超时很常见，给一个明确的重新加载，不用让用户自己刷新 -->
-          <el-button v-if="!notFound" type="primary" @click="load()">重新加载</el-button>
-          <a href="#/" class="ck-plain-link">回首页</a>
-        </template>
-      </el-result>
-
-      <template v-else-if="info">
+    <template v-else-if="info">
         <div class="ck-title-row">
           <h2 class="ck-title">{{ info.title }}</h2>
           <el-tag :type="statusTag" size="small">{{ statusText }}</el-tag>
         </div>
-        <p v-if="info.remark" class="ck-remark">{{ info.remark }}</p>
+        <div
+          v-if="info.remark"
+          class="ck-remark markdown-body"
+          v-html="renderMarkdown(info.remark)"
+        ></div>
 
         <div class="ck-meta">
           <span>{{ info.created_by_name }} 发布</span>
@@ -221,18 +215,16 @@
           <p v-else class="ck-tip ck-center ck-warn">你没有签到，记为「无应答」</p>
         </div>
       </template>
-    </div>
-    <!-- 和主布局共用同一个版权脚栏 -->
-    <SiteFooter class="ck-site-footer" />
-  </div>
+  </ShareLayout>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
-import SiteFooter from '@/components/SiteFooter.vue'
+import ShareLayout from '@/components/share/ShareLayout.vue'
+import ShareState from '@/components/share/ShareState.vue'
 import { getCheckinPublic, signCheckin, uploadCheckinPhoto } from '@/api/checkin'
 import { compressImage } from '@/utils/imageCompress'
 import {
@@ -241,10 +233,15 @@ import {
   getCurrentLocationStaged
 } from '@/utils/geolocation'
 import { formatDateTime } from '@/utils/format'
+import { renderMarkdown, stripMarkdown } from '@/utils/markdown'
 import { errText } from '@/utils/request'
-import { SITE } from '@/utils/site'
+import { applyShareMeta, resetShareMeta } from '@/utils/share-meta'
+import { attachSharePath, detachSharePath, sharePath, shareUrl } from '@/utils/share-url'
 
 const route = useRoute()
+
+/** 新路由 /share/checkin/:code 用 params，旧路由 /checkin?code= 用 query */
+const code = computed(() => String(route.params.token || route.query.code || ''))
 
 const loading = ref(true)
 const error = ref('')
@@ -291,8 +288,8 @@ const submitting = ref(false)
 const fileInput = ref(null)
 
 const loginHref = computed(() => {
-  const back = `/checkin?code=${encodeURIComponent(route.query.code || '')}`
-  return `#/login?redirect=${encodeURIComponent(back)}`
+  // 新路由回 /share/checkin/xxx，旧路由回 /checkin?code=xxx；用 fullPath 两者都覆盖
+  return `#/login?redirect=${encodeURIComponent(route.fullPath)}`
 })
 
 /** 当前位置到签到地点的距离（米），没定位或没有地点时为 null */
@@ -328,7 +325,7 @@ const accuracyPoor = computed(() => {
 // 有截止时间约束，存储它不会扩大权限。
 
 function photoStorageKey() {
-  return `checkin-photo-${info.value?.code || route.query.code || ''}`
+  return `checkin-photo-${info.value?.code || code.value}`
 }
 
 function savePhotoToken() {
@@ -370,8 +367,9 @@ let loadSeq = 0
 
 async function load({ retry = true } = {}) {
   const seq = ++loadSeq
-  if (!route.query.code) {
+  if (!code.value) {
     loading.value = false
+    notFound.value = true
     error.value = '链接不完整，请向发布人重新要一次签到链接'
     return
   }
@@ -381,10 +379,10 @@ async function load({ retry = true } = {}) {
   // 不再单独问一次登录态：公开信息接口凭 Cookie 自己带上 is_login / is_target，
   // 弱网下少一个来回。真需要用户存储的页面（登录后的布局）挂载时会自己拉
   try {
-    const data = await getCheckinPublic(route.query.code)
+    const data = await getCheckinPublic(code.value)
     if (seq !== loadSeq) return
     info.value = data
-    applyShareMeta(data)
+    applyCardMeta(data)
     // 已经签过 / 不需要照片时，本地那份 token 没有用了
     if (data.signed_at || !data.require_photo) clearPhotoToken()
     else restorePhotoToken()
@@ -515,170 +513,46 @@ async function handleSubmit() {
   }
 }
 
-// ---------- 分享卡片：<head> 里的 OG 标签 ----------
-// 真链接是后端的 /api/checkins/share/{code}（服务端先把 OG 写给微信爬虫）；
-// 这里再补一份，给会执行 JS 的客户端，以及从站内信直接进到 hash 页的情况。
-const OG_FLAG = 'data-checkin-og'
-let originalRobots = null
-let originalDescription = null
-
-function setOgMeta(property, content) {
-  let el = document.head.querySelector(`meta[property="${property}"][${OG_FLAG}]`)
-  if (!el) {
-    el = document.createElement('meta')
-    el.setAttribute('property', property)
-    el.setAttribute(OG_FLAG, '1')
-    document.head.appendChild(el)
-  }
-  el.setAttribute('content', content)
-}
-
-/** 标题固定用签到标题：转发出去的卡片就是这一场的名字 */
-function applyShareMeta(data) {
-  if (!data) return
+// ---------- 分享卡片：<head> 里的 meta ----------
+// 服务端已经通过 nginx SSI 按这一场写好（微信爬虫读的是那一份）；这里再补一份
+// 给会执行 JS 的客户端，并从站内旧入口把地址补成真实路径。
+function cardOf(data) {
   const title = data.title || '签到'
   // 微信卡片 / 浏览器标题统一带「签到：」前缀
   const cardTitle = title.startsWith('签到：') ? title : `签到：${title}`
-  document.title = cardTitle
   const tail = `应到 ${data.target_count} 人 · 截止 ${formatDateTime(data.end_at)}`
-  const desc = data.remark ? `${data.remark}｜${tail}` : tail
-  const pairs = {
-    'og:title': cardTitle,
-    'og:description': desc,
-    'og:type': 'website',
-    'og:url': data.link || location.href,
-    'og:site_name': SITE.name,
-    // 用 512 的图标：logo.png 往往只有一百多像素，微信卡片可能不显示
-    'og:image': new URL('/icons/icon-512.png', location.origin).href,
-    'og:locale': 'zh_CN'
-  }
-  for (const [key, value] of Object.entries(pairs)) setOgMeta(key, value)
-
-  // 微信卡片摘要用的普通 description 也一起改掉
-  let meta = document.head.querySelector('meta[name="description"]')
-  if (!meta) {
-    meta = document.createElement('meta')
-    meta.setAttribute('name', 'description')
-    document.head.appendChild(meta)
-  }
-  if (originalDescription === null) originalDescription = meta.getAttribute('content') || ''
-  meta.setAttribute('content', desc)
-
-  // 全站默认 noindex；签到分享页要允许抓取，离开时恢复
-  const robots = document.head.querySelector('meta[name="robots"]')
-  if (robots) {
-    if (originalRobots === null) originalRobots = robots.getAttribute('content') || ''
-    robots.setAttribute('content', 'index,follow')
-  }
-
-  keepShareUrl(data.link)
-}
-
-/**
- * 把地址栏留在分享页上。
- *
- * 分享链接是 /api/checkins/share/{code}，打开后会被二级跳到 /#/checkin?code=…
- * 微信在「转发」时抓的是当前地址：跳到 hash 页之后，# 后面的内容不发给服务器，
- * 抓到的只有 index.html 的站点级 OG，卡片于是只剩标题是对的。
- *
- * replaceState 只改地址、不触发路由，所以页面仍然停在签到页；离开时
- * onUnmounted 再把路径还原成 /#/…，刷新和前进后退都不受影响。
- */
-function keepShareUrl(link) {
-  if (!link) return
-  try {
-    const url = new URL(link, location.origin)
-    // 只接受同源的分享地址，避免把地址栏改到别处
-    if (url.origin !== location.origin) return
-    history.replaceState(history.state, '', url.pathname)
-  } catch (e) {
-    // 地址栏保持不动也能用，只是微信卡片会退回站点级摘要
+  const preview = stripMarkdown(data.remark || '').replace(/\s+/g, ' ').trim()
+  const description = preview ? `${preview.slice(0, 60)}｜${tail}` : tail
+  return {
+    title: cardTitle,
+    description,
+    url: shareUrl('checkin', data.code || code.value)
   }
 }
 
-/** 离开签到页：把分享页路径还原成正常的 hash 地址 */
-function restoreAppUrl() {
-  if (!location.pathname.startsWith('/api/checkins/share/')) return
-  try {
-    history.replaceState(history.state, '', '/' + location.hash)
-  } catch (e) {
-    // 地址没还原也不影响页面本身
-  }
-}
-
-function clearShareMeta() {
-  document.querySelectorAll(`meta[${OG_FLAG}]`).forEach((el) => el.remove())
-  const robots = document.head.querySelector('meta[name="robots"]')
-  if (robots && originalRobots !== null) robots.setAttribute('content', originalRobots)
-  originalRobots = null
-  if (originalDescription !== null) {
-    const meta = document.head.querySelector('meta[name="description"]')
-    if (meta) meta.setAttribute('content', originalDescription)
-    originalDescription = null
-  }
+function applyCardMeta(data) {
+  if (!data) return
+  applyShareMeta({ ...cardOf(data), index: true })
+  // 站内旧入口 /checkin?code= 打开后，把地址补成真实路径：
+  // 用户从这里转发出去的链接也要能被爬虫读到 meta。
+  attachSharePath(sharePath('checkin', data.code || code.value))
 }
 
 onMounted(load)
+
+// 同一组件在两个 code 之间切换时重新加载（/share/checkin/a → /share/checkin/b）
+watch(code, (next, prev) => {
+  if (next && next !== prev) load()
+})
+
 onUnmounted(() => {
-  restoreAppUrl()
-  clearShareMeta()
+  detachSharePath('/share/checkin/')
+  resetShareMeta()
 })
 </script>
 
 <style scoped>
-.checkin-page {
-  min-height: 100vh;
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  padding: 32px 12px;
-  box-sizing: border-box;
-  background: linear-gradient(135deg, #1f2d3d 0%, #2c3e50 55%, #3a5169 100%);
-}
-
-/* 脚栏铺满整个页面底部，抵消页面左右/底部的内边距 */
-.ck-site-footer {
-  width: calc(100% + 24px);
-  margin: auto -12px -32px;
-}
-
-.ck-card {
-  width: 520px;
-  max-width: 100%;
-  padding: 28px 28px 24px;
-  background: var(--el-bg-color);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 21, 41, 0.3);
-}
-
-.ck-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.ck-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.ck-site {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-}
-
-.ck-loading {
-  padding: 40px 0;
-  text-align: center;
-  color: var(--el-text-color-secondary);
-}
+/* 页面外壳（背景 / 卡片 / 页头 / 页脚）在 ShareLayout.vue，这里只保留卡片内部正文的样式 */
 
 .ck-title-row {
   display: flex;
@@ -700,6 +574,42 @@ onUnmounted(() => {
   background: var(--el-fill-color-light);
   color: var(--el-text-color-regular);
   line-height: 1.6;
+}
+
+/* 轻量 Markdown：只补排版，不引入富文本样式库 */
+.ck-remark :deep(h1),
+.ck-remark :deep(h2),
+.ck-remark :deep(h3) {
+  margin: 10px 0 4px;
+  font-size: 15px;
+}
+
+.ck-remark :deep(p) {
+  margin: 4px 0;
+}
+
+.ck-remark :deep(ul),
+.ck-remark :deep(ol) {
+  margin: 4px 0;
+  padding-left: 1.4em;
+}
+
+.ck-remark :deep(blockquote) {
+  margin: 6px 0;
+  padding: 2px 10px;
+  border-left: 3px solid var(--el-border-color);
+  color: var(--el-text-color-secondary);
+}
+
+.ck-remark :deep(code) {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--el-fill-color);
+  font-size: 0.92em;
+}
+
+.ck-remark :deep(a) {
+  color: var(--el-color-primary);
 }
 
 .ck-meta {
@@ -790,10 +700,5 @@ ol.ck-req {
 .ck-ok {
   color: var(--el-color-success);
   font-weight: 600;
-}
-
-.ck-plain-link {
-  color: var(--el-color-primary);
-  text-decoration: none;
 }
 </style>

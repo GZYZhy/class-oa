@@ -116,10 +116,20 @@ NEW_COLUMNS = [
     ("ev_pass_requests", "sign_no", "VARCHAR(20) NOT NULL DEFAULT ''"),
     ("ev_pass_requests", "sign_name", "VARCHAR(50) NOT NULL DEFAULT ''"),
     ("ev_pass_requests", "sign_file", "VARCHAR(100) NOT NULL DEFAULT ''"),
+    # ---------- 收集是否允许撤回 ----------
+    # 默认 0：已经存在的收集一律不允许撤回，行为和补列前一致
+    ("collections", "allow_withdraw", "BOOLEAN NOT NULL DEFAULT 0"),
     # ---------- 投票的暂停 ----------
     # 可空的时刻：非空 = 这场投票被发起人临时暂停了（不是结束，暂停期间到点照常
     # 自动结束）。老行补成 NULL = 从来没暂停过，与补列前行为完全一致，不需要回填
     ("polls", "locked_at", "DATETIME"),
+    # ---------- 投票/收集的开始提醒 ----------
+    # 旧版投票是「创建即通知」；新版改成到开始时间再通知，由出卷人决定发不发。
+    # notify_on_start 默认 1（升级后行为与旧版意图一致）；start_notified_at 补完列
+    # 要把所有老投票标成「已提醒」，否则巡检线程会以为它们还没发过、到点补发一遍
+    # （见 _backfill_poll_start_notified）。收集是新表，这两列出厂就有。
+    ("polls", "notify_on_start", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("polls", "start_notified_at", "DATETIME"),
     # ---------- 三个办件的「退回补正」理由 ----------
     # 三张表各加一列。不复用 reject_reason 是因为两件事不同：驳回是「这件事不批了」
     # 的正式结论，补正是「材料补齐还能批」。混用一列的话申请人分不清自己是被拒了
@@ -281,6 +291,26 @@ def _backfill_webhook_enabled(conn) -> None:
         )
 
 
+def _backfill_poll_start_notified(conn) -> None:
+    """把老投票标记成「开始提醒已发送」
+
+    只在 start_notified_at 列刚被加上时调用。旧版投票是创建时立即通知，
+    升级后新的巡检线程会找「notify_on_start=1 且 start_notified_at 为空」的投票；
+    不回填的话，所有还没到开始时间的老投票都会在升级后被补发一遍。
+
+    用 created_at 当标记时刻：那正是旧版发出通知的时候。
+    """
+    result = conn.execute(text(
+        "UPDATE polls SET start_notified_at = COALESCE(created_at, CURRENT_TIMESTAMP) "
+        "WHERE start_notified_at IS NULL"
+    ))
+    if result.rowcount:
+        print(
+            f"[迁移] 已把 {result.rowcount} 场老投票标记为「开始提醒已发送」，不会补发",
+            flush=True,
+        )
+
+
 def run_migrations() -> None:
     """补齐老库缺失的列；新库上什么都不做"""
     if engine.dialect.name != "sqlite":
@@ -297,6 +327,7 @@ def run_migrations() -> None:
     seed_needed = False
     view_count_added = False
     webhook_enabled_added = False
+    poll_start_notified_added = False
     with engine.begin() as conn:
         for table, column, ddl in NEW_COLUMNS:
             columns = _existing_columns(conn, table)
@@ -310,6 +341,8 @@ def run_migrations() -> None:
                 view_count_added = True
             if table == "users" and column == "webhook_enabled":
                 webhook_enabled_added = True
+            if table == "polls" and column == "start_notified_at":
+                poll_start_notified_added = True
 
         if seed_needed:
             _seed_roles(conn)
@@ -319,5 +352,8 @@ def run_migrations() -> None:
 
         if webhook_enabled_added:
             _backfill_webhook_enabled(conn)
+
+        if poll_start_notified_added:
+            _backfill_poll_start_notified(conn)
 
         _rebuild_leave_table(conn)

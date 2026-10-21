@@ -77,19 +77,31 @@ const routes = [
     meta: { title: '我的消息' }
   },
   {
-    // 不加 role：参与者是普通学生。发起投票靠页面里的按钮级权限（后端 committee_required 兜底）
+    // 不加 role：参与者是普通学生。发起投票/收集靠页面里的按钮级权限（后端 committee_required 兜底）
     path: '/vote',
     name: 'Vote',
     component: () => import('@/views/Vote.vue'),
-    meta: { title: '投票表决' }
+    meta: { title: '投票收集' }
   },
   {
-    // 签到链接（站内信 / 群里转发）落到这里。public：没登录也能看签到信息；
-    // bare：不套侧边栏，从链接进来的人只看这一场签到。真正签到要登录
+    // 签到链接（站内信 / 旧链接）落到这里。public：没登录也能看签到信息；
+    // bare：不套侧边栏，从链接进来的人只看这一场签到。真正签到要登录。
+    // 新外链和站内入口都走下面的 /share/checkin/:token，这个路由保留给旧链接。
     path: '/checkin',
     name: 'Checkin',
-    component: () => import('@/views/Checkin.vue'),
+    component: () => import('@/views/share/ShareCheckin.vue'),
     meta: { title: '签到', public: true, bare: true }
+  },
+  {
+    // 外链分享的统一入口：/share/{kind}/{token}
+    //
+    // 外链本身是真实路径（服务器能看到是哪一场、能写 meta），
+    // share-boot.js 在应用启动前把它映射成这条 hash 路由，所以落地即渲染，
+    // 没有二次跳转。以后新增外链类型只需要在 SharePage.vue 的映射里加一项。
+    path: '/share/:kind/:token',
+    name: 'SharePage',
+    component: () => import('@/views/share/SharePage.vue'),
+    meta: { title: '分享', public: true, bare: true }
   },
   {
     path: '/schedule',
@@ -156,12 +168,19 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHashHistory(),
+  // **必须显式传 '/'**：不传 base 时 Vue Router 会把 location.pathname 当成 base。
+  // 从 /share/vote/xxx 直接打开时 base 会变成 /share/vote/xxx#，之后所有导航
+  // 都会被锁在这个路径下，其它页面就会错误地命中分享页的 SSI meta。
+  history: createWebHashHistory('/'),
   routes
 })
 
 router.beforeEach(async (to) => {
-  document.title = `${to.meta.title || '首页'} - ${SITE.shortName}`
+  // 分享页的标题由服务端 SSI 片段按场次写好（爬虫读的就是它），
+  // 这里不要用通用标题覆盖；数据加载完后由页面自己补一次。
+  if (!to.path.startsWith('/share/')) {
+    document.title = `${to.meta.title || '首页'} - ${SITE.shortName}`
+  }
 
   if (to.meta.public) return true
 

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from .auth import router as auth_router
 from .public import router as public_router
+from .share_meta import router as share_meta_router
 from .setup import router as setup_router
 from .students import router as students_router
 from .announcements import router as announcements_router
@@ -22,6 +23,7 @@ from .workspace import router as workspace_router
 from .inbox import router as inbox_router
 from .birthday import router as birthday_router
 from .polls import router as polls_router
+from .collections import router as collections_router
 from .grades import router as grades_router
 from .schedules import router as schedules_router
 from .sign_photos import router as sign_photos_router
@@ -30,6 +32,7 @@ from .two_factor import router as two_factor_router
 
 api_router = APIRouter()
 api_router.include_router(public_router)   # 首页摘要：公开
+api_router.include_router(share_meta_router)  # 外链分享卡片：公开，给 nginx SSI 用
 api_router.include_router(auth_router)     # 登录/退出/改密
 api_router.include_router(setup_router)    # 初始化：空库引导，用完即废
 api_router.include_router(notices_router)  # 通知公告：列表公开，管理需班委
@@ -50,6 +53,7 @@ api_router.include_router(workspace_router)      # 办件空间：我申请的/�
 api_router.include_router(inbox_router)          # 站内信：所有推送的存档，登录即可看自己的
 api_router.include_router(birthday_router)       # 生日关怀：条幅公开，设置与测试仅管理员
 api_router.include_router(polls_router)          # 投票表决：发起需班委，表决看名单
+api_router.include_router(collections_router)    # 投票收集：多题型、多份、竞争名额
 api_router.include_router(grades_router)         # 成绩管理：录入与编辑需班委，学生只看自己
 api_router.include_router(schedules_router)      # 我的日程：日历式日程管理，班委可批量导入
 api_router.include_router(sign_photos_router)    # 签字图：管理员上传，班委申请、管理员批准后才看得到

@@ -17,6 +17,8 @@ export const SITE = Object.freeze({
   name: raw.name || '',
   /** 班级简称，如「示例班」 */
   shortName: raw.shortName || '',
+  /** SEO 摘要；分享页离开时恢复全站默认 meta 用 */
+  description: raw.description || '',
   /** 副标题，如「示例大学示例学院示例专业系」 */
   subtitle: raw.subtitle || '',
   /** 所属学院 */

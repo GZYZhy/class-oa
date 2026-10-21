@@ -8,6 +8,15 @@ export function getNotices(params) {
 }
 
 /**
+ * 单条通知（公开，外链分享页用）
+ *
+ * 通知公告本身就是公开内容，外链页凭 id 读取；不需要登录。
+ */
+export function getNotice(id) {
+  return request({ url: `/notices/${id}`, method: 'get' })
+}
+
+/**
  * 发布通知（multipart form，支持附件）
  * @param {FormData} formData - 包含 title / publish_date / content / attachments(多个file)
  * @param {(loaded: number, total: number) => void} [onProgress] 上传进度

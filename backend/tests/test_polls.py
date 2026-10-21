@@ -757,11 +757,11 @@ def test_times_and_anonymous_can_change_in_one_request(pe):
 
 # ---------- 分享页 ----------
 
-def test_share_page_is_public_and_carries_poll_og(pe):
-    """微信爬虫不登录：分享页只凭签名串给出标题、人数、题数和截止时间
+def test_share_link_redirects_and_meta_is_server_rendered(pe):
+    """旧地址 302 到真实路径；新 meta 由服务端渲染，爬虫不登录也能读
 
-    这一页存在的意义就是给 hash 路由补上服务端 OG。要是它要求登录，
-    微信抓到的仍然是通用摘要 —— 所以「不带 cookie 也能读」必须是断言。
+    外链是 `/share/vote/{token}` 这样的真实路径，nginx 会在同一次响应里把这一场
+    的 head 写进 index.html。旧的 `/api/polls/share/{token}` 只为老链接保留。
     """
     pid = _create(pe, title="入党推优第三轮选举")
     row = pe.client.get("/api/polls").json()["items"][0]
@@ -773,17 +773,108 @@ def test_share_page_is_public_and_carries_poll_og(pe):
 
     pe.logout()  # 模拟微信爬虫：没有登录态
     r = pe.client.get(f"/api/polls/share/{token}")
+    assert r.status_code == 302
+    assert r.headers["location"].endswith(f"/share/vote/{token}")
+
+    r = pe.client.get(f"/api/share-meta/share/vote/{token}")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
     html = r.text
+    assert "<title>投票：入党推优第三轮选举</title>" in html
     assert '<meta property="og:title" content="投票：入党推优第三轮选举">' in html
+    assert 'name="robots" content="index,follow"' in html
     assert "应投 1 人" in html and "1 道题" in html and "记名" in html
+    assert "定向 1 人" in html, "公开范围要写进卡片"
     assert "截止" in html
     assert "icons/icon-512.png" in html, "卡片图要用 512 图标"
-    assert f"/#/vote?id={pid}" in html, "看的人还是要进投票页"
+    assert f"/share/vote/{token}" in html, "卡片地址是新的真实路径"
 
 
-def test_share_page_rejects_forged_tokens(pe):
+def test_share_info_public_fields_and_scope_label(pe):
+    """公开接口只给标题、完整描述、范围、状态和人数；题目不下发"""
+    pid = _create(pe, title="入党推优第三轮选举")
+    _edit(pe, pid, title="入党推优第三轮选举", description="请如实填写")
+    token = pe.client.get(f"/api/polls/{pid}").json()["share_token"]
+
+    pe.logout()
+    r = pe.client.get(f"/api/polls/share/{token}/info")
+    assert r.status_code == 200, r.text
+    info = r.json()
+    assert info["title"] == "入党推优第三轮选举"
+    assert info["description"] == "请如实填写", "描述要完整公开，不是截前 60 字"
+    assert info["scope_label"] == "定向 1 人"
+    assert info["target_count"] == 1 and info["question_count"] == 1
+    assert info["is_login"] is False and info["in_scope"] is False
+    assert info["questions"] == []
+    assert info["can_vote"] is False and info["results_visible"] is False
+    assert "creator_no" not in info, "分享页不该带发起人学号"
+
+    # 伪造签名 / 不存在的投票：404，不泄露「有这一场」
+    assert pe.client.get("/api/polls/share/999.0123456789abcdef/info").status_code == 404
+
+
+def test_share_scope_label_reflects_targets(pe):
+    """范围反推：全班 / 班委 / 团员 / 定向 N 人，四种都要对"""
+    all_targets = [ADMIN] + [no for no, _ in PEOPLE]
+    cases = [
+        (all_targets, "全班"),
+        ([CREATOR, ADMIN], "班委"),
+        ([CREATOR, "2024000004"], "团员"),
+        ([VOTER], "定向 1 人"),
+    ]
+    for targets, label in cases:
+        pid = _create(pe, targets=targets)
+        token = pe.client.get(f"/api/polls/{pid}").json()["share_token"]
+        info = pe.client.get(f"/api/polls/share/{token}/info").json()
+        assert info["scope_label"] == label, (targets, info["scope_label"])
+
+
+def test_share_info_reveals_questions_only_in_scope(pe):
+    """范围内的人拿得到题目和 can_vote；范围外的人只有公开字段"""
+    pid = _create(pe)
+    _start_now(pe, pid)
+    token = pe.client.get(f"/api/polls/{pid}").json()["share_token"]
+
+    pe.logout()
+    pe.login(student_no=VOTER, password=VOTER_PW)
+    info = pe.client.get(f"/api/polls/share/{token}/info").json()
+    assert info["is_login"] is True and info["in_scope"] is True
+    assert info["is_target"] is True and info["can_vote"] is True
+    assert len(info["questions"]) == 1
+    assert info["questions"][0]["options"] == ["方案一", "方案二"]
+
+    # 范围外的登录用户：题目仍然不下发
+    pe.logout()
+    pe.login(student_no="2024000005", password="010005")
+    info = pe.client.get(f"/api/polls/share/{token}/info").json()
+    assert info["is_login"] is True and info["in_scope"] is False
+    assert info["questions"] == []
+    assert info["can_vote"] is False
+
+
+def test_share_meta_is_always_200_and_escaped(pe):
+    """SSI 子请求必须永远 200；标题里的 HTML 要被转义，失效时给统一兜底"""
+    pid = _create(pe, title='<script>"&')
+    token = pe.client.get(f"/api/polls/{pid}").json()["share_token"]
+    pe.logout()
+
+    r = pe.client.get(f"/api/share-meta/share/vote/{token}")
+    assert r.status_code == 200
+    assert "<script>" not in r.text and "&lt;script&gt;" in r.text
+
+    for path in (
+        "/api/share-meta/share/vote/999.0123456789abcdef",
+        "/api/share-meta/share/vote/abc",
+        "/api/share-meta/share/unknown/x",
+        "/api/share-meta/nonsense",
+    ):
+        r = pe.client.get(path)
+        assert r.status_code == 200, path
+        assert 'name="robots" content="noindex, nofollow"' in r.text, path
+        assert "分享链接无效或已失效" in r.text, path
+
+
+def test_old_share_endpoint_rejects_forged_tokens(pe):
     """换成别的数字 / 乱写签名都 404，不能靠遍历 id 把全班投票标题看一遍"""
     pid = _create(pe)
     assert pe.client.get(f"/api/polls/share/{pid}").status_code == 404

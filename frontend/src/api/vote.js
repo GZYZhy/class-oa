@@ -62,6 +62,20 @@ export function getPoll(id) {
 }
 
 /**
+ * 投票分享页的公开信息（无需登录）
+ *
+ * 公开：标题、完整描述、范围、状态、时间、人数、题数；
+ * 登录且在范围内（或发起人/管理员）时，额外带题目、我的作答和票数。
+ * 游客与范围外的人拿到的是同一份公开字段，questions 为空。
+ */
+export function getPollShareInfo(token) {
+  return request({
+    url: `/polls/share/${encodeURIComponent(token)}/info`,
+    method: 'get'
+  })
+}
+
+/**
  * 投票：整卷一次提交
  *
  * @param {number} id
@@ -90,6 +104,11 @@ export function remindPoll(id) {
 /** 立即结束（发起人和管理员）。重复调用幂等，返回 { status, voted_count } */
 export function closePoll(id) {
   return request({ url: `/polls/${id}/close`, method: 'post' })
+}
+
+/** 截止时间延长 5 分钟（发起人/管理员），可反复点；到点后后端会拒绝 */
+export function extendPoll(id) {
+  return request({ url: `/polls/${id}/extend`, method: 'post' })
 }
 
 /**

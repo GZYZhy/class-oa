@@ -146,7 +146,7 @@ const MENU_GROUPS = [
     title: '班级事务',
     items: [
       { path: '/notices', title: '通知公告', icon: 'Bell', public: true, badge: 'notice_unread' },
-      { path: '/vote', title: '投票表决', icon: 'Tickets' },
+      { path: '/vote', title: '投票收集', icon: 'Tickets' },
       { path: '/announcements', title: '文件公开', icon: 'Files' },
       { path: '/service', title: '办事中心', icon: 'Postcard', studentOnly: true }
     ]

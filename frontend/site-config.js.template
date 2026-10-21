@@ -26,6 +26,8 @@
 self.__SITE__ = {
   name: '${SITE_NAME}',
   shortName: '${SITE_SHORT_NAME}',
+  /* SEO 摘要。分享页离开时用它恢复全站默认的 meta description */
+  description: '${SITE_DESCRIPTION}',
   subtitle: '${SITE_SUBTITLE}',
   college: '${SITE_COLLEGE}',
   major: '${SITE_MAJOR}',

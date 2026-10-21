@@ -8,12 +8,16 @@
       <!-- 「发起投票」跟标题同一行：放在筛选区右边的话，窄屏上会孤零零地
            顶在第一行，和下面的控件错开 -->
       <div class="vt-head">
-        <h3 class="page-title">投票表决</h3>
+        <h3 class="page-title">投票收集</h3>
         <!-- 权限在按钮一级：普通学生进来只有表决和看结果，后端 committee_required 兜底 -->
-        <el-button v-if="userStore.isCommittee" type="primary" @click="createRef.open()">
-          <el-icon><Plus /></el-icon>发起投票
+        <el-button v-if="userStore.isCommittee" type="primary" @click="handleCreate">
+          <el-icon><Plus /></el-icon>{{ activeTab === 'vote' ? '发起投票' : '发起收集' }}
         </el-button>
       </div>
+
+      <!-- 投票和收集分开两个 Tab，各自搜索/分页；都保持挂载，切换不丢条件 -->
+      <el-tabs v-model="activeTab" class="vt-tabs">
+        <el-tab-pane label="投票" name="vote">
       <div class="vt-bar">
         <el-form :inline="true" size="default" class="vt-filter">
           <el-form-item label="标题">
@@ -62,7 +66,7 @@
               <!-- 记名不标注、不记名要标出来（用户口径） -->
               <el-tag v-if="row.anonymous" type="warning" size="small" effect="plain">不记名</el-tag>
             </div>
-            <div v-if="row.description" class="vt-sub">{{ row.description }}</div>
+            <div v-if="row.description" class="vt-sub">{{ markdownPreview(row.description) }}</div>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="96">
@@ -93,7 +97,8 @@
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openDetail(row)">{{ actionText(row) }}</el-button>
+            <!-- 站内站外统一：点进同一张整页分享页，不再弹窗 -->
+            <el-button link type="primary" @click="openSharePage(row)">{{ actionText(row) }}</el-button>
             <!-- 管理动作收进下拉：行内五个按钮太挤，也容易误点「立即结束」 -->
             <el-dropdown
               v-if="row.can_manage"
@@ -111,6 +116,9 @@
                   <!-- 一个入口两用，文案跟着状态走。暂停不是结束：解锁后照样能投 -->
                   <el-dropdown-item command="toggleLock" :disabled="!canToggleLock(row)">
                     {{ row.status === 'locked' ? '恢复投票' : '暂停投票' }}
+                  </el-dropdown-item>
+                  <el-dropdown-item command="extend" :disabled="!canExtendPoll(row)">
+                    延长5分钟
                   </el-dropdown-item>
                   <el-dropdown-item command="close" :disabled="row.status === 'closed'">
                     立即结束
@@ -134,108 +142,15 @@
         @size-change="handleSizeChange"
         @current-change="fetchList"
       />
+        </el-tab-pane>
+
+        <el-tab-pane label="收集" name="collect">
+          <CollectPanel ref="collectRef" />
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
-    <!-- ========== 投票弹窗 ========== -->
-    <el-dialog
-      v-model="voteVisible"
-      :title="votePoll.title || '投票'"
-      width="640px"
-      :close-on-click-modal="false"
-    >
-      <!-- 投过之后这里会回显「我投了什么」，同样盖一层 -->
-      <Watermark :text="watermarkText" />
-      <div v-loading="voteLoading" class="vt-body">
-        <p v-if="votePoll.description" class="vt-desc">{{ votePoll.description }}</p>
-        <div class="vt-meta">
-          <el-tag v-if="votePoll.anonymous" type="warning" size="small">不记名</el-tag>
-          <span class="vt-sub">{{ formatDateTime(votePoll.start_at) }} 起，{{ formatDateTime(votePoll.end_at) }} 截止</span>
-        </div>
-
-        <el-alert
-          v-if="votePoll.anonymous"
-          type="warning"
-          :closable="false"
-          show-icon
-          class="vt-alert"
-          title="本次投票不记名"
-          description="发起人也看不到你选了什么。只有「谁投了、谁还没投」是公开的"
-        />
-        <el-alert
-          v-if="!votePoll.can_vote && votePoll.has_voted"
-          type="success"
-          :closable="false"
-          show-icon
-          class="vt-alert"
-          title="你已经投过票了"
-          description="投出去就定死了，不能改票也不能重投。下面是你的选择"
-        />
-        <el-alert
-          v-else-if="!votePoll.can_vote"
-          type="info"
-          :closable="false"
-          show-icon
-          class="vt-alert"
-          :title="voteBlockReason"
-        />
-
-        <p class="vt-hint">
-          每题都必须作答（要弃权就选「弃权」那一项）；提交后不能改票，请确认无误再提交
-        </p>
-
-        <div v-for="(q, i) in votePoll.questions" :key="q.id" class="vt-q">
-          <div class="vt-q-title">
-            <span>{{ i + 1 }}. {{ q.title }}</span>
-            <el-tag size="small" type="info" effect="plain">
-              {{ q.multiple ? `多选，最多 ${q.max_choices} 项` : '单选' }}
-            </el-tag>
-          </div>
-
-          <!-- 能投：真正的作答控件 -->
-          <template v-if="votePoll.can_vote">
-            <!-- el-radio-group 的 v-model 要的是单个值，而 draft 里统一存数组，
-                 所以单选走 :model-value + @change 手工回写，两种题型的数据形状保持一致 -->
-            <el-radio-group
-              v-if="!q.multiple"
-              :model-value="draft[q.id]?.[0]"
-              @change="(value) => (draft[q.id] = [value])"
-            >
-              <el-radio v-for="(opt, j) in q.options" :key="j" :value="j">
-                <span class="vt-opt-letter">{{ letters[j] }}.</span> {{ opt }}
-              </el-radio>
-            </el-radio-group>
-            <el-checkbox-group v-else v-model="draft[q.id]" :max="q.max_choices">
-              <el-checkbox v-for="(opt, j) in q.options" :key="j" :value="j">
-                <span class="vt-opt-letter">{{ letters[j] }}.</span> {{ opt }}
-              </el-checkbox>
-            </el-checkbox-group>
-          </template>
-
-          <!-- 投过 / 不能投：只读回显 -->
-          <template v-else>
-            <div
-              v-for="(opt, j) in q.options"
-              :key="j"
-              class="vt-ro"
-              :class="{ 'vt-picked': picked(q, j) }"
-            >
-              <el-icon v-if="picked(q, j)"><Select /></el-icon>
-              <span v-else class="vt-ro-dot"></span>
-              <span class="vt-opt-letter">{{ letters[j] }}.</span> {{ opt }}
-            </div>
-          </template>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="voteVisible = false">{{ votePoll.can_vote ? '取消' : '关闭' }}</el-button>
-        <el-button v-if="votePoll.can_vote" type="primary" :loading="submitting" @click="handleVote">
-          提交投票
-        </el-button>
-        <el-button v-else-if="votePoll.has_voted" type="success" disabled>已投票</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- ========== 结果 / 名单弹窗 ========== -->
+    <!-- ========== 结果 / 名单弹窗（管理入口：投票名单） ========== -->
     <el-dialog
       v-model="resultVisible"
       :title="resultPoll.title || '投票'"
@@ -345,23 +260,23 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PollCreateDialog from '@/components/PollCreateDialog.vue'
 import VoteShareDialog from '@/components/VoteShareDialog.vue'
 import Watermark from '@/components/Watermark.vue'
+import CollectPanel from '@/views/CollectPanel.vue'
 import {
   closePoll,
   deletePoll,
+  extendPoll,
   getBallots,
   getPoll,
   getPolls,
   lockPoll,
   remindPoll,
-  unlockPoll,
-  // 和下面存详情的 votePoll 重名，改个名
-  votePoll as submitVote
+  unlockPoll
 } from '@/api/vote'
 import { useWatermark } from '@/composables/useWatermark'
 import { SITE } from '@/utils/site'
@@ -376,13 +291,15 @@ import {
   statusLabel,
   statusTag,
   sumOf,
-  tallyOrder,
-  // 和下面那个 computed 重名，改个名。判据本身放 utils 里是为了能被单独跑起来验
-  voteBlockReason as blockReasonOf
+  tallyOrder
 } from '@/utils/poll'
+import { applyShareMeta, resetShareMeta } from '@/utils/share-meta'
+import { attachSharePath, detachSharePath, shareUrl } from '@/utils/share-url'
+import { markdownPreview } from '@/utils/collection'
 import { useUserStore } from '@/store/user'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 /** 页面和两个弹窗共用同一份字样 */
 const watermarkText = useWatermark()
@@ -396,15 +313,11 @@ const status = ref('')
 // 标题搜索。空串 = 不过滤（后端把空关键词当作没传）
 const keyword = ref('')
 const createRef = ref(null)
+const collectRef = ref(null)
+/** 当前 Tab；?tab=collect 刷新后仍停在收集 */
+const activeTab = ref(route.query.tab === 'collect' ? 'collect' : 'vote')
 
-const submitting = ref(false)
 const reminding = ref(false)
-
-const voteVisible = ref(false)
-const voteLoading = ref(false)
-const votePoll = ref({})
-/** 我的勾选：{题目 ID: 下标数组}。单选也存数组，两种题型提交时形状一致 */
-const draft = reactive({})
 
 const shareVisible = ref(false)
 const shareLink = ref('')
@@ -416,9 +329,6 @@ const resultTab = ref('tally')
 /** 票数页是不是按得票从多到少排。只是个看的习惯，换一场投票不用重设 */
 const tallySorted = ref(false)
 const ballots = ref({ total: 0, voted_count: 0, rows: [] })
-
-/** 不能投的原因。判据在 utils/poll.js，和「暂停了」「不在范围内」的分支顺序一起放在那儿 */
-const voteBlockReason = computed(() => blockReasonOf(votePoll.value))
 
 // ---------- 列表 ----------
 
@@ -454,85 +364,34 @@ function handleSizeChange() {
   fetchList()
 }
 
-// ---------- 投票 ----------
-
-/** 打开投票弹窗。preloaded 是深链那条路径已经取到的详情，省一次请求 */
-async function openVote(row, preloaded = null) {
-  voteVisible.value = true
-  applyPollShareMeta(row)
-  Object.keys(draft).forEach((key) => delete draft[key])
-  if (preloaded) {
-    fillVote(preloaded)
-    return
-  }
-  voteLoading.value = true
-  try {
-    fillVote(await getPoll(row.id))
-  } catch (e) {
-    ElMessage.error(errText(e, '读取题目失败'))
-    voteVisible.value = false
-  } finally {
-    voteLoading.value = false
-  }
+/** 页面头部按钮：当前在哪个 Tab 就发起哪一类 */
+function handleCreate() {
+  if (activeTab.value === 'collect') collectRef.value?.openCreate()
+  else createRef.value?.open()
 }
 
-function fillVote(detail) {
-  votePoll.value = detail
-  applyPollShareMeta(detail)
-  ;(detail.questions || []).forEach((q) => {
-    draft[q.id] = []
-  })
+/** 投票截止前可反复延长 5 分钟；未开始/已结束不给点 */
+function canExtendPoll(row) {
+  return row.status === 'open' || row.status === 'locked'
 }
 
-function picked(question, index) {
-  return (question.my_choices || []).includes(index)
-}
+// ---------- 站内外统一入口 ----------
 
-async function handleVote() {
-  const questions = votePoll.value.questions || []
-  for (let i = 0; i < questions.length; i++) {
-    const q = questions[i]
-    const chosen = draft[q.id] || []
-    // 空选也拦下：后端要求每题必答，「已投」的判定才不含糊
-    if (!chosen.length) return ElMessage.warning(`第 ${i + 1} 题还没作答，每题都必须作答`)
-    if (q.multiple && chosen.length > q.max_choices) {
-      return ElMessage.warning(`第 ${i + 1} 题最多选 ${q.max_choices} 项`)
-    }
-  }
-
-  try {
-    await ElMessageBox.confirm(
-      '提交后不能改票，也不能重投。确定提交吗？',
-      '提交确认',
-      { type: 'warning', confirmButtonText: '确定提交', cancelButtonText: '再想想' }
-    )
-  } catch {
-    return // 点了取消
-  }
-
-  submitting.value = true
-  try {
-    await submitVote(votePoll.value.id, {
-      answers: questions.map((q) => ({
-        question_id: q.id,
-        choices: [...(draft[q.id] || [])].sort((a, b) => a - b)
-      }))
-    })
-    ElMessage.success('投票成功，谢谢参与')
-    voteVisible.value = false
-    fetchList()
-  } catch (e) {
-    ElMessage.error(errText(e, '投票失败'))
-  } finally {
-    submitting.value = false
-  }
+/**
+ * 列表主按钮：跳到整页分享页
+ *
+ * 站内站外是同一张页面（/share/vote/{token}）。后端每一场都会现算 token，
+ * 所以正常情况下一定有；真遇到老数据没有 token，就退回原来的查看方式。
+ */
+function openSharePage(row) {
+  if (!row.share_token) return openDetail(row)
+  router.push({ name: 'SharePage', params: { kind: 'vote', token: row.share_token } })
 }
 
 // ---------- 结果与名单 ----------
 
-/** 能投的人点开就当投票，其余人点开看结果 */
+/** 管理入口：谁投了谁没投（主按钮已经不走这里了） */
 async function openDetail(row, tab = 'tally') {
-  if (row.can_vote) return openVote(row)
   resultPoll.value = { ...row, questions: [] } // 先占位，标题立刻就有
   return loadResult(row.id, tab)
 }
@@ -631,112 +490,56 @@ async function handleRemind() {
 // ---------- 管理动作 ----------
 
 /**
- * 分享链接走后端的签名分享页，不再直接给 /#/vote?id=…
+ * 分享链接：真实路径 /share/vote/{token}
  *
- * 直接分享 hash 链接时，`#` 后面的内容不会到达服务器，微信只能抓到 index.html
- * 的通用摘要。分享页在服务端就把这一场投票的 OG 写好，再把浏览器送进投票页。
- * 没拿到 token（老接口 / 老数据）时退回原来的 hash 链接，功能不断。
+ * 不能用 /#/vote?id=…：`#` 后面的内容不会到达服务器，微信爬虫读不到这一场的
+ * meta。真实路径由 nginx 返回 index.html 并在同一次响应里注入 head 片段。
+ * 没拿到 token（老数据）时退回原来的 hash 链接，功能不断。
  */
 function voteShareLink(poll) {
   const id = poll?.id ?? poll
   if (poll?.share_token) {
-    return `${window.location.origin}/api/polls/share/${poll.share_token}`
+    return shareUrl('vote', poll.share_token)
   }
   return `${window.location.origin}/#/vote?id=${id}`
 }
 
-// ---------- 分享卡片：投票页 <head> 里的 OG 标签 ----------
-const POLL_OG_FLAG = 'data-poll-og'
-
-function setPollOg(property, content) {
-  let el = document.head.querySelector(`meta[property="${property}"][${POLL_OG_FLAG}]`)
-  if (!el) {
-    el = document.createElement('meta')
-    el.setAttribute('property', property)
-    el.setAttribute(POLL_OG_FLAG, '1')
-    document.head.appendChild(el)
-  }
-  el.setAttribute('content', content)
+/** 卡片摘要：和分享页、服务端 meta 用同一套口径 */
+function pollCard(poll) {
+  const title = `投票：${poll.title || '投票表决'}`
+  const tail = [
+    statusLabel(poll.status),
+    poll.anonymous ? '不记名' : '记名',
+    `应投 ${poll.target_count ?? 0} 人`,
+    `截止 ${formatDateTime(poll.end_at)}`
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const description = poll.description ? `${poll.description.slice(0, 60)}｜${tail}` : tail
+  return { title, description, url: voteShareLink(poll) }
 }
 
-let originalDescription = null
-
-function setPollDescription(text) {
-  let el = document.head.querySelector('meta[name="description"]')
-  if (!el) {
-    el = document.createElement('meta')
-    el.setAttribute('name', 'description')
-    document.head.appendChild(el)
-  }
-  if (originalDescription === null) originalDescription = el.getAttribute('content') || ''
-  el.setAttribute('content', text)
-}
-
-/** 打开一场投票 / 分享时，把标题和说明写进 OG，微信转发尽量带出投票信息 */
+/** 打开分享弹窗：把这一场的标题和摘要写进 head，并保留真实分享路径 */
 function applyPollShareMeta(poll) {
   if (!poll?.id) return
-  const title = `投票：${poll.title || '投票表决'}`
-  document.title = title
-  const desc = poll.description || '班级投票表决'
-  setPollDescription(desc)
-  const pairs = {
-    'og:title': title,
-    'og:description': desc,
-    'og:type': 'website',
-    'og:url': voteShareLink(poll),
-    'og:site_name': SITE.name,
-    // 用 512 的图标：logo.png 往往只有一百多像素，微信卡片可能因尺寸太小不显示图
-    'og:image': new URL('/icons/icon-512.png', window.location.origin).href,
-    'og:image:width': '512',
-    'og:image:height': '512',
-    'og:locale': 'zh_CN'
-  }
-  for (const [key, value] of Object.entries(pairs)) setPollOg(key, value)
-  keepShareUrl(poll)
-}
-
-/**
- * 把地址栏留在分享页上（和签到页同一个理由）。
- *
- * 分享页会二级跳到 /#/vote?id=…；微信转发时抓的是当前地址，跳到 hash 页之后
- * 就只能拿到站点级摘要。replaceState 只换地址、不触发路由，投票弹窗照常开着。
- * 关闭弹窗时再还原，列表页本身仍然是普通的 hash 地址。
- */
-function keepShareUrl(poll) {
-  if (!poll?.share_token) return
-  try {
-    const url = new URL(voteShareLink(poll), window.location.origin)
-    if (url.origin !== window.location.origin) return
-    history.replaceState(history.state, '', url.pathname)
-  } catch (e) {
-    // 地址栏保持不动也能用，只是微信卡片退回通用摘要
+  applyShareMeta({ ...pollCard(poll), index: !!poll.share_token })
+  if (poll.share_token) {
+    try {
+      attachSharePath(new URL(voteShareLink(poll), window.location.origin).pathname)
+    } catch (e) {
+      /* 地址栏保持不动也能用 */
+    }
   }
 }
 
-/** 关闭弹窗 / 离开投票页：把分享页路径还原成正常的 hash 地址 */
-function restoreAppUrl() {
-  if (!window.location.pathname.startsWith('/api/polls/share/')) return
-  try {
-    // 用路由的 fullPath 而不是 location.hash：replaceState 去掉 hash 之后
-    // location.hash 是空的，直接拼会把地址变成根路径，一刷新就回首页了
-    history.replaceState(history.state, '', '/#' + route.fullPath)
-  } catch (e) {
-    // 地址没还原也不影响页面本身
-  }
-}
-
+/** 关闭分享弹窗：head 和地址栏都回到列表页 */
 function clearPollShareMeta() {
-  document.querySelectorAll(`meta[${POLL_OG_FLAG}]`).forEach((el) => el.remove())
-  if (originalDescription !== null) {
-    const el = document.head.querySelector('meta[name="description"]')
-    if (el) el.setAttribute('content', originalDescription)
-    originalDescription = null
-  }
-  document.title = `投票表决 - ${SITE.shortName}`
-  restoreAppUrl()
+  resetShareMeta()
+  document.title = `投票收集 - ${SITE.shortName}`
+  detachSharePath('/share/vote/')
 }
 
-/** 「管理 → 分享」：链接 + 复制 + 二维码，链接是服务端的分享页 */
+/** 「管理 → 分享」：链接 + 复制 + 二维码，链接是 /share/vote/{token} 真实路径 */
 function openShare(row) {
   applyPollShareMeta(row)
   sharePoll.value = { ...row }
@@ -749,6 +552,7 @@ function handleCommand(command, row) {
   if (command === 'edit') return handleEdit(row)
   if (command === 'roster') return openDetail(row, 'roster')
   if (command === 'toggleLock') return handleToggleLock(row)
+  if (command === 'extend') return handleExtend(row)
   if (command === 'close') return handleClose(row)
   if (command === 'delete') return handleDelete(row)
 }
@@ -804,8 +608,19 @@ async function handleToggleLock(row) {
   }
 }
 
-async function handleClose(row) {
+/** 和签到一样：点一下就延 5 分钟，不弹确认 */
+async function handleExtend(row) {
   try {
+    await extendPoll(row.id)
+    ElMessage.success('已延长5分钟')
+    fetchList()
+    if (resultVisible.value && resultPoll.value.id === row.id) await refreshResult()
+  } catch (e) {
+    ElMessage.error(errText(e, '延长失败'))
+  }
+}
+
+async function handleClose(row) {  try {
     await ElMessageBox.confirm(
       '结束后所有人立刻能看到结果，还没投的人也不能再投。确定现在结束吗？',
       '立即结束',
@@ -851,15 +666,16 @@ async function handleDelete(row) {
   }
 }
 
-/** 站内信里的「新投票」点进来会带 ?id=，直接打开那一场
+/** 站内信里的旧「新投票」深链会带 ?id=：查到 token 后跳到统一的分享页
  *  （照 StudentList.vue 读 route.query.open 的做法） */
 async function openFromQuery() {
   const id = Number(route.query.id)
   if (!id) return
   try {
     const detail = await getPoll(id)
-    if (detail.can_vote) {
-      openVote(detail, detail) // 详情已经在手，不再请求一次
+    if (detail.share_token) {
+      // replace 不新增历史记录：返回时回到消息列表，而不是绕回这个中转地址
+      router.replace({ name: 'SharePage', params: { kind: 'vote', token: detail.share_token } })
     } else {
       resultPoll.value = detail
       await loadResult(id, detail.can_manage ? 'roster' : 'tally')
@@ -878,14 +694,24 @@ onMounted(async () => {
   openFromQuery()
 })
 
+// Tab 写进地址；切回投票时顺手刷新，收集面板自己管自己的数据
+watch(activeTab, (tab) => {
+  const query = { ...route.query }
+  if (tab === 'collect') query.tab = 'collect'
+  else delete query.tab
+  router.replace({ query })
+  if (tab === 'vote') fetchList()
+  else collectRef.value?.refresh()
+})
+
 onUnmounted(stopPolling)
 onUnmounted(clearPollShareMeta)
 
-// 两个详情弹窗和分享弹窗都关掉后，标题和 OG 回到列表页
+// 结果弹窗和分享弹窗都关掉后，标题和 OG 回到列表页
 watch(
-  [voteVisible, resultVisible, shareVisible],
-  ([vote, result, share]) => {
-    if (!vote && !result && !share) clearPollShareMeta()
+  [resultVisible, shareVisible],
+  ([result, share]) => {
+    if (!result && !share) clearPollShareMeta()
   }
 )
 </script>
@@ -907,6 +733,11 @@ watch(
 
 .vt-head .page-title {
   margin-bottom: 0;
+}
+
+/* Tab 栏自带下边距，去掉标题与标签之间多出来的一截 */
+.vt-tabs :deep(.el-tabs__header) {
+  margin-bottom: 14px;
 }
 
 .vt-bar {
@@ -978,21 +809,11 @@ watch(
   padding-right: 6px;
 }
 
-.vt-desc {
-  margin: 0 0 8px;
-  white-space: pre-wrap;
-  color: var(--el-text-color-regular);
-}
-
 .vt-meta {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 10px;
-}
-
-.vt-alert {
   margin-bottom: 10px;
 }
 
@@ -1014,7 +835,6 @@ watch(
   flex: 1;
 }
 
-.vt-q,
 .vt-rq {
   margin-bottom: 16px;
 }
@@ -1026,33 +846,6 @@ watch(
   flex-wrap: wrap;
   margin-bottom: 8px;
   font-weight: 600;
-}
-
-.vt-q .el-radio-group,
-.vt-q .el-checkbox-group {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-}
-
-/* 只读回显：投过的选项打勾，其余留白 */
-.vt-ro {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 0;
-  color: var(--el-text-color-regular);
-}
-
-.vt-picked {
-  color: var(--el-color-primary);
-  font-weight: 600;
-}
-
-.vt-ro-dot {
-  display: inline-block;
-  width: 14px;
 }
 
 .vt-opt {

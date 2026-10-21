@@ -260,3 +260,40 @@ def test_notice_list_limit_out_of_range_422(b):
     assert b.client.get("/api/notices?limit=0").status_code == 422
     assert b.client.get("/api/notices?limit=101").status_code == 422
     assert b.client.get("/api/notices?limit=abc").status_code == 422
+
+
+# ---------- 外链分享 ----------
+
+def test_notice_share_meta_and_public_detail(b):
+    """公告外链：按 id 的真实路径，meta 服务端渲染；正文公开"""
+    b.run(
+        _INSERT,
+        "关于国庆假期安排的通知",
+        "甲",
+        "2026-10-08",
+        "## 放假安排\n\n10 月 1 日至 7 日放假。",
+        "",
+    )
+    notice_id = b.rows("SELECT id FROM notices")[0][0]
+
+    # 公开详情：游客也能读
+    r = _anon_get(b, f"/api/notices/{notice_id}")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["title"] == "关于国庆假期安排的通知"
+    assert "放假安排" in data["content"]
+    assert data["publisher"] == "甲"
+
+    # 服务端 meta：标题前缀、正文摘要、可抓取
+    r = _anon_get(b, f"/api/share-meta/share/notice/{notice_id}")
+    assert r.status_code == 200
+    html = r.text
+    assert "<title>公告：关于国庆假期安排的通知</title>" in html
+    assert '<meta property="og:title" content="公告：关于国庆假期安排的通知">' in html
+    assert 'name="robots" content="index,follow"' in html
+    assert "发布于 2026-10-08" in html
+    assert f"/share/notice/{notice_id}" in html
+
+    # 不存在的公告：meta 走兜底（永远 200），公开接口 404
+    assert _anon_get(b, "/api/share-meta/share/notice/999999").status_code == 200
+    assert _anon_get(b, "/api/notices/999999").status_code == 404

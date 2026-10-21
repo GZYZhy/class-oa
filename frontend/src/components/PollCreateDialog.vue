@@ -30,6 +30,7 @@
             maxlength="2000"
             placeholder="选填。写清背景或注意事项"
           />
+          <div class="pc-tip">支持 Markdown：标题、列表、加粗、链接</div>
         </el-form-item>
         <el-form-item label="开始时间" required>
           <el-date-picker
@@ -75,6 +76,19 @@
           </div>
           <!-- 灰掉的开关要说清为什么灰，跟上面两个时间框一个道理 -->
           <div v-if="startedLocked" class="pc-tip">投票已经开始，记名方式改不了了</div>
+        </el-form-item>
+        <el-form-item label="开始提醒">
+          <el-switch
+            v-model="form.notify_on_start"
+            active-text="提醒"
+            inactive-text="不提醒"
+            :disabled="notifyLocked"
+          />
+          <div class="pc-tip">
+            开启后到「开始时间」才给范围内的人发一次提醒（不是现在发）；
+            改了开始时间，提醒跟着新时间走
+          </div>
+          <div v-if="notifyLocked" class="pc-tip">已经开始或已经发过提醒，改不了了</div>
         </el-form-item>
       </el-form>
 
@@ -276,6 +290,9 @@ const timeEdit = computed(() => canEditTimes(editingStatus.value))
  * 所以那时改怎么都安全 —— 出卷时状态恒为 pending，这个锁自然是开的。
  */
 const startedLocked = computed(() => !canEditBeforeStart(editingStatus.value))
+/** 开始提醒是否已经发过：发过之后开关不能再改（后端也会拒） */
+const notified = ref(false)
+const notifyLocked = computed(() => startedLocked.value || notified.value)
 /** 编辑时只显示表决范围的人数：名单不拉（范围本来就改不了），人数从详情里带过来 */
 const editTargetCount = ref(0)
 
@@ -296,6 +313,7 @@ function open() {
   Object.assign(form, blankForm())
   editingId.value = null
   editingStatus.value = 'pending'
+  notified.value = false
   reuseId.value = null
   visible.value = true
   fetchRoster()
@@ -311,6 +329,7 @@ function openForEdit(poll) {
   Object.assign(form, blankForm(), formFromPoll(poll))
   editingId.value = poll.id
   editingStatus.value = poll.status || 'pending'
+  notified.value = !!poll.start_notified_at
   editTargetCount.value = poll.target_count || 0
   roster.value = []
   visible.value = true
@@ -324,6 +343,7 @@ function reset() {
   editingId.value = null
   editingStatus.value = 'pending'
   editTargetCount.value = 0
+  notified.value = false
 }
 
 async function fetchRoster() {
@@ -513,6 +533,8 @@ async function handleSubmit() {
       if (timeEdit.value.end_at) payload.end_at = form.end_at
       // 记名与否和题目同款：只有没开始才传得出去
       if (!startedLocked.value) payload.anonymous = form.anonymous
+      // 开始提醒：没开始且没发过才传得出去
+      if (!notifyLocked.value) payload.notify_on_start = form.notify_on_start
       await updatePoll(editingId.value, payload)
       ElMessage.success('已保存')
     } else {
@@ -522,10 +544,13 @@ async function handleSubmit() {
         anonymous: form.anonymous,
         start_at: form.start_at,
         end_at: form.end_at,
+        notify_on_start: form.notify_on_start,
         targets: [...form.targets],
         questions: buildQuestions()
       })
-      ElMessage.success('已发起，范围内的同学会收到提醒')
+      ElMessage.success(
+        form.notify_on_start ? '已发起，开始时将提醒范围内的同学' : '已发起'
+      )
     }
     visible.value = false
     emit('saved')

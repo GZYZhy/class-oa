@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..config import resolve_session_secret
 from ..models import Poll, PollAnswer, PollQuestion, PollTarget, Student, User
+from .scope_service import target_scope_label
 
 # 四种状态。前端在 views/Vote.vue 和 utils/poll.js 里按这几个值分支，改的时候一起改
 STATUS_PENDING = "pending"
@@ -134,6 +135,20 @@ def can_vote(poll: Poll, in_target: bool, voted: bool, now: datetime | None = No
     这里再各查一次就是 40 次多余查询。判定规则只留这一份。
     """
     return poll_status(poll, now) == STATUS_OPEN and in_target and not voted
+
+
+def scope_label(db: Session, poll_id: int) -> str:
+    """这场投票的公开范围标签（全班 / 班委 / 团员 / 定向 N 人）
+
+    反推逻辑在 services/scope_service.py —— 收集复用同一份，避免两套口径。
+    """
+    target_nos = {
+        no
+        for (no,) in db.query(PollTarget.student_no).filter(
+            PollTarget.poll_id == poll_id
+        )
+    }
+    return target_scope_label(db, target_nos)
 
 
 def filter_visible(db: Session, query, student_no: str, admin: bool):
@@ -309,6 +324,8 @@ def list_items(db: Session, polls: list[Poll], student_no: str, admin: bool) -> 
                 "creator_no": poll.creator_no or "",
                 "creator_name": poll.creator_name or "",
                 "created_at": poll.created_at,
+                "notify_on_start": bool(poll.notify_on_start),
+                "start_notified_at": poll.start_notified_at,
                 "question_count": counts["questions"].get(poll.id, 0),
                 "target_count": counts["targets"].get(poll.id, 0) if visible else 0,
                 "voted_count": counts["voted"].get(poll.id, 0) if visible else 0,

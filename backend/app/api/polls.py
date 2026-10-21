@@ -15,15 +15,13 @@
 
 import json
 from datetime import datetime, timedelta
-from html import escape
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import RedirectResponse
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..config import settings
 from ..database import get_db
 from ..models import Poll, PollAnswer, PollQuestion, PollTarget, Student, User
 from ..schemas import (
@@ -34,6 +32,7 @@ from ..schemas import (
     PollListResponse,
     PollRemindResponse,
     PollRosterResponse,
+    PollShareResponse,
     PollUpdate,
     PollVoteIn,
 )
@@ -55,14 +54,17 @@ from ..services.poll_service import (
     poll_share_token,
     poll_status,
     question_options,
+    scope_label,
     voted_count,
 )
+from ..services.share_service import share_path
 from ..utils.links import full_url
 from .deps import (
     ROLE_RANK,
     committee_required,
     get_client_ip,
     get_current_user,
+    get_optional_user,
     is_admin,
 )
 
@@ -217,16 +219,6 @@ def _check_answers(questions: list[PollQuestion], answers: list) -> list[tuple]:
     return result
 
 
-def _target_nos(db: Session, poll_id: int) -> list[str]:
-    """这场投票的表决范围（学号），发起通知时循环用"""
-    return [
-        no
-        for (no,) in db.query(PollTarget.student_no)
-        .filter(PollTarget.poll_id == poll_id)
-        .order_by(PollTarget.student_no)
-    ]
-
-
 # ---------- 接口 ----------
 
 @router.get("", response_model=PollListResponse, summary="投票列表")
@@ -319,108 +311,115 @@ def get_roster(
 
 
 def _share_link(request: Request, poll: Poll) -> str:
-    """对外的分享地址：带签名的服务端页面，微信爬虫能在这里读到 OG 标签"""
-    return full_url(request, f"/api/polls/share/{poll_share_token(poll.id)}")
+    """对外的分享地址：真实路径，服务器能看到是哪一场
 
-
-def _share_page(
-    request: Request, poll: Poll, target_count: int, question_count: int
-) -> str:
-    """分享页 HTML：只给微信 / 爬虫看 OG 卡片，随后把浏览器送进投票页
-
-    和签到分享页同一个套路。投票页在 hash 路由后面，`#` 后的内容不会到达
-    服务器，直接分享 `/#/vote?id=…` 的话微信只能抓到站点的通用摘要。
-    **这里不做鉴权**：只输出标题、备注、记名方式、人数、题数和截止时间；
-    题目和选项、谁投了什么都仍然要登录且有权限才能看。
+    不能用 `/#/vote?id=…`：hash 后面的内容不会发给服务器，微信爬虫拿不到
+    这一场的 meta。真实路径由 nginx 返回 index.html 并注入 head 片段，
+    浏览器落地后由 share-boot.js 映射到同一个应用内路由。
     """
-    title = (poll.title or "投票表决").strip() or "投票表决"
-    card_title = title if title.startswith("投票：") else f"投票：{title}"
-    state = {
-        STATUS_PENDING: "未开始",
-        STATUS_OPEN: "进行中",
-        STATUS_LOCKED: "已暂停",
-        STATUS_CLOSED: "已结束",
-    }.get(poll_status(poll), "进行中")
-    desc = (
-        f"{state} · {'不记名' if poll.anonymous else '记名'}"
-        f" · 应投 {target_count} 人 · {question_count} 道题"
-        f" · 截止 {poll.end_at:%m月%d日 %H:%M}"
-    )
-    if poll.description:
-        desc = f"{poll.description[:60]}｜{desc}"
-    share_url = _share_link(request, poll)
-    page_url = full_url(request, f"/#/vote?id={poll.id}")
-    logo_url = full_url(request, "/icons/icon-512.png")
-    site_name = settings.site_name or settings.app_name
-
-    def attr(value: str) -> str:
-        return escape(value, quote=True)
-
-    return f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{attr(card_title)}</title>
-<meta name="description" content="{attr(desc)}">
-<meta name="robots" content="index,follow">
-<meta property="og:type" content="website">
-<meta property="og:title" content="{attr(card_title)}">
-<meta property="og:description" content="{attr(desc)}">
-<meta property="og:url" content="{attr(share_url)}">
-<meta property="og:site_name" content="{attr(site_name)}">
-<meta property="og:image" content="{attr(logo_url)}">
-<meta property="og:image:width" content="512">
-<meta property="og:image:height" content="512">
-<meta property="og:locale" content="zh_CN">
-<meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="{attr(card_title)}">
-<meta name="twitter:description" content="{attr(desc)}">
-<meta name="twitter:image" content="{attr(logo_url)}">
-<meta http-equiv="refresh" content="0; url={attr(page_url)}">
-<style>
-  body {{ margin: 0; padding: 48px 20px; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
-         color: #303133; text-align: center; background: #f5f7fa; }}
-  a {{ color: #409eff; text-decoration: none; }}
-</style>
-</head>
-<body>
-<p>正在打开投票「{attr(title)}」…</p>
-<p><a href="{attr(page_url)}">如果没有自动跳转，点这里</a></p>
-</body>
-</html>"""
+    return full_url(request, share_path("vote", poll_share_token(poll.id)))
 
 
 @router.get(
-    "/share/{token}",
-    response_class=HTMLResponse,
-    summary="投票分享页（公开，只用于微信卡片）",
+    "/share/{token}/info",
+    response_model=PollShareResponse,
+    summary="投票分享页公开信息（无需登录）",
 )
-def share_poll(token: str, request: Request, db: Session = Depends(get_db)):
-    """公开的分享页：微信爬虫不登录，只能靠签名串换出这一场投票
+def share_poll_info(
+    token: str,
+    user: User | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    """外链分享页的数据源
 
-    签名串对不上和投票不存在都回 404 —— 和范围外的人看投票一样，
-    不泄露「有这一场」这件事。
+    公开：标题、完整描述、范围、状态、起止时间、应投人数、题数；
+    登录且在范围内（或发起人 / 管理员）：额外返回题目、我的作答和票数。
+    游客与范围外的人拿不到题目、选项、票数、名单，也不含发起人学号
+    （schema 没有继承 PollListItem，就是为了不把 creator_no 带出去）。
     """
     poll_id = parse_poll_share_token(token)
     poll = db.query(Poll).filter(Poll.id == poll_id).first() if poll_id else None
     if not poll:
-        raise HTTPException(status_code=404, detail="分享链接无效")
+        raise HTTPException(status_code=404, detail="分享链接无效或投票已删除")
+
     target_count = (
         db.query(PollTarget).filter(PollTarget.poll_id == poll.id).count()
     )
     question_count = (
         db.query(PollQuestion).filter(PollQuestion.poll_id == poll.id).count()
     )
-    return HTMLResponse(
-        _share_page(request, poll, target_count, question_count)
+    student_no = user.student_no if user else ""
+    admin = is_admin(user) if user else False
+    in_target = bool(user and is_target(db, poll.id, student_no))
+    can_manage_this = bool(user and can_manage(poll, student_no, admin))
+    in_scope = in_target or can_manage_this
+
+    questions = []
+    has_voted_this = False
+    results = False
+    can_vote_this = False
+    voted = 0
+    if in_scope:
+        data = detail(db, poll, student_no, admin)
+        questions = data["questions"]
+        has_voted_this = data["has_voted"]
+        results = data["results_visible"]
+        can_vote_this = data["can_vote"]
+        # detail → list_items 在结果不可见时会把两个计数置 0；应投人数是公开的，
+        # 这里用真实计数覆盖。已投人数仍然只在结果可见时给真值。
+        voted = data["voted_count"]
+
+    return PollShareResponse(
+        id=poll.id,
+        share_token=token,
+        title=poll.title or "",
+        description=poll.description or "",
+        anonymous=bool(poll.anonymous),
+        status=poll_status(poll),
+        start_at=poll.start_at,
+        end_at=poll.end_at,
+        closed_at=poll.closed_at,
+        scope_label=scope_label(db, poll.id),
+        question_count=question_count,
+        target_count=target_count,
+        voted_count=voted,
+        is_login=user is not None,
+        in_scope=in_scope,
+        is_target=in_target,
+        has_voted=has_voted_this,
+        results_visible=results,
+        can_manage=can_manage_this,
+        can_vote=can_vote_this,
+        questions=questions,
+    )
+
+
+@router.get(
+    "/share/{token}",
+    summary="旧投票分享链接（302 到新地址）",
+    include_in_schema=False,
+)
+def share_poll(token: str, request: Request, db: Session = Depends(get_db)):
+    """兼容老聊天里的链接：校验通过就 302 到新的真实路径
+
+    新链接由 _share_link 直接给出 `/share/vote/{token}`，这个接口只为已经
+    发出去的旧链接保留。用 302 不用 301：万一以后路径再调，浏览器不会把
+    旧地址永久记住。无效签名仍回 404，不泄露「有这一场」。
+    """
+    poll_id = parse_poll_share_token(token)
+    poll = db.query(Poll).filter(Poll.id == poll_id).first() if poll_id else None
+    if not poll:
+        raise HTTPException(status_code=404, detail="分享链接无效")
+    return RedirectResponse(
+        full_url(request, share_path("vote", token)),
+        status_code=302,
+        headers={"Cache-Control": "no-store"},
     )
 
 
 @router.post("", response_model=PollDetailResponse, summary="发起投票（班委及以上）")
 def create_poll(
     data: PollCreate,
-    background: BackgroundTasks,
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
@@ -429,6 +428,9 @@ def create_poll(
 
     发出去之后标题和描述随时能改（下面的 update_poll），**题目只有还没开始时能改**
     —— 作答存的是选项**下标**，已经开始之后再动题目会让历史作答整体错位。
+
+    **不在创建时通知**：出卷人用 notify_on_start 指定要不要在开始时间提醒；
+    真正的发送在 services/start_notify_service.py，开始时间改了提醒自然跟着走。
     """
     _check_time(data.start_at, data.end_at)
     questions = _check_questions(data.questions)
@@ -456,6 +458,7 @@ def create_poll(
         creator_no=user.student_no,
         creator_name=account_name(db, user),
         created_at=datetime.now(),
+        notify_on_start=bool(data.notify_on_start),
     )
     db.add(poll)
     db.flush()  # 先 flush 拿到自增 id，题目和名单都要用
@@ -491,25 +494,8 @@ def create_poll(
     )
     db.commit()
 
-    # 通知放在 commit 之后：notify 里的站内信写入自己会 commit，不能让它替我们
-    # 提交「建投票」这笔半截事务（全项目 19 处调用点都是「先改状态、commit、再通知」）
-    body = f"共 {len(questions)} 题，{poll.end_at:%m-%d %H:%M} 截止"
-    if poll.anonymous:
-        body += "（不记名）"
-    for student_no in _target_nos(db, poll.id):
-        notify(
-            db,
-            background,
-            # 逐个人调 recipients：范围是任意子集，recipients 没有「批量学号」参数，
-            # 要加就得同时改 bark / webpush / email / webhook 四个渠道服务。
-            # 班级几十人，循环更简单也更不容易改错（同 api/notices.py 的说明）。
-            # exclude_no 把自己排除掉 —— 自己发起的投票不用推给自己
-            recipients(db, only_no=student_no, exclude_no=user.student_no),
-            f"新投票：{poll.title}",
-            body,
-            level="timeSensitive",
-            page=f"/vote?id={poll.id}",
-        )
+    # 创建时不发通知：到 start_at 由 start_notify_service 巡检发一次，
+    # 出卷人是否要提醒由 notify_on_start 决定。
     return detail(db, poll, user.student_no, is_admin(user))
 
 
@@ -575,6 +561,14 @@ def update_poll(
         if data.anonymous != bool(poll.anonymous):
             poll.anonymous = data.anonymous
             changed.append("记名方式")
+
+    # 开始提醒：只能在还没开始、且还没发过的时候改。开始时间改了，巡检自然按新时间走
+    if data.notify_on_start is not None:
+        if status != STATUS_PENDING or poll.start_notified_at is not None:
+            raise HTTPException(status_code=400, detail="开始提醒只能在投票开始前设置")
+        if data.notify_on_start != bool(poll.notify_on_start):
+            poll.notify_on_start = data.notify_on_start
+            changed.append("开始提醒")
 
     if data.questions is not None:
         if status != STATUS_PENDING:
@@ -763,7 +757,7 @@ def remind(
             f"提醒：{poll.title}",
             f"还没投票，{poll.end_at:%m-%d %H:%M} 截止",
             level="timeSensitive",
-            page=f"/vote?id={poll.id}",
+            page=share_path("vote", poll_share_token(poll.id)),
         )
 
     log_operation(
@@ -805,6 +799,45 @@ def close_poll(
     )
     db.commit()
     return {"status": STATUS_CLOSED, "voted_count": votes}
+
+
+@router.post(
+    "/{poll_id}/extend",
+    response_model=PollDetailResponse,
+    summary="延长投票截止时间 5 分钟（发起人/管理员）",
+)
+def extend_poll(
+    poll_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """截止前可反复延长，每次 5 分钟（和签到的「延长5分钟」同一交互）
+
+    只改 end_at，不动 start_at。已经手动结束（closed_at 有值）或已经过了 end_at
+    就不能再延长 —— 否则等于把一场已经结束的投票重新拉回进行中。
+    """
+    poll = _load_manageable(db, poll_id, user, is_admin(user))
+    if poll.closed_at is not None:
+        raise HTTPException(status_code=400, detail="投票已经结束")
+    now = datetime.now()
+    if now >= poll.end_at:
+        raise HTTPException(
+            status_code=400, detail="已经过了截止时间，不能再延长"
+        )
+
+    before = poll.end_at
+    poll.end_at = before + timedelta(minutes=5)
+    log_operation(
+        db,
+        user,
+        action="延长投票",
+        target=poll.title,
+        detail=f"截止 {before:%m-%d %H:%M} → {poll.end_at:%m-%d %H:%M}",
+        ip=ip,
+    )
+    db.commit()
+    return detail(db, poll, user.student_no, is_admin(user))
 
 
 @router.post(

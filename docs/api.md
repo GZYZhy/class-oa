@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.17.30，共 262 个接口。
+> 版本 1.18.0，共 285 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -19,7 +19,7 @@
 - 公开信息（1）
 - 认证（25）
 - 初始化（2）
-- 通知公告（10）
+- 通知公告（11）
 - 学生信息（19）
 - 文件公开（4）
 - 资料下载（2）
@@ -36,7 +36,8 @@
 - 办件空间（3）
 - 站内信（4）
 - 生日关怀（4）
-- 投票（13）
+- 投票（14）
+- 投票收集（21）
 - 成绩（12）
 - 日程（14）
 - 签字（9）
@@ -465,6 +466,64 @@ default_email 是学生档案里**可用**的邮箱，给前端显示「留空�
 - `200` `NoticeResponse` — 成功
   - 字段：`id`、`title`、`publisher`、`publish_date`、`content`、`attachments`、`editors`、`created_at`、`updated_at`、`is_read`
 
+### 单条通知（公开，外链分享页用）
+
+`GET /api/notices/{notice_id}`
+
+单条通知，无需登录 通知公告本身就是公开内容（列表接口同样公开），外链分享页凭 id 读取。 不在这里标记已读：游客没有账号，标记已读要走登录接口。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `notice_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `NoticeResponse` — 成功
+  - 字段：`id`、`title`、`publisher`、`publish_date`、`content`、`attachments`、`editors`、`created_at`、`updated_at`、`is_read`
+
+### 编辑通知（班委及以上）
+
+`PUT /api/notices/{notice_id}`
+
+编辑通知：正文和附件都能改。 附件处理逻辑： - keep_attachments: 要保留的原附件下标（JSON 数组字符串），不传或为空表示全部保留 - attachments: 新上传的附件 - 最终附件列表 = 保留的原附件 + 新上传的附件，总数不超过 MAX_ATTACHMENTS - 被去掉的原附件文件会被删除
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `notice_id` | path | 是 | integer |  |
+
+**请求体**（`multipart/form-data`，文件上传）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `title` | string | 是 | 标题 |
+| `publish_date` | string | 是 | 发布时间 |
+| `content` | string | 是 | 正文（Markdown） |
+| `attachments` | string[] | 否 | 新增附件，最多 3 个（含原有） |
+| `keep_attachments` | string | 否 | 保留的原附件下标（JSON 数组，如 [0,2]） |
+
+**响应**
+
+- `200` `NoticeResponse` — 成功
+  - 字段：`id`、`title`、`publisher`、`publish_date`、`content`、`attachments`、`editors`、`created_at`、`updated_at`、`is_read`
+
+### 删除通知（班委及以上）
+
+`DELETE /api/notices/{notice_id}`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `notice_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` — 成功
+
 ### 标记为已读
 
 `POST /api/notices/{notice_id}/read`
@@ -551,47 +610,6 @@ RSS 订阅端点（通过 URL 里的 token 鉴权，无效一律 404） 这里**
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `token` | path | 是 | string |  |
-
-**响应**
-
-- `200` — 成功
-
-### 编辑通知（班委及以上）
-
-`PUT /api/notices/{notice_id}`
-
-编辑通知：正文和附件都能改。 附件处理逻辑： - keep_attachments: 要保留的原附件下标（JSON 数组字符串），不传或为空表示全部保留 - attachments: 新上传的附件 - 最终附件列表 = 保留的原附件 + 新上传的附件，总数不超过 MAX_ATTACHMENTS - 被去掉的原附件文件会被删除
-
-**参数**
-
-| 名称 | 位置 | 必填 | 类型 | 说明 |
-| --- | --- | --- | --- | --- |
-| `notice_id` | path | 是 | integer |  |
-
-**请求体**（`multipart/form-data`，文件上传）
-
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `title` | string | 是 | 标题 |
-| `publish_date` | string | 是 | 发布时间 |
-| `content` | string | 是 | 正文（Markdown） |
-| `attachments` | string[] | 否 | 新增附件，最多 3 个（含原有） |
-| `keep_attachments` | string | 否 | 保留的原附件下标（JSON 数组，如 [0,2]） |
-
-**响应**
-
-- `200` `NoticeResponse` — 成功
-  - 字段：`id`、`title`、`publisher`、`publish_date`、`content`、`attachments`、`editors`、`created_at`、`updated_at`、`is_read`
-
-### 删除通知（班委及以上）
-
-`DELETE /api/notices/{notice_id}`
-
-**参数**
-
-| 名称 | 位置 | 必填 | 类型 | 说明 |
-| --- | --- | --- | --- | --- |
-| `notice_id` | path | 是 | integer |  |
 
 **响应**
 
@@ -2932,17 +2950,18 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `POST /api/polls`
 
-出卷：题目、参与范围、起止时间、记名不记名，一次定完 发出去之后标题和描述随时能改（下面的 update_poll），**题目只有还没开始时能改** —— 作答存的是选项**下标**，已经开始之后再动题目会让历史作答整体错位。
+出卷：题目、参与范围、起止时间、记名不记名，一次定完 发出去之后标题和描述随时能改（下面的 update_poll），**题目只有还没开始时能改** —— 作答存的是选项**下标**，已经开始之后再动题目会让历史作答整体错位。 **不在创建时通知**：出卷人用 notify_on_start 指定要不要在开始时间提醒； 真正的发送在 services/start_notify_service.py，开始时间改了提醒自然跟着走。
 
 **请求体**（`application/json`，JSON）
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `title` | string | 是 | 标题 |
-| `description` | string | 否 | 描述 |
+| `description` | string | 否 | 描述（支持 Markdown） |
 | `anonymous` | boolean | 否 | 不记名投票：接口层不再返回谁投了什么 |
 | `start_at` | string（日期时间） | 是 | 开始时间 |
 | `end_at` | string（日期时间） | 是 | 截止时间 |
+| `notify_on_start` | boolean | 否 | 到开始时间是否提醒范围内的人；创建时立即发的是旧行为，已取消 |
 | `targets` | string[] | 是 | 有权表决的学号（接口会核对是否真存在） |
 | `questions` | PollQuestionIn[] | 是 | 一张卷子上的题 |
 
@@ -2956,7 +2975,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 出卷可选的学生名单（班委及以上）
 
@@ -2969,11 +2988,11 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 - `200` `PollRosterResponse` — 成功
   - 字段：`items`
 
-### 投票分享页（公开，只用于微信卡片）
+### 投票分享页公开信息（无需登录）
 
-`GET /api/polls/share/{token}`
+`GET /api/polls/share/{token}/info`
 
-公开的分享页：微信爬虫不登录，只能靠签名串换出这一场投票 签名串对不上和投票不存在都回 404 —— 和范围外的人看投票一样， 不泄露「有这一场」这件事。
+外链分享页的数据源 公开：标题、完整描述、范围、状态、起止时间、应投人数、题数； 登录且在范围内（或发起人 / 管理员）：额外返回题目、我的作答和票数。 游客与范围外的人拿不到题目、选项、票数、名单，也不含发起人学号 （schema 没有继承 PollListItem，就是为了不把 creator_no 带出去）。
 
 **参数**
 
@@ -2983,7 +3002,8 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 **响应**
 
-- `200` — 成功
+- `200` `PollShareResponse` — 成功
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`scope_label`、`question_count`、`target_count`、`voted_count`、`is_login`、`in_scope`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 投票详情
 
@@ -3000,7 +3020,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 编辑投票（发起人/管理员）
 
@@ -3023,12 +3043,13 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | `start_at` | string（日期时间），可空 | 否 | 新的开始时间，不传=不改。只有还没开始的投票能改 |
 | `end_at` | string（日期时间），可空 | 否 | 新的截止时间，不传=不改。已经开始的（含已暂停）也能调整 |
 | `anonymous` | boolean，可空 | 否 | 记名还是匿名，不传=不改。只有还没开始的投票能改 |
+| `notify_on_start` | boolean，可空 | 否 | 开始时间是否提醒，不传=不改。只有还没开始、还没发过提醒时能改 |
 | `questions` | PollQuestionIn[]，可空 | 否 | 传了就把题目整卷换掉，只对还没开始的投票有效 |
 
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 删除投票（发起人/管理员）
 
@@ -3072,7 +3093,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 投票名单与记名明细（发起人/管理员）
 
@@ -3125,6 +3146,23 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 - `200` `PollCloseResponse` — 成功
   - 字段：`status`、`voted_count`
 
+### 延长投票截止时间 5 分钟（发起人/管理员）
+
+`POST /api/polls/{poll_id}/extend`
+
+截止前可反复延长，每次 5 分钟（和签到的「延长5分钟」同一交互） 只改 end_at，不动 start_at。已经手动结束（closed_at 有值）或已经过了 end_at 就不能再延长 —— 否则等于把一场已经结束的投票重新拉回进行中。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `poll_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `PollDetailResponse` — 成功
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+
 ### 暂停投票（发起人/管理员）
 
 `POST /api/polls/{poll_id}/lock`
@@ -3140,7 +3178,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 恢复投票（发起人/管理员）
 
@@ -3157,7 +3195,412 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+
+## 投票收集
+
+### 收集列表
+
+`GET /api/collections`
+
+只列我该看得见的；搜索和状态筛选都在 SQL 里，分页才对
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `keyword` | query | 否 | string，可空 | 按标题/描述搜索 |
+| `status` | query | 否 | string，可空 | pending / open / closed |
+| `page` | query | 否 | integer（≥1，默认 1） | 默认 `1` |
+| `page_size` | query | 否 | integer（≥1，≤100，默认 20） | 默认 `20` |
+
+**响应**
+
+- `200` `CollectionListResponse` — 成功
+  - 字段：`total`、`page`、`page_size`、`items`
+
+### 发起收集（班委及以上）
+
+`POST /api/collections`
+
+创建时不发通知；notify_on_start 决定开始时间到点是否提醒
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `title` | string | 是 | 标题 |
+| `description` | string | 否 | 详细说明（支持 Markdown） |
+| `anonymous` | boolean | 否 | 不记名：接口层不返回答卷身份 |
+| `allow_withdraw` | boolean | 否 | 是否允许答题人在进行中撤回自己的答卷（撤回释放竞争名额） |
+| `start_at` | string（日期时间） | 是 | 开始时间 |
+| `end_at` | string（日期时间） | 是 | 截止时间 |
+| `notify_on_start` | boolean | 否 | 到开始时间是否提醒范围内的人（创建时不发） |
+| `submit_quota` | integer（≥1，≤50，默认 1） | 否 | 每人最多可填几份 |
+| `max_responses` | integer（≥0，默认 0） | 否 | 全局只收前几份；0=不限 |
+| `targets` | string[] | 是 | 可填写人员的学号 |
+| `questions` | CollectionQuestionIn[] | 是 | 题目 |
+
+`questions` 的字段：
+
+  - `title`：string（必填）
+  - `qtype`：string（必填）
+  - `required`：boolean
+  - `options`：string[]
+  - `max_choices`：integer（≥1），可空
+
+**响应**
+
+- `200` `CollectionDetailResponse` — 成功
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+
+### 收集分享页公开信息（无需登录）
+
+`GET /api/collections/share/{token}/info`
+
+公开：标题、完整描述、范围、状态、起止、记名、份数、剩余名额 题目只在「登录且在范围内」时下发；游客和范围外的人看不到题目。 不返回 creator_no。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `token` | path | 是 | string |  |
+
+**响应**
+
+- `200` `CollectionShareResponse` — 成功
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`scope_label`、`question_count`、`target_count`、`submitted_count`、`submit_quota`、`max_responses`、`remaining_slots`、`cap_reached`、`is_login`、`in_scope`、`my_submitted_count`、`my_remaining`、`quota_reached`、`can_submit`、`can_manage`、`questions`、`my_responses`
+
+### 收集详情（范围内或发起人/管理员）
+
+`GET /api/collections/{collection_id}`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CollectionDetailResponse` — 成功
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+
+### 编辑收集（发起人/管理员）
+
+`PATCH /api/collections/{collection_id}`
+
+标题/描述随时改；时间按状态分档；题目、必答、份数、记名、开始提醒有答卷后锁定
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `title` | string | 是 | 标题 |
+| `description` | string | 否 | 详细说明（支持 Markdown） |
+| `start_at` | string（日期时间），可空 | 否 | 新的开始时间，不传=不改 |
+| `end_at` | string（日期时间），可空 | 否 | 新的截止时间，不传=不改 |
+| `anonymous` | boolean，可空 | 否 | 记名/不记名，不传=不改 |
+| `allow_withdraw` | boolean，可空 | 否 | 是否允许答题人撤回，不传=不改；结束后不再生效 |
+| `notify_on_start` | boolean，可空 | 否 | 开始提醒开关，不传=不改；只在未开始且没发过时能改 |
+| `submit_quota` | integer（≥1，≤50），可空 | 否 | 每人份数，不传=不改；有答卷后锁定 |
+| `max_responses` | integer（≥0），可空 | 否 | 全局上限，0=不限；不传=不改；有答卷后锁定 |
+| `questions` | CollectionQuestionIn[]，可空 | 否 | 传了=整卷替换；有答卷后锁定 |
+
+**响应**
+
+- `200` `CollectionDetailResponse` — 成功
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+
+### 删除收集（发起人/管理员）
+
+`DELETE /api/collections/{collection_id}`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` — 成功
+
+### 立即结束收集（发起人/管理员）
+
+`POST /api/collections/{collection_id}/close`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CollectionCloseResponse` — 成功
+  - 字段：`status`、`response_count`
+
+### 暂停收集（发起人/管理员）
+
+`POST /api/collections/{collection_id}/pause`
+
+暂停不是结束：恢复后还能继续填，到点仍照常自动结束；重复调用幂等
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CollectionDetailResponse` — 成功
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+
+### 恢复收集（发起人/管理员）
+
+`POST /api/collections/{collection_id}/resume`
+
+清掉暂停时刻；已经结束的收集清不清都仍是已结束，重复调用幂等
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CollectionDetailResponse` — 成功
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+
+### 延长收集截止时间 5 分钟（发起人/管理员）
+
+`POST /api/collections/{collection_id}/extend`
+
+和签到的「延长5分钟」同一交互：截止前可反复点；到点/结束后不能再延
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CollectionDetailResponse` — 成功
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+
+### 答卷列表（发起人/管理员，按提交时间排序）
+
+`GET /api/collections/{collection_id}/responses`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+| `page` | query | 否 | integer（≥1，默认 1） | 默认 `1` |
+| `page_size` | query | 否 | integer（≥1，≤100，默认 20） | 默认 `20` |
+| `order` | query | 否 | string | 默认 `asc` |
+
+**响应**
+
+- `200` `CollectionResponseList` — 成功
+  - 字段：`total`、`page`、`page_size`、`order`、`items`
+
+### 提交一份答卷
+
+`POST /api/collections/{collection_id}/responses`
+
+一次提交 = 一份答卷；每人最多 submit_quota 份，全局最多 max_responses 份
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `answers` | CollectionAnswerIn[] | 是 |  |
+
+`answers` 的字段：
+
+  - `question_id`：integer（必填）
+  - `choices`：integer[]
+  - `text`：string
+  - `rating`：integer，可空
+  - `files`：string[]
+
+**响应**
+
+- `200` `CollectionSubmitResponse` — 成功
+  - 字段：`id`、`seq_no`、`submitted_at`、`my_submitted_count`、`my_remaining`、`can_submit`
+
+### 上传答卷图片（返回提交凭证）
+
+`POST /api/collections/{collection_id}/files`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**请求体**（`multipart/form-data`，文件上传）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `file` | string | 是 |  |
+
+**响应**
+
+- `200` `CollectionFileResponse` — 成功
+  - 字段：`token`、`name`、`size`
+
+### 读取答卷图片（发起人/管理员）
+
+`GET /api/collections/{collection_id}/responses/{response_id}/files/{index}`
+
+发起人/管理员可看；答题人也能看**自己**答卷里的图片（回显用）
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+| `response_id` | path | 是 | integer |  |
+| `index` | path | 是 | integer |  |
+
+**响应**
+
+- `200` — 成功
+
+### 未填名单（发起人/管理员）
+
+`GET /api/collections/{collection_id}/pending`
+
+按「提交份数 < 每人配额」算人；匿名时只返回是否未完成，不返回份数
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CollectionPendingResponse` — 成功
+  - 字段：`total`、`items`
+
+### 删除一份答卷（仅管理员）
+
+`DELETE /api/collections/{collection_id}/responses/{response_id}`
+
+销毁数据：只有系统管理员能删；删除后竞争名额释放
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+| `response_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` — 成功
+
+### 答题人撤回自己的答卷
+
+`POST /api/collections/{collection_id}/responses/{response_id}/withdraw`
+
+出卷人允许时，本人可撤回；竞争名额同事务释放，撤回后还能再填 只有进行中/暂停中能撤：结束后答卷定稿，撤回答卷等于改最终数据。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+| `response_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CollectionWithdrawResponse` — 成功
+  - 字段：`deleted`、`response_count`、`my_submitted_count`、`can_submit`
+
+### 批量删除答卷（仅管理员）
+
+`POST /api/collections/{collection_id}/responses/batch-delete`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `response_ids` | integer[] | 是 |  |
+
+**响应**
+
+- `200` — 成功
+
+### 收集统计（发起人/管理员）
+
+`GET /api/collections/{collection_id}/statistics`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CollectionStatisticsResponse` — 成功
+  - 字段：`items`
+
+### 提醒还没填满的人（发起人/管理员）
+
+`POST /api/collections/{collection_id}/remind`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` — 成功
+
+### 导出答卷 Excel（发起人/管理员）
+
+`GET /api/collections/{collection_id}/responses/export`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+| `order` | query | 否 | string | 默认 `asc` |
+
+**响应**
+
+- `200` — 成功
 
 ## 成绩
 
@@ -4512,5 +4955,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "1.17.30"}
+{"status": "ok", "app": "班级信息管理系统", "version": "1.18.0"}
 ```
