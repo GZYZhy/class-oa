@@ -6,12 +6,7 @@
 -->
 <template>
   <div class="vb">
-    <div class="vb-meta">
-      <el-tag v-if="poll.anonymous" type="warning" size="small">不记名</el-tag>
-      <span class="vb-sub">
-        {{ formatDateTime(poll.start_at) }} 起，{{ formatDateTime(poll.end_at) }} 截止
-      </span>
-    </div>
+    <!-- 状态、记名方式、范围和时间都在分享页头部，这里不再重复一遍 -->
 
     <el-alert
       v-if="!canVote && poll.has_voted"
@@ -91,7 +86,6 @@
 import { computed, reactive, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { POLL_LETTERS as letters, voteBlockReason } from '@/utils/poll'
-import { formatDateTime } from '@/utils/format'
 
 const props = defineProps({
   poll: { type: Object, required: true },
@@ -154,20 +148,6 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-.vb-sub {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.6;
-}
-
-.vb-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-}
-
 .vb-alert {
   margin-bottom: 10px;
 }
