@@ -90,7 +90,7 @@
               </template>
             </el-table-column>
             <el-table-column label="序号" width="64">
-              <template #default="{ row }">第 {{ row.seq_no }} 份</template>
+              <template #default="{ row }">{{ row.seq_no }}</template>
             </el-table-column>
             <el-table-column label="提交人" width="170">
               <template #default="{ row }">

@@ -91,7 +91,7 @@
             <div v-for="response in info.my_responses" :key="response.id" class="sc-response">
               <div class="sc-response-head">
                 <span>
-                  第 {{ response.seq_no }} 份 · {{ formatDateTime(response.submitted_at) }}
+                  {{ response.seq_no }} · {{ formatDateTime(response.submitted_at) }}
                 </span>
                 <el-button
                   v-if="canWithdraw"
