@@ -57,7 +57,7 @@
             show-word-limit
             placeholder="选填。写清集合地点、注意事项；支持 Markdown"
           />
-          <div class="ck-form-tip">支持 Markdown：标题、列表、加粗、链接</div>
+          <div class="ck-form-tip">支持 Markdown：标题、列表、加粗、链接、图片（https 外链）</div>
         </el-form-item>
         <el-form-item label="开始时间" required>
           <el-date-picker

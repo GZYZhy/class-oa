@@ -57,6 +57,8 @@ defineProps({
   width: 640px;
   max-width: 100%;
   padding: 28px 28px 24px;
+  /* 内容再长也和底栏留出空隙：长表单最后一个按钮不会贴着页脚 */
+  margin-bottom: 32px;
   background: var(--el-bg-color);
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 21, 41, 0.3);

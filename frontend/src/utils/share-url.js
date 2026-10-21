@@ -16,6 +16,19 @@ export function shareUrl(kind, token) {
 }
 
 /**
+ * 在新标签页打开分享页
+ *
+ * 列表里的「填写 / 投票 / 打开投票页」和站内信的「前往查看」都不该把用户从
+ * 站内带走：新标签页里是一张完整的分享页（真实路径，nginx 注入的 meta 也在），
+ * 站内列表原样保留。noopener/noreferrer 防被打开的页面拿到 window.opener。
+ */
+export function openShareInNewTab(kind, token) {
+  if (!kind || !token) return false
+  window.open(sharePath(kind, token), '_blank', 'noopener,noreferrer')
+  return true
+}
+
+/**
  * 把真实路径补到地址栏，同时保留 hash
  *
  * 站内从 `#/share/vote/xxx` 进入分享页时，地址只有 hash；微信转发抓的是当前

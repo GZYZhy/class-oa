@@ -1,42 +1,12 @@
-/* 站点品牌配置 —— 运行时注入
- *
- * 页面用 <script src="/site-config.js"> 引入，Service Worker 用
- * importScripts('/site-config.js') 引入，所以这里赋给 self
- * （页面里 self === window，两边共用同一份文件）。
- *
- * 为什么不用 Vite 的构建期变量（VITE_*）：前端镜像由 GitHub Actions 预构建推到
- * GHCR，服务器只 docker compose pull、不做构建 —— 构建期的值在部署侧根本不存在。
- * 品牌信息只能等容器启动时注入。
- *
- * 这个文件是模板，值由两处注入，读的都是项目根的 .env：
- *   生产：frontend/docker-entrypoint.sh 用 envsubst 渲染成
- *         /usr/share/nginx/html/site-config.js
- *   开发：frontend/vite.config.js 里 apply:'serve' 的插件替换后直接返回，
- *         不需要在仓库里再存一份带值的文件
- *
- * 改这里的字段时，记得同步 docker-entrypoint.sh 里的 envsubst 白名单。
- *
- * 两条约束：
- *   - 不要往这里加机密：它无条件发给任何访问者
- *   - 值里不要写单引号 / 反斜杠：envsubst 不做转义，会写坏这个 JS 文件
- *     （entrypoint 会拦下来并打日志）
- * footer 例外，它按 HTML 渲染（页脚可以放 <a href="..."> 这类标签），
- * 所以模板里其他值不能有的 < > " 对它放行 —— 详见 entrypoint 的 brand()
- */
 self.__SITE__ = {
   name: '${SITE_NAME}',
   shortName: '${SITE_SHORT_NAME}',
-  /* SEO 摘要。分享页离开时用它恢复全站默认的 meta description */
   description: '${SITE_DESCRIPTION}',
   subtitle: '${SITE_SUBTITLE}',
   college: '${SITE_COLLEGE}',
   major: '${SITE_MAJOR}',
   footer: '${SITE_FOOTER}',
-  /* 校徽地址。生产环境是带内容哈希的 /assets/logo-xxxx.png（长期缓存）；
-     本地开发没走 entrypoint，留空时页面回落到 /logo.png */
   logoUrl: '${SITE_LOGO_URL}',
-  /* 高德地图 JS API 凭据。本身是公开值（会发给每个访客），留空时
-     签到页的地图降级为手填经纬度，签到主体功能照常可用 */
   amapKey: '${AMAP_JS_KEY}',
   amapSecurityCode: '${AMAP_SECURITY_CODE}'
 }

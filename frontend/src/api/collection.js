@@ -10,6 +10,11 @@ export function getCollection(id) {
   return request({ url: `/collections/${id}`, method: 'get' })
 }
 
+/** 可填写名单（发起人/管理员，复用旧卷时带过范围用） */
+export function getCollectionTargets(id) {
+  return request({ url: `/collections/${id}/targets`, method: 'get' })
+}
+
 /** 发起收集（班委及以上） */
 export function createCollection(data) {
   return request({ url: '/collections', method: 'post', data })

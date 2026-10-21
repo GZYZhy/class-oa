@@ -55,6 +55,20 @@ export function blankForm() {
   }
 }
 
+/** 一份旧收集里的题目 → 表单题目（复用旧卷和编辑共用这一段） */
+export function questionsFromCollection(collection) {
+  const questions = (collection?.questions || []).map((question) => ({
+    title: question.title || '',
+    qtype: question.qtype || 'single',
+    required: question.required !== false,
+    options: CHOICE_TYPES.has(question.qtype)
+      ? [...(question.options || [])]
+      : ['', ''],
+    max_choices: question.max_choices || 2
+  }))
+  return questions.length ? questions : [blankQuestion()]
+}
+
 /**
  * 详情 → 编辑表单
  *
@@ -76,15 +90,7 @@ export function formFromCollection(collection) {
     submit_quota: collection?.submit_quota || 1,
     max_responses: collection?.max_responses || 0,
     targets: [],
-    questions: (collection?.questions || []).map((question) => ({
-      title: question.title || '',
-      qtype: question.qtype || 'single',
-      required: question.required !== false,
-      options: CHOICE_TYPES.has(question.qtype)
-        ? [...(question.options || [])]
-        : ['', ''],
-      max_choices: question.max_choices || 2
-    }))
+    questions: questionsFromCollection(collection)
   }
 }
 
