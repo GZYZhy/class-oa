@@ -31,7 +31,7 @@
             show-word-limit
             placeholder="写清背景、要求；支持 Markdown"
           />
-          <div class="cc-tip">支持 Markdown：标题、列表、加粗、链接</div>
+          <div class="cc-tip">支持 Markdown：标题、列表、加粗、链接、图片（https 外链）</div>
         </el-form-item>
         <el-form-item label="开始时间" required>
           <el-date-picker
@@ -67,7 +67,7 @@
           />
           <div class="cc-tip">
             {{ form.anonymous
-              ? '不记名：管理端看答卷时不显示姓名/学号，但仍能看出谁还没填'
+              ? '不记名：管理端看答卷时不显示姓名/学号'
               : '记名：管理端能看到每份答卷是谁交的' }}
           </div>
         </el-form-item>
@@ -157,6 +157,30 @@
         题目
         <span class="cc-count">{{ form.questions.length }} 道</span>
       </h4>
+      <!-- 复用旧收集：只搬题目；能管理的那场，可填写范围也一起带过来 -->
+      <div v-if="!isEdit" class="cc-reuse">
+        <el-select
+          v-model="reuseId"
+          filterable
+          clearable
+          :loading="reuseLoading"
+          placeholder="从之前的收集复制题目（可选）"
+          no-data-text="没有可复用的收集"
+          style="width: 100%;"
+          @change="reuseQuestions"
+        >
+          <el-option
+            v-for="item in reuseCollections"
+            :key="item.id"
+            :value="item.id"
+            :label="`${item.title}（${item.question_count} 题 · ${item.scope_label || '—'}）`"
+          />
+        </el-select>
+        <div class="cc-tip">
+          复制题目；如果选的是你能管理的收集，可填写范围也会一起复制。
+          标题、时间、份数、记名方式仍按本次填写，复制后照常修改
+        </div>
+      </div>
       <div v-for="(question, index) in form.questions" :key="index" class="cc-q">
         <div class="cc-q-head">
           <span class="cc-q-index">第 {{ index + 1 }} 题</span>
@@ -256,8 +280,14 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { createCollection, getCollection, updateCollection } from '@/api/collection'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  createCollection,
+  getCollection,
+  getCollections,
+  getCollectionTargets,
+  updateCollection
+} from '@/api/collection'
 import { getRoster } from '@/api/vote'
 import { canEditTimes, POLL_LETTERS as letters } from '@/utils/poll'
 import {
@@ -265,9 +295,11 @@ import {
   QUESTION_TYPES,
   blankForm,
   blankQuestion,
-  formFromCollection
+  formFromCollection,
+  hasQuestionContent,
+  questionsFromCollection
 } from '@/utils/collection'
-import { isLeagueMember } from '@/utils/roster'
+import { isLeagueMember, scopeFromRows } from '@/utils/roster'
 import { errText } from '@/utils/request'
 
 const emit = defineEmits(['saved'])
@@ -290,9 +322,19 @@ const notifyLocked = computed(() => structuralLocked.value || editingNotified.va
 const form = reactive(blankForm())
 const competition = ref(false)
 
+/** 可复用的旧收集（只留题目数 > 0 的） */
+const reuseCollections = ref([])
+const reuseLoading = ref(false)
+const reuseId = ref(null)
+/** 名单加载的 promise：复用范围要等名单回来，才能过滤掉已不在校的学号 */
+let rosterPromise = null
+
 function reset() {
   Object.assign(form, blankForm())
   competition.value = false
+  reuseCollections.value = []
+  reuseLoading.value = false
+  reuseId.value = null
   editingId.value = null
   editingStatus.value = 'pending'
   editTargetCount.value = 0
@@ -302,7 +344,8 @@ function reset() {
 function open() {
   reset()
   visible.value = true
-  fetchRoster()
+  rosterPromise = fetchRoster()
+  fetchReuseCollections()
 }
 
 async function openForEdit(row) {
@@ -349,6 +392,87 @@ function selectLeague() {
 function onCompetitionChange(enabled) {
   if (enabled && form.max_responses < form.submit_quota) {
     form.max_responses = form.submit_quota
+  }
+}
+
+/** 拉可见的旧收集（最近 100 场，和投票复用同一个上限） */
+async function fetchReuseCollections() {
+  reuseLoading.value = true
+  try {
+    const { items } = await getCollections({ page: 1, page_size: 100 })
+    reuseCollections.value = (items || []).filter((item) => item.question_count > 0)
+  } catch {
+    reuseCollections.value = []
+  } finally {
+    reuseLoading.value = false
+  }
+}
+
+/**
+ * 选中一份旧收集 → 替换题目；能管理它时把可填写范围也带过来
+ *
+ * 标题、时间、份数、记名方式仍是这一场的新决定。范围只对发起人/管理员开放，
+ * 所以不归你管的旧收集只复制题目。
+ */
+async function reuseQuestions(id) {
+  if (!id) return
+  const selected = reuseCollections.value.find((item) => item.id === id)
+  const willReuseScope = !!selected?.can_manage
+
+  const hasContent = form.questions.length > 1 || form.questions.some(hasQuestionContent)
+  const scopeTouched = form.targets.length !== roster.value.length
+  if (hasContent || (willReuseScope && scopeTouched)) {
+    try {
+      await ElMessageBox.confirm(
+        `复制会覆盖当前题目${willReuseScope ? '，并用这场收集的可填写范围替换当前勾选' : ''}。继续吗？`,
+        '覆盖现有内容？',
+        { type: 'warning', confirmButtonText: '覆盖', cancelButtonText: '取消' }
+      )
+    } catch {
+      reuseId.value = null
+      return
+    }
+  }
+
+  reuseLoading.value = true
+  try {
+    const detail = await getCollection(id)
+    form.questions = questionsFromCollection(detail)
+
+    let scopeCopied = false
+    if (willReuseScope) {
+      try {
+        const data = await getCollectionTargets(id)
+        if (rosterPromise) await rosterPromise
+        const targets = scopeFromRows(data.items, roster.value)
+        if (targets.length) {
+          form.targets = targets
+          scopeCopied = true
+        }
+      } catch {
+        // 范围复制失败不影响题目；下面统一说明
+      }
+    }
+
+    const count = form.questions.length
+    if (scopeCopied) {
+      ElMessage.success(
+        `已复制「${detail.title || '这场收集'}」的 ${count} 道题和 ${form.targets.length} 人的可填写范围`
+      )
+    } else if (willReuseScope) {
+      ElMessage.success(
+        `已复制 ${count} 道题；旧范围里没有当前仍在名单的同学，请手动选择`
+      )
+    } else {
+      ElMessage.success(
+        `已复制 ${count} 道题；你不在管理者名单里，可填写范围没有复制`
+      )
+    }
+  } catch (e) {
+    reuseId.value = null
+    ElMessage.error(errText(e, '读取这场收集的题目失败'))
+  } finally {
+    reuseLoading.value = false
   }
 }
 
@@ -508,6 +632,14 @@ defineExpose({ open, openForEdit })
   margin: 0 8px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.cc-reuse {
+  margin-bottom: 12px;
+}
+
+.cc-reuse .cc-tip {
+  margin-top: 6px;
 }
 
 .cc-scope-btns {

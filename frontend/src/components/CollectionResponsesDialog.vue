@@ -21,8 +21,10 @@
           <el-tag :type="statusTag(detail.status)" size="small">{{ statusLabel(detail.status) }}</el-tag>
           <el-tag v-if="detail.anonymous" type="warning" size="small" effect="plain">不记名</el-tag>
           <span class="cr-sub">
-            已收 {{ detail.submitted_count ?? responses.total }} 份
+            应填 {{ detail.target_count ?? 0 }} 人
+            · 已收 {{ detail.submitted_count ?? responses.total }} 份
             · {{ detail.submitted_people ?? 0 }} 人已填
+            · 未填 {{ pending.total }} 人
             · 每人 {{ detail.submit_quota ?? 1 }} 份
           </span>
           <span v-if="detail.max_responses" class="cr-sub">
@@ -128,8 +130,8 @@
         <!-- ---------- 未填名单 ---------- -->
         <el-tab-pane :label="`未填（${pending.total}）`" name="pending">
           <p class="cr-sub cr-hint">
-            按「提交份数 &lt; 每人份数」统计；冻结账号催填时会被跳过
-            <template v-if="detail.anonymous">。不记名收集不显示每个人交了几份，但仍能看出谁还没填满</template>
+            按「提交份数 &lt; 每人份数」统计；催填会跳过你自己和冻结账号
+            <template v-if="detail.anonymous">。不记名收集不显示每个人交了几份</template>
           </p>
           <el-table
             v-loading="pendingLoading"
@@ -138,8 +140,11 @@
             max-height="430"
             empty-text="所有人都填满了"
           >
-            <el-table-column label="姓名" width="120">
-              <template #default="{ row }">{{ row.name || '—' }}</template>
+            <el-table-column label="姓名" width="150">
+              <template #default="{ row }">
+                {{ row.name || '—' }}
+                <el-tag v-if="row.is_self" size="small" type="info" effect="plain">我</el-tag>
+              </template>
             </el-table-column>
             <el-table-column prop="student_no" label="学号" width="140" />
             <el-table-column label="已填" width="110" align="center">
@@ -287,9 +292,9 @@ const reminding = ref(false)
 const canRemind = computed(
   () => detail.value.status === 'open' && !detail.value.cap_reached
 )
-/** 冻结账号催填也会被跳过，按钮上的数字必须和后端口径一致 */
+/** 催填会跳过本人和冻结账号，按钮上的数字必须和后面端口径一致 */
 const remindableCount = computed(
-  () => pending.items.filter((row) => !row.frozen).length
+  () => pending.items.filter((row) => !row.frozen && !row.is_self).length
 )
 
 let timer = null

@@ -50,6 +50,12 @@
           <span>截止 {{ formatDateTime(info.end_at) }}</span>
         </div>
 
+        <!-- 弱网下已有内容时不整页变成错误页：保留当前内容，给一条重试 -->
+        <div v-if="syncError" class="sc-sync-warn">
+          {{ syncError }}
+          <el-button link type="primary" size="small" @click="load()">重试</el-button>
+        </div>
+
         <!-- 游客：公开信息照常看，登录后才能填写 -->
         <div v-if="!info.is_login" class="sc-cta">
           <p class="sc-tip">登录后即可查看题目并填写收集</p>
@@ -116,15 +122,6 @@
               class="sc-alert"
               :title="`你已填 ${info.my_submitted_count}/${info.submit_quota} 份，还可以再填 ${info.my_remaining} 份`"
             />
-            <el-alert
-              v-if="info.anonymous"
-              type="warning"
-              :closable="false"
-              show-icon
-              class="sc-alert"
-              title="本次收集不记名"
-              description="发起人看答卷时不显示你的姓名和学号，但能看出谁还没填"
-            />
             <CollectBallot
               :key="ballotKey"
               :collection="info"
@@ -171,6 +168,8 @@ const loading = ref(true)
 const error = ref('')
 const notFound = ref(false)
 const info = ref(null)
+/** 已有内容、只是这次刷新失败时的轻提示，不把整页换成错误页 */
+const syncError = ref('')
 const submitting = ref(false)
 const withdrawingId = ref(null)
 const justSubmitted = ref(false)
@@ -227,6 +226,23 @@ function cardOf(data) {
   }
 }
 
+/** 弱网下自动再试一次；只有网络错误 / 5xx 值得重试，404 直接交给调用方 */
+async function fetchInfo({ retry = true } = {}) {
+  try {
+    return await getCollectionShareInfo(token.value)
+  } catch (e) {
+    const status = e?.response?.status
+    if (retry && (!status || status >= 500)) {
+      await new Promise((resolve) => setTimeout(resolve, 800))
+      return fetchInfo({ retry: false })
+    }
+    throw e
+  }
+}
+
+/** 连续点重试时只认最后一次请求，慢响应不会盖掉新结果 */
+let loadSeq = 0
+
 async function load() {
   if (!token.value) {
     loading.value = false
@@ -235,29 +251,39 @@ async function load() {
     return
   }
 
-  loading.value = true
+  const seq = ++loadSeq
+  const hadInfo = !!info.value
+  // 已有内容时不要退回整页 loading：弱网刷新失败也还能继续看/填
+  if (!hadInfo) loading.value = true
   error.value = ''
   notFound.value = false
+  syncError.value = ''
   try {
-    const data = await getCollectionShareInfo(token.value)
+    const data = await fetchInfo()
+    if (seq !== loadSeq) return
     info.value = data
     justSubmitted.value = false
     applyShareMeta({ ...cardOf(data), index: true })
     attachSharePath(sharePath('collect', token.value))
   } catch (e) {
+    if (seq !== loadSeq) return
     if (e?.response?.status === 404) {
       notFound.value = true
       error.value = '这场收集不存在、已删除，或链接已失效'
+      info.value = null
+    } else if (hadInfo) {
+      // 页面上的内容还能用；提醒一句，留一个手动重试
+      syncError.value = '网络不稳定，显示的是刚才加载的内容'
     } else {
       error.value = '网络不稳定，请稍后重试'
     }
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
 async function refresh() {
-  info.value = await getCollectionShareInfo(token.value)
+  info.value = await fetchInfo()
   applyShareMeta({ ...cardOf(info.value), index: true })
   ballotKey.value += 1
 }
@@ -268,7 +294,12 @@ async function handleSubmit(answers) {
     const res = await submitCollectionResponse(info.value.id, answers)
     ElMessage.success(`第 ${res.seq_no} 份答卷已提交`)
     justSubmitted.value = true
-    await refresh()
+    try {
+      await refresh()
+    } catch {
+      // 交卷本身已经成功，不能因为刷新失败提示「提交失败」让人再交一遍
+      syncError.value = '答卷已提交，但刷新页面状态失败，请点重试'
+    }
   } catch (e) {
     ElMessage.error(errText(e, '提交失败'))
   } finally {
@@ -291,7 +322,15 @@ async function handleWithdraw(response) {
     await withdrawCollectionResponse(info.value.id, response.id)
     ElMessage.success('已撤回答卷')
     justSubmitted.value = false
-    await refresh()
+    // 先在本地摘掉，刷新失败也不会继续显示一份已经撤回的答卷
+    info.value.my_responses = info.value.my_responses.filter(
+      (item) => item.id !== response.id
+    )
+    try {
+      await refresh()
+    } catch {
+      syncError.value = '答卷已撤回，但刷新页面状态失败，请点重试'
+    }
   } catch (e) {
     ElMessage.error(errText(e, '撤回失败'))
   } finally {
@@ -404,10 +443,9 @@ onUnmounted(() => {
   line-height: 1.6;
 }
 
+/* 和下面的作答区只留一条分割线（那条在 .sc-form 上），这里不再画第二条 */
 .sc-mine {
-  margin-bottom: 22px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  margin-bottom: 18px;
 }
 
 .sc-mine-head {
@@ -455,5 +493,15 @@ onUnmounted(() => {
   margin-top: 4px;
   padding-top: 16px;
   border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.sc-sync-warn {
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning-dark-2);
+  font-size: 13px;
+  line-height: 1.6;
 }
 </style>

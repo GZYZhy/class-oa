@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.18.1，共 285 个接口。
+> 版本 1.19.0，共 286 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -37,7 +37,7 @@
 - 站内信（4）
 - 生日关怀（4）
 - 投票（14）
-- 投票收集（21）
+- 投票收集（22）
 - 成绩（12）
 - 日程（14）
 - 签字（9）
@@ -2975,7 +2975,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 出卷可选的学生名单（班委及以上）
 
@@ -3020,7 +3020,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 编辑投票（发起人/管理员）
 
@@ -3049,7 +3049,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 删除投票（发起人/管理员）
 
@@ -3093,7 +3093,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 投票名单与记名明细（发起人/管理员）
 
@@ -3161,7 +3161,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 暂停投票（发起人/管理员）
 
@@ -3178,7 +3178,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ### 恢复投票（发起人/管理员）
 
@@ -3195,7 +3195,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
 
 ## 投票收集
 
@@ -3490,7 +3490,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `GET /api/collections/{collection_id}/pending`
 
-按「提交份数 < 每人配额」算人；匿名时只返回是否未完成，不返回份数
+按「提交份数 < 每人配额」算人；匿名时只返回是否未完成，不返回份数 **本人也列出来**：发起人常常把自己放进范围里，只排除他的话，他明明没填， 未填名单却是 0，看上去像「所有人都填满了」。提醒接口仍会跳过本人。
 
 **参数**
 
@@ -3501,6 +3501,23 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CollectionPendingResponse` — 成功
+  - 字段：`total`、`items`
+
+### 可填写名单（发起人/管理员，复用范围用）
+
+`GET /api/collections/{collection_id}/targets`
+
+复用旧收集时把范围一并带过来 只给发起人/管理员：范围标签是公开的，但具体名单不是。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `CollectionTargetList` — 成功
   - 字段：`total`、`items`
 
 ### 删除一份答卷（仅管理员）
@@ -4955,5 +4972,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "1.18.1"}
+{"status": "ok", "app": "班级信息管理系统", "version": "1.19.0"}
 ```

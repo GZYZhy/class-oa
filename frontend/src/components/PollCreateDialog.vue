@@ -30,7 +30,7 @@
             maxlength="2000"
             placeholder="选填。写清背景或注意事项"
           />
-          <div class="pc-tip">支持 Markdown：标题、列表、加粗、链接</div>
+          <div class="pc-tip">支持 Markdown：标题、列表、加粗、链接、图片（https 外链）</div>
         </el-form-item>
         <el-form-item label="开始时间" required>
           <el-date-picker
@@ -143,11 +143,12 @@
             v-for="p in reusePolls"
             :key="p.id"
             :value="p.id"
-            :label="`${p.title}（${p.question_count} 题）`"
+            :label="`${p.title}（${p.question_count} 题 · ${p.scope_label || '—'}）`"
           />
         </el-select>
         <div class="pc-tip">
-          只复制题目，标题、时间、表决范围和记名方式仍按本次填写。复制后照常修改
+          复制题目；如果选的是你能管理的投票，表决范围也会一起复制。
+          标题、时间和记名方式仍按本次填写，复制后照常修改
         </div>
       </div>
       <div v-if="startedLocked" class="pc-tip">
@@ -244,7 +245,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { createPoll, getPoll, getPolls, getRoster, updatePoll } from '@/api/vote'
+import { createPoll, getBallots, getPoll, getPolls, getRoster, updatePoll } from '@/api/vote'
 import { errText } from '@/utils/request'
 import {
   POLL_LETTERS,
@@ -257,7 +258,7 @@ import {
   questionsFromPoll,
 } from '@/utils/poll'
 // 「仅团员」的判据与点名、分类统计共用一份，见 utils/roster.js
-import { isLeagueMember } from '@/utils/roster'
+import { isLeagueMember, scopeFromRows } from '@/utils/roster'
 import { useUserStore } from '@/store/user'
 
 // 出卷和编辑都发这个：父组件一律重拉列表，不用分两种情况
@@ -309,6 +310,9 @@ const iAmOutOfScope = computed(() => {
   return !!myNo && form.targets.length > 0 && !form.targets.includes(myNo)
 })
 
+/** 名单加载的 promise：复用范围要等名单回来，才能过滤掉已不在校的学号 */
+let rosterPromise = null
+
 function open() {
   Object.assign(form, blankForm())
   editingId.value = null
@@ -316,7 +320,7 @@ function open() {
   notified.value = false
   reuseId.value = null
   visible.value = true
-  fetchRoster()
+  rosterPromise = fetchRoster()
   fetchReusePolls()
 }
 
@@ -380,20 +384,24 @@ async function fetchReusePolls() {
 }
 
 /**
- * 选中一份旧卷子 → 只替换题目
+ * 选中一份旧卷子 → 复制题目；能管理这场投票时，表决范围也一起带过来
  *
- * **只搬题目**：标题、时间、范围和记名方式都是这一场的新决定。列表行里没有题目，
- * 所以选中后要再拉一次详情。
+ * 标题、时间、记名方式仍是这一场的新决定。列表行里没有题目，所以选中后要再拉详情；
+ * 范围要走管理端的名单接口，拉不到就只复制题目并说明原因。
  */
 async function reuseQuestions(id) {
   if (!id) return
+  const selected = reusePolls.value.find((p) => p.id === id)
+  const willReuseScope = !!selected?.can_manage
 
-  // 覆盖掉就找不回了；刚打开时的空题不算「填过」
-  if (hasQuestionContent(form.questions)) {
+  // 覆盖掉就找不回了；刚打开时的空题不算「填过」。
+  // 范围只有手动改过（不再是默认全选）才值得为它再确认一次
+  const scopeTouched = form.targets.length !== roster.value.length
+  if (hasQuestionContent(form.questions) || (willReuseScope && scopeTouched)) {
     try {
       await ElMessageBox.confirm(
-        `当前已有 ${form.questions.length} 道题，复制会全部覆盖。继续吗？`,
-        '覆盖现有题目？',
+        `复制会覆盖当前题目${willReuseScope ? '，并用这场投票的表决范围替换当前勾选' : ''}。继续吗？`,
+        '覆盖现有内容？',
         { type: 'warning', confirmButtonText: '覆盖', cancelButtonText: '取消' }
       )
     } catch {
@@ -406,7 +414,36 @@ async function reuseQuestions(id) {
   try {
     const detail = await getPoll(id)
     form.questions = questionsFromPoll(detail)
-    ElMessage.success(`已复制「${detail.title || '这场投票'}」的 ${form.questions.length} 道题`)
+
+    let scopeCopied = false
+    if (willReuseScope) {
+      try {
+        const ballots = await getBallots(id)
+        if (rosterPromise) await rosterPromise
+        const targets = scopeFromRows(ballots.rows, roster.value)
+        if (targets.length) {
+          form.targets = targets
+          scopeCopied = true
+        }
+      } catch {
+        // 范围复制失败不影响题目；下面统一说明
+      }
+    }
+
+    const count = form.questions.length
+    if (scopeCopied) {
+      ElMessage.success(
+        `已复制「${detail.title || '这场投票'}」的 ${count} 道题和 ${form.targets.length} 人的表决范围`
+      )
+    } else if (willReuseScope) {
+      ElMessage.success(
+        `已复制 ${count} 道题；旧范围里没有当前仍在名单的同学，请手动选择`
+      )
+    } else {
+      ElMessage.success(
+        `已复制 ${count} 道题；你不在管理者名单里，表决范围没有复制`
+      )
+    }
   } catch (e) {
     reuseId.value = null
     ElMessage.error(errText(e, '读取这场投票的题目失败'))

@@ -255,11 +255,26 @@ class CollectionPendingItem(BaseModel):
     )
     remaining: int | None = None
     frozen: bool = False
+    is_self: bool = Field(
+        False, description="是不是当前操作人；提醒时会跳过本人"
+    )
 
 
 class CollectionPendingResponse(BaseModel):
     total: int
     items: list[CollectionPendingItem]
+
+
+class CollectionTargetItem(BaseModel):
+    student_no: str
+    student_name: str = ""
+
+
+class CollectionTargetList(BaseModel):
+    """可填写名单（仅发起人/管理员，复用范围用）"""
+
+    total: int
+    items: list[CollectionTargetItem]
 
 
 class CollectionStatisticsResponse(BaseModel):

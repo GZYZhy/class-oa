@@ -147,6 +147,8 @@ from .collection import (
     CollectionStatisticsResponse,
     CollectionSubmitIn,
     CollectionSubmitResponse,
+    CollectionTargetItem,
+    CollectionTargetList,
     CollectionUpdate,
     CollectionWithdrawResponse,
 )
@@ -330,6 +332,8 @@ __all__ = [
     "CollectionWithdrawResponse",
     "CollectionPendingItem",
     "CollectionPendingResponse",
+    "CollectionTargetItem",
+    "CollectionTargetList",
     "GradeColumnPreview",
     "GradeProblemRow",
     "GradeUnmatchedRow",
