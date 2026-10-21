@@ -229,7 +229,7 @@ def test_share_link_redirects_and_meta_is_server_rendered(cb):
     assert 'name="robots" content="index,follow"' in html
     # 卡片描述里带上人数和截止时间，转发出去能看出是什么
     assert "og:description" in html and "应到 1 人" in html
-    assert "icons/icon-512.png" in html, "卡片图用 512 图标，小图微信可能不显示"
+    assert "icons/share-512.jpg" in html, "卡片图用优化过的 512 JPEG，小图或大文件微信都可能不显示"
     assert f"/share/checkin/{checkin['code']}" in html
     # 不存在的 code：和公开信息接口一样 404，不泄露「有这一场」
     assert cb.client.get("/api/checkins/share/does-not-exist").status_code == 404
