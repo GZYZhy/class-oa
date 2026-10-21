@@ -15,4 +15,24 @@
   } catch (e) {
     window.location.hash = target
   }
+
+  function cleanHash() {
+    try {
+      if (window.location.hash === target) {
+        window.history.replaceState(
+          window.history.state,
+          '',
+          window.location.pathname + window.location.search
+        )
+      }
+    } catch (e) {}
+  }
+
+  if (document.readyState === 'complete') {
+    setTimeout(cleanHash, 0)
+  } else {
+    window.addEventListener('load', function () {
+      setTimeout(cleanHash, 0)
+    })
+  }
 })()

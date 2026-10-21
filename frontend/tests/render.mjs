@@ -4707,6 +4707,9 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   check(/window\.open\(sharePath\(kind, token\), '_blank', 'noopener,noreferrer'\)/
     .test(src('/src/utils/share-url.js')),
   '统一用真实分享路径新开标签，meta 由服务端注入')
+  check(/const cleanHash = hash === `#\$\{path\}` \? '' : hash/
+    .test(src('/src/utils/share-url.js')),
+  '真实路径 + 重复 hash 路由时，地址栏只保留真实路径（转发卡片不带 # 段）')
 
   // ---------- 不记名只留徽章，去掉重复说明 ----------
   const ballotSrc = src('/src/components/VoteBallot.vue')
