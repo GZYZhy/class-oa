@@ -36,7 +36,7 @@ from fastapi.responses import FileResponse, Response
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
-from sqlalchemy import case, or_, update
+from sqlalchemy import case, func, or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -967,10 +967,22 @@ def submit_response(
 
     moved: list[Path] = []
     try:
+        # 用「这个人交过的最大序号 + 1」，不能用「当前份数 + 1」：
+        # 撤回较早的一份会留下空号（1、2 里撤掉 1 后份数是 1），
+        # 再交一份按 2 算会和已有的第 2 份撞唯一约束
+        last_seq = (
+            db.query(func.max(CollectionSubmission.seq_no))
+            .filter(
+                CollectionSubmission.collection_id == collection.id,
+                CollectionSubmission.student_no == user.student_no,
+            )
+            .scalar()
+            or 0
+        )
         submission = CollectionSubmission(
             collection_id=collection.id,
             student_no=user.student_no,
-            seq_no=count + 1,
+            seq_no=last_seq + 1,
             submitted_at=datetime.now(),
         )
         db.add(submission)

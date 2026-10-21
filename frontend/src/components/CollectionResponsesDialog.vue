@@ -420,6 +420,7 @@ async function handleDelete(row) {
   try {
     await deleteCollectionResponse(detail.value.id, row.id)
     ElMessage.success('已删除')
+    selectedIds.value = []
     await refreshAll()
   } catch (e) {
     ElMessage.error(errText(e, '删除失败'))
@@ -480,7 +481,8 @@ async function handleRemind() {
   try {
     const { reminded } = await remindCollection(detail.value.id)
     ElMessage.success(`已提醒 ${reminded} 人`)
-    await Promise.all([loadPending(true), loadResponses(true)])
+    // 提醒不改答卷，只刷新未填名单；不动表格就不会把用户的勾选弄丢
+    await loadPending(true)
   } catch (e) {
     ElMessage.error(errText(e, '提醒失败'))
   } finally {

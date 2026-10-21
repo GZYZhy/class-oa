@@ -131,6 +131,8 @@ def tick(now: datetime | None = None, db=None) -> int:
                 Poll.notify_on_start.is_(True),
                 Poll.start_notified_at.is_(None),
                 Poll.start_at <= now,
+                # 进程停过一整场的情况：已经截止的就不补发了
+                Poll.end_at >= now,
                 Poll.closed_at.is_(None),
             )
             .all()
@@ -154,6 +156,7 @@ def tick(now: datetime | None = None, db=None) -> int:
                 Collection.notify_on_start.is_(True),
                 Collection.start_notified_at.is_(None),
                 Collection.start_at <= now,
+                Collection.end_at >= now,
                 Collection.closed_at.is_(None),
             )
             .all()

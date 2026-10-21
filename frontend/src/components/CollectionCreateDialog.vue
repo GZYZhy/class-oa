@@ -110,6 +110,7 @@
             active-text="限收"
             inactive-text="不限"
             :disabled="structuralLocked"
+            @change="onCompetitionChange"
           />
           <template v-if="competition">
             <span class="cc-inline-tip">只收前</span>
@@ -342,6 +343,13 @@ function selectCommittee() {
 }
 function selectLeague() {
   form.targets = roster.value.filter(isLeagueMember).map((s) => s.student_no)
+}
+
+/** 打开竞争填写时，总数至少得容得下每人份数 */
+function onCompetitionChange(enabled) {
+  if (enabled && form.max_responses < form.submit_quota) {
+    form.max_responses = form.submit_quota
+  }
 }
 
 function onTypeChange(question) {
