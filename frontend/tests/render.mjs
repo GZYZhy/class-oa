@@ -266,7 +266,7 @@ console.log('\n▶ 签到页首屏不下载整站布局（弱网也要快）')
   check(layout.includes('userStore.refreshTotal()') && layout.includes('if (!userStore.resolved)'),
     '登录态与班级人数改由布局挂载时拉取')
   // 公开页不再多问一次登录态：需要的 is_login / is_target 由公开接口一并返回
-  const checkin = readFileSync(`${ROOT}/src/views/Checkin.vue`, 'utf8')
+  const checkin = readFileSync(`${ROOT}/src/views/share/ShareCheckin.vue`, 'utf8')
   check(!checkin.includes('fetchMe'), '签到页只发一个信息请求，弱网少一个来回')
   check(!/from '@\/store\/user'/.test(checkin), '公开页不依赖用户 store')
 }
@@ -2721,9 +2721,10 @@ console.log('\n▶ 投票页盖水印：整页 + 两个弹窗')
   check(/\.vote \{[\s\S]{0,120}?position: relative/.test(voteSrc),
     '根容器是 position: relative —— 水印是 absolute，没有定位基准会铺到整页之外')
 
-  // 两个弹窗：SSR 渲不出弹窗正文（见文件头），只能断源码。两处的字样必须同一份
-  check(/<Watermark :text="watermarkText" \/>\s*<div v-loading="voteLoading"/.test(voteSrc),
-    '投票弹窗盖了水印（投过之后这里会回显「我投了什么」）')
+  // 投票答卷现在是整页分享页；结果/名单弹窗仍留在列表页。两处的字样必须同一份
+  const shareVoteSrc = readFileSync(`${ROOT}/src/views/share/ShareVote.vue`, 'utf8')
+  check(/<Watermark :text="watermarkText" \/>/.test(shareVoteSrc),
+    '整页答卷盖了水印（投过之后这里会回显「我投了什么」）')
   check(/<Watermark :text="watermarkText" \/>\s*<div v-loading="resultLoading"/.test(voteSrc),
     '结果/名单弹窗盖了水印（名单里是「谁投了、谁还没投」）')
   check(/import \{ useWatermark \} from '@\/composables\/useWatermark'/.test(voteSrc),
@@ -3015,10 +3016,11 @@ console.log('\n▶ 投票能暂停：暂停不是结束')
   check(/if \(locking\) stopPolling\(\)[\s\S]{0,80}?else startPolling\(\)/.test(voteSrc),
     '暂停时停掉轮询、恢复时开回来 —— startPolling 不在 refreshResult 里，'
     + '不自己管这一次，解锁之后票数就再也不会自动刷新了')
-  check(/voteBlockReason as blockReasonOf/.test(voteSrc),
-    '「不能投的原因」挪去了 utils/poll.js，页面里不再重写一份判据')
-  check(/const voteBlockReason = computed\(\(\) => blockReasonOf\(votePoll\.value\)\)/.test(voteSrc),
-    'computed 转调那个纯函数，模板一个字不用改')
+  const ballotSrc = src('/src/components/VoteBallot.vue')
+  check(/voteBlockReason/.test(ballotSrc) && /import \{ POLL_LETTERS as letters, voteBlockReason \}/.test(ballotSrc),
+    '「不能投的原因」用 utils/poll.js 的纯函数，答卷组件不重写一份判据')
+  check(/const blockReason = computed\(\(\) => voteBlockReason\(props\.poll\)\)/.test(ballotSrc),
+    'computed 转调那个纯函数')
 
   // 筛选项仍是三档：暂停归在「进行中」里（用户口径），不新增选项
   check((voteSrc.match(/<el-option\b/g) || []).length === 4
@@ -3062,21 +3064,22 @@ console.log('\n▶ 投票分享：管理里给链接、复制和二维码')
     voteSrc.includes('voteShareLink(row)') &&
     voteSrc.includes('<VoteShareDialog v-model="shareVisible" :link="shareLink" :poll="sharePoll" />'),
   '分享打开弹窗，链接由投票行里的签名串生成')
-  check(voteSrc.includes('`${window.location.origin}/api/polls/share/${poll.share_token}`'),
-    '分享链接指向服务端 OG 分享页，微信能抓到具体摘要')
-  check(voteSrc.includes('function keepShareUrl') &&
-    voteSrc.includes('keepShareUrl(poll)') &&
-    voteSrc.includes('function restoreAppUrl') &&
-    voteSrc.includes("startsWith('/api/polls/share/')") &&
-    voteSrc.includes("'/#' + route.fullPath"),
-  '二级跳之后地址栏留在分享页，关闭弹窗按当前路由还原')
+  check(voteSrc.includes("shareUrl('vote', poll.share_token)"),
+    '分享链接是 /share/vote/{token} 真实路径，微信能抓到这一场的摘要')
+  check(voteSrc.includes('attachSharePath') && voteSrc.includes("detachSharePath('/share/vote/')"),
+    '分享弹窗打开时保留真实路径，关闭时还原')
   check(voteSrc.includes('function applyPollShareMeta') &&
-    voteSrc.includes("'og:title': title") && voteSrc.includes("`投票：${poll.title"),
-  '打开投票 / 分享时把投票标题写进 OG')
-  check(voteSrc.includes("/icons/icon-512.png"),
+    voteSrc.includes('pollCard(poll)') && voteSrc.includes('applyShareMeta'),
+  '打开分享弹窗时把投票标题和摘要写进 meta')
+  const shareMetaSrc = readFileSync(`${ROOT}src/utils/share-meta.js`, 'utf8')
+  check(shareMetaSrc.includes('/icons/icon-512.png'),
     '分享图用 512 图标，避免小图在微信卡片里不显示')
-  check(voteSrc.includes('setPollDescription') && voteSrc.includes('og:image:width'),
+  check(shareMetaSrc.includes('og:image:width') && shareMetaSrc.includes('og:locale'),
     '摘要和图片尺寸也一起写进页面头')
+  check(voteSrc.includes('function openSharePage(row)') &&
+    voteSrc.includes("params: { kind: 'vote'") &&
+    !voteSrc.includes('v-model="voteVisible"'),
+  '列表主按钮跳到整页分享页，投票弹窗已经移除')
   const indexHtml = readFileSync(`${ROOT}index.html`, 'utf8')
   check(indexHtml.includes('og:image') && indexHtml.includes('icons/icon-512.png') &&
     indexHtml.includes('SITE_PUBLIC_URL'), '静态首页也有站点级 OG 图兜底')
@@ -3477,22 +3480,29 @@ console.log('\n▶ 选项字母单占一格：名字的起点才对得齐')
 {
   const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
   const voteSrc = src('/src/views/Vote.vue')
+  const ballotSrc = src('/src/components/VoteBallot.vue')
 
   // 字母和名字本来是**同一条行内文本**（「A. 名字」）。字母是比例字形：「I.」两三个像素宽、
   // 「M.」十几个 —— 于是每行名字的起点跟着这行的字母有多宽左右跳。截图里那十六行量过：
   // 全 0 票、进度条左端都钉在同一个 x 上，唯一参差的就是这一列名字。
   const CELL = /class="vt-opt-letter">\{\{ letters\[j\] \}\}\.<\/span> \{/g
-  check((voteSrc.match(CELL) || []).length === 4,
+  const BALLOT_CELL = /class="vb-opt-letter">\{\{ letters\[j\] \}\}\.<\/span> \{/g
+  check((voteSrc.match(CELL) || []).length === 1 &&
+    (ballotSrc.match(BALLOT_CELL) || []).length === 3,
     '四处都套上了字母格：结果页、单选、多选、只读回显（少拿一处，那处就还是歪的）')
-  check(!/\{\{ letters\[j\] \}\}\. \{\{/.test(voteSrc),
+  check(!/\{\{ letters\[j\] \}\}\. \{\{/.test(voteSrc) &&
+    !/\{\{ letters\[j\] \}\}\. \{\{/.test(ballotSrc),
     '没有漏网的：字母直接拼进文本的老写法一处都不剩')
 
   check(/\.vt-opt-letter\s*\{[^}]*display: inline-block/.test(voteSrc)
-    && /\.vt-opt-letter\s*\{[^}]*min-width: 1\.5em/.test(voteSrc),
+    && /\.vt-opt-letter\s*\{[^}]*min-width: 1\.5em/.test(voteSrc)
+    && /\.vb-opt-letter\s*\{[^}]*display: inline-block/.test(ballotSrc)
+    && /\.vb-opt-letter\s*\{[^}]*min-width: 1\.5em/.test(ballotSrc),
     '这一格是行内块 + 钉住宽度 —— 只包一层不钉宽度，宽度仍跟着字母走，等于没改')
   // 用 min-width 而不是 width：万一某套字体把「M.」撑得比这一格还宽，写死宽度会让它压到名字上
-  check(!/\.vt-opt-letter\s*\{[^}]*[^-]width: /.test(voteSrc),
-    '钉的是下限不是死宽度')
+  check(!/\.vt-opt-letter\s*\{[^}]*[^-]width: /.test(voteSrc) &&
+    !/\.vb-opt-letter\s*\{[^}]*[^-]width: /.test(ballotSrc),
+  '钉的是下限不是死宽度')
   check(/class="pc-opt-label"/.test(src('/src/components/PollCreateDialog.vue')),
     '和出卷弹窗早就有的定宽写法一个路子，不是另发明一种')
 
@@ -3509,25 +3519,33 @@ console.log('\n▶ 选项字母单占一格：名字的起点才对得齐')
   check(/class="vt-opt-name"[^>]*>\s*<span class="vt-opt-letter"[^>]*>A\.<\/span> 甲/.test(resultsHtml),
     '结果页里字母归字母格、名字跟在后面（名字的起点由这一格决定，不再由字母的宽窄决定）')
 
-  const VOTE = {
-    id: 1, title: '要不要聚餐', status: 'open', anonymous: false, can_vote: true,
-    has_voted: false, results_visible: false, can_manage: false, is_target: true,
-    voted_count: 0, target_count: 3,
+  // 站内站外统一：列表主按钮跳分享页，答卷整页渲染（不再弹窗）
+  const VOTE_SHARE = {
+    id: 1, share_token: '1.abcdef', title: '要不要聚餐', description: '',
+    anonymous: false, status: 'open',
+    start_at: '2026-10-21T10:00:00', end_at: '2026-10-21T18:00:00',
+    scope_label: '全班', question_count: 2, target_count: 3, voted_count: 0,
+    is_login: true, in_scope: true, is_target: true, has_voted: false,
+    results_visible: false, can_manage: false, can_vote: true,
     questions: [
-      { id: 1, title: '单选', multiple: false, max_choices: 1, options: ['甲', '乙'] },
-      { id: 2, title: '多选', multiple: true, max_choices: 2, options: ['丙', '丁'] }
+      { id: 1, title: '单选', multiple: false, max_choices: 1, options: ['甲', '乙'], my_choices: [], tallies: null },
+      { id: 2, title: '多选', multiple: true, max_choices: 2, options: ['丙', '丁'], my_choices: [], tallies: null }
     ]
   }
-  const voteHtml = stripComments((await renderPatchedMany('/src/views/Vote.vue', [
-    ['const voteVisible = ref(false)', 'const voteVisible = ref(true)'],
-    ['const votePoll = ref({})', `const votePoll = ref(${JSON.stringify(VOTE)})`]
-  ], { ElDialog: ElDialogStub })).html)
-  const cells = [...voteHtml.matchAll(/class="vt-opt-letter"[^>]*>([\s\S]*?)<\/span>/g)]
+  const voteHtml = stripComments((await renderPatchedMany('/src/views/share/ShareVote.vue', [
+    ['const loading = ref(true)', 'const loading = ref(false)'],
+    ['const poll = ref(null)', `const poll = ref(${JSON.stringify(VOTE_SHARE)})`]
+  ])).html)
+  const cells = [...voteHtml.matchAll(/class="vb-opt-letter"[^>]*>([\s\S]*?)<\/span>/g)]
     .map((m) => m[1].replace(/<!--[\s\S]*?-->/g, '').trim())
   check(cells.join(' ') === 'A. B. A. B.',
-    '作答弹窗里四个字母各占一格（单选两个、多选两个；每道题各自从 A 数起）')
-  check(/vt-opt-letter"[^>]*>B\.<\/span> 丁/.test(voteHtml),
+    '分享页整页答卷里四个字母各占一格（单选两个、多选两个；每道题各自从 A 数起）')
+  check(/vb-opt-letter"[^>]*>B\.<\/span> 丁/.test(voteHtml),
     '名字就跟在那一格后面（单选和多选共用这条写法）—— 学生作答时看见的也是齐的')
+  check(voteHtml.includes('要不要聚餐') && voteHtml.includes('范围：全班') &&
+    voteHtml.includes('应投 3 人'),
+  '公开信息（标题、范围、人数）在页面上直接可见')
+  check(voteHtml.includes('提交投票'), '能投时整页给出提交按钮')
 }
 
 console.log('\n▶ 审核页：受理环节 —— 没受理审批按钮是灰的，受理过才敢批')
@@ -4476,13 +4494,193 @@ unread.value = 0
   check(src.includes('page.value = 1'), '删完回到第一页（已读散在各页）')
 }
 
+console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回、Markdown')
+{
+  const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
+
+  // ---------- 同一入口两个 Tab，搜索各自独立 ----------
+  const { html } = await render('/src/views/Vote.vue')
+  const voteHtml = stripComments(html)
+  check(voteHtml.includes('投票收集'), '入口标题改为「投票收集」')
+  check(voteHtml.includes('搜索投票标题'), '投票 Tab 的搜索还在')
+  check(voteHtml.includes('搜索收集标题'), '收集 Tab 有自己的一份搜索')
+  check(voteHtml.includes('发起投票'), '默认投票 Tab 的按钮是发起投票')
+
+  const voteSrc = src('/src/views/Vote.vue')
+  check(/<el-tabs v-model="activeTab"/.test(voteSrc), '两个 Tab 绑同一个 activeTab')
+  check(/<CollectPanel ref="collectRef" \/>/.test(voteSrc),
+    '收集面板和投票一起常驻（v-show 切换），切走搜索条件不丢')
+  check(/const activeTab = ref\(route\.query\.tab === 'collect'/.test(voteSrc),
+    '?tab=collect 刷新后仍停在收集')
+  check(/query\.tab = 'collect'/.test(voteSrc) && /delete query\.tab/.test(voteSrc),
+    'Tab 状态写回地址')
+  check(/command="extend"[\s\S]{0,120}?延长5分钟/.test(voteSrc) && /extendPoll/.test(voteSrc),
+    '投票管理里也能延长5分钟')
+
+  const panelSrc = src('/src/views/CollectPanel.vue')
+  check(/const keyword = ref\(''\)/.test(panelSrc) && /const status = ref\(''\)/.test(panelSrc),
+    '收集自己维护关键词和状态，不串到投票')
+  check(/params\.keyword = keyword\.value\.trim\(\)/.test(panelSrc),
+    '收集搜索把关键词带给后端')
+  check(/pauseCollection/.test(panelSrc) && /resumeCollection/.test(panelSrc)
+    && /closeCollection/.test(panelSrc) && /extendCollection/.test(panelSrc),
+    '收集有暂停/恢复、立即结束、延长5分钟')
+  check(/shareUrl\('collect'/.test(panelSrc), '分享链接是 /share/collect/{token}')
+  check(/CollectionResponsesDialog/.test(panelSrc), '管理里有答卷详情入口')
+
+  // ---------- 六种题型与出卷表单 ----------
+  const collectionUtil = src('/src/utils/collection.js')
+  for (const qtype of ['single', 'multiple', 'short_text', 'long_text', 'image', 'rating']) {
+    check(collectionUtil.includes(`value: '${qtype}'`), `题型里有 ${qtype}`)
+  }
+  check(/allow_withdraw: false/.test(collectionUtil), '新建默认不允许撤回，由出卷人显式打开')
+
+  const { html: dlgHtml } = await renderPatched(
+    '/src/components/CollectionCreateDialog.vue',
+    'const visible = ref(false)',
+    'const visible = ref(true)',
+    { ElDialog: ElDialogStub }
+  )
+  const dlgText = stripComments(dlgHtml)
+  for (const text of ['发起收集', '每人份数', '竞争填写', '开始提醒', '允许撤回', '添加题目', '必答']) {
+    check(dlgText.includes(text), `出卷弹窗有「${text}」`)
+  }
+  check(dlgText.includes('支持 Markdown'), '详细说明提示支持 Markdown')
+  const dlgSrc = src('/src/components/CollectionCreateDialog.vue')
+  check(/payload\.allow_withdraw = form\.allow_withdraw/.test(dlgSrc),
+    '编辑时把撤回设置一起提交')
+  check(/question\.qtype === 'multiple'/.test(dlgSrc) && /typeHint\('image'\)|qtype === 'image'/.test(dlgSrc),
+    '多选上限和图片提示都在出卷里')
+
+  // ---------- 答卷表单：六种控件 ----------
+  const sample = {
+    id: 1,
+    submit_quota: 2,
+    my_submitted_count: 0,
+    allow_withdraw: true,
+    questions: [
+      { id: 1, title: '单选题', qtype: 'single', required: true, options: ['甲', '乙'], max_choices: 1 },
+      { id: 2, title: '多选题', qtype: 'multiple', required: false, options: ['甲', '乙', '丙'], max_choices: 2 },
+      { id: 3, title: '短文本题', qtype: 'short_text', required: true, text_limit: 200 },
+      { id: 4, title: '长文本题', qtype: 'long_text', required: false, text_limit: 2000 },
+      { id: 5, title: '图片题', qtype: 'image', required: false, max_files: 3 },
+      { id: 6, title: '评分题', qtype: 'rating', required: true, rating_min: 1, rating_max: 5 }
+    ]
+  }
+  const { html: ballotHtml } = await render('/src/components/CollectBallot.vue', {}, { collection: sample })
+  const ballotText = stripComments(ballotHtml)
+  check(ballotText.includes('单选题') && ballotText.includes('甲'), '单选渲染选项')
+  check(ballotText.includes('最多选 2 项'), '多选写出最多选几项')
+  check(ballotText.includes('图片题') && ballotText.includes('添加图片（0/3）'), '图片题最多三张')
+  check(['1 分', '2 分', '3 分', '4 分', '5 分'].every((t) => ballotText.includes(t)),
+    '评分固定 1–5')
+  check(ballotText.includes('提交这份答卷'), '整卷一个提交按钮')
+  check(ballotText.includes('必答') && ballotText.includes('选答'), '必答/选答分别标出')
+  check(ballotText.includes('发起人允许撤回'), '允许撤回时提前告诉答题人')
+
+  // ---------- 答卷详情：管理员删除、实时刷新 ----------
+  const { html: respHtml } = await render(
+    '/src/components/CollectionResponsesDialog.vue',
+    { ElDialog: ElDialogStub },
+    { modelValue: true, collection: { id: 1, title: '收集' } }
+  )
+  const respText = stripComments(respHtml)
+  check(respText.includes('导出 Excel'), '详情里有导出')
+  check(respText.includes('提醒未填'), '详情里有提醒未填')
+  check(respText.includes('答卷（0）') && respText.includes('未填（0）') && respText.includes('统计'),
+    '三个页签都在')
+  const respSrc = src('/src/components/CollectionResponsesDialog.vue')
+  check(/canDelete = computed\(\(\) => userStore\.isAdmin\)/.test(respSrc),
+    '删除按钮只对系统管理员出现（后端 admin_required 兜底）')
+  check(/setInterval\(refreshAll, POLL_INTERVAL\)/.test(respSrc),
+    '打开期间按间隔刷新答卷/未填/统计')
+  check(/batchDeleteCollectionResponses/.test(respSrc), '支持批量删除')
+  check(/CollectionAnswers/.test(respSrc), '展开行复用同一份答卷展示')
+
+  // ---------- 答过打开就是查看自己的答卷；允许时能撤回 ----------
+  const myInfo = `info.value = {
+    id: 9,
+    title: '国庆去向登记',
+    description: '<strong>重点</strong>：请如实填写',
+    anonymous: false,
+    allow_withdraw: true,
+    status: 'open',
+    start_at: '2026-10-01T08:00:00',
+    end_at: '2026-10-02T20:00:00',
+    scope_label: '全班',
+    question_count: 1,
+    target_count: 36,
+    submitted_count: 1,
+    submit_quota: 1,
+    max_responses: null,
+    remaining_slots: null,
+    cap_reached: false,
+    is_login: true,
+    in_scope: true,
+    my_submitted_count: 1,
+    my_remaining: 0,
+    quota_reached: true,
+    can_submit: false,
+    can_manage: false,
+    questions: [{ id: 1, title: '去向', qtype: 'short_text', required: true,
+      options: [], max_choices: null, text_limit: 200 }],
+    my_responses: [{ id: 7, seq_no: 1, submitted_at: '2026-10-01T09:00:00',
+      answers: [{ question_id: 1, qtype: 'short_text', choices: [],
+        text: '回家', rating: null, files: [] }] }]
+  }; loading.value = false`
+  // SSR 里 DOMPurify 没有 window；Markdown 解析本身在浏览器跑，这里验证
+  // 「正文是以 HTML 插进页面的」即可（源码断言另外盯着 renderMarkdown 那一句）
+  const { html: shareHtml } = await renderPatchedMany(
+    '/src/views/share/ShareCollect.vue',
+    [
+      ['onMounted(load)', myInfo],
+      ['v-html="renderMarkdown(info.description)"', 'v-html="info.description"']
+    ]
+  )
+  const shareText = stripComments(shareHtml)
+  check(shareText.includes('国庆去向登记'), '分享页标题在')
+  check(/<strong>重点<\/strong>/.test(shareText),
+    '收集详细说明以 HTML 插入页面（renderMarkdown 的结果不会被转义）')
+  check(shareText.includes('我的答卷') && shareText.includes('回家'),
+    '每人一份且已交过：打开就是查看自己的答卷')
+  check(shareText.includes('撤回答卷'), '允许撤回时给撤回按钮')
+  check(!shareText.includes('提交这份答卷'), '已经填满 / 已交过时不再出空表单')
+  check(shareText.includes('class="watermark"'), '自己的答卷也盖水印')
+
+  const shareSrc = src('/src/views/share/ShareCollect.vue')
+  check(/my_responses/.test(shareSrc) && /withdrawCollectionResponse/.test(shareSrc),
+    '撤回走独立接口，撤回后重新拉公开信息')
+
+  // ---------- 三处 Markdown 展示 ----------
+  check(src('/src/views/share/ShareVote.vue').includes('renderMarkdown(poll.description)'),
+    '投票分享页渲染 Markdown')
+  check(src('/src/views/share/ShareCheckin.vue').includes('renderMarkdown(info.remark)'),
+    '签到分享页渲染 Markdown')
+  check(src('/src/components/CheckinDetailDialog.vue').includes('renderMarkdown(detail.remark)'),
+    '签到详情弹窗也渲染 Markdown')
+  check(src('/src/views/Vote.vue').includes('markdownPreview(row.description)'),
+    '投票列表用纯文本摘要，不把 # ** 露出来')
+  check(panelSrc.includes('markdownPreview(row.description)'),
+    '收集列表同样用纯文本摘要')
+  check(src('/src/components/CollectionCreateDialog.vue').includes('支持 Markdown'),
+    '出卷时能看到 Markdown 提示')
+
+  // ---------- 分享 kind / 菜单 ----------
+  check(src('/src/views/share/SharePage.vue').includes('collect: defineAsyncComponent'),
+    '分享页注册了 collect')
+  check(src('/src/router/index.js').includes("meta: { title: '投票收集' }"),
+    '路由标题改为投票收集')
+  check(src('/src/components/AppLayout.vue').includes("title: '投票收集'"),
+    '菜单改为投票收集')
+}
+
 console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审核')
 {
   const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
 
   // ---------- 四个页面顶上都有标题行 ----------
   for (const [path, title] of [
-    ['/src/views/Vote.vue', '投票表决'],
+    ['/src/views/Vote.vue', '投票收集'],
     ['/src/views/StudentList.vue', '学生信息'],
     ['/src/views/Attendance.vue', '考勤记录'],
     ['/src/views/Grade.vue', '成绩管理']
@@ -4496,7 +4694,7 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
 
   // ---------- 四页整页一张卡片（和审核审批一致） ----------
   for (const [path, title] of [
-    ['/src/views/Vote.vue', '投票表决'],
+    ['/src/views/Vote.vue', '投票收集'],
     ['/src/views/StudentList.vue', '学生信息'],
     ['/src/views/Attendance.vue', '考勤记录'],
     ['/src/views/Grade.vue', '成绩管理']
@@ -4614,7 +4812,7 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
     '学生筛选：中间五个下拉两两一行')
 
   const voteMobile = mobileCss(voteSrc)
-  check(/<div class="vt-head">[\s\S]{0,500}?投票表决[\s\S]{0,500}?发起投票[\s\S]{0,200}?<div class="vt-bar">/
+  check(/<div class="vt-head">[\s\S]{0,500}?投票收集[\s\S]{0,500}?发起投票[\s\S]{0,500}?<div class="vt-bar">/
     .test(voteSrc), '「发起投票」和标题同一行，不再悬在筛选区右侧')
   check(/\.vt-filter :deep\(\.el-form-item__label\) \{\s*width: 44px;/.test(voteMobile),
     '投票筛选：标签挪到控件左侧，控件占满整行')
@@ -4755,8 +4953,9 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
     '批量删除把点名和签到的 id 分开传')
 
   // 签到被删后，公开链接不能只报「读取失败」，要明说链接已失效
-  const checkinVue = src('/src/views/Checkin.vue')
-  check(checkinVue.includes("'链接已失效'") && checkinVue.includes('status === 404')
+  const checkinVue = src('/src/views/share/ShareCheckin.vue')
+  const shareStateSrc = src('/src/components/share/ShareState.vue')
+  check(shareStateSrc.includes("'链接已失效'") && checkinVue.includes('status === 404')
     && checkinVue.includes('已被删除'),
     '签到删除后打开链接显示「链接已失效」')
 }
@@ -4787,7 +4986,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
     `loading.value = false\ninfo.value = ${JSON.stringify({ ...base, ...extra })}`
 
   // 未登录：只读信息 + 一个回跳登录的按钮
-  const { html: guest } = await renderPatched('/src/views/Checkin.vue', 'onMounted(load)', inject({}))
+  const { html: guest } = await renderPatched('/src/views/share/ShareCheckin.vue', 'onMounted(load)', inject({}))
   const guestText = stripComments(guest)
   check(guestText.includes('周六晚点名') && guestText.includes('宿舍区集合'), '没登录也能看到标题和备注')
   check(guestText.includes('截止 2026-10-18 19:30'), '截止时间换了展示格式')
@@ -4797,7 +4996,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
 
   // 有地点：只读显示地点名、半径和坐标（测试环境没有高德 Key，走降级那一路）
   const { html: located } = await renderPatched(
-    '/src/views/Checkin.vue',
+    '/src/views/share/ShareCheckin.vue',
     'onMounted(load)',
     inject({ location: { lat: 39.9071, lng: 116.3972, radius_m: 100, name: '一公寓门口' } })
   )
@@ -4810,7 +5009,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
 
   // 能签时表单直接长在页面上（不再弹窗），并带上定位与照片入口
   const { html: form } = await renderPatched(
-    '/src/views/Checkin.vue',
+    '/src/views/share/ShareCheckin.vue',
     'onMounted(load)',
     inject({
       is_login: true, is_target: true, can_sign: true, require_photo: true,
@@ -4826,7 +5025,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
 
   // 还没到开始时间：只说几时开始，不给签到按钮
   const { html: pending } = await renderPatched(
-    '/src/views/Checkin.vue',
+    '/src/views/share/ShareCheckin.vue',
     'onMounted(load)',
     inject({
       status: 'pending', start_at: '2026-10-18T19:00:00',
@@ -4840,7 +5039,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
 
   // 已签到
   const { html: signed } = await renderPatched(
-    '/src/views/Checkin.vue',
+    '/src/views/share/ShareCheckin.vue',
     'onMounted(load)',
     inject({ is_login: true, is_target: true, signed_at: '2026-10-18T19:05:00' })
   )
@@ -4849,9 +5048,11 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(signed.includes('#/my-info?tab=attendance'), '「查看考勤情况」跳自己的考勤页')
 
   // 弱网兜底：可重试、照片凭证不怕刷新、重复签到的报错按成功收尾
-  const checkinSrc = readFileSync(`${ROOT}/src/views/Checkin.vue`, 'utf8')
-  check(checkinSrc.includes('重新加载') && checkinSrc.includes('retry && (!status || status >= 500)'),
-    '公开信息失败时给重新加载，并自动重试一次')
+  const checkinSrc = readFileSync(`${ROOT}/src/views/share/ShareCheckin.vue`, 'utf8')
+  const shareStateSrc = readFileSync(`${ROOT}/src/components/share/ShareState.vue`, 'utf8')
+  check(shareStateSrc.includes('重新加载') &&
+    checkinSrc.includes('retry && (!status || status >= 500)'),
+  '公开信息失败时给重新加载，并自动重试一次')
   check(checkinSrc.includes('sessionStorage.setItem(photoStorageKey') &&
     checkinSrc.includes('restorePhotoToken'), '照片凭证按签到 code 暂存，刷新后能恢复')
   check(checkinSrc.includes("detail.includes('已签到')") && checkinSrc.includes('await load()'),
@@ -4861,7 +5062,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
 
   // 已结束 + 有有效请假 → 记为请假
   const { html: ended } = await renderPatched(
-    '/src/views/Checkin.vue',
+    '/src/views/share/ShareCheckin.vue',
     'onMounted(load)',
     inject({ status: 'ended', is_login: true, is_target: true, on_leave: true })
   )
@@ -4869,7 +5070,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
 
   // 截止前打开过页面、登录花掉了一点时间：过了点仍给一段补签宽限
   const { html: graceGuest } = await renderPatched(
-    '/src/views/Checkin.vue',
+    '/src/views/share/ShareCheckin.vue',
     'onMounted(load)',
     inject({ status: 'ended', grace_until: '2026-10-18T20:00:00' })
   )
@@ -4879,7 +5080,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
     '游客在宽限内仍然能走「登录后签到」，不会只剩一句已结束')
 
   const { html: graceForm } = await renderPatched(
-    '/src/views/Checkin.vue',
+    '/src/views/share/ShareCheckin.vue',
     'onMounted(load)',
     inject({
       status: 'ended', is_login: true, is_target: true, can_sign: true,
@@ -4892,7 +5093,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
 
   // 截止之后链接仍能看：地点地图与要求对游客也公开
   const { html: endedInfo } = await renderPatched(
-    '/src/views/Checkin.vue',
+    '/src/views/share/ShareCheckin.vue',
     'onMounted(load)',
     inject({
       status: 'ended',
@@ -4947,7 +5148,7 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(apiSrc.includes("form.append('photo_token', photoToken)"), '签到只回传照片凭证，不再带文件')
 
   // 选中就上传：大照片传得慢，等到点「签到」再传容易正好错过截止
-  const checkinVueSrc = readFileSync(`${ROOT}/src/views/Checkin.vue`, 'utf8')
+  const checkinVueSrc = readFileSync(`${ROOT}/src/views/share/ShareCheckin.vue`, 'utf8')
   check(/photoFile\.value = await compressImage\(picked\)[\s\S]{0,300}await uploadPhoto\(\)/.test(checkinVueSrc),
     '照片压缩完立即上传，不等点签到')
   check(checkinVueSrc.includes(':indeterminate="uploadPercent === null"'),
@@ -5047,7 +5248,7 @@ console.log('\n▶ 签到暂停：暂停中到点照常结算')
   check(att.includes("paused: '已暂停'") && att.includes("ended: '已结束'"),
     '列表状态能显示已暂停 / 已结束')
 
-  const pub = readFileSync(`${ROOT}/src/views/Checkin.vue`, 'utf8')
+  const pub = readFileSync(`${ROOT}/src/views/share/ShareCheckin.vue`, 'utf8')
   check(pub.includes("info.status === 'paused'") &&
     pub.includes('签到已暂停，等发布人恢复后才能签到'),
   '签到页暂停时不给签到表单，只说明等恢复')
@@ -5169,35 +5370,34 @@ console.log('\n▶ 公开页缓存与分享卡片')
   check(tpl.includes("logoUrl: '${SITE_LOGO_URL}'"), 'site-config 里下发校徽缓存地址')
   const site = readFileSync(`${ROOT}src/utils/site.js`, 'utf8')
   check(site.includes('logoUrl: raw.logoUrl'), '前端从 SITE 读校徽地址')
-  for (const p of ['src/views/Login.vue', 'src/views/Checkin.vue']) {
-    check(readFileSync(`${ROOT}${p}`, 'utf8').includes(':src="SITE.logoUrl"'),
-      `${p} 的校徽走缓存地址`)
-  }
+  check(readFileSync(`${ROOT}src/views/Login.vue`, 'utf8').includes(':src="SITE.logoUrl"'),
+    'Login.vue 的校徽走缓存地址')
+  check(readFileSync(`${ROOT}src/components/share/ShareLayout.vue`, 'utf8')
+    .includes(':src="SITE.logoUrl"'), '所有外链分享页的校徽走缓存地址')
   const robots = readFileSync(`${ROOT}public/robots.txt`, 'utf8')
-  check(robots.includes('Allow: /api/checkins/share/') &&
+  check(robots.includes('Allow: /share/') &&
+    robots.includes('Allow: /api/checkins/share/') &&
     robots.includes('Allow: /api/polls/share/'),
-  'robots 只对签到 / 投票分享页放开抓取')
+  'robots 对外链分享页放开抓取（旧地址过渡期也保留）')
 
-  const checkin = readFileSync(`${ROOT}src/views/Checkin.vue`, 'utf8')
-  check(checkin.includes('function applyShareMeta') && checkin.includes("'og:title': cardTitle") &&
-    checkin.includes("`签到：${title}`"), '签到页把带「签到：」前缀的标题写进 OG 标签')
-  check(checkin.includes('{{ SITE.name }}｜签到'), '签到页顶部显示「站名｜签到」')
-  check(checkin.includes('<SiteFooter'), '签到页复用全站底栏')
+  const checkin = readFileSync(`${ROOT}src/views/share/ShareCheckin.vue`, 'utf8')
+  const shareLayout = readFileSync(`${ROOT}src/components/share/ShareLayout.vue`, 'utf8')
+  const shareMeta = readFileSync(`${ROOT}src/utils/share-meta.js`, 'utf8')
+  check(checkin.includes('function cardOf') && checkin.includes("`签到：${title}`") &&
+    checkin.includes('applyShareMeta'), '签到页把带「签到：」前缀的标题写进 meta')
+  check(shareLayout.includes('{{ SITE.name }}｜{{ kindLabel }}') &&
+    checkin.includes('kind-label="签到"'), '签到页顶部显示「站名｜签到」')
+  check(shareLayout.includes('<SiteFooter'), '签到页复用全站底栏')
   const footer = readFileSync(`${ROOT}/src/components/SiteFooter.vue`, 'utf8')
   check(footer.includes('COPYRIGHT_HTML'), '底栏组件渲染版权信息')
   check(readFileSync(`${ROOT}/src/components/AppLayout.vue`, 'utf8').includes('<SiteFooter />'),
     '主布局也用同一个底栏组件')
-  check(checkin.includes("robots.setAttribute('content', 'index,follow')"),
-    '签到页把 robots 改成允许抓取')
-  check(checkin.includes('function keepShareUrl') &&
-    checkin.includes("history.replaceState(history.state, '', url.pathname)") &&
-    checkin.includes('keepShareUrl(data.link)'),
-  '二级跳之后地址栏留在分享页，微信转发才能抓到具体摘要')
-  check(checkin.includes('function restoreAppUrl') &&
-    checkin.includes("startsWith('/api/checkins/share/')") &&
-    checkin.includes("'/' + location.hash"),
-  '离开签到页时把路径还原成 hash 路由')
-  check(checkin.includes('document.title = cardTitle') &&
+  check(shareMeta.includes("index,follow"), '签到页把 robots 改成允许抓取')
+  check(checkin.includes('attachSharePath') && checkin.includes("sharePath('checkin'"),
+    '从旧入口进来时把地址补成真实分享路径，转发仍能被爬虫读到 meta')
+  check(checkin.includes("detachSharePath('/share/checkin/')") &&
+    checkin.includes('resetShareMeta'), '离开签到页时还原地址和 meta')
+  check(shareMeta.includes('document.title = title') &&
     checkin.includes("`签到：${title}`"), '签到页标题带「签到：」前缀')
 }
 
@@ -5299,6 +5499,65 @@ console.log('\n▶ 手写签名：裁边只框住墨迹，空画布不产图')
   check(batch.includes('skipCurrent') && batch.includes('跳过此人'), '可以跳过当前这位')
   check(/item\.status = 'done'[\s\S]{0,200}advance\(\)/.test(batch),
     '上传成功才换下一位，失败留在原地可重试')
+}
+
+console.log('\n▶ 外链分享框架：统一状态、公告页、启动引导')
+{
+  // 统一状态组件：失效 / 无权限 / 网络错误用同一套文案
+  for (const [type, expected] of [
+    ['invalid', '链接已失效'],
+    ['forbidden', '没有权限'],
+    ['network', '打不开这个页面']
+  ]) {
+    const { html } = await render('/src/components/share/ShareState.vue', {}, { type })
+    check(stripComments(html).includes(expected), `ShareState(${type}) 使用统一文案`)
+  }
+
+  // 未知 kind 走统一失效页，不会去加载任意组件
+  const { html: unknown } = await render('/src/views/share/SharePage.vue')
+  check(stripComments(unknown).includes('链接已失效'), '未知外链类型显示统一失效页')
+
+  // 公告分享页：标题前缀 + 正文 + 「更多通知」
+  const NOTICE = {
+    id: 7, title: '国庆放假安排', publisher: '甲', publish_date: '2026-10-08',
+    content: '## 放假安排\n\n10 月 1 日至 7 日放假。', attachments: [],
+    updated_at: null
+  }
+  const { html: noticeHtml } = await renderPatchedMany('/src/views/share/ShareNotice.vue', [
+    ['const loading = ref(true)', 'const loading = ref(false)'],
+    ['const notice = ref(null)', `const notice = ref(${JSON.stringify(NOTICE)})`],
+    // SSR 里 DOMPurify 没有 window；正文渲染不是这一条要验的，直接输出原文
+    ['v-html="renderMarkdown(notice.content)"', 'v-html="notice.content"']
+  ])
+  const noticeText = stripComments(noticeHtml)
+  check(noticeText.includes('公告：国庆放假安排'), '公告外链页标题是「公告：{标题}」')
+  check(noticeText.includes('放假安排'), '公告正文渲染在页面上')
+  check(noticeText.includes('更多通知'), '公告页底部有「更多通知」按钮')
+  const noticeSrc = readFileSync(`${ROOT}src/views/share/ShareNotice.vue`, 'utf8')
+  check(noticeSrc.includes('markNoticeRead') && noticeSrc.includes('userStore.isLogin'),
+    '登录状态下打开公告外链会记已读')
+
+  // 路由：通用 kind + 固定 hash base（不固定的话，从 /share/... 进入后
+  // base 会变成该路径，后续导航都会被锁死并命中错误的 SSI meta）
+  const routerSrc = readFileSync(`${ROOT}src/router/index.js`, 'utf8')
+  check(routerSrc.includes("path: '/share/:kind/:token'") &&
+    routerSrc.includes("createWebHashHistory('/')"),
+  '分享路由是通用 kind；hash base 固定为 /')
+  check(routerSrc.includes("import('@/views/share/ShareCheckin.vue')"),
+    '站内签到入口也用同一张分享页，设计统一')
+
+  // 启动引导：真实路径 → hash 路由，只改地址不产生第二次跳转
+  const boot = readFileSync(`${ROOT}public/share-boot.js`, 'utf8')
+  check(boot.includes('share\\/') && boot.includes('[a-zA-Z0-9_-]+') &&
+    boot.includes('replaceState') && !boot.includes('location.reload'),
+  'share-boot 匹配任意 kind，只用 replaceState 补 hash，不刷新、不二次跳转')
+
+  // 公告列表每条都有分享入口
+  const notices = readFileSync(`${ROOT}/src/views/Notices.vue`, 'utf8')
+  check(notices.includes('openShare(item)') && notices.includes("shareUrl('notice', item.id)"),
+    '每条公告都有「分享」按钮，链接是稳定的真实路径')
+  check(notices.includes('<ShareLinkDialog') && notices.includes(':link="shareLink"'),
+    '分享弹窗展示标题、可复制链接和二维码')
 }
 
 await server.close()

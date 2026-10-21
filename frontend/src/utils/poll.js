@@ -17,8 +17,8 @@ export const POLL_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
 // 进行中绿、未开始橙、已结束灰，暂停给红 —— 四色不撞，且暂停是件要留意的事：
 // 它看着像「进行中」，实际上投不了
-const STATUS_TEXT = { pending: '未开始', open: '进行中', closed: '已结束', locked: '已暂停' }
-const STATUS_TAG = { pending: 'warning', open: 'success', closed: 'info', locked: 'danger' }
+const STATUS_TEXT = { pending: '未开始', open: '进行中', closed: '已结束', locked: '已暂停', paused: '已暂停' }
+const STATUS_TAG = { pending: 'warning', open: 'success', closed: 'info', locked: 'danger', paused: 'warning' }
 
 export function statusLabel(status) {
   return STATUS_TEXT[status] || status || '—'
@@ -150,6 +150,7 @@ export function blankForm() {
     anonymous: false,
     start_at: '',
     end_at: '',
+    notify_on_start: true,
     targets: [],
     questions: [blankQuestion()]
   }
@@ -216,6 +217,7 @@ export function formFromPoll(poll) {
     anonymous: !!poll.anonymous,
     start_at: toPicker(poll.start_at),
     end_at: toPicker(poll.end_at),
+    notify_on_start: poll.notify_on_start !== false,
     targets: [],
     questions: questionsFromPoll(poll)
   }

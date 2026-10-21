@@ -75,6 +75,38 @@ if [ -n "$NGINX_SSL_CERT" ] && [ -n "$NGINX_SSL_KEY" ]; then
         # 那句已经搬进后端 middleware.DefaultCacheControlMiddleware。
     }
 
+    # ==================== 外链分享页 ====================
+    # 完整说明见 nginx.conf.template 里的同名注释。这里在 shell 字符串里，
+    # nginx 变量（\$host 等）和双引号都要转义；没有 nginx 变量和引号的行保持原样。
+    location ^~ /share/ {
+        rewrite ^ /index.html break;
+        ssi on;
+        ssi_silent_errors on;
+        etag off;
+        if_modified_since off;
+        add_header Cache-Control \"no-store\" always;
+        include /etc/nginx/security-headers.conf;
+    }
+
+    location = /share-boot.js {
+        add_header Cache-Control \"no-cache\";
+    }
+
+    location ^~ /api/share-meta/ {
+        proxy_pass http://backend:8000/api/share-meta/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_http_version 1.1;
+        proxy_intercept_errors on;
+        error_page 404 500 502 503 504 =200 /share-meta-fallback.html;
+    }
+
+    location = /share-meta-fallback.html {
+        internal;
+    }
+
     # 密码管理器探路地址：302 到改密表单（完整说明见 nginx.conf.template；
     # # 不加引号会被 nginx 当成注释开头，这里在 shell 字符串里写成转义引号）
     location = /.well-known/change-password {

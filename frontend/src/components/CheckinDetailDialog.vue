@@ -23,7 +23,10 @@
       </div>
       <div v-if="detail.remark" class="cd-remark-row">
         <span class="cd-label">说明</span>
-        <span class="cd-remark-text">{{ detail.remark }}</span>
+        <div
+          class="cd-remark-text markdown-body"
+          v-html="renderMarkdown(detail.remark)"
+        ></div>
       </div>
       <div v-if="detail.start_at" class="cd-line">
         <span class="cd-label">开始时间</span>
@@ -141,6 +144,7 @@ import {
 } from '@/api/checkin'
 import { updateAttendanceItem } from '@/api/attendance'
 import { formatDateTime } from '@/utils/format'
+import { renderMarkdown } from '@/utils/markdown'
 import { errText } from '@/utils/request'
 
 const emit = defineEmits(['updated'])
@@ -334,8 +338,36 @@ defineExpose({ open })
 .cd-remark-text {
   flex: 1;
   color: var(--el-text-color-regular);
-  line-height: 1.5;
-  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+/* 轻量 Markdown：只补排版 */
+.cd-remark-text :deep(p) {
+  margin: 4px 0;
+}
+
+.cd-remark-text :deep(ul),
+.cd-remark-text :deep(ol) {
+  margin: 4px 0;
+  padding-left: 1.4em;
+}
+
+.cd-remark-text :deep(blockquote) {
+  margin: 6px 0;
+  padding: 2px 10px;
+  border-left: 3px solid var(--el-border-color);
+  color: var(--el-text-color-secondary);
+}
+
+.cd-remark-text :deep(code) {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--el-fill-color-light);
+  font-size: 0.92em;
+}
+
+.cd-remark-text :deep(a) {
+  color: var(--el-color-primary);
 }
 
 .cd-location {

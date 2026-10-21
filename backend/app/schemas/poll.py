@@ -31,10 +31,14 @@ class PollCreate(BaseModel):
     由接口拒绝 —— 不能在这儿静默去掉时区，那会悄悄错 8 小时。
     """
     title: str = Field(..., max_length=200, description="标题")
-    description: str = Field("", max_length=2000, description="描述")
+    description: str = Field("", max_length=2000, description="描述（支持 Markdown）")
     anonymous: bool = Field(False, description="不记名投票：接口层不再返回谁投了什么")
     start_at: datetime = Field(..., description="开始时间")
     end_at: datetime = Field(..., description="截止时间")
+    notify_on_start: bool = Field(
+        True,
+        description="到开始时间是否提醒范围内的人；创建时立即发的是旧行为，已取消",
+    )
     targets: list[str] = Field(..., min_length=1, description="有权表决的学号（接口会核对是否真存在）")
     questions: list[PollQuestionIn] = Field(..., min_length=1, max_length=30, description="一张卷子上的题")
 
@@ -64,6 +68,10 @@ class PollUpdate(BaseModel):
     )
     anonymous: bool | None = Field(
         None, description="记名还是匿名，不传=不改。只有还没开始的投票能改"
+    )
+    notify_on_start: bool | None = Field(
+        None,
+        description="开始时间是否提醒，不传=不改。只有还没开始、还没发过提醒时能改",
     )
     questions: list[PollQuestionIn] | None = Field(
         None, min_length=1, max_length=30,
@@ -120,7 +128,7 @@ class PollListItem(BaseModel):
     """
     id: int
     share_token: str = Field(
-        "", description="分享页地址里的签名串（微信卡片用），前端拼 /api/polls/share/{token}"
+        "", description="分享页地址里的签名串（微信卡片用），前端拼 /share/vote/{token}"
     )
     title: str
     description: str = ""
@@ -136,6 +144,9 @@ class PollListItem(BaseModel):
     creator_no: str = ""
     creator_name: str = ""
     created_at: datetime | None = None
+    # 开始提醒：出卷人指定；start_notified_at 非空表示已经发过，不能再改
+    notify_on_start: bool = True
+    start_notified_at: datetime | None = None
 
     question_count: int = 0
     target_count: int = Field(0, description="应投人数，投票率的分母")
@@ -157,6 +168,39 @@ class PollDetailResponse(PollListItem):
 
     继承列表项而不是重写一遍：前端只维护一套读法。
     """
+    questions: list[PollQuestionResponse] = Field(default_factory=list)
+
+
+class PollShareResponse(BaseModel):
+    """外链分享页的数据（公开接口）
+
+    **不继承 PollListItem**：游客拿到的分享链接里不该带发起人学号
+    （creator_no）。公开字段只有标题、完整描述、范围、状态、时间和人数；
+    题目、选项、我的作答、票数只在 in_scope 为真时下发。
+
+    in_scope = 我在表决范围内，或者我是发起人 / 管理员。范围外的人即使投票
+    已结束也不返回结果 —— 和详情接口「越权一律 404」的口径一致。
+    """
+    id: int
+    share_token: str = ""
+    title: str
+    description: str = ""
+    anonymous: bool = False
+    status: str
+    start_at: datetime
+    end_at: datetime
+    closed_at: datetime | None = None
+    scope_label: str = Field("", description="全班 / 班委 / 团员 / 定向 N 人")
+    question_count: int = 0
+    target_count: int = Field(0, description="应投人数；不可见结果时也返回真实人数")
+    voted_count: int = Field(0, description="已投人数；结果不可见时为 0")
+    is_login: bool = False
+    in_scope: bool = False
+    is_target: bool = False
+    has_voted: bool = False
+    results_visible: bool = False
+    can_manage: bool = False
+    can_vote: bool = False
     questions: list[PollQuestionResponse] = Field(default_factory=list)
 
 

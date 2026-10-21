@@ -53,6 +53,25 @@ console.log('▶ 头部注入：拼错的名字保持原样，便于发现')
   assert.equal(out, '前 ${SITE_NOPE} 后', '未知占位符不应被悄悄清空')
 }
 
+console.log('▶ 分享页 SSI：占位符保留、条件分支完整')
+{
+  const out = renderSite(template, { SITE_NAME: '测试班' })
+  assert.ok(
+    out.includes('<!--# include virtual="/api/share-meta${request_uri}" -->'),
+    'SSI include 必须原样保留（${request_uri} 不能被渲染掉）'
+  )
+  assert.ok(
+    out.includes('<!--# if expr="$request_uri = /^\\/share\\//" -->'),
+    'SSI 条件块原样保留'
+  )
+  assert.ok(
+    out.includes('<!--# else -->') && out.includes('<!--# endif -->'),
+    '条件块有完整的 else / endif'
+  )
+  assert.ok(out.includes('/share-boot.js'), '分享页启动脚本在 head 里')
+  assert.ok(out.includes('<title>测试班</title>'), '非分享页的站点标题仍在 else 分支里')
+}
+
 console.log('▶ 生产链路：entrypoint 的白名单里包含 HEAD_INJECT')
 {
   const entrypoint = read('../docker-entrypoint.sh')

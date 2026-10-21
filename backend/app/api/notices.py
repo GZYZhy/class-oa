@@ -118,6 +118,23 @@ def get_list(
     return notices
 
 
+@router.get(
+    "/{notice_id}",
+    response_model=NoticeResponse,
+    summary="单条通知（公开，外链分享页用）",
+)
+def get_one(notice_id: int, db: Session = Depends(get_db)):
+    """单条通知，无需登录
+
+    通知公告本身就是公开内容（列表接口同样公开），外链分享页凭 id 读取。
+    不在这里标记已读：游客没有账号，标记已读要走登录接口。
+    """
+    notice = db.query(Notice).filter(Notice.id == notice_id).first()
+    if not notice:
+        raise HTTPException(status_code=404, detail="通知不存在或已删除")
+    return notice
+
+
 @router.post("/{notice_id}/read", summary="标记为已读")
 def mark_notice_read(
     notice_id: int,

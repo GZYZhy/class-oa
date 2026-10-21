@@ -51,6 +51,7 @@ from ..services.checkin_service import (
     remove_photos,
 )
 from ..services.list_filters import keyword_like
+from ..services.share_service import share_path
 from ..utils.links import full_url
 from .deps import committee_required, get_client_ip, get_current_student
 
@@ -475,9 +476,9 @@ def overview_attendance(
                     if checkin.lat is not None and checkin.lng is not None
                     else None
                 ),
-                # 和发布接口、签到列表用同一个分享地址：hash 路由微信抓不到 OG，
-                # 这个真实路径才会被爬虫读到卡片信息
-                link=full_url(request, f"/api/checkins/share/{checkin.code}"),
+                # 和发布接口、签到列表用同一个分享地址：真实路径，
+                # 服务器能按场次写入 meta，微信爬虫读得到卡片信息
+                link=full_url(request, share_path("checkin", checkin.code)),
             )
         )
 

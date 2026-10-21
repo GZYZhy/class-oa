@@ -35,6 +35,7 @@ from .services import (
 from .services.birthday_service import ensure_settings
 from .services.scheduler import start as start_birthday_scheduler
 from .services.schedule_notify_service import start as start_schedule_notifier
+from .services.start_notify_service import start as start_poll_start_notifier
 from .utils.ip import parse_cidrs
 
 # 确保数据目录存在
@@ -317,6 +318,10 @@ start_birthday_scheduler()
 # 日程提醒调度器：分钟级巡检，到点推送日程提醒。
 # 同样依赖单进程，避免重复推送。
 start_schedule_notifier()
+
+# 投票 / 收集的开始提醒：到 start_at 才发一次；创建时不发。
+# 巡检依赖 start_notified_at 去重，重启/重复巡检不会补发。
+start_poll_start_notifier()
 
 app = FastAPI(
     title=settings.app_name,
