@@ -263,6 +263,12 @@ class CollectionPendingItem(BaseModel):
 class CollectionPendingResponse(BaseModel):
     total: int
     items: list[CollectionPendingItem]
+    unfilled_count: int = Field(
+        0, description="一份都没交、且可催的人数（不含本人和冻结账号）"
+    )
+    partial_count: int = Field(
+        0, description="交过但没填满、且可催的人数（不含本人和冻结账号）"
+    )
 
 
 class CollectionTargetItem(BaseModel):

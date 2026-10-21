@@ -4650,9 +4650,10 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   )
   const respText = stripComments(respHtml)
   check(respText.includes('导出 Excel'), '详情里有导出')
-  check(respText.includes('提醒未填'), '详情里有提醒未填')
-  check(respText.includes('答卷（0）') && respText.includes('未填（0）') && respText.includes('统计'),
-    '三个页签都在')
+  check(respText.includes('提醒未填（0）') && respText.includes('提醒未填满（0）'),
+    '未填和未填满是两个独立入口')
+  check(respText.includes('答卷（0）') && respText.includes('未填满（0）') &&
+    respText.includes('统计'), '三个页签都在')
   const respSrc = src('/src/components/CollectionResponsesDialog.vue')
   check(/canDelete = computed\(\(\) => userStore\.isAdmin\)/.test(respSrc),
     '删除按钮只对系统管理员出现（后端 admin_required 兜底）')
@@ -4664,12 +4665,24 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
     .test(respSrc) && !respSrc.includes('第 {{ row.seq_no }} 份'),
   '序号列只写数字，不再写「第 x 份」')
   check(/row\.is_self/.test(respSrc) &&
-    /!row\.frozen && !row\.is_self/.test(respSrc),
-  '未填名单包含本人，但催填人数排除本人和冻结账号')
+    /pending\.unfilled_count/.test(respSrc) && /pending\.partial_count/.test(respSrc),
+  '未填名单包含本人并标出来；两个催填入口分别用后端的可催人数')
   check(respSrc.includes('应填 {{ detail.target_count ?? 0 }} 人') &&
     respSrc.includes('未填 {{ pending.total }} 人'),
   '头部同时给出应填 / 已填 / 未填人数')
   check(/<el-tag v-if="row\.is_self"/.test(respSrc), '本人那一行单独标出来')
+  check(respSrc.includes("handleRemind('unfilled')") &&
+    respSrc.includes("handleRemind('partial')") &&
+    /remindCollection\(detail\.value\.id, scope\)/.test(respSrc),
+  '两个按钮分别请求 unfilled / partial，不会混成一个动作')
+  const collectionsPy = src('/../backend/app/api/collections.py')
+  check(/scope: str = Query\(\s*"all",\s*pattern="\^\(all\|unfilled\|partial\)\$"/.test(collectionsPy),
+    '后端提醒接口收 scope')
+  check(/row\["submitted_count"\] == 0/.test(collectionsPy) &&
+    /row\["submitted_count"\] > 0/.test(collectionsPy),
+  '后端按「一份没交 / 交过没填满」分组')
+  check(/提醒未填满/.test(collectionsPy) && /提醒未填"/.test(collectionsPy),
+    '两种提醒在操作日志里也分得开')
 
   // 管理员 / 发起人的主入口回到实时预览弹窗
   const voteListSrc = src('/src/views/Vote.vue')

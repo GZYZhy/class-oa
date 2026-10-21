@@ -289,6 +289,51 @@ def test_pending_includes_self_but_remind_skips_self(cb):
     ).json()["reminded"] == 0
 
 
+def test_remind_unfilled_and_partial_are_separate(cb):
+    """「提醒未填」只催一份没交的；「提醒未填满」只催交过但没填满的"""
+    collection = _create(cb, submit_quota=2, targets=[VOTER, OTHER])
+    cid = collection["id"]
+    qid = collection["questions"][0]["id"]
+
+    _login(cb, VOTER, VOTER_PW)
+    assert _submit(cb, cid, [{"question_id": qid, "text": "交了一份"}]).status_code == 200
+
+    _login(cb, CREATOR, CREATOR_PW)
+    pending = cb.client.get(f"/api/collections/{cid}/pending").json()
+    assert pending["total"] == 2
+    assert pending["unfilled_count"] == 1  # OTHER
+    assert pending["partial_count"] == 1  # VOTER
+
+    r = cb.client.post(f"/api/collections/{cid}/remind", params={"scope": "unfilled"})
+    assert r.status_code == 200, r.text
+    assert r.json()["reminded"] == 1
+    assert _inbox_count(cb, VOTER) == 0
+    assert _inbox_count(cb, OTHER) == 1
+
+    r = cb.client.post(f"/api/collections/{cid}/remind", params={"scope": "partial"})
+    assert r.status_code == 200, r.text
+    assert r.json()["reminded"] == 1
+    assert _inbox_count(cb, VOTER) == 1
+    assert _inbox_count(cb, OTHER) == 1
+
+    # 匿名时行里不显示份数，但聚合计数和分组仍然按库里的真实份数算
+    anonymous = _create(
+        cb,
+        anonymous=True,
+        submit_quota=2,
+        targets=[VOTER, OTHER],
+        title="匿名分开提醒",
+    )
+    _login(cb, VOTER, VOTER_PW)
+    assert _submit(
+        cb, anonymous["id"], [{"question_id": anonymous["questions"][0]["id"], "text": "x"}]
+    ).status_code == 200
+    _login(cb, CREATOR, CREATOR_PW)
+    rows = cb.client.get(f"/api/collections/{anonymous['id']}/pending").json()
+    assert rows["unfilled_count"] == 1 and rows["partial_count"] == 1
+    assert all(row["submitted_count"] is None for row in rows["items"])
+
+
 def test_collection_targets_only_for_managers(cb):
     """复用范围用的名单接口只给发起人/管理员"""
     collection = _create(cb)

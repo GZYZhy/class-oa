@@ -87,9 +87,16 @@ export function batchDeleteCollectionResponses(id, responseIds) {
   })
 }
 
-/** 提醒未填满的人 */
-export function remindCollection(id) {
-  return request({ url: `/collections/${id}/remind`, method: 'post' })
+/**
+ * 提醒未填 / 未填满的人
+ * scope: unfilled 只催一份没交的；partial 只催交过但没填满的；all 两者都催
+ */
+export function remindCollection(id, scope = 'all') {
+  return request({
+    url: `/collections/${id}/remind`,
+    method: 'post',
+    params: { scope }
+  })
 }
 
 /** 统计 */
