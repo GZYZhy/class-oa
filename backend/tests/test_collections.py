@@ -387,7 +387,23 @@ def test_anonymous_hides_identity_but_keeps_pending_names(cb):
 # ---------- 开始提醒 ----------
 
 def test_start_notify_follows_time_and_does_not_repeat(cb):
-    """没到点不发；改开始时间跟着走；到点只发一次；投票也同一套"""
+    """没到点不发；改开始时间跟着走；到点只发一次；错过整场不补发；投票也同一套"""
+    # 进程停过一整场（开始和截止都过去了）：回来时不补发
+    expired = _create(
+        cb, title="已经结束的收集", start_at=_stamp(1), end_at=_stamp(3)
+    )
+    cb.run(
+        "UPDATE collections SET start_at = ?, end_at = ? WHERE id = ?",
+        (datetime.now() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+        (datetime.now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+        expired["id"],
+    )
+    _tick(cb)
+    assert _inbox_count(cb, VOTER) == 0
+    assert cb.rows(
+        "SELECT start_notified_at FROM collections WHERE id = ?", expired["id"]
+    )[0][0] is None
+
     collection = _create(
         cb,
         title="需要提醒的收集", start_at=_stamp(1), end_at=_stamp(3)
@@ -541,6 +557,38 @@ def test_quota_one_shows_my_response_and_withdraw(cb):
         f"/api/collections/share/{collection['share_token']}/info"
     ).json()
     assert info["my_responses"] == [] and info["can_submit"] is True
+
+
+def test_withdraw_earlier_copy_and_resubmit(cb):
+    """撤回较早的一份会留下空号：再交一份不能和现有最大序号撞车"""
+    collection = _create(cb, submit_quota=2, allow_withdraw=True)
+    cid = collection["id"]
+    qid = collection["questions"][0]["id"]
+
+    _login(cb, VOTER, VOTER_PW)
+    assert _submit(cb, cid, [{"question_id": qid, "text": "第一份"}]).status_code == 200
+    assert _submit(cb, cid, [{"question_id": qid, "text": "第二份"}]).status_code == 200
+
+    info = cb.client.get(
+        f"/api/collections/share/{collection['share_token']}/info"
+    ).json()
+    assert [item["seq_no"] for item in info["my_responses"]] == [1, 2]
+
+    # 撤掉第 1 份，现有最大序号还是 2
+    first_id = info["my_responses"][0]["id"]
+    assert cb.client.post(
+        f"/api/collections/{cid}/responses/{first_id}/withdraw"
+    ).status_code == 200
+
+    # 再交一份应拿到第 3 份，而不是和现有的第 2 份撞唯一约束
+    again = _submit(cb, cid, [{"question_id": qid, "text": "补交"}])
+    assert again.status_code == 200, again.text
+    assert again.json()["seq_no"] == 3
+
+    info = cb.client.get(
+        f"/api/collections/share/{collection['share_token']}/info"
+    ).json()
+    assert [item["seq_no"] for item in info["my_responses"]] == [2, 3]
 
 
 def test_withdraw_releases_competitive_slot(cb):
