@@ -4714,6 +4714,8 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   // ---------- 不记名只留徽章，去掉重复说明 ----------
   const ballotSrc = src('/src/components/VoteBallot.vue')
   check(!ballotSrc.includes('本次投票不记名'), '投票不记名不再出专门的横幅')
+  check(!ballotSrc.includes('class="vb-meta"') && !ballotSrc.includes('截止'),
+    '分享页头部的范围/人数/时间只出现一次，答卷里不再重复一行')
   check(!ballotSrc.includes('下面是你的选择') &&
     !src('/src/views/share/ShareVote.vue').includes('下面是你的选择'),
   '去掉「下面是你的选择」这句重复说明')
