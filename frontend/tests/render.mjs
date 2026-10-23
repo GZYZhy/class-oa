@@ -3327,8 +3327,12 @@ console.log('\n▶ 日程重叠：同一时段撞在一起的要并排，不再�
   const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
   const { columnizeDay } = await server.ssrLoadModule('/src/utils/schedule.js')
 
-  // startIdx / endIdx 是 10 分钟一格的格子下标（28px 一格）：0 = 07:00，6 = 08:00
+  // startIdx / endIdx 是 10 分钟一格的格子下标（28px 一格）：0 = 06:00，6 = 07:00
   const ev = (id, startIdx, endIdx) => ({ id, startIdx, endIdx })
+  const scheduleSrc = src('/src/views/Schedule.vue')
+  check(scheduleSrc.includes('const startHour = 6') &&
+    scheduleSrc.includes("'06:00'") && scheduleSrc.includes("'06:10'"),
+  '日历从 06:00 开始：6:30 的升旗仪式才显示得出来，时间选择器也同步')
   // 按 id 排序再比：结果本身与入参同序，直接比字符串会被「谁先传进来」带着走
   const cols = (list) => {
     const laid = columnizeDay(list)
