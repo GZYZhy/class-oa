@@ -3358,6 +3358,11 @@ console.log('\n▶ 日程重叠：同一时段撞在一起的要并排，不再�
     scheduleSrc.includes('cal-collapsed') &&
     /function minuteTop/.test(scheduleSrc),
   '00–06 / 22–24 没日程时折叠，事件按折叠后的偏移定位')
+  check(/function foldRange/.test(scheduleSrc) &&
+    /canFoldEarly/.test(scheduleSrc) && /canFoldLate/.test(scheduleSrc) &&
+    /cal-fold-btn/.test(scheduleSrc) &&
+    /ArrowUp/.test(scheduleSrc) && /ArrowDown/.test(scheduleSrc),
+  '手动展开的 00:00 / 22:00 有收起箭头')
   // 按 id 排序再比：结果本身与入参同序，直接比字符串会被「谁先传进来」带着走
   const cols = (list) => {
     const laid = columnizeDay(list)
@@ -3481,6 +3486,15 @@ console.log('\n▶ 日程重叠：同一时段撞在一起的要并排，不再�
   const earlyHtml = (await render2([earlyEvt])).html
   check(collapsedCount(earlyHtml) === 1, '清晨有日程时只折叠 22–24')
   check(/top:660px/.test(eventStyle(earlyHtml)), '05:30 落在展开后的清晨段（330 × 2 = 660px）')
+  check(!earlyHtml.includes('cal-fold-btn'), '清晨有日程时不给收起箭头（收起也会被日程重新撑开）')
+
+  // 手动点开清晨：00:00 那一格要有收起箭头，点一下回到窄栏
+  const manualHtml = (await renderPatched('/src/views/Schedule.vue', MARKER,
+    `${MARKER}
+    currentMonday.value = new Date(2026, 9, 5)
+    earlyManual.value = true`, { ElDialog: ElDialogStub })).html
+  check((manualHtml.match(/class="cal-fold-btn"/g) || []).length === 1,
+    '手动展开 00–06 后，00:00 那里正好一个收起箭头')
 
   // 有深夜日程：22–24 自动展开
   const lateEvt = EVT({

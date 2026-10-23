@@ -34,7 +34,7 @@ import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 // 那样打包器的 tree-shaking 会完全失效：图标包 293 个图标整包进首屏产物，
 // 而全站真正用到的只有下面这六十来个。弱网下首页等这一份纯属白等。
 import {
-  Aim, ArrowDown, ArrowLeft, ArrowRight, Avatar, Bell,
+  Aim, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Avatar, Bell,
   BellFilled, Bottom, Calendar, ChatDotRound, Checked, CircleCheck,
   CopyDocument, Delete, Document, Download, EditPen, Female,
   Files, FolderOpened, Grid, Histogram, HomeFilled, InfoFilled,
@@ -71,7 +71,7 @@ const app = createApp(App)
 // component」，页面上那个位置就是空的 —— 图标尤其难发现（本来就小）。
 // tests/render.mjs 有一节会扫全站用到的图标名，和这份清单逐个对。
 const ICONS = {
-  Aim, ArrowDown, ArrowLeft, ArrowRight, Avatar, Bell,
+  Aim, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Avatar, Bell,
   BellFilled, Bottom, Calendar, ChatDotRound, Checked, CircleCheck,
   CopyDocument, Delete, Document, Download, EditPen, Female,
   Files, FolderOpened, Grid, Histogram, HomeFilled, InfoFilled,

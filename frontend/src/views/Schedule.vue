@@ -100,7 +100,29 @@
               :data-slot="row.slot"
               :style="{ height: slotHeight + 'px' }"
             >
-              <div class="cal-time-col" :class="{ 'hour-mark': row.slot.endsWith(':00') }">
+              <div
+                class="cal-time-col"
+                :class="{ 'hour-mark': row.slot.endsWith(':00'), 'has-fold': foldKind(row.slot) }"
+              >
+                <!-- 手动展开的清晨/深夜：在 00:00 / 22:00 给一个收起箭头 -->
+                <span
+                  v-if="foldKind(row.slot) === 'early'"
+                  class="cal-fold-btn"
+                  role="button"
+                  tabindex="0"
+                  title="收起 00:00–06:00"
+                  @click.stop="foldRange('early')"
+                  @keydown.enter.stop="foldRange('early')"
+                ><el-icon><ArrowUp /></el-icon></span>
+                <span
+                  v-if="foldKind(row.slot) === 'late'"
+                  class="cal-fold-btn"
+                  role="button"
+                  tabindex="0"
+                  title="收起 22:00–24:00"
+                  @click.stop="foldRange('late')"
+                  @keydown.enter.stop="foldRange('late')"
+                ><el-icon><ArrowDown /></el-icon></span>
                 <!-- 15 分钟一格，但每半小时才写一次时间：整天 96 行都写会糊成一列 -->
                 {{ row.slot.endsWith(':00') || row.slot.endsWith(':30') ? row.slot : '' }}
               </div>
@@ -620,7 +642,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ArrowLeft, ArrowRight, Plus, Upload, Link, Bell, Search,
+  ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Plus, Upload, Link, Bell, Search,
   UploadFilled, Refresh, Warning, CopyDocument
 } from '@element-plus/icons-vue'
 import {
@@ -990,6 +1012,15 @@ const lateOpen = computed(
     (todayInWeek.value && nowMinutes.value >= LATE_START_MIN)
 )
 
+// 只有「手动展开、且里面没有日程、当前时间也不在里面」时才给收起箭头。
+// 其余情况收起会立刻被日程/当前时间重新撑开，箭头就成了摆设。
+const canFoldEarly = computed(
+  () => !hasEarlyEvent.value && !(todayInWeek.value && nowMinutes.value < EARLY_END_MIN)
+)
+const canFoldLate = computed(
+  () => !hasLateEvent.value && !(todayInWeek.value && nowMinutes.value >= LATE_START_MIN)
+)
+
 /** 网格实际渲染的行：展开时是一格格时间，折叠时是一条窄栏 */
 const gridRows = computed(() => {
   const rows = []
@@ -1016,6 +1047,18 @@ const gridRows = computed(() => {
 function expandRange(range) {
   if (range === 'early') earlyManual.value = true
   else lateManual.value = true
+}
+
+function foldRange(range) {
+  if (range === 'early') earlyManual.value = false
+  else lateManual.value = false
+}
+
+/** 这一行要不要出收起箭头：只有手动展开、且没有被日程/当前时间撑住的那一侧才出 */
+function foldKind(slot) {
+  if (slot === '00:00' && canFoldEarly.value) return 'early'
+  if (slot === '22:00' && canFoldLate.value) return 'late'
+  return ''
 }
 
 /** 分钟 → 网格里的 y 坐标；中间要跳过折叠栏占掉的高度 */
@@ -2024,6 +2067,39 @@ async function handleResetToken() {
 .cal-time-col.hour-mark {
   color: var(--el-text-color-primary);
   font-weight: 500;
+}
+
+/* 手动展开的 00:00 / 22:00 行里的收起箭头 */
+.cal-time-col.has-fold {
+  box-sizing: border-box;
+  padding-right: 18px;
+}
+
+.cal-fold-btn {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-primary);
+  cursor: pointer;
+}
+
+.cal-fold-btn:hover {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+}
+
+.cal-fold-btn .el-icon {
+  font-size: 15px;
 }
 
 .cal-day-col {
