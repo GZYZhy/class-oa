@@ -1316,6 +1316,16 @@ const subscribeUrl = ref('http://oa.example.com/api/notices/rss/cafebabe.xml')`,
   const shareNotice = readFileSync(`${ROOT}src/views/share/ShareNotice.vue`, 'utf-8')
   check(shareNotice.includes('formatDateTime(notice.updated_at)'),
     '分享出去的公告页用完整时间')
+
+  // Markdown 元素样式统一在全局：表格要有边框、整体居中，分享页也吃同一套
+  const mainCss = readFileSync(`${ROOT}src/styles/main.css`, 'utf-8')
+  check(mainCss.includes('border-collapse: collapse') &&
+    mainCss.includes('margin: 12px auto') &&
+    mainCss.includes('border: 1px solid var(--el-border-color)'),
+  'Markdown 表格有边框线，并且整体居中')
+  check(!src.includes('.markdown-body :deep(h1)') &&
+    !readFileSync(`${ROOT}src/views/StudentList.vue`, 'utf-8').includes('.markdown-body h1'),
+  '各页面不再各写一份 Markdown 元素样式')
   check(src.includes('v-if="userStore.isLogin && !userStore.isExternal"'),
     '模板上的可见性条件就是这一条')
   check(src.includes('copyText(subscribeUrl.value)'),

@@ -2891,37 +2891,5 @@ watch(() => route.query.open, openFromQuery)
   white-space: pre-wrap;
 }
 
-/* Markdown 样式：v-html 渲染的内容不受 scoped 影响，必须写在这里 */
-.markdown-body {
-  padding: 8px 4px;
-  color: var(--el-text-color-primary);
-  line-height: 1.7;
-}
-
-.markdown-body h1,
-.markdown-body h2,
-.markdown-body h3 {
-  margin: 12px 0 8px;
-}
-
-.markdown-body ul,
-.markdown-body ol {
-  padding-left: 24px;
-  margin: 8px 0;
-}
-
-.markdown-body code {
-  background: var(--el-fill-color-light);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 90%;
-}
-
-.markdown-body blockquote {
-  border-left: 4px solid #409EFF;
-  padding: 4px 12px;
-  margin: 8px 0;
-  background: var(--el-color-primary-light-9);
-  color: var(--el-text-color-regular);
-}
+/* Markdown 元素样式统一在 styles/main.css 的 .markdown-body 里 */
 </style>
