@@ -25,7 +25,7 @@
         <span>{{ notice.publisher || '未知' }} 发布</span>
         <span>{{ notice.publish_date }}</span>
         <el-tag v-if="notice.updated_at" size="small" type="warning" effect="plain">
-          已于 {{ formatDateTime(notice.updated_at) }} 更新
+          已于 {{ formatDayTime(notice.updated_at) }} 更新
         </el-tag>
       </div>
 
@@ -67,7 +67,7 @@ import ShareLayout from '@/components/share/ShareLayout.vue'
 import ShareState from '@/components/share/ShareState.vue'
 import { getNotice, markNoticeRead } from '@/api/notice'
 import { downloadFile } from '@/utils/download'
-import { formatDateTime } from '@/utils/format'
+import { formatDayTime } from '@/utils/format'
 import { formatFileSize, renderMarkdown } from '@/utils/markdown'
 import { applyShareMeta, resetShareMeta } from '@/utils/share-meta'
 import { attachSharePath, detachSharePath, sharePath, shareUrl } from '@/utils/share-url'
