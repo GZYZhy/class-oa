@@ -51,10 +51,14 @@ SCOPE_ALL = "all"                 # 全部
 
 EDIT_SCOPES = (SCOPE_SINGLE, SCOPE_FORWARD, SCOPE_ALL)
 
-# 一天的时间范围（与前端日历一致）。06:00 起是为了升旗、早操这类早于 07:00 的日程
-DAY_START_HOUR = 6     # 06:00
-DAY_END_HOUR = 22      # 22:00（不含，最后一格是 21:50 开始）
-TIME_SLOT_MINUTES = 10  # 每格 10 分钟
+# 一天的时间范围（与前端日历一致）。全天都可用：00:00–24:00
+DAY_START_HOUR = 0     # 00:00
+DAY_END_HOUR = 24      # 24:00（不含，最后一格是 23:45 开始）
+
+# 导入课表时接受的最小时间粒度。学校表格有 10 分钟一行的，也有 5 分钟一行的。
+# **不要**拿它当行距去推算结束时间：行距按 A 列相邻时间的实际差值算
+# （见 schedule_import_service._row_step）。
+IMPORT_MINUTE_STEP = 5
 
 
 class Schedule(Base):

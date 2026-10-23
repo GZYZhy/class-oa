@@ -37,8 +37,6 @@ from .list_filters import keyword_like
 # 延迟求值）。之前 ICalToken 只在函数内 import，本地 3.14 跑测试全绿，3.12 的容器
 # 一 import 就 NameError、整个后端起不来 —— 1.10.0 上线时真栽过这一次。
 from ..models.schedule import (
-    DAY_END_HOUR,
-    DAY_START_HOUR,
     EDIT_SCOPES,
     ICalToken,
     REPEAT_EVEN_WEEK,
@@ -52,7 +50,6 @@ from ..models.schedule import (
     SCOPE_SINGLE,
     SOURCE_BATCH,
     SOURCE_PERSONAL,
-    TIME_SLOT_MINUTES,
 )
 
 

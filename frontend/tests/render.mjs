@@ -913,7 +913,7 @@ console.log('\n▶ 我的日程：点卡片先看详情，详情里才能改')
     { ElDialog: ElDialogStub })
   check(span.includes('2026-10-08 至 2026-10-10'), '跨天的全天条给「起 至 止」')
   check(!hasCell(span, '时间'), '全天的不给时刻')
-  check(!span.includes('00:00'), '全天的不显示库里那对 00:00 / 23:59')
+  check(!span.includes('00:00 ~ 23:59'), '全天的不显示库里那对 00:00 / 23:59')
 
   // 分配出去的那条：详情里先说清删它会不会动别人的表
   const { html: shared } = await renderPatched('/src/views/Schedule.vue', MARKER,
@@ -1056,9 +1056,9 @@ console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没�
   check(/@click="centerDay\(day\.date, true\)"/.test(src), '点周几把那一列移到中间')
   check(/function centerDay\(date, smooth = false\)[\s\S]{0,500}?box\.scrollTo\(\{ left, behavior: 'smooth' \}\)/.test(src),
     '表头点击用平滑滚动（首次进页面仍瞬间定位，不在眼前自己滑一下）')
-  check(/@click="scrollToNow"/.test(src), '点「当前时间」跳到当前时间附近')
-  check(/function scrollToNow\(\) \{[\s\S]{0,400}?scrollIntoView\(\{ block: 'center'[\s\S]{0,80}?behavior: 'smooth' \}\)/.test(src),
-    '按当前时间找到那一行，滚到屏幕中间')
+  check(/@click="scrollToNow\(\)"/.test(src), '点「当前时间」跳到当前时间附近')
+  check(/function scrollToSlot\(idx, smooth = true\)[\s\S]{0,500}?box\.scrollTo\(\{ top: Math\.max\(0, top\), behavior: smooth \? 'smooth' : 'auto' \}\)/.test(src),
+    '按当前时间找到那一行，滚到日历容器中间')
   check(/function nowSlotIndex\(\) \{[\s\S]{0,300}?Math\.min\(Math\.max\(idx, 0\), timeSlots\.value\.length - 1\)/.test(src),
     '7:00 前 / 22:00 后夹到首尾两格，不越界')
   // 时钟靠定时器走，离开页面必须停掉，否则每进一次日程页就多一个永不回收的定时器
@@ -1123,15 +1123,15 @@ console.log('\n▶ 我的日程：窄屏不把 7 天挤扁，今天默认居中'
     '正好一列带 today，就是当天那一列（滚动居中的钩子）')
 
   const src = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
-  check(/\.calendar-wrapper\s*\{[^}]*overflow-x:\s*auto/.test(src), '表格能横向滚（不再 overflow: hidden 裁掉）')
+  check(/\.calendar-wrapper\s*\{[^}]*overflow:\s*auto/.test(src), '表格能横向滚（不再 overflow: hidden 裁掉），全天也能竖向滚')
   check(/\.calendar-grid\s*\{[^}]*min-width:\s*calc\(60px \+ 7 \* 132px\)/.test(src),
     '列宽有底线：时间列 + 7 × 132px —— 窄屏照电脑上的宽来，不挤窄')
   check(/\.cal-time-col\s*\{[^}]*position:\s*sticky[^}]*left:\s*0/.test(src),
     '时间刻度钉在左边（滑到今天那列还看得见几点）')
   check(/ref="calendarWrapper"/.test(src) && /const calendarWrapper = ref\(null\)/.test(src),
     '模板上的滚动容器 = 居中逻辑用的那个 ref')
-  check((src.match(/nextTick\(centerToday\)/g) || []).length === 2,
-    '居中接在「首次加载完」和「点今天」两处')
+  check((src.match(/nextTick\(\(\) => \{\s*centerToday\(\)/g) || []).length === 2,
+    '居中 + 滚到当前时间接在「首次加载完」和「点今天」两处')
 }
 
 console.log('\n▶ 我的日程：「前往」跳到某一天')
@@ -3327,12 +3327,27 @@ console.log('\n▶ 日程重叠：同一时段撞在一起的要并排，不再�
   const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
   const { columnizeDay } = await server.ssrLoadModule('/src/utils/schedule.js')
 
-  // startIdx / endIdx 是 10 分钟一格的格子下标（28px 一格）：0 = 06:00，6 = 07:00
+  // startIdx / endIdx 现在是分钟数（06:31 = 391），不再是格子下标
   const ev = (id, startIdx, endIdx) => ({ id, startIdx, endIdx })
   const scheduleSrc = src('/src/views/Schedule.vue')
-  check(scheduleSrc.includes('const startHour = 6') &&
-    scheduleSrc.includes("'06:00'") && scheduleSrc.includes("'06:10'"),
-  '日历从 06:00 开始：6:30 的升旗仪式才显示得出来，时间选择器也同步')
+  check(scheduleSrc.includes('const SLOT_MINUTES = 15') &&
+    scheduleSrc.includes('const slotHeight = 30') &&
+    scheduleSrc.includes('const startHour = 0') &&
+    scheduleSrc.includes('const endHour = 24') &&
+    scheduleSrc.includes('const pxPerMinute = slotHeight / SLOT_MINUTES'),
+  '日历全天 00:00–24:00，15 分钟一行，日程按分钟定位')
+  check(scheduleSrc.includes("slot.endsWith(':30')"),
+    '15 分钟一格，但时间刻度每半小时才显示一次')
+  check(scheduleSrc.includes('<el-time-picker') &&
+    scheduleSrc.includes('format="HH:mm"') &&
+    scheduleSrc.includes('value-format="HH:mm"') &&
+    !scheduleSrc.includes('el-time-select'),
+  '时间选择改成时/分两栏滚轮，精确到分钟')
+  check(/function scrollToSlot/.test(scheduleSrc) &&
+    /scrollToSlot\(nowSlotIndex\(\), false\)/.test(scheduleSrc) &&
+    /max-height:\s*calc\(100dvh - 200px\)/.test(scheduleSrc) &&
+    /overflow:\s*auto/.test(scheduleSrc),
+  '全天网格在容器内滚动，首次进入自动停在当前时间')
   // 按 id 排序再比：结果本身与入参同序，直接比字符串会被「谁先传进来」带着走
   const cols = (list) => {
     const laid = columnizeDay(list)
@@ -3426,6 +3441,16 @@ console.log('\n▶ 日程重叠：同一时段撞在一起的要并排，不再�
     '没有重叠时留白仍是原来的 4px/8px')
   check(!/evt-narrow/.test(alone.html) && /evt-narrow/.test(both.html),
     '只有并排出来的块才带 evt-narrow')
+
+  // 分钟级：06:31–06:47 要落在 391 分钟处，而不是被 15 分钟格磨到 06:30
+  const minuteEvt = EVT({
+    id: 31, title: '早间活动', all_day: false, instance_date: '2026-10-06',
+    start_time: '2026-10-06T06:31:00', end_time: '2026-10-06T06:47:00'
+  })
+  const minuteHtml = (await render2([minuteEvt])).html
+  const minuteStyle = (/class="[^"]*cal-event[^"]*"[^>]*style="([^"]*)"/.exec(minuteHtml) || [])[1] || ''
+  check(/top:782px/.test(minuteStyle), '06:31 按分钟落位（391 × 2 = 782px），没有被格子取整')
+  check(/height:30px/.test(minuteStyle), '16 分钟的事件高度按分钟算（16 × 2 - 2 = 30px）')
 }
 
 console.log('\n▶ 结果页的「按得票排序」：只是换个看的顺序，票数一分不动')
