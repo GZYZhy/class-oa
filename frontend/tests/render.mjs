@@ -1057,10 +1057,13 @@ console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没�
   check(/function centerDay\(date, smooth = false\)[\s\S]{0,500}?box\.scrollTo\(\{ left, behavior: 'smooth' \}\)/.test(src),
     '表头点击用平滑滚动（首次进页面仍瞬间定位，不在眼前自己滑一下）')
   check(/@click="scrollToNow\(\)"/.test(src), '点「当前时间」跳到当前时间附近')
-  check(/function scrollToSlot\(idx, smooth = true\)[\s\S]{0,500}?box\.scrollTo\(\{ top: Math\.max\(0, top\), behavior: smooth \? 'smooth' : 'auto' \}\)/.test(src),
-    '按当前时间找到那一行，滚到日历容器中间')
-  check(/function nowSlotIndex\(\) \{[\s\S]{0,300}?Math\.min\(Math\.max\(idx, 0\), timeSlots\.value\.length - 1\)/.test(src),
-    '7:00 前 / 22:00 后夹到首尾两格，不越界')
+  check(/function scrollToSlot\(label, smooth = true\)[\s\S]{0,500}?data-slot="\$\{label\}"/.test(src)
+    && /box\.scrollTo\(\{ top: Math\.max\(0, top\), behavior: smooth \? 'smooth' : 'auto' \}\)/.test(src),
+  '按时间格标签找到那一行，滚到日历容器中间')
+  check(/function nowSlotLabel\(\) \{[\s\S]{0,300}?Math\.min\(Math\.max\(floored, 0\), 24 \* 60 - SLOT_MINUTES\)/.test(src),
+    '当前时间夹在 00:00–23:45 之间，不越界')
+  check(/openRangeForNow/.test(src) && /scrollToSlot\(nowSlotLabel\(\), false\)/.test(src),
+    '首次进入 / 点今天 / 点当前时间时，折叠的清晨深夜会先展开再滚过去')
   // 时钟靠定时器走，离开页面必须停掉，否则每进一次日程页就多一个永不回收的定时器
   check(/onUnmounted\(\(\) => \{[\s\S]{0,200}?clearInterval\(clockTimer\)/.test(src), '离开页面时停掉时钟定时器')
   // 窄窗口（半屏、手机）下工具栏一行放不下，「新建日程」会被挤出可见区域点不到
@@ -3344,10 +3347,17 @@ console.log('\n▶ 日程重叠：同一时段撞在一起的要并排，不再�
     !scheduleSrc.includes('el-time-select'),
   '时间选择改成时/分两栏滚轮，精确到分钟')
   check(/function scrollToSlot/.test(scheduleSrc) &&
-    /scrollToSlot\(nowSlotIndex\(\), false\)/.test(scheduleSrc) &&
+    /scrollToSlot\(nowSlotLabel\(\), false\)/.test(scheduleSrc) &&
     /max-height:\s*calc\(100dvh - 200px\)/.test(scheduleSrc) &&
     /overflow:\s*auto/.test(scheduleSrc),
   '全天网格在容器内滚动，首次进入自动停在当前时间')
+  check(scheduleSrc.includes('const EARLY_END_MIN = 6 * 60') &&
+    scheduleSrc.includes('const LATE_START_MIN = 22 * 60') &&
+    scheduleSrc.includes('const COLLAPSED_ROW_HEIGHT = 34') &&
+    scheduleSrc.includes('const gridRows = computed') &&
+    scheduleSrc.includes('cal-collapsed') &&
+    /function minuteTop/.test(scheduleSrc),
+  '00–06 / 22–24 没日程时折叠，事件按折叠后的偏移定位')
   // 按 id 排序再比：结果本身与入参同序，直接比字符串会被「谁先传进来」带着走
   const cols = (list) => {
     const laid = columnizeDay(list)
@@ -3442,15 +3452,45 @@ console.log('\n▶ 日程重叠：同一时段撞在一起的要并排，不再�
   check(!/evt-narrow/.test(alone.html) && /evt-narrow/.test(both.html),
     '只有并排出来的块才带 evt-narrow')
 
-  // 分钟级：06:31–06:47 要落在 391 分钟处，而不是被 15 分钟格磨到 06:30
+  const eventStyle = (h) =>
+    (/class="[^"]*cal-event[^"]*"[^>]*style="([^"]*)"/.exec(h) || [])[1] || ''
+  const collapsedCount = (h) =>
+    (h.match(/class="cal-row cal-collapsed"/g) || []).length
+
+  // 没有清晨/深夜日程：两条折叠栏都在，时间行只剩 06:00–21:45 的 64 行
+  const quiet = (await render2([])).html
+  check(collapsedCount(quiet) === 2, '00–06 / 22–24 都没日程时，折成两条窄栏')
+  check((quiet.match(/class="[^"]*cal-time-row[^"]*"/g) || []).length === 64,
+    '折叠后只渲染 06:00–21:45 的 64 行，页面不会又拉成四千像素')
+
+  // 分钟级：06:31 在折叠栏之后按分钟落位（34 + 31 × 2 = 96px）
   const minuteEvt = EVT({
     id: 31, title: '早间活动', all_day: false, instance_date: '2026-10-06',
     start_time: '2026-10-06T06:31:00', end_time: '2026-10-06T06:47:00'
   })
   const minuteHtml = (await render2([minuteEvt])).html
-  const minuteStyle = (/class="[^"]*cal-event[^"]*"[^>]*style="([^"]*)"/.exec(minuteHtml) || [])[1] || ''
-  check(/top:782px/.test(minuteStyle), '06:31 按分钟落位（391 × 2 = 782px），没有被格子取整')
+  const minuteStyle = eventStyle(minuteHtml)
+  check(/top:96px/.test(minuteStyle), '06:31 按分钟落位（折叠栏 34 + 31 × 2 = 96px），没有被格子取整')
   check(/height:30px/.test(minuteStyle), '16 分钟的事件高度按分钟算（16 × 2 - 2 = 30px）')
+
+  // 有清晨日程：00–06 自动展开，不再显示那条折叠栏
+  const earlyEvt = EVT({
+    id: 32, title: '早操', all_day: false, instance_date: '2026-10-06',
+    start_time: '2026-10-06T05:30:00', end_time: '2026-10-06T05:45:00'
+  })
+  const earlyHtml = (await render2([earlyEvt])).html
+  check(collapsedCount(earlyHtml) === 1, '清晨有日程时只折叠 22–24')
+  check(/top:660px/.test(eventStyle(earlyHtml)), '05:30 落在展开后的清晨段（330 × 2 = 660px）')
+
+  // 有深夜日程：22–24 自动展开
+  const lateEvt = EVT({
+    id: 33, title: '夜间活动', all_day: false, instance_date: '2026-10-06',
+    start_time: '2026-10-06T23:45:00', end_time: '2026-10-06T23:59:00'
+  })
+  const lateHtml = (await render2([lateEvt])).html
+  check(collapsedCount(lateHtml) === 1, '深夜有日程时只折叠 00–06')
+  check(/top:2164px/.test(eventStyle(lateHtml)),
+    '23:45 落在主段之后（34 + 1920 + 210 = 2164px）')
 }
 
 console.log('\n▶ 结果页的「按得票排序」：只是换个看的顺序，票数一分不动')

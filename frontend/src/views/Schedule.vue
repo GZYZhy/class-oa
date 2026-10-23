@@ -93,26 +93,43 @@
         <!-- 时间行 + 日程块 overlay：包在同一个定位容器里，
              overlay 的 (0,0) 才正好对齐「首行顶部、时间列右侧」 -->
         <div class="cal-body">
-          <div
-            v-for="(slot, slotIdx) in timeSlots"
-            :key="slot"
-            class="cal-row cal-time-row"
-            :style="{ height: slotHeight + 'px' }"
-          >
-            <div class="cal-time-col" :class="{ 'hour-mark': slot.endsWith(':00') }">
-              <!-- 15 分钟一格，但每半小时才写一次时间：整天 96 行都写会糊成一列 -->
-              {{ slot.endsWith(':00') || slot.endsWith(':30') ? slot : '' }}
+          <template v-for="row in gridRows" :key="row.type === 'slot' ? row.slot : row.key">
+            <div
+              v-if="row.type === 'slot'"
+              class="cal-row cal-time-row"
+              :data-slot="row.slot"
+              :style="{ height: slotHeight + 'px' }"
+            >
+              <div class="cal-time-col" :class="{ 'hour-mark': row.slot.endsWith(':00') }">
+                <!-- 15 分钟一格，但每半小时才写一次时间：整天 96 行都写会糊成一列 -->
+                {{ row.slot.endsWith(':00') || row.slot.endsWith(':30') ? row.slot : '' }}
+              </div>
+              <div
+                v-for="(day, dayIdx) in weekDays"
+                :key="dayIdx"
+                class="cal-day-col cal-cell"
+                :class="{ 'hour-cell': row.slot.endsWith(':00') }"
+                @click="handleCellClick(day.date, row.slot)"
+              >
+                <!-- 日程块渲染用绝对定位，放在一个 overlay 层里 -->
+              </div>
             </div>
             <div
-              v-for="(day, dayIdx) in weekDays"
-              :key="dayIdx"
-              class="cal-day-col cal-cell"
-              :class="{ 'hour-cell': slot.endsWith(':00') }"
-              @click="handleCellClick(day.date, slot)"
+              v-else
+              class="cal-row cal-collapsed"
+              :style="{ height: COLLAPSED_ROW_HEIGHT + 'px' }"
+              :title="row.label"
+              role="button"
+              tabindex="0"
+              @click="expandRange(row.range)"
+              @keydown.enter="expandRange(row.range)"
             >
-              <!-- 日程块渲染用绝对定位，放在一个 overlay 层里 -->
+              <div class="cal-time-col hour-mark">{{ row.time }}</div>
+              <div class="cal-collapsed-body">
+                <span class="cal-collapsed-tip">{{ row.label }}</span>
+              </div>
             </div>
-          </div>
+          </template>
 
           <!-- 日程块 overlay（绝对定位；不含时间列，left 百分比才和日期列对齐） -->
           <div class="cal-events-overlay">
@@ -629,6 +646,11 @@ const slotHeight = 30
 const pxPerMinute = slotHeight / SLOT_MINUTES
 const startHour = 0               // 00:00
 const endHour = 24                // 24:00（不含）
+// 00:00–06:00、22:00–24:00 绝大多数时候是空的：没有日程就折成一条窄栏。
+// 折叠栏的高度要和分钟定位里的 offset 对上。
+const EARLY_END_MIN = 6 * 60
+const LATE_START_MIN = 22 * 60
+const COLLAPSED_ROW_HEIGHT = 34
 
 /** 像素值写法：整数不带 .0，非整数保留一位（06:31 这类分钟级位置） */
 const pxText = (value) => `${Math.round(value * 10) / 10}px`
@@ -643,6 +665,12 @@ const timeSlots = computed(() => {
   }
   return slots
 })
+
+const earlySlots = computed(() => timeSlots.value.slice(0, EARLY_END_MIN / SLOT_MINUTES))
+const mainSlots = computed(() =>
+  timeSlots.value.slice(EARLY_END_MIN / SLOT_MINUTES, LATE_START_MIN / SLOT_MINUTES)
+)
+const lateSlots = computed(() => timeSlots.value.slice(LATE_START_MIN / SLOT_MINUTES))
 
 // ---------- 周导航 ----------
 const currentMonday = ref(getMonday(new Date()))
@@ -741,10 +769,11 @@ function nextWeek() {
 function goToday() {
   currentMonday.value = getMonday(new Date())
   // 已经在今天这一周时上面那句不触发 watch，所以这里直接再居中一次；
-  // 纵向也回到当前时间，不然全天网格会停在 00:00 那一屏
+  // 纵向也回到当前时间，早上/深夜落在折叠区间里就先展开
+  openRangeForNow()
   nextTick(() => {
     centerToday()
-    scrollToSlot(nowSlotIndex())
+    scrollToSlot(nowSlotLabel())
   })
 }
 
@@ -840,28 +869,36 @@ function centerToday() {
   centerDay(formatDate(new Date()))
 }
 
-// 当前时间落在第几个 15 分钟格里。00:00 之前、24:00 之后夹到首尾两格
-function nowSlotIndex() {
+/** 当前时间对应的 15 分钟格（"HH:MM"）。折叠区间里也要先展开才有这一行 */
+function nowSlotLabel() {
   const minutes = now.value.getHours() * 60 + now.value.getMinutes()
-  const idx = Math.floor((minutes - startHour * 60) / SLOT_MINUTES)
-  return Math.min(Math.max(idx, 0), timeSlots.value.length - 1)
+  const floored = Math.floor(minutes / SLOT_MINUTES) * SLOT_MINUTES
+  const total = Math.min(Math.max(floored, 0), 24 * 60 - SLOT_MINUTES)
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 }
 
 /** 把某一行时间格滚到日历容器的垂直中间。日历自己滚，不再带着整个页面跳 */
-function scrollToSlot(idx, smooth = true) {
+function scrollToSlot(label, smooth = true) {
   const box = calendarWrapper.value
-  const row = box?.querySelectorAll('.cal-time-row')[idx]
+  const row = box?.querySelector(`.cal-time-row[data-slot="${label}"]`)
   if (!box || !row) return
   const delta = row.getBoundingClientRect().top - box.getBoundingClientRect().top
   const top = box.scrollTop + delta - box.clientHeight / 2 + row.offsetHeight / 2
   box.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' })
 }
 
+/** 当前时间在折叠区间里就先展开，再滚过去 */
+function openRangeForNow() {
+  if (nowMinutes.value < EARLY_END_MIN) earlyManual.value = true
+  else if (nowMinutes.value >= LATE_START_MIN) lateManual.value = true
+}
+
 // 点表头左上角那格：把当前时间所在的那一行带到屏幕中间
 function scrollToNow(smooth = true) {
   now.value = new Date() // 定时器 30 秒才跳一次，点的时候先对一次表
+  openRangeForNow()
   centerDay(formatDate(now.value))
-  scrollToSlot(nowSlotIndex(), smooth)
+  nextTick(() => scrollToSlot(nowSlotLabel(), smooth))
 }
 
 function formatDate(d) {
@@ -900,13 +937,16 @@ async function loadSchedules() {
       // 全天网格一屏放不下，首次进来要直接停在当前时间附近，而不是 00:00
       nextTick(() => {
         centerToday()
-        scrollToSlot(nowSlotIndex(), false)
+        scrollToSlot(nowSlotLabel(), false)
       })
     }
   }
 }
 
 watch(currentMonday, () => {
+  // 换一周就重新判断哪些区间是空的，手动展开的状态不带到下一周
+  earlyManual.value = false
+  lateManual.value = false
   loadSchedules()
 })
 
@@ -917,6 +957,76 @@ const nowClock = computed(() => {
   const m = String(now.value.getMinutes()).padStart(2, '0')
   return `${h}:${m}`
 })
+
+// ---------- 00–06 / 22–24 折叠 ----------
+// 这两个区间绝大多数时候是空的。没有日程就折成一条窄栏；有日程、或者当前时间
+// 正好落在里面时自动展开。手动点窄栏也能展开，方便在深夜/清晨新建日程。
+const nowMinutes = computed(() => now.value.getHours() * 60 + now.value.getMinutes())
+const earlyManual = ref(false)
+const lateManual = ref(false)
+
+const timeMinutesOf = (iso) => {
+  const t = (iso || '').split('T')[1]?.substring(0, 5) || '00:00'
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+const hasEarlyEvent = computed(() =>
+  schedules.value.some((e) => !e.all_day && timeMinutesOf(e.start_time) < EARLY_END_MIN)
+)
+const hasLateEvent = computed(() =>
+  schedules.value.some((e) => !e.all_day && timeMinutesOf(e.end_time) > LATE_START_MIN)
+)
+const todayInWeek = computed(() => weekDays.value.some((d) => d.isToday))
+const earlyOpen = computed(
+  () =>
+    earlyManual.value ||
+    hasEarlyEvent.value ||
+    (todayInWeek.value && nowMinutes.value < EARLY_END_MIN)
+)
+const lateOpen = computed(
+  () =>
+    lateManual.value ||
+    hasLateEvent.value ||
+    (todayInWeek.value && nowMinutes.value >= LATE_START_MIN)
+)
+
+/** 网格实际渲染的行：展开时是一格格时间，折叠时是一条窄栏 */
+const gridRows = computed(() => {
+  const rows = []
+  if (earlyOpen.value) {
+    for (const slot of earlySlots.value) rows.push({ type: 'slot', slot, key: slot })
+  } else {
+    rows.push({
+      type: 'collapsed', key: 'early', range: 'early',
+      time: '00:00', label: '00:00–06:00 无日程，点击展开'
+    })
+  }
+  for (const slot of mainSlots.value) rows.push({ type: 'slot', slot, key: slot })
+  if (lateOpen.value) {
+    for (const slot of lateSlots.value) rows.push({ type: 'slot', slot, key: slot })
+  } else {
+    rows.push({
+      type: 'collapsed', key: 'late', range: 'late',
+      time: '22:00', label: '22:00–24:00 无日程，点击展开'
+    })
+  }
+  return rows
+})
+
+function expandRange(range) {
+  if (range === 'early') earlyManual.value = true
+  else lateManual.value = true
+}
+
+/** 分钟 → 网格里的 y 坐标；中间要跳过折叠栏占掉的高度 */
+function minuteTop(min) {
+  const earlyPx = earlyOpen.value ? EARLY_END_MIN * pxPerMinute : COLLAPSED_ROW_HEIGHT
+  if (min < EARLY_END_MIN) return min * pxPerMinute
+  if (min < LATE_START_MIN) return earlyPx + (min - EARLY_END_MIN) * pxPerMinute
+  const mainPx = (LATE_START_MIN - EARLY_END_MIN) * pxPerMinute
+  return earlyPx + mainPx + (min - LATE_START_MIN) * pxPerMinute
+}
+
 let clockTimer = null
 
 onMounted(() => {
@@ -947,12 +1057,8 @@ const positionedEvents = computed(() => {
     const dayIndex = (new Date(evt.instance_date).getDay() + 6) % 7
 
     // 按分钟定位：06:31 就落在 06:31，不再按 10/15 分钟格向下取整
-    const startStr = evt.start_time.split('T')[1]?.substring(0, 5) || '00:00'
-    const endStr = evt.end_time.split('T')[1]?.substring(0, 5) || '00:00'
-    const [sh, sm] = startStr.split(':').map(Number)
-    const [eh, em] = endStr.split(':').map(Number)
-    const startMin = sh * 60 + sm
-    const endMin = eh * 60 + em
+    const startMin = timeMinutesOf(evt.start_time)
+    const endMin = timeMinutesOf(evt.end_time)
 
     if (startMin < dayStartMin || endMin > dayEndMin || endMin <= startMin) continue
 
@@ -969,7 +1075,7 @@ const positionedEvents = computed(() => {
       // 留白也跟着收一收，紧挨着才不显空）
       const gap = cols === 1 ? 4 : 2
       const colWidth = 100 / 7 / cols
-      const top = (evt.startIdx - dayStartMin) * pxPerMinute
+      const top = minuteTop(evt.startIdx)
       const height = (evt.endIdx - evt.startIdx) * pxPerMinute - 2  // -2 留间隙
 
       events.push({
@@ -1986,6 +2092,35 @@ async function handleResetToken() {
 /* 时间行 */
 .cal-time-row {
   position: relative;
+}
+
+/* 00–06 / 22–24 没日程时折成的一条窄栏 */
+.cal-collapsed {
+  cursor: pointer;
+  background: var(--el-fill-color-lighter);
+  transition: background-color 0.15s;
+}
+
+.cal-collapsed:hover {
+  background: var(--el-fill-color-light);
+}
+
+.cal-collapsed-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  overflow: hidden;
+}
+
+/* 钉在时间列右边：横向滚到今天那列时，「点击展开」还在眼前 */
+.cal-collapsed-tip {
+  position: sticky;
+  left: 68px;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .cal-cell {
