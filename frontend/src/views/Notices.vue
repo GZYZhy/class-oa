@@ -89,10 +89,6 @@
                 </el-tag>
               </div>
               <span class="title-date">{{ item.publish_date }}</span>
-              <!-- 编辑过的通知自动带更新标识 -->
-              <el-tag v-if="item.updated_at" size="small" type="warning" effect="plain">
-                已于 {{ formatDayTime(item.updated_at) }} 更新
-              </el-tag>
               <!-- 分享对所有人可见（通知公告本身就是公开的）；stop 防止点一下把折叠面板收起来 -->
               <el-button
                 link
@@ -131,13 +127,15 @@
             </div>
           </div>
 
-          <div v-if="userStore.isCommittee" class="notice-footer">
+          <div v-if="item.updated_at || userStore.isCommittee" class="notice-footer">
             <span v-if="item.updated_at" class="updated-tip">
-              本条已于 {{ formatDayTime(item.updated_at) }} 更新
+              本条已于 {{ formatDateTime(item.updated_at) }} 更新
             </span>
-            <el-button type="primary" link @click.stop="openReads(item)">已读情况</el-button>
-            <el-button type="primary" link @click.stop="openEdit(item)">编辑</el-button>
-            <el-button type="danger" link @click.stop="handleDelete(item)">删除</el-button>
+            <template v-if="userStore.isCommittee">
+              <el-button type="primary" link @click.stop="openReads(item)">已读情况</el-button>
+              <el-button type="primary" link @click.stop="openEdit(item)">编辑</el-button>
+              <el-button type="danger" link @click.stop="handleDelete(item)">删除</el-button>
+            </template>
           </div>
         </el-collapse-item>
       </el-collapse>
@@ -378,7 +376,6 @@ import {
   getRssToken
 } from '@/api/notice'
 import { downloadFile } from '@/utils/download'
-import { formatDayTime } from '@/utils/format'
 import { renderMarkdown, formatFileSize } from '@/utils/markdown'
 import { copyText } from '@/utils/clipboard'
 import { noticeIdFromQuery } from '@/utils/notice'

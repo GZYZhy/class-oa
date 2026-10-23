@@ -7,21 +7,6 @@ export function formatDateTime(value) {
   return String(value).replace('T', ' ').replace(/\.\d+$/, '').slice(0, 16)
 }
 
-/**
- * 只保留「日 + 时分」，形如「24日 14:30」
- *
- * 通知的「已于 … 更新」标签用它：年和月在通知列表里本来就是多余的，
- * 写全了反而比标题还长。
- */
-export function formatDayTime(value) {
-  const text = formatDateTime(value)
-  if (text === '-') return text
-  const [date, time = ''] = String(text).split(' ')
-  const day = date.split('-')[2]
-  if (!day) return text
-  return time ? `${Number(day)}日 ${time}` : `${Number(day)}日`
-}
-
 /** 只取日期部分，形如 2026-09-24 */
 export function formatDate(value) {
   if (!value) return '-'
