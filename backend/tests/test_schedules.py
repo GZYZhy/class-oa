@@ -2232,8 +2232,47 @@ def test_import_anchor_not_monday_snaps_back(b):
     assert any(it["start_date"] == "2026-10-12" for it in data["items"])
 
 
-def test_calendar_starts_at_six():
-    """06:00 起：升旗、早操这类早于 07:00 的日程才能落到日历格子里"""
-    from app.models.schedule import DAY_START_HOUR
+def test_calendar_covers_the_whole_day():
+    """全天 00:00–24:00；导入至少接受 5 分钟粒度"""
+    from app.models.schedule import DAY_END_HOUR, DAY_START_HOUR, IMPORT_MINUTE_STEP
 
-    assert DAY_START_HOUR == 6
+    assert (DAY_START_HOUR, DAY_END_HOUR) == (0, 24)
+    assert IMPORT_MINUTE_STEP == 5
+
+
+def test_import_accepts_five_minute_rows():
+    """5 分钟一行的课表：08:00–09:35 的块要落成 08:00–09:40
+
+    结束时间按合并块下一行的真实时间算。以前写死 +10 分钟，
+    这种 5 分钟表格会整体少算一半。
+    """
+    from app.services.schedule_import_service import parse_schedule_excel
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "第1周"
+    ws.cell(row=1, column=1, value="时间")
+    ws.cell(row=1, column=2, value="周一")
+    # 08:00 起每 5 分钟一行，共 25 行到 10:00
+    for i in range(25):
+        total = 8 * 60 + i * 5
+        ws.cell(row=i + 2, column=1, value=f"{total // 60:02d}:{total % 60:02d}")
+    # 08:00（第 2 行）到 09:35（第 21 行）
+    ws.merge_cells(start_row=2, start_column=2, end_row=21, end_column=2)
+    ws.cell(row=2, column=2, value="高等数学\n课程\n励学楼101")
+    buf = BytesIO()
+    wb.save(buf)
+
+    items, warnings, _ = parse_schedule_excel(buf.getvalue(), date(2026, 10, 12))
+    assert not warnings
+    assert len(items) == 1, items
+    assert items[0]["start_time"] == "08:00"
+    assert items[0]["end_time"] == "09:40"
+
+
+def test_import_clamps_a_block_ending_at_midnight():
+    """时间列最后一格 23:55 的块，结束时间停在 23:59，不会算出 24:00"""
+    from app.services.schedule_import_service import _add_minutes
+
+    assert _add_minutes("23:55", 5) == "23:59"
+    assert _add_minutes("23:50", 10) == "23:59"

@@ -46,8 +46,8 @@
             role="button"
             tabindex="0"
             title="点击跳到当前时间"
-            @click="scrollToNow"
-            @keydown.enter="scrollToNow"
+            @click="scrollToNow()"
+            @keydown.enter="scrollToNow()"
           >
             <div class="now-clock-label">当前时间</div>
             <div class="now-clock">{{ nowClock }}</div>
@@ -100,7 +100,8 @@
             :style="{ height: slotHeight + 'px' }"
           >
             <div class="cal-time-col" :class="{ 'hour-mark': slot.endsWith(':00') }">
-              {{ slot }}
+              <!-- 15 分钟一格，但每半小时才写一次时间：整天 96 行都写会糊成一列 -->
+              {{ slot.endsWith(':00') || slot.endsWith(':30') ? slot : '' }}
             </div>
             <div
               v-for="(day, dayIdx) in weekDays"
@@ -188,20 +189,21 @@
           />
         </el-form-item>
         <el-form-item v-else label="时间" required>
-          <el-time-select
+          <!-- 两栏滚轮（时 / 分），不再把 0:00–24:00 的每个刻度铺成一条长列表 -->
+          <el-time-picker
             v-model="editForm.start_time"
-            :start="'06:00'"
-            :step="'00:10'"
-            :end="'21:50'"
+            format="HH:mm"
+            value-format="HH:mm"
+            :clearable="false"
             placeholder="开始时间"
             style="width: 45%"
           />
           <span style="margin: 0 8px">至</span>
-          <el-time-select
+          <el-time-picker
             v-model="editForm.end_time"
-            :start="'06:10'"
-            :step="'00:10'"
-            :end="'22:00'"
+            format="HH:mm"
+            value-format="HH:mm"
+            :clearable="false"
             placeholder="结束时间"
             style="width: 45%"
           />
@@ -618,16 +620,24 @@ import { errText } from '@/utils/request'
 const userStore = useUserStore()
 
 // ---------- 时间常量 ----------
-const slotHeight = 28  // 每个 10 分钟格子的高度（px）
-// 06:00 起：升旗、早操这类早于 07:00 的日程也要能显示（和 models/schedule.py 一致）
-const startHour = 6
-const endHour = 22  // 不含
+// 网格一行 15 分钟，全天 00:00–24:00。日程块本身按分钟定位，所以 06:31 这种
+// 时间也能画在正确位置；15 分钟只是格线和点击建日程的落点。
+const SLOT_MINUTES = 15
+// 全天 96 行。30px 一行 = 2px/分钟，整天 2880px（约四屏）；
+// 再高就会变成一整天要滚七八屏，15 分钟的小日程也会显得空。
+const slotHeight = 30
+const pxPerMinute = slotHeight / SLOT_MINUTES
+const startHour = 0               // 00:00
+const endHour = 24                // 24:00（不含）
 
-// 生成 10 分钟粒度的时间槽
+/** 像素值写法：整数不带 .0，非整数保留一位（06:31 这类分钟级位置） */
+const pxText = (value) => `${Math.round(value * 10) / 10}px`
+
+// 生成 15 分钟粒度的时间槽
 const timeSlots = computed(() => {
   const slots = []
   for (let h = startHour; h < endHour; h++) {
-    for (let m = 0; m < 60; m += 10) {
+    for (let m = 0; m < 60; m += SLOT_MINUTES) {
       slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)
     }
   }
@@ -730,8 +740,12 @@ function nextWeek() {
 
 function goToday() {
   currentMonday.value = getMonday(new Date())
-  // 已经在今天这一周时上面那句不触发 watch，所以这里直接再居中一次
-  nextTick(centerToday)
+  // 已经在今天这一周时上面那句不触发 watch，所以这里直接再居中一次；
+  // 纵向也回到当前时间，不然全天网格会停在 00:00 那一屏
+  nextTick(() => {
+    centerToday()
+    scrollToSlot(nowSlotIndex())
+  })
 }
 
 // ---------- 前往某一天 ----------
@@ -826,21 +840,28 @@ function centerToday() {
   centerDay(formatDate(new Date()))
 }
 
-// 当前时间落在第几个 10 分钟格里。7:00 之前、22:00 之后夹到首尾两格
+// 当前时间落在第几个 15 分钟格里。00:00 之前、24:00 之后夹到首尾两格
 function nowSlotIndex() {
   const minutes = now.value.getHours() * 60 + now.value.getMinutes()
-  const idx = Math.floor((minutes - startHour * 60) / 10)
+  const idx = Math.floor((minutes - startHour * 60) / SLOT_MINUTES)
   return Math.min(Math.max(idx, 0), timeSlots.value.length - 1)
 }
 
-// 点表头左上角那格：把当前时间所在的那一行带到屏幕中间。
-// 竖向滚动发生在页面层（日历容器只横向滚），scrollIntoView 正好带过去；
-// inline: 'nearest' 保证不会因为这一行比屏幕宽而把横向位置也挪走
-function scrollToNow() {
+/** 把某一行时间格滚到日历容器的垂直中间。日历自己滚，不再带着整个页面跳 */
+function scrollToSlot(idx, smooth = true) {
+  const box = calendarWrapper.value
+  const row = box?.querySelectorAll('.cal-time-row')[idx]
+  if (!box || !row) return
+  const delta = row.getBoundingClientRect().top - box.getBoundingClientRect().top
+  const top = box.scrollTop + delta - box.clientHeight / 2 + row.offsetHeight / 2
+  box.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' })
+}
+
+// 点表头左上角那格：把当前时间所在的那一行带到屏幕中间
+function scrollToNow(smooth = true) {
   now.value = new Date() // 定时器 30 秒才跳一次，点的时候先对一次表
   centerDay(formatDate(now.value))
-  const row = calendarWrapper.value?.querySelectorAll('.cal-time-row')[nowSlotIndex()]
-  row?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+  scrollToSlot(nowSlotIndex(), smooth)
 }
 
 function formatDate(d) {
@@ -875,8 +896,12 @@ async function loadSchedules() {
     loading.value = false
     if (!centeredOnce) {
       centeredOnce = true
-      // 等这一帧的 DOM 落定再量宽（表格刚渲染出来时量不到）
-      nextTick(centerToday)
+      // 等这一帧的 DOM 落定再量宽高（表格刚渲染出来时量不到）。
+      // 全天网格一屏放不下，首次进来要直接停在当前时间附近，而不是 00:00
+      nextTick(() => {
+        centerToday()
+        scrollToSlot(nowSlotIndex(), false)
+      })
     }
   }
 }
@@ -912,7 +937,8 @@ onUnmounted(() => {
 // 定时日程的块：先按天分组，同一天里时间上撞在一起的并排（columnizeDay）
 const positionedEvents = computed(() => {
   const events = []
-  const slotsPerHour = 6
+  const dayStartMin = startHour * 60
+  const dayEndMin = endHour * 60
   const byDay = new Map()
 
   for (const evt of schedules.value) {
@@ -920,21 +946,22 @@ const positionedEvents = computed(() => {
     // 周一为 0：getDay() 把周日排在第 0 位，得挪到最后去
     const dayIndex = (new Date(evt.instance_date).getDay() + 6) % 7
 
-    // 计算起始和结束的 slot 索引
+    // 按分钟定位：06:31 就落在 06:31，不再按 10/15 分钟格向下取整
     const startStr = evt.start_time.split('T')[1]?.substring(0, 5) || '00:00'
     const endStr = evt.end_time.split('T')[1]?.substring(0, 5) || '00:00'
     const [sh, sm] = startStr.split(':').map(Number)
     const [eh, em] = endStr.split(':').map(Number)
-    const startIdx = (sh - startHour) * slotsPerHour + Math.floor(sm / 10)
-    const endIdx = (eh - startHour) * slotsPerHour + Math.floor(em / 10)
+    const startMin = sh * 60 + sm
+    const endMin = eh * 60 + em
 
-    if (startIdx < 0 || endIdx > timeSlots.value.length) continue
+    if (startMin < dayStartMin || endMin > dayEndMin || endMin <= startMin) continue
 
     if (!byDay.has(dayIndex)) byDay.set(dayIndex, [])
-    byDay.get(dayIndex).push({ ...evt, startIdx, endIdx })
+    byDay.get(dayIndex).push({ ...evt, startIdx: startMin, endIdx: endMin })
   }
 
   for (const [dayIndex, list] of byDay) {
+    // 重叠判断也用分钟：5 分钟的重叠也能并排，而不是被格子磨平
     const laid = columnizeDay(list)
     list.forEach((evt, k) => {
       const { col, cols } = laid[k]
@@ -942,7 +969,8 @@ const positionedEvents = computed(() => {
       // 留白也跟着收一收，紧挨着才不显空）
       const gap = cols === 1 ? 4 : 2
       const colWidth = 100 / 7 / cols
-      const height = (evt.endIdx - evt.startIdx) * slotHeight - 2  // -2 留间隙
+      const top = (evt.startIdx - dayStartMin) * pxPerMinute
+      const height = (evt.endIdx - evt.startIdx) * pxPerMinute - 2  // -2 留间隙
 
       events.push({
         ...evt,
@@ -950,8 +978,8 @@ const positionedEvents = computed(() => {
         // 窄到只够放一个字的时候那颗铃铛会正好压在标题上，藏掉它（见模板）
         narrow: cols > 1,
         style: {
-          top: evt.startIdx * slotHeight + 'px',
-          height: Math.max(height, 20) + 'px',
+          top: pxText(top),
+          height: pxText(Math.max(height, 20)),
           left: `calc(${dayIndex * (100 / 7) + col * colWidth}% + ${gap}px)`,
           width: `calc(${colWidth}% - ${gap * 2}px)`,
         }
@@ -1142,12 +1170,11 @@ function openCreate(date = null, time = null) {
   }
   if (time) {
     editForm.value.start_time = time
-    // 默认 1 小时
+    // 默认 1 小时；接近午夜时停在 23:59，别算出 24:00 或倒回开始之前
     const [h, m] = time.split(':').map(Number)
-    let endH = h + 1
-    let endM = m
-    if (endH >= endHour) { endH = endHour - 1; endM = 50 }
-    editForm.value.end_time = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`
+    const endMin = Math.min(h * 60 + m + 60, 23 * 60 + 59)
+    editForm.value.end_time =
+      `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`
   }
   editDialog.value = {
     visible: true,
@@ -1296,6 +1323,10 @@ async function handleSave() {
   const form = editForm.value
   if (!form.title.trim()) {
     ElMessage.warning('请输入日程标题')
+    return
+  }
+  if (!form.all_day && (!form.start_time || !form.end_time)) {
+    ElMessage.warning('请选择开始和结束时间')
     return
   }
   if (!form.all_day && form.start_time >= form.end_time) {
@@ -1825,10 +1856,16 @@ async function handleResetToken() {
 
 /* 日历网格 */
 .calendar-wrapper {
-  /* 手机等窄屏不把 7 天挤扁：表格保持电脑上的列宽，装不下就横向滚 */
-  overflow-x: auto;
-  overflow-y: hidden;
+  /* 手机等窄屏不把 7 天挤扁：表格保持电脑上的列宽，装不下就横向滚。
+     全天 24 小时有 96 行，竖向也在容器里滚：表头 sticky 钉在顶上，
+     页面工具栏不会被一张四千像素高的表顶走 */
+  overflow: auto;
+  max-height: calc(100vh - 200px);
+  max-height: calc(100dvh - 200px);
+  min-height: 380px;
   padding: 0;
+  /* 滚到边界时别把页面一起带着滚 */
+  overscroll-behavior: contain;
 }
 
 .calendar-grid {
