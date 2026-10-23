@@ -22,8 +22,8 @@ import openpyxl
 from ..models.schedule import (
     DAY_END_HOUR,
     DAY_START_HOUR,
+    IMPORT_MINUTE_STEP,
     REPEAT_NONE,
-    TIME_SLOT_MINUTES,
 )
 
 
@@ -260,7 +260,7 @@ def _suggest_anchor(wb, week_sheets: list[tuple[str, int]], warnings: list[str])
 def _parse_time_column(ws, warnings: list[str], sheet_name: str) -> dict[int, str]:
     """解析 A 列时间，返回 {行号: "HH:MM"}
 
-    只识别 07:00–21:50 范围内、10 分钟对齐的时间。
+    全天 00:00–23:55 都收，最小粒度 5 分钟（10 分钟的课表当然也满足）。
     A 列被 Excel 设成「时间」格式时读出来是 datetime.time（或 datetime），
     不只是字符串 —— 只认字符串的话整张表会被「没有识别到时间列」跳过。
     """
@@ -284,7 +284,7 @@ def _parse_time_column(ws, warnings: list[str], sheet_name: str) -> dict[int, st
 
         if not (DAY_START_HOUR <= hour < DAY_END_HOUR):
             continue
-        if minute % TIME_SLOT_MINUTES != 0:
+        if minute % IMPORT_MINUTE_STEP != 0:
             continue
         time_map[row] = f"{hour:02d}:{minute:02d}"
     return time_map
@@ -326,8 +326,9 @@ def _parse_merged_blocks(
             continue
 
         start_time_str = time_map[min_row]
-        # 结束时间 = 最后一行的时间 + 10 分钟
-        end_time_str = _add_minutes(time_map[end_row], TIME_SLOT_MINUTES)
+        # 结束时间优先取合并块**下一行**的时间：行距是 5 还是 10 分钟由表格自己决定，
+        # 不再假设固定 10 分钟。表底没有下一行时，按时间列的实际行距补一格。
+        end_time_str = _end_after(time_map, end_row)
 
         # 取单元格值（左上角）
         cell_value = ws.cell(row=min_row, column=min_col).value
@@ -381,10 +382,39 @@ def _parse_cell_content(text: str) -> tuple[str, str, str, str]:
     return title, event_type, location, description
 
 
-def _add_minutes(time_str: str, minutes: int) -> str:
-    """给 HH:MM 格式的时间加 N 分钟"""
+def _minutes_of(time_str: str) -> int:
     h, m = map(int, time_str.split(":"))
-    total = h * 60 + m + minutes
+    return h * 60 + m
+
+
+def _row_step(time_map: dict[int, str]) -> int:
+    """时间列的行距（分钟）
+
+    正常课表是均匀的 5 / 10 / 15 分钟一行；取相邻时间的最小正差值，
+    这样中间夹了空行也不会把行距算大。实在看不出来就退回 10 分钟。
+    """
+    labels = [time_map[row] for row in sorted(time_map)]
+    gaps = [
+        _minutes_of(b) - _minutes_of(a)
+        for a, b in zip(labels, labels[1:])
+        if _minutes_of(b) > _minutes_of(a)
+    ]
+    return min(gaps) if gaps else 10
+
+
+def _end_after(time_map: dict[int, str], end_row: int) -> str:
+    """合并块结束时间：下一行有时间就用它，否则按行距补一格，最后夹到 23:59"""
+    current = time_map[end_row]
+    next_label = time_map.get(end_row + 1)
+    if next_label and _minutes_of(next_label) > _minutes_of(current):
+        return next_label
+    return _add_minutes(current, _row_step(time_map))
+
+
+def _add_minutes(time_str: str, minutes: int) -> str:
+    """给 HH:MM 格式的时间加 N 分钟；越到 24:00 就停在 23:59"""
+    h, m = map(int, time_str.split(":"))
+    total = min(h * 60 + m + minutes, 24 * 60 - 1)
     h2, m2 = divmod(total, 60)
     return f"{h2:02d}:{m2:02d}"
 
