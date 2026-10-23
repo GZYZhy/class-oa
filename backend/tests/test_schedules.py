@@ -2230,3 +2230,10 @@ def test_import_anchor_not_monday_snaps_back(b):
     assert data["anchor_monday"] == "2026-10-12"
     assert any("不是周一" in w for w in data["warnings"]), data["warnings"]
     assert any(it["start_date"] == "2026-10-12" for it in data["items"])
+
+
+def test_calendar_starts_at_six():
+    """06:00 起：升旗、早操这类早于 07:00 的日程才能落到日历格子里"""
+    from app.models.schedule import DAY_START_HOUR
+
+    assert DAY_START_HOUR == 6

@@ -190,7 +190,7 @@
         <el-form-item v-else label="时间" required>
           <el-time-select
             v-model="editForm.start_time"
-            :start="'07:00'"
+            :start="'06:00'"
             :step="'00:10'"
             :end="'21:50'"
             placeholder="开始时间"
@@ -199,7 +199,7 @@
           <span style="margin: 0 8px">至</span>
           <el-time-select
             v-model="editForm.end_time"
-            :start="'07:10'"
+            :start="'06:10'"
             :step="'00:10'"
             :end="'22:00'"
             placeholder="结束时间"
@@ -619,7 +619,8 @@ const userStore = useUserStore()
 
 // ---------- 时间常量 ----------
 const slotHeight = 28  // 每个 10 分钟格子的高度（px）
-const startHour = 7
+// 06:00 起：升旗、早操这类早于 07:00 的日程也要能显示（和 models/schedule.py 一致）
+const startHour = 6
 const endHour = 22  // 不含
 
 // 生成 10 分钟粒度的时间槽
