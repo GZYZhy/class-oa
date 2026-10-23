@@ -1305,7 +1305,20 @@ const subscribeUrl = ref('http://oa.example.com/api/notices/rss/cafebabe.xml')`,
   }
   check(noticeIdFromQuery({ id: ' 12 ' }) === 12, '两头带空格也认')
 
+  // 更新标签只留「日 + 时分」：通知列表里年月是多余的
+  const { formatDayTime } = await server.ssrLoadModule('/src/utils/format.js')
+  check(formatDayTime('2026-10-22T09:58:03.123456') === '22日 09:58',
+    '更新时间显示成「22日 09:58」，不带年月')
+  check(formatDayTime('2026-10-22') === '22日', '只有日期时也不拼出空的时间')
+  check(formatDayTime('') === '-', '空值仍然是 -')
+
   const src = readFileSync(`${ROOT}src/views/Notices.vue`, 'utf-8')
+  check(src.includes('formatDayTime(item.updated_at)') &&
+    !src.includes('formatDateTime(item.updated_at)'),
+  '通知列表和页脚的更新标签都换成了短格式')
+  const shareNotice = readFileSync(`${ROOT}src/views/share/ShareNotice.vue`, 'utf-8')
+  check(shareNotice.includes('formatDayTime(notice.updated_at)'),
+    '分享出去的公告页也保持一致')
   check(src.includes('v-if="userStore.isLogin && !userStore.isExternal"'),
     '模板上的可见性条件就是这一条')
   check(src.includes('copyText(subscribeUrl.value)'),
