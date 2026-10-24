@@ -27,7 +27,9 @@
             <el-form-item label="牌照号" prop="plate_number">
               <el-input v-model="form.plate_number" placeholder="如：北京1234567" maxlength="50" />
             </el-form-item>
-            <el-form-item label="行驶证" prop="license">
+            <!-- 同请假页：文件不在 form 上，校验走自定义 validator，
+                 星号用 required 属性给，别写进规则 -->
+            <el-form-item label="行驶证" prop="license" required>
               <el-upload
                 ref="uploadRef"
                 :auto-upload="false"
