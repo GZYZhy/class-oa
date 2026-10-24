@@ -268,3 +268,27 @@ export function getDataHealth() {
     method: 'get'
   })
 }
+
+// ==================== 关于班级 ====================
+
+/**
+ * 「关于班级」页的可配置内容（仅管理员）
+ *
+ * 返回班级简介的开关与正文、任职表开关，以及**已按保存顺序排好**的成员列表。
+ * 排序键是学号：学生删了重建还是同一个学号，用主键反而会失效。
+ */
+export function getAboutConfig() {
+  return request({
+    url: '/admin/about',
+    method: 'get'
+  })
+}
+
+/** 保存上面这一整套（整体覆盖）。order 是学号数组，只决定展示顺序 */
+export function saveAboutConfig(data) {
+  return request({
+    url: '/admin/about',
+    method: 'put',
+    data
+  })
+}

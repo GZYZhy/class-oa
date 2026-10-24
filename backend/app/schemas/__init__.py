@@ -44,7 +44,14 @@ from .admin import (
     DataHealthGroup,
     DataHealthResponse,
 )
-from .about import CommitteeMember, AboutResponse
+from .about import (
+    AboutAdminResponse,
+    AboutIntro,
+    AboutMember,
+    AboutResponse,
+    AboutSettingsUpdate,
+    CommitteeMember,
+)
 from .leave import (
     LeaveAdvisorSignature,
     LeaveCorrectRequest,

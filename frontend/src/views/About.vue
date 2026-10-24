@@ -24,8 +24,16 @@
       </el-descriptions>
     </div>
 
-    <!-- 班委成员（不展示手机号） -->
-    <div class="page-card" style="margin-top: 20px;">
+    <!-- 班级简介：管理员在系统管理里开关和写内容。
+         开关开着但一个字没写时也不显示 —— 空卡片比没有更难看 -->
+    <div v-if="introHtml" class="page-card" style="margin-top: 20px;">
+      <h3 class="page-title">班级简介</h3>
+      <!-- 内容是管理员写的 Markdown，renderMarkdown 里已经过 DOMPurify -->
+      <div class="markdown-body" v-html="introHtml"></div>
+    </div>
+
+    <!-- 班委成员（不展示手机号）。顺序由管理员在系统管理里排 -->
+    <div v-if="rosterEnabled" class="page-card" style="margin-top: 20px;">
       <h3 class="page-title">班委成员</h3>
       <el-table :data="committeeList" size="default" stripe border>
         <el-table-column type="index" label="序号" width="70" align="center" />
@@ -37,9 +45,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getAbout } from '@/api/about'
+import { renderMarkdown } from '@/utils/markdown'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { SITE } from '@/utils/site'
 
@@ -50,12 +59,23 @@ const isMobile = useIsMobile()
 // 普通学生打开本页会 403，所以改走后端专门的 /api/about（只吐人数和班委姓名职务）
 const stats = ref(null)
 const committeeList = ref([])
+const rosterEnabled = ref(true)
+const intro = ref({ enabled: false, markdown: '' })
+
+// 只有「开着」且「有内容」才出这张卡片
+const introHtml = computed(() =>
+  intro.value.enabled && intro.value.markdown.trim()
+    ? renderMarkdown(intro.value.markdown)
+    : ''
+)
 
 onMounted(async () => {
   try {
     const data = await getAbout()
     stats.value = data
     committeeList.value = data.committee || []
+    rosterEnabled.value = data.roster_enabled !== false
+    intro.value = data.intro || { enabled: false, markdown: '' }
   } catch (e) {
     ElMessage.error('班级概况加载失败')
   }

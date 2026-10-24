@@ -33,6 +33,7 @@ from .services import (
     seed_from_catalog,
 )
 from .services.birthday_service import ensure_settings
+from .services.about_service import ensure_settings as ensure_about_settings
 from .services.scheduler import start as start_birthday_scheduler
 from .services.schedule_notify_service import start as start_schedule_notifier
 from .services.start_notify_service import start as start_poll_start_notifier
@@ -147,6 +148,22 @@ def init_birthday_settings() -> None:
 
 
 init_birthday_settings()
+
+
+def init_about_settings() -> None:
+    """首次启动时把「关于班级」的单行设置补出来（幂等：已有行就不动）
+
+    不补也能跑（读接口对缺行有兜底），补上之后管理员第一次保存就不用再走
+    「先建行、再写值」那一步。
+    """
+    db = SessionLocal()
+    try:
+        ensure_about_settings(db)
+    finally:
+        db.close()
+
+
+init_about_settings()
 
 
 def warn_turnstile() -> None:

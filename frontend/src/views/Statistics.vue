@@ -227,6 +227,9 @@ const provinceExtra = computed(() =>
   provinceAll.value.length > 13 ? `TOP 13 / 共 ${provinceAll.value.length} 个省份` : ''
 )
 
+/* 班委任职表的显示顺序：系统管理里排的那一份，「关于班级」页用的是同一个 */
+const committeeOrder = computed(() => stats.value?.committee_order || [])
+
 /* 榜单数据 */
 const classPositions = computed(() => toRanked(stats.value?.class_positions))
 const leaguePositions = computed(() => toRanked(stats.value?.league_positions))
@@ -287,7 +290,8 @@ async function openRoster(key) {
   rosterVisible.value = true
   rosterLoading.value = true
   try {
-    roster.value = buildRoster(key, await loadStudents())
+    // 班委那张要跟着系统管理里排好的顺序（statistics 接口一起带下来的学号数组）
+    roster.value = buildRoster(key, await loadStudents(), committeeOrder.value)
   } catch (e) {
     // 拦截器不弹错，这里不报就成了「点了没反应」
     rosterVisible.value = false

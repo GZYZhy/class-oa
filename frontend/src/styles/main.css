@@ -479,10 +479,9 @@ html .el-textarea__inner:focus {
    保证纹样永远在最底层 */
 .app-emblem {
   position: fixed;
-  /* 直径给到 520：半个徽记探出屏幕，只留一段弧压在最底层的右下角，
-     面积够大才看得出是纹样，而不是一个模糊的圆点 */
-  right: -110px;
-  bottom: -130px;
+  /* 直径 520，约一成半探出视口：比最早那版露得多、又不至于整枚压进画面 */
+  right: -72px;
+  bottom: -84px;
   width: 520px;
   height: 520px;
   object-fit: contain;
@@ -574,8 +573,8 @@ html.dark .app-emblem {
   .app-emblem {
     width: 280px;
     height: 280px;
-    right: -70px;
-    bottom: -86px;
+    right: -46px;
+    bottom: -54px;
   }
 
   /* 通栏表头跟着卡片内边距一起收，负边距要正好抵消，否则会顶出卡片圆角 */
