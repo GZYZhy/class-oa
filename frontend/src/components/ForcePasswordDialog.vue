@@ -6,7 +6,7 @@
   改完密码不跳页 —— 用户是从哪条链接来的，就留在哪里继续。
 -->
 <template>
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     title="首次登录，请设置新密码"
     width="420px"

@@ -3,7 +3,7 @@
        顶栏和菜单都还在，用户可以顺手点走，不用按浏览器返回 -->
   <div class="page-card">
     <el-empty description="页面不存在">
-      <p class="not-found-tip">地址可能输错了，或者这个页面的链接已经失效。</p>
+      <p class="not-found-tip">页面不存在或链接已失效。</p>
       <el-button type="primary" @click="router.push('/dashboard')">返回首页</el-button>
     </el-empty>
   </div>

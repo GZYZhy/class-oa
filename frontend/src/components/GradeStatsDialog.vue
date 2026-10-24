@@ -1,6 +1,6 @@
 <template>
   <!-- 单科统计表（班委及以上）。**只有单科，没有总分** —— 模块里不存在这个概念 -->
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     :title="`${stats?.name || '成绩统计'} · 统计`"
     width="92%"

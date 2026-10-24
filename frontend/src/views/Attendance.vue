@@ -65,7 +65,7 @@
         :row-key="rowKey"
         stripe
         style="margin-top: 12px;"
-        empty-text="还没有考勤或签到记录。点一次名、发布一次签到都会出现在这里"
+        empty-text="还没有考勤或签到记录"
         @selection-change="handleSelectionChange"
       >
         <!-- 跨页保留勾选：导出一份记录时不用一页一页地重选 -->
@@ -189,7 +189,7 @@
     </div>
 
     <!-- 点名明细：逐个改状态。当天点错了、事后有人说「我其实到了」都在这儿改 -->
-    <el-dialog v-model="detailVisible" :title="detailTitle" width="560px">
+    <el-dialog append-to-body v-model="detailVisible" :title="detailTitle" width="560px">
       <!-- 这次点名的标题也带进来：翻明细时看得到「为什么这次状态长这样」 -->
       <div v-if="detail.remark" class="at-remark">{{ detail.remark }}</div>
       <el-table v-loading="detailLoading" :data="detail.items" max-height="420">
@@ -224,7 +224,7 @@
     <RollCallDialog ref="rollCallRef" @saved="() => fetchList()" />
 
     <!-- 导出：要么导勾选的，要么导当前筛选结果。两者含的记录不同，先说清楚条数 -->
-    <el-dialog v-model="exportVisible" title="导出考勤与签到" width="420px">
+    <el-dialog append-to-body v-model="exportVisible" title="导出考勤与签到" width="480px">
       <el-radio-group v-model="exportMode" class="at-export-modes">
         <el-radio value="selected" :disabled="!selection.length">
           只导出选中的记录（{{ selection.length }} 条）

@@ -75,7 +75,7 @@
                 </el-alert>
 
                 <template v-else>
-                  <p class="section-sub">改动提交后需班委审核，审核通过才会真正生效</p>
+                  <p class="section-sub">提交后需班委审核，通过后生效</p>
                   <el-form :model="form" label-width="100px" style="max-width: 640px; margin-top: 12px;">
                     <!-- 身份证号只补不改：有值的学生在这里根本看不到这一格 -->
                     <el-form-item v-if="needsIdCard" label="身份证号">
@@ -371,7 +371,7 @@
             <el-tab-pane label="通知设置" name="notify">
               <div class="tab-section">
                 <p class="section-sub" style="margin-bottom: 12px;">
-                  有审核结果、新通知等情况时，通过以下方式推送给你
+                  按需选择通知方式
                 </p>
 
                 <!-- 安装到桌面：Chrome/Edge/Android 能触发原生安装横幅，iOS 没有 -->
@@ -384,7 +384,7 @@
                 >
                   <template #title>把这个应用装到桌面</template>
                   <div class="install-row">
-                    <span>装进桌面后像原生应用一样打开，全屏显示，没有地址栏。</span>
+                    <span>全屏打开，无地址栏。</span>
                     <el-button type="primary" size="small" :loading="installing" @click="handleInstall">
                       安装应用
                     </el-button>
@@ -393,7 +393,7 @@
 
                 <!-- ==================== 浏览器通知 ==================== -->
                 <div class="section-title">浏览器通知</div>
-                <div class="section-sub">用本机浏览器直接收，不用装任何东西</div>
+                <div class="section-sub">无需安装，浏览器直接接收</div>
 
                 <!-- 不支持 / 环境限制 -->
                 <el-alert v-if="webState === 'blocked'" type="warning" :closable="false" show-icon>
@@ -466,7 +466,7 @@
                 <!-- ==================== Bark 推送 ==================== -->
                 <div class="notify-channel">
                   <div class="section-title">Bark 推送</div>
-                  <div class="section-sub">手机上装 Bark App，填一个设备 ID 就能收</div>
+                  <div class="section-sub">在手机安装 Bark App，填入设备 ID</div>
 
                   <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px;">
                     <template #title>怎么拿到设备 ID</template>
@@ -507,7 +507,7 @@
             <el-tab-pane label="我的日志" name="logs">
               <div class="tab-section">
                 <div class="section-title">操作日志</div>
-                <div class="section-sub">我自己做过的事（发布通知、审核办件、点名等）</div>
+                <div class="section-sub">我发起或处理的记录</div>
                 <el-table
                   v-loading="logsLoading"
                   :data="myLogs.operations.items"

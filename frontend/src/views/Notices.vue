@@ -142,7 +142,7 @@
     </div>
 
     <!-- 发布 / 编辑弹窗 -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="publishVisible"
       :title="editingId ? '编辑通知' : '发布通知'"
       width="680px"
@@ -191,7 +191,7 @@
                 v-model="form.content"
                 type="textarea"
                 :rows="10"
-                placeholder="支持 Markdown 格式：# 标题、**加粗**、- 列表 等"
+                placeholder="支持 Markdown"
               />
             </el-form-item>
           </el-col>
@@ -270,7 +270,7 @@
     </el-dialog>
 
     <!-- 已读情况（班委及以上）：谁看了、谁还没看。点开才请求，不在列表里逐条预取 -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="readsVisible"
       :title="`已读情况 · ${readsTitle}`"
       width="560px"
@@ -313,7 +313,7 @@
     </el-dialog>
 
     <!-- RSS 订阅弹窗 -->
-    <el-dialog v-model="subscribeDialog.open" title="RSS 订阅" width="520px">
+    <el-dialog append-to-body v-model="subscribeDialog.open" title="RSS 订阅" width="520px">
       <div v-loading="subscribeLoading">
         <div class="subscribe-section">
           <div class="subscribe-label">你的私有订阅链接</div>
@@ -334,8 +334,8 @@
         <div class="subscribe-section">
           <div class="subscribe-label">如何订阅</div>
           <div class="subscribe-guide">
-            <p>把上面的链接粘进任意 RSS 阅读器（Feedly、Inoreader、Reeder、Follow 等）即可。</p>
-            <p>以后发布的每一条通知都会自动出现在阅读器里，点条目可回到本站查看全文与附件。</p>
+            <p>粘贴到任意 RSS 阅读器（Feedly、Inoreader、Reeder 等）。</p>
+            <p>新通知会自动同步，点条目可回本站查看全文与附件。</p>
           </div>
         </div>
 
@@ -344,7 +344,7 @@
         <div class="subscribe-section">
           <div class="subscribe-tip">
             <el-icon><InfoFilled /></el-icon>
-            这条链接与「我的日程」共用同一个订阅令牌；在日程页重置令牌会让它一起失效。
+            与「我的日程」共用同一令牌，重置后此链接一并失效。
           </div>
         </div>
       </div>

@@ -29,7 +29,7 @@
                 v-model="form.password"
                 type="password"
                 show-password
-                placeholder="添加钥匙等于给账号加一把锁，需要再确认一次密码"
+                placeholder="输入当前登录密码"
                 @keyup.enter="handleRegister"
               />
             </el-form-item>

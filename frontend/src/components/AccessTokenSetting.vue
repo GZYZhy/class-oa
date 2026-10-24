@@ -39,7 +39,7 @@
               v-model="form.password"
               type="password"
               show-password
-              placeholder="创建令牌是敏感操作，需要再确认一次密码"
+              placeholder="输入当前登录密码"
               @keyup.enter="handleCreate"
             />
           </el-form-item>

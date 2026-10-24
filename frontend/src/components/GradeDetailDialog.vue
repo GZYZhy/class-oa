@@ -1,6 +1,6 @@
 <template>
   <!-- 成绩明细：逐格改分、加科目、删科目 -->
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     :title="data?.name || '成绩明细'"
     width="92%"

@@ -21,7 +21,7 @@
                 v-model="form.content"
                 type="textarea"
                 :rows="8"
-                placeholder="请详细描述您的意见或建议，我们会认真对待每一条反馈"
+                placeholder="请描述你的意见或建议"
                 maxlength="5000"
                 show-word-limit
               />
@@ -82,7 +82,7 @@
     </div>
 
     <!-- 详情弹窗 -->
-    <el-dialog v-model="detailVisible" title="反馈详情" width="600px">
+    <el-dialog append-to-body v-model="detailVisible" title="反馈详情" width="600px">
       <div v-if="current" class="detail-content">
         <div class="detail-header">
           <h4>{{ current.title }}</h4>

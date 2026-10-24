@@ -4,11 +4,11 @@
       <h3 class="page-title">请假申请</h3>
 
       <ServiceIntro
-        intro="因病因事无法参加课程或集体活动时，在此提交请假申请。"
+        intro="因病因事无法参加课程或集体活动时提交。"
         deadline="3 个工作日（仅供参考）"
-        notice="本网办事项仅用于简化流程、避免材料递交繁琐，请假审批是否通过由学校决定。"
-        submitted="请假辅助证明（病假条、诊断证明等），支持 PDF 或图片，单个不超过 20MB，必填"
-        finished="请假审批表（PDF），审核通过后可下载"
+        notice="本服务仅简化流程，是否准假由学校决定。"
+        submitted="请假证明（病假条、诊断证明等），PDF 或图片，单个 ≤20MB，必填"
+        finished="请假审批表（PDF），审批后可下载"
       />
 
       <el-tabs v-model="activeTab">
@@ -16,7 +16,7 @@
         <el-tab-pane :label="editingId ? '修改申请' : '提交申请'" name="apply">
           <!-- 修改这条申请时把表单预填成它的内容，提交走 PUT 覆盖原记录 -->
           <div v-if="editingId" class="edit-hint">
-            正在修改这条申请，改完点「保存修改」；不重选文件就沿用原来那份。
+            正在修改申请，未重新上传的材料保持不变。
           </div>
 
           <el-form :model="form" :rules="rules" ref="formRef" label-width="110px" style="max-width: 640px;">

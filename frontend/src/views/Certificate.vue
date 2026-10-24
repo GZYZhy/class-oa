@@ -2,11 +2,11 @@
   <div>
     <div class="page-card" v-loading="loading">
       <ServiceIntro
-        intro="开具在读证明、实习介绍信等由班委出具的文书。"
+        intro="开具在读证明、实习介绍信等文书。"
         deadline="7 个工作日（仅供参考）"
-        :notice="'班委会开具的介绍信公信力有限，如需学院或学校证明、各类导师签字的文件，请勿在此提交。\n提交前请与班委联系。'"
-        submitted="申请依据材料，支持 PDF / 图片 / Word，单个不超过 20MB，最多 3 个，必填"
-        finished="由班委上传的证明成品（PDF），审核通过后可下载"
+        :notice="'仅限班委出具的文书；学院或学校证明请另行办理。\n提交前请先与班委联系。'"
+        submitted="依据材料，PDF / 图片 / Word，单个 ≤20MB，最多 3 个，必填"
+        finished="班委上传的成品（PDF），审批后可下载"
       />
 
       <el-tabs v-model="activeTab">
@@ -14,7 +14,7 @@
         <el-tab-pane :label="editingId ? '修改申请' : '申请开具'" name="apply">
           <!-- 修改这条申请时把表单预填成它的内容，提交走 PUT 覆盖原记录 -->
           <div v-if="editingId" class="edit-hint">
-            正在修改这条申请，改完点「保存修改」；不重选附件就沿用原来那批。
+            正在修改申请，未重新上传的附件保持不变。
           </div>
 
           <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" style="max-width: 640px;">

@@ -57,7 +57,7 @@
         :data="rows"
         stripe
         style="margin-top: 16px;"
-        empty-text="还没有投票。班委发起一场，范围内的同学就会收到站内信"
+        empty-text="还没有投票"
       >
         <el-table-column label="标题" min-width="220">
           <template #default="{ row }">
@@ -157,7 +157,7 @@
     </div>
 
     <!-- ========== 结果 / 名单弹窗（管理入口：投票名单） ========== -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="resultVisible"
       :title="resultPoll.title || '投票'"
       width="720px"
