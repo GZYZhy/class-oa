@@ -149,13 +149,17 @@ onMounted(async () => {
   gap: 12px;
   padding: 14px 16px;
   background: var(--el-fill-color-light);
-  border-radius: 8px;
+  /* 补一道描边：原来只有浅底和圆角，和卡片的淡紫底几乎融在一起，
+     条目之间看不出是一张张独立的卡 */
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
   margin-bottom: 12px;
-  transition: background 0.2s;
+  transition: background 0.2s, border-color 0.2s;
 }
 
 .resource-card:hover {
   background: var(--el-color-primary-light-9);
+  border-color: var(--app-secondary-border);
 }
 
 .resource-icon {

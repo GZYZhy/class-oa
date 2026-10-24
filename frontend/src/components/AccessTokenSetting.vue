@@ -62,7 +62,7 @@
 
         <div class="list-title">我的令牌</div>
         <el-table v-loading="loading" :data="items" size="small" stripe border style="width: 100%;">
-          <el-table-column prop="name" label="备注名" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="name" label="备注名" min-width="120" show-overflow-tooltip align="left" />
           <el-table-column label="前缀" width="160" align="center">
             <template #default="{ row }">
               <!-- 列表里永远看不到明文和摘要，只能靠这一小段前缀认出是哪把 -->

@@ -2035,7 +2035,9 @@ async function handleResetToken() {
 
 .cal-row {
   display: flex;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  /* 日历格线走 --app-line：Element 的 border-color-lighter（#e4e7ed）
+     压在淡紫卡面上几乎看不见，一周的格子会糊成一片 */
+  border-bottom: 1px solid var(--app-line);
 }
 
 .cal-time-col {
@@ -2045,7 +2047,7 @@ async function handleResetToken() {
   color: var(--el-text-color-secondary);
   text-align: center;
   padding-top: 2px;
-  border-right: 1px solid var(--el-border-color-lighter);
+  border-right: 1px solid var(--app-line);
   /* 横向滚到今天那一列时，时间刻度还留在眼前（不然滑到中间就不知道几点上课）。
      底色得跟所在行一致，否则会透出后面的日程块 —— 表头、全天行各自另有一条 */
   position: sticky;
@@ -2110,7 +2112,7 @@ async function handleResetToken() {
 .cal-day-col {
   flex: 1;
   min-width: 0;
-  border-right: 1px solid var(--el-border-color-lighter);
+  border-right: 1px solid var(--app-line);
 }
 
 .cal-day-col:last-child {
@@ -2214,7 +2216,7 @@ async function handleResetToken() {
 }
 
 .cal-cell.hour-cell {
-  border-top: 1px solid var(--el-border-color-lighter);
+  border-top: 1px solid var(--app-line);
 }
 
 /* 日程块 overlay */

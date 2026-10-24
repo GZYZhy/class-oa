@@ -139,7 +139,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { getPublicSummary } from '@/api/auth'
 import { getBirthdayToday } from '@/api/birthday'
@@ -197,27 +197,21 @@ const politicalChartRef = ref(null)
 let genderChart = null
 let politicalChart = null
 
-// 图表库本身。**故意不在文件顶部 import** —— 它是首屏最重的一件，
+// 图表模块。**故意不在文件顶部 import** —— 它是首屏最重的一件，
 // 动态引进来才能让统计数字先出来（见下面 loadData 里那段注释）。
-// 初始化赋值就是在这里，别在别处再用它
-let echarts = null
+// 取回来的是 { default: echarts, renderDonut, ... }，环形图直接调共用的那个，
+// 与分类统计页同一套配色和样式（同是「人数占比」，两页不该长成两家）
+let chartKit = null
 
-// 渲染环形饼图
-function renderPie(refEl, data, colors) {
-  const inst = echarts.init(refEl)
-  inst.setOption({
-    tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
-    legend: { bottom: '5%', left: 'center' },
-    color: colors,
-    series: [{
-      type: 'pie',
-      radius: ['45%', '70%'],
-      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
-      label: { show: true, formatter: '{b}\n{c}人' },
-      data: Object.entries(data).map(([name, value]) => ({ name, value }))
-    }]
-  })
-  return inst
+const toList = (obj) => Object.entries(obj || {}).map(([name, value]) => ({ name, value }))
+
+/** 画/重画两张环形图。颜色随主题，所以切深浅模式时也要再走一遍 */
+function renderCharts() {
+  if (!chartKit || !genderChartRef.value || !politicalChartRef.value) return
+  genderChart?.dispose()
+  politicalChart?.dispose()
+  genderChart = chartKit.renderDonut(genderChartRef.value, toList(stats.value?.gender))
+  politicalChart = chartKit.renderDonut(politicalChartRef.value, toList(stats.value?.political_status))
 }
 
 async function loadData() {
@@ -238,21 +232,32 @@ async function loadData() {
   // 图表库单独**动态**取一次（按需之后的体积说明见 utils/chart.js）。
   // 上面那几个 await 一到手，人数、生日条幅、最新通知就已经渲染出来了，
   // 不必等图表库；弱网下这几秒的差别就是「首页能看了」和「整页白等着」的差别
-  echarts = (await import('@/utils/chart')).default
+  chartKit = await import('@/utils/chart')
 
   // 取库的这段时间里用户可能已经离开首页、容器被卸载了，这时 init 会拿到 null
-  if (!genderChartRef.value || !politicalChartRef.value) return
-
-  genderChart = renderPie(genderChartRef.value, stats.value.gender || {}, ['#409EFF', '#F56C6C'])
-  politicalChart = renderPie(politicalChartRef.value, stats.value.political_status || {}, ['#E6A23C', '#909399'])
+  renderCharts()
 }
+
+function onResize() {
+  genderChart?.resize()
+  politicalChart?.resize()
+}
+
+// 深浅模式切换时重画：ECharts 的配色是 init 时从 CSS 变量读的，不重画就停在旧主题
+let themeObserver = null
 
 onMounted(() => {
   loadData()
-  window.addEventListener('resize', () => {
-    genderChart?.resize()
-    politicalChart?.resize()
-  })
+  window.addEventListener('resize', onResize)
+  themeObserver = new MutationObserver(() => renderCharts())
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onResize)
+  themeObserver?.disconnect()
+  genderChart?.dispose()
+  politicalChart?.dispose()
 })
 </script>
 
@@ -385,7 +390,8 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: var(--app-surface);
+  /* 和 page-card 同一道受光面 */
+  background: var(--app-surface-sheen) padding-box;
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
   padding: 20px;

@@ -38,7 +38,7 @@
         style="margin-top: 12px;"
         empty-text="还没有成绩记录"
       >
-        <el-table-column prop="name" label="测试名称" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="name" label="测试名称" min-width="180" show-overflow-tooltip align="left" />
         <el-table-column label="测试日期" width="120">
           <template #default="{ row }">{{ formatDate(row.tested_at) }}</template>
         </el-table-column>
@@ -48,7 +48,7 @@
         <el-table-column label="录入人数" width="100" align="center">
           <template #default="{ row }">{{ row.student_count }}</template>
         </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip align="left" />
         <el-table-column prop="creator_name" label="录入人" width="110" />
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">

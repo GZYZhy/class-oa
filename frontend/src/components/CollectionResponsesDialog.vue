@@ -149,24 +149,24 @@
             max-height="430"
             empty-text="所有人都填满了"
           >
-            <el-table-column label="姓名" width="150">
+            <el-table-column label="姓名" min-width="150">
               <template #default="{ row }">
                 {{ row.name || '—' }}
                 <el-tag v-if="row.is_self" size="small" type="info" effect="plain">我</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="student_no" label="学号" width="140" />
-            <el-table-column label="已填" width="110" align="center">
+            <el-table-column prop="student_no" label="学号" min-width="140" />
+            <el-table-column label="已填" min-width="110" align="center">
               <template #default="{ row }">
                 {{ row.submitted_count == null ? '—' : `${row.submitted_count} 份` }}
               </template>
             </el-table-column>
-            <el-table-column label="还差" width="110" align="center">
+            <el-table-column label="还差" min-width="110" align="center">
               <template #default="{ row }">
                 {{ row.remaining == null ? '—' : `${row.remaining} 份` }}
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="100">
+            <el-table-column label="状态" min-width="100">
               <template #default="{ row }">
                 <el-tag v-if="row.frozen" type="info" size="small">已冻结</el-tag>
                 <el-tag v-else type="warning" size="small">未填满</el-tag>

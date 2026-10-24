@@ -46,12 +46,15 @@ defineProps({
 </template>
 
 <style scoped>
+/* 顶部说明做成一块「信息面板」：浅蓝底 + 同色描边 + 大圆角。
+   之前是极淡的灰底和浅描边，和下面的表单同色系，整块糊在一起，
+   进页面后看不出哪儿是「介绍」哪儿是「要填的」 */
 .service-intro {
   margin-bottom: 20px;
-  padding: 16px 18px;
-  background: var(--el-fill-color-light);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+  padding: 18px 20px;
+  background: var(--app-secondary-soft);
+  border: 1px solid var(--app-secondary-border);
+  border-radius: 14px;
   font-size: 13px;
   line-height: 1.7;
 }
@@ -59,7 +62,7 @@ defineProps({
 .intro-block + .intro-block {
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid var(--el-border-color-lighter);
+  border-top: 1px solid var(--app-secondary-border);
 }
 
 .intro-title {

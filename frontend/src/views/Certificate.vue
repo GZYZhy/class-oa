@@ -86,8 +86,8 @@
         <!-- ============ 我的申请 ============ -->
         <el-tab-pane label="我的申请" name="mine">
           <el-table :data="list" stripe border style="width: 100%;">
-            <el-table-column prop="title" label="证明标题" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="recipient" label="收文单位" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="title" label="证明标题" min-width="180" show-overflow-tooltip align="left" />
+            <el-table-column prop="recipient" label="收文单位" min-width="180" show-overflow-tooltip align="left" />
             <el-table-column prop="created_at" label="申请时间" width="160" align="center">
               <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
             </el-table-column>
