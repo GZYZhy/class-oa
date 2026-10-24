@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     :title="created ? (justCreated ? '签到已发布' : '签到链接') : '发布签到'"
     width="720px"
@@ -55,9 +55,9 @@
             :rows="2"
             maxlength="500"
             show-word-limit
-            placeholder="选填。写清集合地点、注意事项；支持 Markdown"
+            placeholder="选填，支持 Markdown"
           />
-          <div class="ck-form-tip">支持 Markdown：标题、列表、加粗、链接、图片（https 外链）</div>
+          <div class="ck-form-tip">支持 Markdown（标题、列表、加粗、链接、图片）</div>
         </el-form-item>
         <el-form-item label="开始时间" required>
           <el-date-picker
@@ -68,7 +68,7 @@
             value-format="YYYY-MM-DD HH:mm"
             style="width: 100%;"
           />
-          <div class="cc-tip">默认现在。定在以后，同学提前打开链接也只能等开始</div>
+          <div class="cc-tip">默认现在；设为将来时间则到点才能签到</div>
         </el-form-item>
         <el-form-item label="截止时间" required>
           <el-date-picker
@@ -79,12 +79,12 @@
             value-format="YYYY-MM-DD HH:mm"
             style="width: 100%;"
           />
-          <div class="cc-tip">默认 30 分钟后。到点自动结算，不用守着</div>
+          <div class="cc-tip">默认 30 分钟，到点自动结束</div>
         </el-form-item>
         <el-form-item label="签到照片">
           <el-switch v-model="form.require_photo" />
           <span class="cc-tip cc-inline">
-            {{ form.require_photo ? '每人必须上传一张照片才能签到' : '不要求照片' }}
+            {{ form.require_photo ? '需上传照片才能签到' : '不要求照片' }}
           </span>
         </el-form-item>
       </el-form>
@@ -101,7 +101,7 @@
         <el-button size="small" @click="selectLeague">仅团员</el-button>
       </div>
       <div v-if="iAmOutOfScope" class="cc-tip cc-warn">
-        你自己不在这次签到范围内（只发布，不签到）
+        你不在本次签到范围内，仅发布
       </div>
       <div v-loading="rosterLoading" class="cc-roster">
         <el-checkbox-group v-model="form.targets">
@@ -147,7 +147,7 @@
             />
           </el-form-item>
         </el-form>
-        <div v-if="!point" class="cc-tip cc-warn">还没有选点：在地图上点一下，或手填经纬度</div>
+        <div v-if="!point" class="cc-tip cc-warn">尚未选点，可在地图上点击或手动填写</div>
       </div>
     </div>
 

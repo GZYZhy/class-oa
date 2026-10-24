@@ -1,6 +1,6 @@
 <template>
   <!-- 批量导入学生：上传 xlsx → 预览确认 → 结果三步 -->
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     title="批量导入学生"
     width="620px"

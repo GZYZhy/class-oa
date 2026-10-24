@@ -163,7 +163,7 @@
     </el-collapse>
 
     <!-- 恢复码只出现这一次，**关掉弹窗就再也看不到**，所以按钮写「我已保存」 -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="codesVisible"
       title="一次性恢复码"
       width="520px"

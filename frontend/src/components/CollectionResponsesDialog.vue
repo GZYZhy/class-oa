@@ -5,7 +5,7 @@
   删除答卷只有系统管理员能做（后端 admin_required 兜底），发起班委只看和导出。
 -->
 <template>
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     :title="`${detail.title || collection.title || '收集'} · 答卷详情`"
     width="900px"

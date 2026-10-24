@@ -2,11 +2,11 @@
   <div>
     <div class="page-card" v-loading="loading">
       <ServiceIntro
-        intro="为在校内使用的电动自行车办理通行证。"
+        intro="校内电动自行车通行证补办。"
         deadline="7 个工作日（仅供参考）"
-        :notice="'本网络办件仅提供信息表生成，具体向安全稳定工作部（处）报送的工作需要您自行完成。\n操作此办件前请务必与班委联系。'"
-        submitted="行驶证（图片或 PDF），不超过 20MB，必填"
-        finished="电动车通行证申请表、电动自行车使用承诺书（两份 PDF），审核通过后可下载"
+        :notice="'本站仅生成信息表，报送需自行完成。\n办理前请先与班委联系。'"
+        submitted="行驶证（图片或 PDF），≤20MB，必填"
+        finished="通行证申请表与使用承诺书（两份 PDF），审批后可下载"
       />
 
       <el-tabs v-model="activeTab">
@@ -14,7 +14,7 @@
         <el-tab-pane :label="editingId ? '修改申请' : '申请补办'" name="apply">
           <!-- 修改这条申请时把表单预填成它的内容，提交走 PUT 覆盖原记录 -->
           <div v-if="editingId" class="edit-hint">
-            正在修改这条申请，改完点「保存修改」；不重选行驶证就沿用原来那张。
+            正在修改申请，未重新上传的行驶证保持不变。
           </div>
 
           <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" style="max-width: 640px;">

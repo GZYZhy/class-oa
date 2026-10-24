@@ -1,6 +1,6 @@
 <template>
   <!-- 照片批量导入：上传 zip → 逐张确认去向 → 结果 -->
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     title="批量导入照片"
     width="760px"

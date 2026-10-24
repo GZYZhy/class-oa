@@ -175,7 +175,7 @@
     </div>
 
     <!-- 日程详情：点卡片先看到内容，要改再点「编辑」 -->
-    <el-dialog v-model="detailDialog.visible" title="日程详情" width="480px">
+    <el-dialog append-to-body v-model="detailDialog.visible" title="日程详情" width="560px">
       <!-- 日程标题放正文里、不放弹窗的 title：长了能折行，也不必挤在头部 -->
       <div class="detail-title">{{ detailDialog.evt?.title }}</div>
       <el-descriptions :column="1" border>
@@ -192,17 +192,17 @@
     </el-dialog>
 
     <!-- 新建/编辑弹窗 -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="editDialog.visible"
       :title="editDialog.isEdit ? '编辑日程' : '新建日程'"
-      width="480px"
+      width="580px"
     >
       <el-form :model="editForm" label-width="90px">
         <el-form-item label="标题" required>
           <el-input v-model="editForm.title" maxlength="200" placeholder="请输入日程标题" />
         </el-form-item>
         <el-form-item label="类型">
-          <el-input v-model="editForm.event_type" maxlength="20" placeholder="如 课程 / 体育 / 网络课 / 会议 / 活动 / 工作（可不填）" />
+          <el-input v-model="editForm.event_type" maxlength="20" placeholder="如 课程 / 体育 / 网络课 / 会议（可不填）" />
         </el-form-item>
         <el-form-item :label="editForm.all_day ? '开始日期' : '日期'" required>
           <el-date-picker
@@ -338,7 +338,7 @@
     </el-dialog>
 
     <!-- 学生选择器（简化版：输入框 + 搜索，后续可优化） -->
-    <el-dialog v-model="studentPicker.open" title="选择学生" width="600px">
+    <el-dialog append-to-body v-model="studentPicker.open" title="选择学生" width="600px">
       <el-input v-model="studentPicker.keyword" placeholder="搜索学生姓名/学号" clearable style="margin-bottom: 12px" />
       <!-- 快捷范围：一键把某类人全选上。点一次是替换当前选择，不是往上加 -->
       <div class="picker-scopes">
@@ -365,7 +365,7 @@
     <!-- 导入弹窗 -->
     <!-- destroy-on-close：关掉就把 el-upload 一起销毁，下次打开是干净的实例。
          它内部那份文件列表不销毁，配上 :limit="1" 会把新选的文件直接吞掉 -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="importDialog.open"
       title="导入日程"
       width="720px"
@@ -511,7 +511,7 @@
     </el-dialog>
 
     <!-- 导入学生选择器 -->
-    <el-dialog v-model="importStudentPicker.open" title="选择学生" width="600px">
+    <el-dialog append-to-body v-model="importStudentPicker.open" title="选择学生" width="600px">
       <el-input v-model="importStudentPicker.keyword" placeholder="搜索" clearable style="margin-bottom: 12px" />
       <!-- 快捷范围，与上面新建日程那个选人弹窗同一套 -->
       <div class="picker-scopes">
@@ -535,7 +535,7 @@
     </el-dialog>
 
     <!-- 翻周一次只挪一周，跨月找某天要点十几下，给个直接跳的入口 -->
-    <el-dialog v-model="goDialog.open" title="前往某一天" width="360px">
+    <el-dialog append-to-body v-model="goDialog.open" title="前往某一天" width="360px">
       <el-date-picker
         v-model="goDate"
         type="date"
@@ -545,7 +545,7 @@
         style="width: 100%"
         :clearable="false"
       />
-      <div class="go-tip">跳到这一天所在的那一周</div>
+      <div class="go-tip">跳到所在周</div>
       <template #footer>
         <el-button size="small" @click="goDialog.open = false">取消</el-button>
         <el-button type="primary" size="small" @click="goToDate">前往</el-button>
@@ -554,7 +554,7 @@
 
     <!-- 按名称搜日程。同名日程可能有很多条（导入的课表里几乎天天有「晚自习」），
          所以结果在弹窗里按日期列开，点一条就跳到那一天并打开详情 -->
-    <el-dialog v-model="searchDialog.open" title="搜索日程" width="480px">
+    <el-dialog append-to-body v-model="searchDialog.open" title="搜索日程" width="560px">
       <el-input
         v-model="searchDialog.keyword"
         placeholder="输入日程名称，如「晚自习」"
@@ -592,7 +592,7 @@
     </el-dialog>
 
     <!-- 订阅弹窗 -->
-    <el-dialog v-model="subscribeDialog.open" title="日历订阅" width="520px">
+    <el-dialog append-to-body v-model="subscribeDialog.open" title="日历订阅" width="520px">
       <div v-loading="subscribeLoading">
         <div class="subscribe-section">
           <div class="subscribe-label">你的私有订阅链接</div>
@@ -615,7 +615,7 @@
             重置订阅令牌
           </el-button>
           <div class="subscribe-tip danger">
-            重置后旧链接立即失效，需要在所有日历客户端重新添加
+            重置后旧链接立即失效，需在各客户端重新添加
           </div>
         </div>
 
@@ -624,11 +624,11 @@
         <div class="subscribe-section">
           <div class="subscribe-label">如何添加到日历</div>
           <div class="subscribe-guide">
-            <p><b>📱 iOS / 苹果日历</b></p>
+            <p><b>iOS / 苹果日历</b></p>
             <p>设置 → 日历 → 账户 → 添加账户 → 其他 → 添加已订阅的日历 → 粘贴链接</p>
-            <p><b>🖥️ Mac 日历</b></p>
+            <p><b>Mac 日历</b></p>
             <p>文件 → 新建日历订阅 → 粘贴链接</p>
-            <p><b>📅 Google 日历</b></p>
+            <p><b>Google 日历</b></p>
             <p>其他日历 → 通过 URL 添加 → 粘贴链接</p>
           </div>
         </div>
@@ -1873,7 +1873,12 @@ async function handleResetToken() {
 
 <style scoped>
 .schedule-page {
-  max-width: 1200px;
+  /* 宽屏铺满工作区：日历是「一屏读一周」的版面，原来 1200px 的上限在
+     1920 的屏上左右各空出一大块，七列被压在中段很憋。
+     放宽到 1680px 后基本吃满工作区，2K/4K 屏才在末端收口居中。
+     窄屏侧不受影响：网格自带 984px 的 min-width 底线 + 外层横向滚动
+     （见 .calendar-wrapper / .calendar-grid），该滚照滚 */
+  max-width: 1680px;
   margin: 0 auto;
   padding: 16px;
 }
@@ -2266,6 +2271,16 @@ async function handleResetToken() {
 
 /* 深色模式：--evt 提亮（它只画 3px 的左边条）、--evt-bg 换成同色系的深底，
    事件里那行深色标题字才看得清 */
+.dark .theme-primary {
+  /* 课程用的就是 primary 主题，而 Element 深色下的 primary-light-8 是 #1a1c32，
+     和日历卡片底 #181a2c 几乎同色 —— 整块「课程」等于隐身，只剩左边条。
+     这里单独指定一份：底色抬到偏蓝紫的 #2a2e63，和卡片拉开层次；
+     左边条再提亮一档，扫一眼就能把课程从格子里挑出来。
+     （其它主题的深色底由 Element 给，都在 #25-41 区间，本来就比底色亮） */
+  --evt: #9aa4ff;
+  --evt-bg: #2a2e63;
+}
+
 .dark .theme-purple {
   --evt: #a78bfa;
   --evt-bg: #2b2140;

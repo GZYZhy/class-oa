@@ -1,6 +1,6 @@
 <template>
   <!-- 点名：选范围 → 逐个叫 → 汇总未应答名单 -->
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     title="点名"
     width="520px"
@@ -10,7 +10,7 @@
   >
     <!-- 第一步：选范围 -->
     <div v-if="step === 'scope'" v-loading="loading" class="rc-scope">
-      <p class="rc-tip">选择本次点名的范围：</p>
+      <p class="rc-tip">选择点名范围</p>
 
       <!-- 排除名单要说清楚是谁、为什么，不然「全班 34 人」对不上花名册会让人怀疑数字错了 -->
       <el-alert v-if="excluded.length" type="info" :closable="false" class="rc-excluded">

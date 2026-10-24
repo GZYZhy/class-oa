@@ -112,7 +112,7 @@
     />
 
     <!-- 上传弹窗 -->
-    <el-dialog v-model="uploadVisible" title="发布公开文件" width="520px" :close-on-click-modal="false">
+    <el-dialog append-to-body v-model="uploadVisible" title="发布公开文件" width="560px" :close-on-click-modal="false">
       <el-form :model="form" label-width="90px">
         <el-form-item label="文件标题" required>
           <el-input v-model="form.title" placeholder="请输入文件标题" maxlength="200" />

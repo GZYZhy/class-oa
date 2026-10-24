@@ -29,9 +29,9 @@
     <!-- 访客提示：首页本来就对匿名开放，但开放的只有聚合数据。
          必须等 resolved 为真才判断，否则已登录用户会先闪一下这条 -->
     <el-alert v-if="showGuestTip" class="guest-tip" type="info" :closable="false" show-icon>
-      <template #title>当前是访客浏览，只显示公开的统计数据</template>
+      <template #title>访客浏览，仅显示公开数据</template>
       <div class="guest-tip-body">
-        <span>查看学生信息、提交请假、下载资料、接收通知等操作需要登录。</span>
+        <span>登录后可使用全部功能。</span>
         <el-button type="primary" link @click="goLogin">去登录</el-button>
       </div>
     </el-alert>
@@ -258,14 +258,14 @@ onMounted(() => {
 
 <style scoped>
 .welcome-banner {
-  /* 靛蓝起手、薰衣草过渡、尾端晕向天青 —— 和全局 accent 渐变同一序列，
-     尾部那一点冷蓝是「清新透气」的关键，纯紫渐变压久了会显闷 */
-  background: linear-gradient(135deg, #6269f0 0%, #8b7bf2 52%, #7db3f2 100%);
+  /* 三段式紫色序列（靛蓝→薰衣草）。之前尾端的天青拿掉了 ——
+     蓝交给左下那团浅蓝光斑和副色系去说，横幅本身保持纯净 */
+  background: linear-gradient(135deg, #6269f0 0%, #8b7bf2 58%, #a78bfa 100%);
   border-radius: var(--app-radius);
   padding: 30px 34px;
   color: #fff;
   margin-bottom: 20px;
-  box-shadow: 0 18px 44px rgba(104, 110, 240, 0.24);
+  box-shadow: 0 14px 36px rgba(104, 110, 240, 0.20);
   position: relative;
   overflow: hidden;
   display: flex;
@@ -273,7 +273,8 @@ onMounted(() => {
   gap: 20px;
 }
 
-/* 两团光斑对角布置（右上大、左下小），把横幅从「一块色块」变成有层次的版面 */
+/* 两团光斑对角布置（右上大、左下小），把横幅从「一块色块」变成有层次的版面。
+   左下这团是浅蓝 —— 副色在品牌横幅上的一次点到为止 */
 .welcome-banner::before {
   content: '';
   position: absolute;
@@ -292,7 +293,7 @@ onMounted(() => {
   bottom: -60px;
   width: 180px;
   height: 180px;
-  background: rgba(125, 211, 252, 0.14);
+  background: rgba(125, 211, 252, 0.20);
   border-radius: 50%;
 }
 
@@ -413,13 +414,12 @@ onMounted(() => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
-/* 图标渐变整体调淡半档、去掉「正色 → 白化色」的大跳变：
-   原来的 #409EFF→#66b1ff 两端亮度差太近又都偏艳，改成同色系的「中调→浅调」，
-   配合上面的内高光更像瓷面而不是塑料贴片。白字不变，两档模式都清晰 */
-.card-blue .stat-icon { background: linear-gradient(135deg, #5b8bef, #83aef7); box-shadow: 0 8px 18px rgba(91, 139, 239, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
-.card-pink .stat-icon { background: linear-gradient(135deg, #ef7a92, #f5a3b4); box-shadow: 0 8px 18px rgba(239, 122, 146, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
-.card-cyan .stat-icon { background: linear-gradient(135deg, #35bfa8, #6ed4c2); box-shadow: 0 8px 18px rgba(53, 191, 168, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
-.card-green .stat-icon { background: linear-gradient(135deg, #5fbf6d, #8cd996); box-shadow: 0 8px 18px rgba(95, 191, 109, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+/* 图标渐变调回「中调起点」：上一版压淡半档后和浅卡片糊在一起、对比不足，
+   现在起点加深一档、终点保持柔，白图标始终清晰 */
+.card-blue .stat-icon { background: linear-gradient(135deg, #4d84ee, #83aef7); box-shadow: 0 8px 18px rgba(77, 132, 238, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.card-pink .stat-icon { background: linear-gradient(135deg, #ec6d8c, #f5a3b4); box-shadow: 0 8px 18px rgba(236, 109, 140, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.card-cyan .stat-icon { background: linear-gradient(135deg, #2bb3a0, #6ed4c2); box-shadow: 0 8px 18px rgba(43, 179, 160, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.card-green .stat-icon { background: linear-gradient(135deg, #52b864, #8cd996); box-shadow: 0 8px 18px rgba(82, 184, 100, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 
 .stat-value {
   font-size: 28px;
@@ -479,10 +479,11 @@ onMounted(() => {
 }
 
 .quick-tile:hover {
-  background: var(--el-color-primary-light-9);
-  border-color: var(--el-color-primary);
+  background: var(--app-secondary-soft);
+  border-color: var(--app-secondary-border);
+  color: var(--app-secondary-deep);
   transform: translateY(-2px);
-  box-shadow: 0 8px 18px rgba(107, 116, 244, 0.14);
+  box-shadow: 0 8px 18px rgba(47, 157, 228, 0.14);
 }
 
 .quick-icon {
@@ -536,7 +537,7 @@ onMounted(() => {
 }
 
 .more-link:hover {
-  color: var(--el-color-primary);
+  color: var(--app-secondary-deep);
 }
 
 .notice-list {
@@ -554,6 +555,12 @@ onMounted(() => {
   color: var(--el-text-color-primary);
   text-decoration: none;
   transition: background 0.2s;
+}
+
+/* 行与行之间一道分隔线：五条通知原本挤成一团，加线之后每条自成一行，
+   扫读时眼睛有落点（线用 outline 那档，比卡片外框淡） */
+.notice-list li + li {
+  border-top: 1px solid var(--app-outline);
 }
 
 .notice-item:hover {

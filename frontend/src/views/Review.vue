@@ -711,7 +711,7 @@
     </el-tabs>
 
     <!-- 反馈详情弹窗 -->
-    <el-dialog v-model="feedbackDetailVisible" title="反馈详情" width="600px">
+    <el-dialog append-to-body v-model="feedbackDetailVisible" title="反馈详情" width="600px">
       <div v-if="currentFeedback" class="detail-content">
         <div class="detail-header">
           <h4>{{ currentFeedback.title }}</h4>
@@ -815,7 +815,7 @@
 
     <!-- 批准 / 补签字弹框：同一套表单，两个入口
          「通过」走 approve（顺带填意见、选签字），「补签字」走 advisor-sign（只补这两样） -->
-    <el-dialog v-model="leaveDialogVisible" :title="leaveDialogTitle" width="520px">
+    <el-dialog append-to-body v-model="leaveDialogVisible" :title="leaveDialogTitle" width="560px">
       <div v-if="leaveDialogRow" style="margin-bottom: 12px;">
         <strong>{{ leaveDialogRow.student_name }}</strong>
         <span style="color: var(--el-text-color-regular);">
@@ -859,7 +859,7 @@
 
     <!-- 电动车：批准 / 补签字弹框。和请假那套同一个套路，只是少一个意见输入框
          —— 这份表上没有意见栏，落款处只有一行「经办班委：签字」 -->
-    <el-dialog v-model="evPassDialogVisible" :title="evPassDialogTitle" width="480px">
+    <el-dialog append-to-body v-model="evPassDialogVisible" :title="evPassDialogTitle" width="520px">
       <div v-if="evPassDialogRow" style="margin-bottom: 12px;">
         <strong>{{ evPassDialogRow.student_name }}</strong>
         <span style="color: var(--el-text-color-regular);">
@@ -892,7 +892,7 @@
     </el-dialog>
 
     <!-- 上传成品 PDF 弹框 -->
-    <el-dialog v-model="certResultUploadVisible" title="上传成品证明 PDF" width="480px">
+    <el-dialog append-to-body v-model="certResultUploadVisible" title="上传成品证明 PDF" width="520px">
       <div v-if="certResultUploadRow">
         <div style="margin-bottom: 8px;">
           <strong>{{ certResultUploadRow.student_name }}</strong>（{{ certResultUploadRow.student_no }}）

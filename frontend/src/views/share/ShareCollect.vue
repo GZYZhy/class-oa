@@ -67,7 +67,7 @@
           v-else-if="!info.in_scope"
           type="forbidden"
           title="没有权限查看题目"
-          description="你不在本次收集的可填写范围内，只能看公开信息"
+          description="你不在本次范围内"
           :home="false"
         />
 

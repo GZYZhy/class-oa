@@ -1,6 +1,6 @@
 <template>
   <!-- 抽签：选范围与模式 → 抽取 → 结果 -->
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     title="抽签"
     width="520px"

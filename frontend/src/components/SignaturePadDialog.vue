@@ -3,7 +3,7 @@
   批量签字不走这个组件 —— 它要一直开着逐人切换，直接把 SignaturePad 内嵌在批量弹窗里更省事。
 -->
 <template>
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     :title="title"
     :width="dialogWidth"

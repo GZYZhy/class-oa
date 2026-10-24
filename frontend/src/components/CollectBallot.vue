@@ -102,7 +102,7 @@
         >
           添加图片（{{ draft[q.id].length }}/{{ q.max_files || IMAGE_MAX_FILES }}）
         </el-button>
-        <div class="cb-sub">支持 JPG/PNG/WebP，单张最多 10MB；选择后会自动压缩上传</div>
+        <div class="cb-sub">JPG / PNG / WebP，单张 ≤10MB，自动压缩</div>
       </div>
     </div>
 

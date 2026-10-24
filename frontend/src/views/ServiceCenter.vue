@@ -3,10 +3,6 @@
     <div class="page-card">
       <h3 class="page-title">办事中心</h3>
 
-      <p class="center-intro">
-        这里是班级线上办事入口，后续会持续扩展更多功能。
-      </p>
-
       <div class="service-grid">
         <!-- 请假申请 -->
         <router-link to="/leave" class="service-card">
@@ -15,7 +11,7 @@
           </div>
           <div class="service-info">
             <h4 class="service-title">请假申请</h4>
-            <p class="service-desc">在线提交请假申请，附证明材料，管理员审核通过后可下载审批表</p>
+            <p class="service-desc">提交请假信息与证明，审批后可下载审批表</p>
           </div>
           <div class="service-arrow">
             <el-icon><ArrowRight /></el-icon>
@@ -29,7 +25,7 @@
           </div>
           <div class="service-info">
             <h4 class="service-title">电动车通行证补办</h4>
-            <p class="service-desc">提交行驶证等信息，管理员审核通过后可下载申请表与承诺书</p>
+            <p class="service-desc">提交行驶证信息，审批后可下载申请表与承诺书</p>
           </div>
           <div class="service-arrow">
             <el-icon><ArrowRight /></el-icon>
@@ -43,7 +39,7 @@
           </div>
           <div class="service-info">
             <h4 class="service-title">证明开具</h4>
-            <p class="service-desc">在线提交证明/介绍信开具申请，附依据材料，管理员审核通过后上传成品 PDF</p>
+            <p class="service-desc">提交开具申请与依据材料，审批后下载成品 PDF</p>
           </div>
           <div class="service-arrow">
             <el-icon><ArrowRight /></el-icon>
@@ -57,16 +53,12 @@
           </div>
           <div class="service-info">
             <h4 class="service-title">意见反馈</h4>
-            <p class="service-desc">提出您的意见或建议，班委查阅后会给您回复</p>
+            <p class="service-desc">提交意见或建议，班委会回复</p>
           </div>
           <div class="service-arrow">
             <el-icon><ArrowRight /></el-icon>
           </div>
         </router-link>
-      </div>
-
-      <div class="empty-tip">
-        更多办事服务正在建设中…
       </div>
     </div>
   </div>
@@ -77,13 +69,6 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
 </script>
 
 <style scoped>
-.center-intro {
-  margin: 0 0 18px 0;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.6;
-}
-
 /* 自适应网格：宽屏自动排成多列，窄屏自然退回一列。
    删掉原先那层 720px 的壳之后，若还按 flex 竖着一列排，四张卡在宽屏上
    会各自拉成一条横幅 —— 左边一个图标、右边一个箭头，中间一大片空白。
@@ -165,13 +150,6 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
   color: var(--el-text-color-disabled);
   font-size: 18px;
   flex-shrink: 0;
-}
-
-.empty-tip {
-  margin-top: 24px;
-  text-align: center;
-  font-size: 13px;
-  color: var(--el-text-color-disabled);
 }
 
 @media (max-width: 768px) {

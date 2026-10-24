@@ -46,7 +46,7 @@
       :data="rows"
       stripe
       style="margin-top: 16px;"
-      empty-text="还没有收集。班委发起后，范围内的同学可以在「填写」里提交"
+      empty-text="还没有收集"
     >
       <el-table-column label="标题" min-width="230">
         <template #default="{ row }">

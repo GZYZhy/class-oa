@@ -482,7 +482,7 @@
             style="display: none"
             @change="handleFileSelected"
           />
-          <span class="tip">管理「资料下载」页面显示的条目；分类旁的箭头调整分类之间的顺序。</span>
+          <span class="tip">管理「资料下载」的条目；箭头调整分类顺序。</span>
         </div>
 
         <div v-for="(group, gi) in resourceGroups" :key="group.category" class="resource-group">
@@ -645,7 +645,7 @@
             :closable="false"
             show-icon
             title="没查出问题"
-            description="四类检查都过了。这也包括「照片文件在磁盘上找得到」这种只有从数据库以外才看得出来的问题。"
+            description="四项检查均通过"
           />
 
           <!-- 一项问题都没有的那类不会出现在结果里（后端就不返回），所以这里直接顺序渲染 -->
@@ -675,10 +675,10 @@
     </el-tabs>
 
     <!-- ============ 新建 / 编辑域外账号 ============ -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="extDialogVisible"
       :title="extForm.editing ? '编辑域外账号' : '新建域外账号'"
-      width="520px"
+      width="560px"
     >
       <el-form :model="extForm" label-width="110px">
         <el-form-item label="登录名" required>
@@ -770,7 +770,7 @@
     </el-dialog>
 
     <!-- ============ 某个账号的日志 ============ -->
-    <el-dialog v-model="logVisible" :title="logTitle" width="720px">
+    <el-dialog append-to-body v-model="logVisible" :title="logTitle" width="720px">
       <div v-loading="loadingUserLogs">
         <div class="log-section-title">操作日志</div>
         <el-table :data="userLogs.operations.items" stripe border style="width: 100%;">
@@ -866,7 +866,7 @@
           :image-size="60"
         />
         <!-- 这个功能上线之前的登录/改密压根没入库，历史补不回来，说清楚免得以为漏查 -->
-        <div class="tip">登录与账号操作记录自本功能上线起才开始保存，更早的记录查不到。</div>
+        <div class="tip">记录自功能上线起保存，更早的查不到。</div>
       </div>
     </el-dialog>
   </div>

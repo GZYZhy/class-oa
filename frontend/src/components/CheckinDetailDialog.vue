@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" width="700px">
+  <el-dialog append-to-body v-model="visible" width="700px">
     <!-- 标题就是列表里那一列，修改按钮跟在标题后面，不再单独占一行 -->
     <template #header>
       <div class="cd-header">

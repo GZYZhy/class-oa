@@ -7,7 +7,7 @@
         <el-form-item label="关键词">
           <el-input
             v-model="filterForm.keyword"
-            placeholder="任意信息（姓名/学号/电话/备注等）"
+            placeholder="姓名 / 学号 / 电话 / 备注"
             clearable
             style="width: 240px"
             @keyup.enter="handleSearch"
@@ -277,7 +277,7 @@
     </div>
 
     <!-- 近期生日弹窗（原来是工具栏上的一个 popover） -->
-    <el-dialog v-model="birthdayDialogVisible" title="近期生日" width="360px">
+    <el-dialog append-to-body v-model="birthdayDialogVisible" title="近期生日" width="360px">
       <p style="margin: 0 0 12px 0; font-size: 13px; color: var(--el-text-color-regular);">
         筛选未来 N 天内过生日的同学
       </p>
@@ -289,7 +289,7 @@
     </el-dialog>
 
     <!-- 详情弹窗 -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="detailVisible"
       title="学生详情"
       width="800px"
@@ -601,7 +601,7 @@
 
     <!-- 编辑 / 新增弹窗：同一个表单，靠 editForm.id 区分模式。
          新增时只有学号、姓名必填，其余留空后补 -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="editVisible"
       :title="editForm.id ? '编辑学生信息' : '添加学生'"
       width="700px"
@@ -937,7 +937,7 @@
                     v-model="editForm.remark"
                     type="textarea"
                     :rows="10"
-                    placeholder="支持 Markdown 格式：# 标题、**加粗**、- 列表 等；班委内部记录，普通学生看不到"
+                    placeholder="支持 Markdown；仅班委可见"
                   />
                 </el-form-item>
               </el-col>
@@ -1013,7 +1013,7 @@
     </el-dialog>
 
     <!-- 备注编辑弹窗：班委及以上都能改，是班委唯一可编辑的学生字段 -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="remarkVisible"
       :title="`编辑备注 - ${remarkForm.name || ''}`"
       width="640px"
@@ -1116,7 +1116,7 @@
     <StudentImportDialog ref="importDialogRef" @done="fetchData" />
 
     <!-- 导出弹框 -->
-    <el-dialog
+    <el-dialog append-to-body
       v-model="exportDialogVisible"
       title="导出学生信息"
       width="560px"
@@ -2605,6 +2605,14 @@ watch(() => route.query.open, openFromQuery)
   margin-bottom: 8px;
 }
 
+/* 深色下光靠 primary 浅档还不够：弹窗底本身就是深靛，浅档叠上去只差一档灰，
+   整条信息条仍然「看不见」。这里显式换一组更浓的靛蓝渐变，并补一道主题色描边，
+   让照片、姓名、学号这块在深色里也像浅色下那样自成一区 */
+.dark .detail-header {
+  background: linear-gradient(135deg, #252a4e 0%, #2f3565 100%);
+  border: 1px solid rgba(129, 140, 248, 0.22);
+}
+
 .detail-photo {
   cursor: zoom-in;
   flex-shrink: 0;
@@ -2685,9 +2693,8 @@ watch(() => route.query.open, openFromQuery)
   font-size: 13px;
 }
 
-:deep(.detail-dialog .el-dialog__body) {
-  padding-top: 10px;
-}
+/* .detail-dialog 的正文留白收在全局（弹窗 append-to-body 之后，scoped 里
+   带祖先的选择器匹配不到），见 styles/main.css 的 .el-dialog.detail-dialog */
 
 /* 工具栏按钮不少（人数/排序/近期生日/点名/抽签/导出/更多），手机上不换行会被顶出
    横向滚动条。收成「标题一行、工具栏一行」并左对齐 —— 右对齐换行后行首参差不齐 */

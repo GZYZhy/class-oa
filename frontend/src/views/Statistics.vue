@@ -24,13 +24,13 @@
     <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :xs="24" :md="12">
         <div class="page-card">
-          <h3 class="page-title">性别分布统计</h3>
+          <h3 class="page-title">性别分布</h3>
           <div class="stat-chart" data-chart="gender"></div>
         </div>
       </el-col>
       <el-col :xs="24" :md="12">
         <div class="page-card">
-          <h3 class="page-title">政治面貌统计</h3>
+          <h3 class="page-title">政治面貌</h3>
           <div class="stat-chart" data-chart="political"></div>
         </div>
       </el-col>
@@ -40,13 +40,13 @@
     <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :xs="24" :md="12">
         <div class="page-card">
-          <h3 class="page-title">民族构成统计</h3>
+          <h3 class="page-title">民族构成</h3>
           <div class="stat-chart chart-tall" data-chart="ethnicity"></div>
         </div>
       </el-col>
       <el-col :xs="24" :md="12">
         <div class="page-card">
-          <h3 class="page-title">贫困生统计</h3>
+          <h3 class="page-title">贫困生</h3>
           <div class="stat-chart" data-chart="poor"></div>
           <el-table :data="poorTableData" size="small" style="margin-top: 10px;">
             <el-table-column prop="name" label="类别" />
@@ -66,9 +66,9 @@
       <el-col :xs="24" :md="12">
         <div class="page-card">
           <h3 class="page-title">
-            高考分数段统计
+            高考分数段
             <span style="font-size: 13px; color: var(--el-text-color-secondary); font-weight: normal; margin-left: 12px;">
-              平均 {{ scoreSummary?.avg || 0 }}分 · 最高 {{ scoreSummary?.max || 0 }}分 · 最低 {{ scoreSummary?.min || 0 }}分
+              平均 {{ scoreSummary?.avg || 0 }} · 最高 {{ scoreSummary?.max || 0 }} · 最低 {{ scoreSummary?.min || 0 }}
             </span>
           </h3>
           <div class="stat-chart" data-chart="score"></div>
@@ -177,7 +177,7 @@
          弹窗里是一整份班级名单，同样盖一层「谁在看」。
          max-height 管住长名单：团员 27 人，不限制的话弹窗会撑到一千多像素，
          连标题和关闭按钮一起被滚出屏幕 -->
-    <el-dialog v-model="rosterVisible" :title="rosterTitle" width="520px">
+    <el-dialog append-to-body v-model="rosterVisible" :title="rosterTitle" width="560px">
       <Watermark :text="watermarkText" />
       <el-table :data="roster?.rows || []" size="small" max-height="420px" v-loading="rosterLoading">
         <el-table-column v-if="roster?.column" prop="group" :label="roster.column" width="120" />
