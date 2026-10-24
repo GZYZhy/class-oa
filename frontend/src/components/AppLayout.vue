@@ -37,9 +37,6 @@
             :default-active="activeMenu"
             router
             class="side-menu"
-            background-color="#1f2d3d"
-            text-color="#bfcbd9"
-            active-text-color="#409EFF"
             @select="drawerOpen = false"
           >
             <!-- 首页不归组，单独摆最上面 -->
@@ -221,13 +218,14 @@ onMounted(async () => {
   height: 100vh;
   /* dvh 会随手机浏览器地址栏的收放变化，避免底部被地址栏压掉一截 */
   height: 100dvh;
+  background: transparent;
 }
 
 /* 汉堡按钮：只在手机上出现（见文件末尾的媒体查询） */
 .menu-toggle {
   display: none;
   font-size: 22px;
-  color: #fff;
+  color: var(--el-text-color-primary);
   cursor: pointer;
 }
 
@@ -237,13 +235,16 @@ onMounted(async () => {
 }
 
 .layout-header {
-  background: linear-gradient(90deg, #1f2d3d 0%, #2c3e50 50%, #1f2d3d 100%);
-  color: #fff;
+  background: var(--app-header-bg);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  color: var(--el-text-color-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 30px;
-  box-shadow: 0 2px 8px rgba(0, 21, 41, 0.15);
+  padding: 0 24px;
+  border-bottom: 1px solid var(--app-outline);
+  box-shadow: 0 4px 24px rgba(79, 70, 229, 0.06);
   z-index: 10;
   height: 64px;
 }
@@ -255,16 +256,16 @@ onMounted(async () => {
 }
 
 .logo-img {
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid rgba(64, 158, 255, 0.5);
-  /* 固定白色，不跟深色模式：顶栏是写死的深色，这层白底是给校徽图片垫的衬底，
-     翻成深色的话校徽自己反倒糊在底上了 */
+  border: 1px solid var(--app-border);
+  /* 固定白色，不跟深色模式：校徽本身多数是深色线条，这层白底是给它垫的衬底 */
   background: #fff;
   padding: 2px;
   box-sizing: border-box;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.12);
 }
 
 .title-group {
@@ -276,16 +277,22 @@ onMounted(async () => {
 .app-title {
   font-size: 18px;
   font-weight: 600;
-  letter-spacing: 1px;
-  background: linear-gradient(90deg, #409EFF, #fff);
+  letter-spacing: 0.5px;
+  background: linear-gradient(90deg, #4f46e5 0%, #7c3aed 55%, #a855f7 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
+html.dark .app-title {
+  background: linear-gradient(90deg, #a5b4fc 0%, #c4b5fd 60%, #e9d5ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
 .app-subtitle {
   font-size: 12px;
-  color: #8492a6;
+  color: var(--el-text-color-secondary);
   margin-top: 2px;
 }
 
@@ -299,12 +306,12 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
-  color: #409EFF;
-  background: rgba(64, 158, 255, 0.12);
+  font-size: 13px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
   padding: 6px 14px;
-  border-radius: 20px;
-  border: 1px solid rgba(64, 158, 255, 0.2);
+  border-radius: 999px;
+  border: 1px solid var(--el-color-primary-light-7);
 }
 
 .user-box {
@@ -312,28 +319,32 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  padding: 4px 10px;
-  border-radius: 20px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 999px;
   transition: background 0.2s;
 }
 
 .user-box:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--el-fill-color-light);
 }
 
 .user-avatar {
-  background: #409EFF;
+  background: var(--app-accent-gradient);
   color: #fff;
   font-size: 14px;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
 }
 
 .user-name {
   font-size: 14px;
-  color: #fff;
+  color: var(--el-text-color-primary);
 }
 
 .layout-aside {
-  background: #1f2d3d;
+  background: var(--app-aside-bg);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border-right: 1px solid var(--app-outline);
   overflow-x: hidden;
 }
 
@@ -347,33 +358,38 @@ onMounted(async () => {
 /* 高度交给 flex 分配（aside 是 el-container 的行内子项，默认拉伸到满高）。
    原来写的 calc(100vh - 64px) 在加了脚栏之后会比实际可用高度多出一截 */
 .side-menu {
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--el-text-color-regular);
+  --el-menu-hover-bg-color: var(--el-fill-color-light);
+  --el-menu-active-color: var(--el-color-primary);
   border-right: none;
+  padding: 8px 10px;
   flex: 1;
   overflow-y: auto;
 }
 
-/* 分组标题：Element 默认是 12px / 行高 36px 的浅灰，摆在深色侧栏上又高又飘。
-   压成 11px 小字 + 偏白低透明度，更像一个分区标签；上下留白也收窄，
-   四项标题省下的高度够多放一个菜单项 */
+/* 分组标题：小字分区标签，别抢菜单项的注意力 */
 .side-menu :deep(.el-menu-item-group__title) {
-  padding: 12px 0 4px 20px;
+  padding: 14px 0 4px 14px;
   font-size: 11px;
   line-height: 16px;
-  color: rgba(255, 255, 255, 0.38);
-  letter-spacing: 0.5px;
+  color: var(--el-text-color-secondary);
+  letter-spacing: 0.6px;
 }
 
 /* 底部退出登录项，跟菜单项同高同风格 */
 .aside-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--app-outline);
   flex-shrink: 0;
+  padding: 6px 10px;
 }
 
 .logout-item {
-  height: 50px;
-  line-height: 50px;
-  padding: 0 20px;
-  color: #bfcbd9;
+  height: 44px;
+  line-height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  color: var(--el-text-color-regular);
   font-size: 14px;
   cursor: pointer;
   display: flex;
@@ -383,18 +399,22 @@ onMounted(async () => {
 }
 
 .logout-item:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: var(--el-fill-color-light);
+  color: var(--el-color-primary);
 }
 
 :deep(.el-menu-item) {
-  height: 50px;
-  line-height: 50px;
+  height: 46px;
+  line-height: 46px;
+  margin: 2px 0;
+  border-radius: 10px;
+  transition: background 0.2s, color 0.2s;
 }
 
 :deep(.el-menu-item.is-active) {
-  background: rgba(64, 158, 255, 0.1) !important;
-  border-left: 3px solid #409EFF;
+  background: var(--el-color-primary-light-9) !important;
+  color: var(--el-color-primary);
+  font-weight: 600;
 }
 
 /* 菜单项右端的未读红点。手写一个 span 而不是用 el-badge：el-badge 的小红点节点
@@ -417,8 +437,8 @@ onMounted(async () => {
 }
 
 .layout-main {
-  background: var(--el-bg-color-page);
-  padding: 20px;
+  background: transparent;
+  padding: 24px 28px;
   overflow-y: auto;
 }
 
@@ -471,8 +491,10 @@ onMounted(async () => {
     bottom: 0;
     left: 0;
     z-index: 2001;
+    background: var(--app-surface-solid);
     transform: translateX(-100%);
     transition: transform 0.25s ease;
+    box-shadow: var(--app-shadow-hover);
   }
 
   .layout-aside.is-open {
@@ -484,11 +506,11 @@ onMounted(async () => {
     position: fixed;
     inset: 64px 0 0 0;
     z-index: 2000;
-    background: rgba(0, 0, 0, 0.35);
+    background: rgba(23, 25, 45, 0.32);
   }
 
   .layout-main {
-    padding: 12px;
+    padding: 14px 12px;
   }
 
   /* 手机上版权那行字小一号、上下留白收紧，少占高度 */

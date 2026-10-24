@@ -488,17 +488,23 @@ function goHome() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #1f2d3d 0%, #2c3e50 55%, #3a5169 100%);
+  /* 背景交给 #app 的全局蓝紫渐变 */
+  background: transparent;
+  padding: 20px;
+  box-sizing: border-box;
 }
 
 .login-card {
   width: 380px;
   /* 手机上留出左右边距，卡片不会顶到屏幕边 */
   max-width: 92%;
-  padding: 36px 34px 24px;
-  background: var(--el-bg-color);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 21, 41, 0.3);
+  padding: 38px 34px 26px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 24px;
+  box-shadow: var(--app-shadow-hover);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 /* 手机上屏幕矮，卡片内边距和校徽都收一点 */
@@ -527,6 +533,11 @@ function goHome() {
   height: 64px;
   border-radius: 50%;
   object-fit: cover;
+  /* 校徽本身多为深色线条，垫一层白底，深色模式下也看得清 */
+  background: #fff;
+  padding: 4px;
+  box-sizing: border-box;
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.18);
 }
 
 .login-title {
