@@ -11,6 +11,18 @@
         </div>
       </div>
       <div class="header-right">
+        <!-- 主题切换：跟随系统 → 浅色 → 深色 循环，选择记在 cookie 里（useTheme） -->
+        <el-tooltip :content="`主题：${themeLabel}（点击切换）`" placement="bottom" :show-after="200">
+          <button
+            type="button"
+            class="theme-toggle"
+            :aria-label="`主题：${themeLabel}，点击切换`"
+            @click="themeNext"
+          >
+            <el-icon><component :is="themeIcon" /></el-icon>
+          </button>
+        </el-tooltip>
+
         <span class="class-badge">
           <el-icon><UserFilled /></el-icon>
           共 {{ userStore.totalStudents }} 人
@@ -111,6 +123,7 @@ import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
 import { canSee } from '@/utils/roles'
 import { SITE } from '@/utils/site'
+import { useTheme } from '@/composables/useTheme'
 
 /**
  * 登录后的整站布局（顶栏 + 侧边菜单 + 主区 + 脚栏）
@@ -126,6 +139,9 @@ const badgeStore = useBadgeStore()
 // 菜单高亮：详情页（/leave、/ev-pass…）不在菜单里，靠 meta.activeMenu 指回所属入口，
 // 否则从办事中心点进办件后，侧栏会「什么都不选中」
 const activeMenu = computed(() => route.meta?.activeMenu || route.path)
+
+// 顶栏的主题按钮：当前档位（跟随系统 / 浅色 / 深色）、对应图标和切换动作
+const { label: themeLabel, icon: themeIcon, next: themeNext } = useTheme()
 
 // 返回带：只有配了 meta.backTo 的页面才有（目前是四个办件页，指回办事中心）
 const backTarget = computed(() =>
@@ -328,6 +344,33 @@ html.dark .app-title {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+/* 主题切换按钮：一枚 32px 小圆钮，图标随当前档位变（显示器 / 太阳 / 月亮），
+   hover 才转副色 —— 和班级徽章、头像同一行，不会抢视线 */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 1px solid var(--app-outline);
+  border-radius: 50%;
+  background: var(--app-surface);
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.theme-toggle:hover {
+  color: var(--app-secondary-deep);
+  background: var(--app-secondary-soft);
+  border-color: var(--app-secondary-border);
+}
+
+.theme-toggle .el-icon {
+  font-size: 16px;
 }
 
 /* 班级人数徽章：副色浅蓝。和左边紫色渐变的标题恰好在同一行，
