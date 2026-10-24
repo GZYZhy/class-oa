@@ -191,7 +191,7 @@ def _submitted_items(
             "updated_at": _fmt(row.reviewed_at),
             "reviewer_name": row.reviewer_name,
             "reason": row.reject_reason,
-            "detail_url": "/leave",
+            "detail_url": "/leave?tab=record",
         })
 
     # ---- 3. 电动车通行证 ----
@@ -221,7 +221,7 @@ def _submitted_items(
             "updated_at": _fmt(row.reviewed_at),
             "reviewer_name": row.reviewer_name,
             "reason": row.reject_reason,
-            "detail_url": "/ev-pass",
+            "detail_url": "/ev-pass?tab=record",
         })
 
     # ---- 4. 证明开具 ----
@@ -247,7 +247,7 @@ def _submitted_items(
             "updated_at": _fmt(row.reviewed_at),
             "reviewer_name": row.reviewer_name,
             "reason": row.reject_reason,
-            "detail_url": "/certificate",
+            "detail_url": "/certificate?tab=record",
         })
 
     # ---- 5. 导出申请（班委及以上才能提交）----
@@ -299,7 +299,7 @@ def _submitted_items(
             "updated_at": _fmt(row.reply_at),
             "reviewer_name": row.reply_name,
             "reason": None,
-            "detail_url": "/feedback",
+            "detail_url": "/feedback?tab=record",
         })
 
     # 按提交时间倒序
