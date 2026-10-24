@@ -244,7 +244,7 @@ onMounted(async () => {
   justify-content: space-between;
   padding: 0 24px;
   border-bottom: 1px solid var(--app-outline);
-  box-shadow: 0 4px 24px rgba(79, 70, 229, 0.06);
+  box-shadow: 0 6px 20px rgba(88, 84, 214, 0.04);
   z-index: 10;
   height: 64px;
 }
@@ -265,7 +265,7 @@ onMounted(async () => {
   background: #fff;
   padding: 2px;
   box-sizing: border-box;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.12);
+  box-shadow: 0 4px 12px rgba(88, 84, 214, 0.10);
 }
 
 .title-group {
@@ -276,16 +276,17 @@ onMounted(async () => {
 
 .app-title {
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.5px;
-  background: linear-gradient(90deg, #4f46e5 0%, #7c3aed 55%, #a855f7 100%);
+  /* 与全局 --app-accent-gradient 同一序列（靛蓝→薰衣草→天青），尾端冷色让标题更透气 */
+  background: linear-gradient(100deg, #4f46e5 0%, #7c6ff0 50%, #6aa8ee 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 html.dark .app-title {
-  background: linear-gradient(90deg, #a5b4fc 0%, #c4b5fd 60%, #e9d5ff 100%);
+  background: linear-gradient(100deg, #a5b4fc 0%, #c4b5fd 60%, #93c5fd 100%);
   -webkit-background-clip: text;
   background-clip: text;
 }
@@ -312,6 +313,8 @@ html.dark .app-title {
   padding: 6px 14px;
   border-radius: 999px;
   border: 1px solid var(--el-color-primary-light-7);
+  /* 半透明底自带一点渐变透感，比纯色胶囊更精致 */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 .user-box {
@@ -332,7 +335,7 @@ html.dark .app-title {
   background: var(--app-accent-gradient);
   color: #fff;
   font-size: 14px;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.22);
 }
 
 .user-name {
@@ -388,7 +391,7 @@ html.dark .app-title {
   height: 44px;
   line-height: 44px;
   padding: 0 14px;
-  border-radius: 10px;
+  border-radius: 12px;
   color: var(--el-text-color-regular);
   font-size: 14px;
   cursor: pointer;
@@ -407,14 +410,19 @@ html.dark .app-title {
   height: 46px;
   line-height: 46px;
   margin: 2px 0;
-  border-radius: 10px;
+  border-radius: 12px;
   transition: background 0.2s, color 0.2s;
 }
 
+/* 激活态：横向渐变的浅色药丸（左深右浅），比纯色块更有方向感，
+   左缘再补一道 1px 内高光呼应卡片的玻璃边缘 */
 :deep(.el-menu-item.is-active) {
-  background: var(--el-color-primary-light-9) !important;
+  background: linear-gradient(90deg,
+    var(--el-color-primary-light-8),
+    var(--el-color-primary-light-9)) !important;
   color: var(--el-color-primary);
   font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 /* 菜单项右端的未读红点。手写一个 span 而不是用 el-badge：el-badge 的小红点节点

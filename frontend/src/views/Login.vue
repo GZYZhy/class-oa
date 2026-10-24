@@ -502,7 +502,7 @@ function goHome() {
   background: var(--app-surface);
   border: 1px solid var(--app-border);
   border-radius: 24px;
-  box-shadow: var(--app-shadow-hover);
+  box-shadow: var(--app-shadow-hover), var(--app-card-inset);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
@@ -537,7 +537,7 @@ function goHome() {
   background: #fff;
   padding: 4px;
   box-sizing: border-box;
-  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.18);
+  box-shadow: 0 8px 20px rgba(88, 84, 214, 0.16);
 }
 
 .login-title {

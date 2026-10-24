@@ -258,12 +258,14 @@ onMounted(() => {
 
 <style scoped>
 .welcome-banner {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #a78bfa 100%);
+  /* 靛蓝起手、薰衣草过渡、尾端晕向天青 —— 和全局 accent 渐变同一序列，
+     尾部那一点冷蓝是「清新透气」的关键，纯紫渐变压久了会显闷 */
+  background: linear-gradient(135deg, #6269f0 0%, #8b7bf2 52%, #7db3f2 100%);
   border-radius: var(--app-radius);
-  padding: 28px 32px;
+  padding: 30px 34px;
   color: #fff;
   margin-bottom: 20px;
-  box-shadow: 0 16px 40px rgba(99, 102, 241, 0.22);
+  box-shadow: 0 18px 44px rgba(104, 110, 240, 0.24);
   position: relative;
   overflow: hidden;
   display: flex;
@@ -271,15 +273,26 @@ onMounted(() => {
   gap: 20px;
 }
 
-/* 右上角那团光斑是装饰：横幅是深色底，浅色圆斑能把它从「一块色块」变成有层次的版面 */
+/* 两团光斑对角布置（右上大、左下小），把横幅从「一块色块」变成有层次的版面 */
 .welcome-banner::before {
   content: '';
   position: absolute;
   right: -40px;
   top: -40px;
-  width: 200px;
-  height: 200px;
-  background: rgba(255, 255, 255, 0.08);
+  width: 220px;
+  height: 220px;
+  background: rgba(255, 255, 255, 0.09);
+  border-radius: 50%;
+}
+
+.welcome-banner::after {
+  content: '';
+  position: absolute;
+  left: -30px;
+  bottom: -60px;
+  width: 180px;
+  height: 180px;
+  background: rgba(125, 211, 252, 0.14);
   border-radius: 50%;
 }
 
@@ -292,8 +305,10 @@ onMounted(() => {
 .banner-text h1 {
   font-size: 26px;
   margin: 0 0 8px 0;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  /* 白字压渐变上仍带一点投影，大标题才立得住（深底浅字，明暗模式都成立） */
+  text-shadow: 0 2px 10px rgba(49, 46, 129, 0.25);
 }
 
 .banner-subtitle {
@@ -328,22 +343,26 @@ onMounted(() => {
   padding: 6px;
   box-sizing: border-box;
   object-fit: cover;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  /* 白描边让校徽和渐变底之间有一圈「呼吸」的留白，比投影更干净 */
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 6px 16px rgba(49, 46, 129, 0.22);
   flex-shrink: 0;
 }
 
 /* 生日条幅：跟在欢迎横幅后面，用暖色和它区分开。
-   固定色值，不跟深色模式 —— 同 .welcome-banner / 顶栏校徽的做法 */
+   固定色值，不跟深色模式 —— 同 .welcome-banner / 顶栏校徽的做法。
+   起手淡玫、收进暖橙：比原来的深玫红更「清晨感」，和主横幅的冷蓝正好互补 */
 .birthday-banner {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: linear-gradient(135deg, #f78ca0 0%, #e8657f 100%);
+  background: linear-gradient(135deg, #f790a7 0%, #ee7c6f 100%);
   color: #fff;
   border-radius: var(--app-radius);
   padding: 14px 20px;
   margin-bottom: 20px;
   font-size: 15px;
+  box-shadow: 0 12px 30px rgba(238, 124, 111, 0.20);
 }
 
 .birthday-icon {
@@ -372,36 +391,43 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
-  box-shadow: var(--app-shadow);
+  /* 分层投影 + 顶部内高光，和 .page-card 同一套玻璃质感 */
+  box-shadow: var(--app-shadow), var(--app-card-inset);
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .stat-card:hover {
   transform: translateY(-3px);
-  box-shadow: var(--app-shadow-hover);
+  box-shadow: var(--app-shadow-hover), var(--app-card-inset);
 }
 
 .stat-icon {
   width: 60px;
   height: 60px;
-  border-radius: 16px;
+  border-radius: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 30px;
   color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
-.card-blue .stat-icon { background: linear-gradient(135deg, #409EFF, #66b1ff); }
-.card-pink .stat-icon { background: linear-gradient(135deg, #F56C6C, #f89898); }
-.card-cyan .stat-icon { background: linear-gradient(135deg, #1abc9c, #48c9b0); }
-.card-green .stat-icon { background: linear-gradient(135deg, #67C23A, #85ce61); }
+/* 图标渐变整体调淡半档、去掉「正色 → 白化色」的大跳变：
+   原来的 #409EFF→#66b1ff 两端亮度差太近又都偏艳，改成同色系的「中调→浅调」，
+   配合上面的内高光更像瓷面而不是塑料贴片。白字不变，两档模式都清晰 */
+.card-blue .stat-icon { background: linear-gradient(135deg, #5b8bef, #83aef7); box-shadow: 0 8px 18px rgba(91, 139, 239, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.card-pink .stat-icon { background: linear-gradient(135deg, #ef7a92, #f5a3b4); box-shadow: 0 8px 18px rgba(239, 122, 146, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.card-cyan .stat-icon { background: linear-gradient(135deg, #35bfa8, #6ed4c2); box-shadow: 0 8px 18px rgba(53, 191, 168, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.card-green .stat-icon { background: linear-gradient(135deg, #5fbf6d, #8cd996); box-shadow: 0 8px 18px rgba(95, 191, 109, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 
 .stat-value {
   font-size: 28px;
   font-weight: 700;
   color: var(--el-text-color-primary);
   line-height: 1.2;
+  letter-spacing: 0.3px;
+  font-variant-numeric: tabular-nums;
   /* 数字永远不换行：卡片被挤窄时「36」会被折成上下两个数字，看着像写错了。
      见下面那条 iPad 竖屏的媒体查询 —— 空间不够是根源，这里是兜底 */
   white-space: nowrap;
@@ -444,7 +470,7 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 16px 8px;
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--el-fill-color-lighter);
   border: 1px solid var(--app-outline);
   color: var(--el-text-color-primary);
@@ -456,6 +482,7 @@ onMounted(() => {
   background: var(--el-color-primary-light-9);
   border-color: var(--el-color-primary);
   transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(107, 116, 244, 0.14);
 }
 
 .quick-icon {
@@ -522,8 +549,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 8px;
-  border-radius: 6px;
+  padding: 9px 10px;
+  border-radius: 10px;
   color: var(--el-text-color-primary);
   text-decoration: none;
   transition: background 0.2s;
