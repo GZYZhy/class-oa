@@ -220,6 +220,45 @@ html, body, #app {
   letter-spacing: 0.3px;
 }
 
+/* ============ 卡片内部分节 ============
+   除首页外，各页多是「一张卡片装下标题、筛选、表格、分页」，
+   宽屏上就是一大片同色的平面。这里靠三块内建区域把卡片切开：
+     ① 通栏表头（标题或含标题的头栏）——负边距吃掉卡片内边距，下缘分隔线
+     ② 内嵌筛选条（行内表单）——浅底 + 描边的小工具盘
+     ③ 表格自身一道外框
+   全是纯样式，不动 DOM，任何页面都自动获得同一套节奏。
+   用 :first-of-type 而不是 :first-child：审核页卡片第一个子节点是水印层，
+   标题排在它后面。 */
+.page-card > .page-title:first-of-type,
+.page-card > :is(.page-toolbar, .at-head, .vt-head, .inbox-head):first-of-type {
+  /* 只写三边：个别页给标题写了内联 margin-bottom，用简写会被它整条顶掉，
+     左边距就没了 —— 长写法和内联样式互不干扰，最多下边距按页面自己的来 */
+  margin-top: -24px;
+  margin-left: -26px;
+  margin-right: -26px;
+  margin-bottom: 20px;
+  padding: 18px 26px 16px;
+  border-bottom: 1px solid var(--app-outline);
+  border-radius: var(--app-radius) var(--app-radius) 0 0;
+  background: linear-gradient(180deg, var(--el-fill-color-lighter), transparent);
+}
+
+/* 头栏里的标题（通知、考勤、投票、消息那几个包了一层的）去掉自带下边距，
+   高度交给表头的内边距控制，几个页面才一样高 */
+.page-card > :is(.page-toolbar, .at-head, .vt-head, .inbox-head):first-of-type .page-title {
+  margin-bottom: 0;
+}
+
+/* 筛选条：和表头、表格各自成块，不再和表格糊在一起。
+   只认直接子级 —— 有的页面（成绩管理）把行内表单塞在自己的 flex 工具条里，
+   给那里再套一层浅底盒子就成了「盒中盒」 */
+.page-card > .el-form--inline {
+  padding: 14px 16px 0;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--app-outline);
+  border-radius: 12px;
+}
+
 .page-title::before {
   content: '';
   width: 4px;
@@ -333,6 +372,8 @@ html.dark .el-overlay {
   --el-table-row-hover-bg-color: var(--el-fill-color-light);
   border-radius: 16px;
   overflow: hidden;
+  /* 一道外框：表格从卡片底色里「抬」成独立面板（同页的表头、筛选条各有边界） */
+  border: 1px solid var(--app-outline);
 }
 
 .el-table th.el-table__cell {
@@ -412,6 +453,21 @@ html .el-textarea__inner:focus {
 
   .page-title {
     font-size: 16px;
+  }
+
+  /* 通栏表头跟着卡片内边距一起收，负边距要正好抵消，否则会顶出卡片圆角 */
+  .page-card > .page-title:first-of-type,
+  .page-card > :is(.page-toolbar, .at-head, .vt-head, .inbox-head):first-of-type {
+    margin-top: -14px;
+    margin-left: -12px;
+    margin-right: -12px;
+    margin-bottom: 16px;
+    padding: 14px 12px 12px;
+  }
+
+  /* 筛选条在手机上同样收一号内边距 */
+  .page-card > .el-form--inline {
+    padding: 12px 12px 0;
   }
 
   /* 搜索区的行内表单：一律竖排占满一行，
