@@ -145,7 +145,7 @@
               <div>{{ formatDateTime(row.end_at) }}</div>
             </template>
           </el-table-column>
-          <el-table-column prop="reason" label="事由" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="reason" label="事由" min-width="160" show-overflow-tooltip align="left" />
           <el-table-column label="状态" width="110" align="center">
             <template #default="{ row }">
               <el-tag v-if="row.status === 'pending'" type="warning" size="small">待受理</el-tag>
@@ -271,18 +271,18 @@
         </div>
 
         <el-table :data="evPassList" stripe border style="width: 100%; margin-top: 12px;">
-          <el-table-column label="申请人" width="140" align="center">
+          <el-table-column label="申请人" min-width="140" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
               <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
             </template>
           </el-table-column>
-          <el-table-column prop="brand" label="品牌" width="120" align="center" />
-          <el-table-column prop="plate_number" label="牌照号" width="140" align="center" />
-          <el-table-column label="申请时间" width="160" align="center">
+          <el-table-column prop="brand" label="品牌" min-width="120" align="center" />
+          <el-table-column prop="plate_number" label="牌照号" min-width="140" align="center" />
+          <el-table-column label="申请时间" min-width="160" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="状态" width="100" align="center">
+          <el-table-column label="状态" min-width="100" align="center">
             <template #default="{ row }">
               <el-tag v-if="row.status === 'pending'" type="warning" size="small">待受理</el-tag>
               <el-tag v-else-if="row.status === 'accepted'" type="primary" size="small">已受理</el-tag>
@@ -292,7 +292,7 @@
               <el-tag v-else-if="row.status === 'revoked'" type="info" size="small">已撤销</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="经办班委签字" width="130" align="center">
+          <el-table-column label="经办班委签字" min-width="130" align="center">
             <template #default="{ row }">
               <!-- 签字是批准那一步定的，待审核 / 已驳回的单子无所谓签没签 -->
               <span v-if="row.status !== 'approved'" style="color: var(--el-text-color-disabled);">—</span>
@@ -300,7 +300,7 @@
               <span v-else style="color: var(--el-text-color-secondary);">暂不签署</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="530" align="center">
+          <el-table-column label="操作" min-width="530" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewEvLicense(row)">行驶证</el-button>
               <!-- 生成的文档：班委和管理员都能下（留档、报学院盖章用）。
@@ -411,8 +411,8 @@
               <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
             </template>
           </el-table-column>
-          <el-table-column prop="title" label="证明标题" min-width="160" show-overflow-tooltip />
-          <el-table-column prop="recipient" label="收文单位" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="title" label="证明标题" min-width="160" show-overflow-tooltip align="left" />
+          <el-table-column prop="recipient" label="收文单位" min-width="140" show-overflow-tooltip align="left" />
           <el-table-column label="申请时间" width="160" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
@@ -543,7 +543,7 @@
               <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="审批人 / 驳回理由" min-width="160" show-overflow-tooltip>
+          <el-table-column label="审批人 / 驳回理由" min-width="160" show-overflow-tooltip align="left">
             <template #default="{ row }">
               {{ row.status === 'rejected' ? (row.reason || '') : (row.reviewer_name || '-') }}
             </template>
@@ -583,38 +583,38 @@
         </div>
 
         <el-table :data="exportList" v-loading="exportLoading" stripe border style="width: 100%; margin-top: 12px;">
-          <el-table-column label="申请人" width="150" align="center">
+          <el-table-column label="申请人" min-width="150" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
               <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
             </template>
           </el-table-column>
-          <el-table-column label="类型" width="140" align="center">
+          <el-table-column label="类型" min-width="140" align="center">
             <template #default="{ row }">
               <el-tag size="small" :type="row.export_type === 'excel_list' ? '' : 'primary'">
                 {{ row.export_type === 'excel_list' ? '名单 Excel' : '个人信息表 PDF' }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="范围" width="120" align="center">
+          <el-table-column label="范围" min-width="120" align="center">
             <template #default="{ row }">{{ scopeLabel(row.scope_type) }}</template>
           </el-table-column>
-          <el-table-column label="字段数" width="90" align="center">
+          <el-table-column label="字段数" min-width="90" align="center">
             <template #default="{ row }">
               {{ row.export_type === 'excel_list' ? (row.fields?.length || 0) : '全部' }}
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="110" align="center">
+          <el-table-column label="状态" min-width="110" align="center">
             <template #default="{ row }">
               <el-tag :type="exportStatusTag(row.status)" size="small">
                 {{ exportStatusLabel(row.status) }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="申请时间" width="160" align="center">
+          <el-table-column label="申请时间" min-width="160" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="260" align="center">
+          <el-table-column label="操作" min-width="260" align="center">
             <template #default="{ row }">
               <template v-if="(row.status === 'generated' || row.status === 'approved') && (userStore.isAdmin || row.student_no === userStore.userInfo?.student_no)">
                 <el-button
@@ -677,7 +677,7 @@
               <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
             </template>
           </el-table-column>
-          <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip align="left" />
           <el-table-column label="状态" width="90" align="center">
             <template #default="{ row }">
               <el-tag v-if="row.status === 'unread'" type="info" size="small">未读</el-tag>

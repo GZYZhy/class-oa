@@ -118,7 +118,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="student_no" label="学号" width="130" />
-        <el-table-column prop="detail" label="说明" min-width="260" show-overflow-tooltip />
+        <el-table-column prop="detail" label="说明" min-width="260" show-overflow-tooltip align="left" />
       </el-table>
 
       <div v-if="preview.sample_rows?.length" class="gi-block">

@@ -68,6 +68,25 @@
       <div v-if="drawerOpen" class="aside-mask" @click="drawerOpen = false"></div>
 
       <el-main class="layout-main">
+        <!-- 校徽纹样：固定在视口右下角的一枚极淡徽记，给空旷的页面底色添一点纹样。
+             纯装饰 —— 不进无障碍树、不接鼠标事件，也永远不会盖住内容 -->
+        <!-- 校徽换了地址、或品牌还没配校徽时可能 404：直接隐藏，别让破图图标挂在角上 -->
+        <img
+          :src="SITE.logoUrl"
+          class="app-emblem"
+          alt=""
+          aria-hidden="true"
+          @error="$event.target.style.display = 'none'"
+        />
+
+        <!-- 二级页面的返回入口：路由 meta 里配 backTo / backTitle 就在这里渲染一条，
+             省得每个详情页各写一份，样式也能保证一致 -->
+        <nav v-if="backTarget" class="page-back-row">
+          <button type="button" class="page-back" @click="router.push(backTarget.path)">
+            <el-icon><ArrowLeft /></el-icon><span>{{ backTarget.title }}</span>
+          </button>
+        </nav>
+
         <router-view />
       </el-main>
     </el-container>
@@ -104,7 +123,14 @@ const router = useRouter()
 const userStore = useUserStore()
 const badgeStore = useBadgeStore()
 
-const activeMenu = computed(() => route.path)
+// 菜单高亮：详情页（/leave、/ev-pass…）不在菜单里，靠 meta.activeMenu 指回所属入口，
+// 否则从办事中心点进办件后，侧栏会「什么都不选中」
+const activeMenu = computed(() => route.meta?.activeMenu || route.path)
+
+// 返回带：只有配了 meta.backTo 的页面才有（目前是四个办件页，指回办事中心）
+const backTarget = computed(() =>
+  route.meta?.backTo ? { path: route.meta.backTo, title: route.meta.backTitle || '返回' } : null
+)
 
 // 手机端的菜单抽屉：桌面端侧边栏常驻，这个开关不起作用
 const drawerOpen = ref(false)
@@ -446,6 +472,37 @@ html.dark .app-title {
   background: transparent;
   padding: 24px 28px;
   overflow-y: auto;
+}
+
+/* 返回带：贴在内容区左上角，做成一枚浅色药丸 —— 足够可见，
+   又不会和下面的页面标题抢注意力（hover 才转成副色） */
+.page-back-row {
+  margin-bottom: 12px;
+}
+
+.page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px 5px 8px;
+  border: 1px solid var(--app-outline);
+  border-radius: 999px;
+  background: var(--app-surface);
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.page-back:hover {
+  color: var(--app-secondary-deep);
+  background: var(--app-secondary-soft);
+  border-color: var(--app-secondary-border);
+}
+
+.page-back .el-icon {
+  font-size: 14px;
 }
 
 /* ============ 手机适配（≤768px）============

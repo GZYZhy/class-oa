@@ -16,7 +16,7 @@
       empty-text="没有分配过日程"
       stripe
     >
-      <el-table-column prop="name" label="批次名称" min-width="200" show-overflow-tooltip />
+      <el-table-column prop="name" label="批次名称" min-width="200" show-overflow-tooltip align="left" />
       <el-table-column prop="target_count" label="目标人数" width="100" align="right" />
       <!-- 「日程数」是**每人**几条（原来只叫「日程数」，看着像这一批一共几条，
            36 人的生日批次显示成 4 很容易看岔），另给一列合计 -->

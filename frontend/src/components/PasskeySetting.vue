@@ -60,7 +60,7 @@
 
         <div class="list-title">我的通行密钥</div>
         <el-table v-loading="loading" :data="items" size="small" stripe border style="width: 100%;">
-          <el-table-column label="备注名" min-width="140" show-overflow-tooltip>
+          <el-table-column label="备注名" min-width="140" show-overflow-tooltip align="left">
             <template #default="{ row }">{{ row.label || '未命名' }}</template>
           </el-table-column>
           <el-table-column label="类型" width="100" align="center">

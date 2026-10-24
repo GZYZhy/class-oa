@@ -46,8 +46,8 @@
         show-summary
         :summary-method="summaryMethod"
       >
-        <el-table-column prop="student_no" label="学号" width="120" fixed />
-        <el-table-column label="姓名" width="100" fixed>
+        <el-table-column prop="student_no" label="学号" min-width="120" fixed />
+        <el-table-column label="姓名" min-width="100" fixed>
           <template #default="{ row }">
             {{ row.student_name }}
             <!-- 已删档（毕业）的人只剩成绩里的名字快照，标一下免得以为是脏数据 -->
@@ -66,7 +66,7 @@
           :key="s.id"
           :label="s.name"
           :prop="`s_${s.id}`"
-          width="160"
+          min-width="160"
         >
           <template #header>
             <span class="gd-head">

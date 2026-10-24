@@ -834,8 +834,9 @@ watch(() => route.query.id, focusFromQuery)
 }
 
 .notice-collapse {
-  border-top: 1px solid var(--el-border-color-lighter);
-  margin-top: 8px;
+  /* 四边描边和圆角统一在全局（styles/main.css 的 .el-collapse），
+     这里只留和上方筛选条之间的间距；再写 border-top 会和容器边框叠成 2px */
+  margin-top: 12px;
 }
 
 .notice-title {

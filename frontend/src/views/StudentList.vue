@@ -468,7 +468,7 @@
                     {{ formatDateTime(row.occurred_at).slice(0, 16) }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="title" label="考勤标题" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="title" label="考勤标题" min-width="160" show-overflow-tooltip align="left" />
                 <el-table-column prop="category" label="考勤类型" width="90" align="center" />
                 <el-table-column prop="scope" label="参与范围" width="100" align="center" />
                 <el-table-column label="出勤情况" width="100" align="center">
@@ -524,7 +524,7 @@
                   </template>
                 </el-table-column>
                 <el-table-column prop="type_name" label="类型" width="120" />
-                <el-table-column prop="title" label="事项" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="title" label="事项" min-width="180" show-overflow-tooltip align="left" />
                 <el-table-column label="状态" width="100" align="center">
                   <template #default="{ row }">
                     <el-tag :type="row.status_type" size="small">{{ row.status_label }}</el-tag>
@@ -1093,9 +1093,14 @@
       </template>
     </el-dialog>
 
-    <!-- 照片查看器 -->
+    <!-- 照片查看器。
+         teleported：查看器自己是 position:fixed，但挂在页面根节点下，
+         而根节点带进场上浮动画（transform），在 Safari 里会变成 fixed 的
+         包含块 —— 于是遮罩和图片都按页面容器而不是浏览器视口铺开，
+         看着就是「大图被裁掉一截」。teleport 到 body 后与容器彻底解耦 -->
     <el-image-viewer
       v-if="viewerVisible"
+      teleported
       :url-list="viewerList"
       :initial-index="viewerIndex"
       @close="viewerVisible = false"
@@ -1221,22 +1226,22 @@
         <!-- 我的申请 -->
         <el-tab-pane label="我的申请" name="history">
           <el-table :data="myRequests" v-loading="myRequestsLoading" stripe size="small">
-            <el-table-column prop="created_at" label="申请时间" width="160">
+            <el-table-column prop="created_at" label="申请时间" min-width="160">
               <template #default="{ row }">
                 {{ new Date(row.created_at).toLocaleString() }}
               </template>
             </el-table-column>
-            <el-table-column label="类型" width="130">
+            <el-table-column label="类型" min-width="130">
               <template #default="{ row }">{{ typeLabel(row.export_type) }}</template>
             </el-table-column>
-            <el-table-column label="状态" width="100">
+            <el-table-column label="状态" min-width="100">
               <template #default="{ row }">
                 <el-tag :type="statusTagType(row.status)" size="small">
                   {{ statusLabel(row.status) }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="100">
+            <el-table-column label="操作" min-width="100">
               <template #default="{ row }">
                 <el-button
                   v-if="row.status === 'generated' || row.status === 'approved'"

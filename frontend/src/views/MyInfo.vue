@@ -285,7 +285,7 @@
                 <el-table-column label="考勤时间" width="160">
                   <template #default="{ row }">{{ formatDateTime(row.occurred_at) }}</template>
                 </el-table-column>
-                <el-table-column prop="title" label="考勤标题" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="title" label="考勤标题" min-width="180" show-overflow-tooltip align="left" />
                 <el-table-column prop="category" label="考勤类型" width="100" align="center" />
                 <el-table-column prop="scope" label="参与范围" width="110" align="center" />
                 <el-table-column label="我的出勤" width="110" align="center">
@@ -519,8 +519,8 @@
                     <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
                   </el-table-column>
                   <el-table-column prop="action" label="动作" width="120" align="center" />
-                  <el-table-column prop="target" label="对象" min-width="150" show-overflow-tooltip />
-                  <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+                  <el-table-column prop="target" label="对象" min-width="150" show-overflow-tooltip align="left" />
+                  <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip align="left" />
                 </el-table>
                 <el-empty
                   v-if="!logsLoading && !myLogs.operations.total"
@@ -680,9 +680,12 @@
       </el-tabs>
     </div>
 
-    <!-- 照片查看器 -->
+    <!-- 照片查看器。
+         teleported：同 StudentList 那份说明 —— 页面根节点的进场动画
+         （transform）在 Safari 下会成为 fixed 的包含块，浮层会被容器尺寸限制 -->
     <el-image-viewer
       v-if="viewerVisible"
+      teleported
       :url-list="viewerList"
       :initial-index="viewerIndex"
       @close="viewerVisible = false"

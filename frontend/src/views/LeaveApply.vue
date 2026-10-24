@@ -151,7 +151,7 @@
                 <div>{{ formatDateTime(row.end_at) }}</div>
               </template>
             </el-table-column>
-            <el-table-column prop="reason" label="事由" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="reason" label="事由" min-width="180" show-overflow-tooltip align="left" />
             <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
                 <el-tag v-if="row.status === 'pending'" type="warning" size="small">待受理</el-tag>
@@ -202,7 +202,7 @@
                 </el-button>
               </template>
             </el-table-column>
-            <el-table-column label="审核意见" width="180" show-overflow-tooltip>
+            <el-table-column label="审核意见" width="180" show-overflow-tooltip align="left">
               <template #default="{ row }">
                 <span v-if="row.status === 'rejected'" style="color: #f56c6c;">
                   {{ row.reject_reason || '未填写理由' }}
