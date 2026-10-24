@@ -4,7 +4,7 @@
   通知公告每条都用它；以后别的外链类型也可以直接复用，不绑定具体业务。
 -->
 <template>
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     :title="dialogTitle"
     width="520px"

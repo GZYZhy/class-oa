@@ -37,7 +37,7 @@
           <img class="ig-icon" src="/icons/apple-touch-icon.png?v=1" alt="" />
 
           <h3 class="ig-title">把「{{ SITE.shortName }}」装到主屏</h3>
-          <p class="ig-sub">装好后能收通知，打开也没有地址栏</p>
+          <p class="ig-sub">可接收通知，全屏打开</p>
 
           <ol class="ig-steps">
             <li class="ig-step">

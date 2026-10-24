@@ -6,7 +6,7 @@
   标题、描述、截止时间仍可改。
 -->
 <template>
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     :title="isEdit ? '编辑收集' : '发起收集'"
     width="780px"
@@ -29,9 +29,9 @@
             :rows="3"
             maxlength="2000"
             show-word-limit
-            placeholder="写清背景、要求；支持 Markdown"
+            placeholder="写清背景与要求，支持 Markdown"
           />
-          <div class="cc-tip">支持 Markdown：标题、列表、加粗、链接、图片（https 外链）</div>
+          <div class="cc-tip">支持 Markdown（标题、列表、加粗、链接、图片）</div>
         </el-form-item>
         <el-form-item label="开始时间" required>
           <el-date-picker
@@ -79,9 +79,9 @@
             :disabled="notifyLocked"
           />
           <div class="cc-tip">
-            开启后到「开始时间」才发一次提醒；改了开始时间，提醒跟着新时间走
+            到开始时间发送一次提醒
           </div>
-          <div v-if="notifyLocked" class="cc-tip">已经开始或已经发过提醒，改不了了</div>
+          <div v-if="notifyLocked" class="cc-tip">已开始或已提醒，不可修改</div>
         </el-form-item>
         <el-form-item label="允许撤回">
           <el-switch
@@ -91,8 +91,7 @@
             :disabled="isEdit && editingStatus === 'closed'"
           />
           <div class="cc-tip">
-            允许答题人在进行中撤回自己的答卷；撤回后会释放竞争名额，也可以重新填写。
-            收集结束后答卷定稿，这个开关不再生效
+            答题人可在进行中撤回并重填；结束后定稿，开关不再生效
           </div>
         </el-form-item>
         <el-form-item label="每人份数">
@@ -120,7 +119,7 @@
               :max="9999"
               :disabled="structuralLocked"
             />
-            <span class="cc-inline-tip">份；删除答卷会释放名额</span>
+            <span class="cc-inline-tip">份（删除答卷释放名额）</span>
           </template>
         </el-form-item>
       </el-form>

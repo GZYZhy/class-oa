@@ -6,7 +6,7 @@
   用户打开后直接落在整页答卷上（站内列表的主按钮也走同一张页面）。
 -->
 <template>
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     title="分享投票"
     width="520px"

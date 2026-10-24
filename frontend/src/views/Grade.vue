@@ -36,7 +36,7 @@
         :data="rows"
         stripe
         style="margin-top: 12px;"
-        empty-text="还没有录入过成绩，点右上角「上传成绩」传一份 Excel"
+        empty-text="还没有成绩记录"
       >
         <el-table-column prop="name" label="测试名称" min-width="180" show-overflow-tooltip />
         <el-table-column label="测试日期" width="120">
@@ -78,7 +78,7 @@
     <GradeStatsDialog ref="statsRef" />
 
     <!-- 改测试信息。日期该成哪天、备注写什么，都是录完才发现要改的 -->
-    <el-dialog v-model="editVisible" title="修改测试信息" width="480px">
+    <el-dialog append-to-body v-model="editVisible" title="修改测试信息" width="520px">
       <div class="wm-host">
         <Watermark :text="watermarkText" />
         <el-form label-width="88px">

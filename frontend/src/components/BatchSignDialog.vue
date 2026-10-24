@@ -9,7 +9,7 @@
   某个人上传失败时停在这一位，可以重试，也可以跳过。
 -->
 <template>
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     title="批量签字"
     :width="dialogWidth"

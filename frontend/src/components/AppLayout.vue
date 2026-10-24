@@ -278,15 +278,16 @@ onMounted(async () => {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.5px;
-  /* 与全局 --app-accent-gradient 同一序列（靛蓝→薰衣草→天青），尾端冷色让标题更透气 */
-  background: linear-gradient(100deg, #4f46e5 0%, #7c6ff0 50%, #6aa8ee 100%);
+  /* 两段式（靛蓝→薰衣草），与 --app-accent-gradient 同序列。
+     副色浅蓝交给别处（班级徽章、菜单激活），同一屏里不再三色齐上 */
+  background: linear-gradient(100deg, #4f46e5 0%, #7c6ff0 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 html.dark .app-title {
-  background: linear-gradient(100deg, #a5b4fc 0%, #c4b5fd 60%, #93c5fd 100%);
+  background: linear-gradient(100deg, #a5b4fc 0%, #c4b5fd 100%);
   -webkit-background-clip: text;
   background-clip: text;
 }
@@ -303,18 +304,18 @@ html.dark .app-title {
   gap: 16px;
 }
 
+/* 班级人数徽章：副色浅蓝。和左边紫色渐变的标题恰好在同一行，
+   一冷一暖两色对开，顶栏立刻有了层次 */
 .class-badge {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
+  color: var(--app-secondary-deep);
+  background: var(--app-secondary-soft);
   padding: 6px 14px;
   border-radius: 999px;
-  border: 1px solid var(--el-color-primary-light-7);
-  /* 半透明底自带一点渐变透感，比纯色胶囊更精致 */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--app-secondary-border);
 }
 
 .user-box {
@@ -414,15 +415,12 @@ html.dark .app-title {
   transition: background 0.2s, color 0.2s;
 }
 
-/* 激活态：横向渐变的浅色药丸（左深右浅），比纯色块更有方向感，
-   左缘再补一道 1px 内高光呼应卡片的玻璃边缘 */
+/* 激活态：副色浅蓝的浅底药丸。导航是「状态」不是「品牌」，
+   交给副色正好 —— 也把激活项从满屏的紫色调里衬出来 */
 :deep(.el-menu-item.is-active) {
-  background: linear-gradient(90deg,
-    var(--el-color-primary-light-8),
-    var(--el-color-primary-light-9)) !important;
-  color: var(--el-color-primary);
+  background: var(--app-secondary-soft) !important;
+  color: var(--app-secondary-deep);
   font-weight: 600;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 /* 菜单项右端的未读红点。手写一个 span 而不是用 el-badge：el-badge 的小红点节点

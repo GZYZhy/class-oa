@@ -13,8 +13,11 @@
     radial-gradient(700px 500px at 85% 108%, rgba(134, 239, 211, 0.10), transparent 62%);
   --app-surface: rgba(255, 255, 255, 0.90);
   --app-surface-solid: #ffffff;
-  --app-border: rgba(103, 108, 245, 0.13);
-  --app-outline: rgba(103, 108, 245, 0.09);
+  /* 框线两档：border 用于卡片外框、outline 用于表格格线与分隔线。
+     上一版太淡（0.13/0.09）导致「糊成一片」，这里各提一档 ——
+     界面靠线条分区，比靠阴影分区更清晰、也更省性能 */
+  --app-border: rgba(103, 108, 245, 0.20);
+  --app-outline: rgba(103, 108, 245, 0.14);
   --app-shadow: 0 1px 2px rgba(88, 84, 214, 0.04), 0 10px 34px rgba(88, 84, 214, 0.06);
   --app-shadow-hover: 0 2px 6px rgba(88, 84, 214, 0.05), 0 22px 52px rgba(88, 84, 214, 0.13);
   /* 卡片顶部的内高光：模拟玻璃受光的上缘线，配合半透明底色出「薄壳」质感 */
@@ -23,10 +26,31 @@
   --app-radius-sm: 12px;
   --app-header-bg: rgba(255, 255, 255, 0.74);
   --app-aside-bg: rgba(255, 255, 255, 0.64);
-  /* 靛蓝收进薰衣草、再晕向天青：尾端一点冷蓝让渐变透气，是「清新」的关键 */
-  --app-accent-gradient: linear-gradient(135deg, #6a73f3 0%, #8b7cf6 55%, #7fb6f4 105%);
-  --app-accent-gradient-hover: linear-gradient(135deg, #5d66e9 0%, #7d6df0 55%, #6ea8ee 105%);
-  --app-accent-glow: 0 6px 18px rgba(107, 116, 244, 0.22);
+  /* 主色渐变收敛回两段式（靛蓝→薰衣草）。之前尾端那截天青虽然透气，
+     但跟大量浅色元素叠在一起会显得「炫」、糊成一片 —— 冷蓝抽出来
+     交给下面的副色专职承担 */
+  --app-accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b7cf6 100%);
+  --app-accent-gradient-hover: linear-gradient(135deg, #5659e8 0%, #7c4ff0 100%);
+  /* 柔光投影整体降一档：足够「浮起」，不抢内容的注意力 */
+  --app-accent-glow: 0 4px 14px rgba(107, 116, 244, 0.15);
+  /* 「捕光」发丝边：卡片描边不是均匀纯色，而是上亮下彩的极淡渐变。
+     亮度按反馈收敛（白顶 0.72），但彩色端提回来保住「有框」的存在感：
+     0.18/0.20 太虚，卡片像浮在雾里；0.30/0.34 才看得出是一张卡 */
+  --app-card-border: linear-gradient(170deg,
+    rgba(255, 255, 255, 0.75),
+    rgba(166, 154, 250, 0.30) 48%,
+    rgba(125, 205, 250, 0.34) 100%);
+
+  /* ============ 副色：浅蓝（天青） ============
+     职责分工：紫（主色）管品牌与行动（标题渐变、主按钮、头像），
+     浅蓝管「状态与信息」（导航激活、聚焦环、班级徽章、info 组件）。
+     两色在色环上拉开距离，界面的层次就出来了 —— 这正是
+     「全是紫蓝渐变糊在一起」的解药 */
+  --app-secondary: #2f9de4;
+  /* 浅底上做文字用的深一档，保证对比度（#2f9de4 直接当小字偏淡） */
+  --app-secondary-deep: #1777b8;
+  --app-secondary-soft: rgba(47, 157, 228, 0.10);
+  --app-secondary-border: rgba(47, 157, 228, 0.25);
 
   /* Element 主色换成柔和的靛蓝，light-N / dark-2 按官方规则手算 */
   --el-color-primary: #6366f1;
@@ -36,6 +60,15 @@
   --el-color-primary-light-8: #e0e0fc;
   --el-color-primary-light-9: #efeffe;
   --el-color-primary-dark-2: #4f52c1;
+  /* info 从默认灰改成副色浅蓝：31 处 info 按钮/标签/提示一步到位换成蓝，
+     「中性灰」的语义没丢（蓝本来就是信息态的惯例色），还多了一层清爽 */
+  --el-color-info: #2f9de4;
+  --el-color-info-light-3: #5db3ea;
+  --el-color-info-light-5: #97c9f0;
+  --el-color-info-light-7: #c1dff5;
+  --el-color-info-light-8: #d6e9f8;
+  --el-color-info-light-9: #ebf5fc;
+  --el-color-info-dark-2: #257db6;
   --el-border-radius-base: 10px;
   --el-border-radius-small: 8px;
   --el-border-radius-round: 999px;
@@ -55,29 +88,70 @@ html.dark {
     radial-gradient(700px 500px at 85% 108%, rgba(52, 211, 153, 0.05), transparent 62%);
   --app-surface: rgba(25, 27, 45, 0.88);
   --app-surface-solid: #181a2c;
-  --app-border: rgba(255, 255, 255, 0.08);
-  --app-outline: rgba(255, 255, 255, 0.06);
+  /* 深色下同理提一档：0.08/0.06 的线在深底上几乎看不见 */
+  --app-border: rgba(255, 255, 255, 0.13);
+  --app-outline: rgba(255, 255, 255, 0.10);
   --app-shadow: 0 1px 2px rgba(0, 0, 0, 0.20), 0 12px 34px rgba(0, 0, 0, 0.32);
   --app-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.24), 0 22px 52px rgba(0, 0, 0, 0.46);
   --app-card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   --app-header-bg: rgba(15, 17, 29, 0.74);
   --app-aside-bg: rgba(17, 19, 32, 0.64);
-  --app-accent-glow: 0 6px 18px rgba(129, 140, 248, 0.18);
+  --app-accent-glow: 0 4px 14px rgba(129, 140, 248, 0.14);
+  --app-card-border: linear-gradient(170deg,
+    rgba(255, 255, 255, 0.16),
+    rgba(129, 140, 248, 0.26) 48%,
+    rgba(56, 189, 248, 0.18) 100%);
+
+  /* 副色（深色下提亮一档；浅色下的 deep 反而是浅的 —— 深底上要更亮才够对比） */
+  --app-secondary: #53c1f5;
+  --app-secondary-deep: #7dd3fc;
+  --app-secondary-soft: rgba(83, 193, 245, 0.13);
+  --app-secondary-border: rgba(83, 193, 245, 0.30);
 
   --el-color-primary: #818cf8;
+  /* 深色下这几档是「往底色里叠色」而不是「往黑里混」：
+     原来按混黑算出来的 light-8 (#1a1c32)、light-9 (#0d0e19) 比卡片底 #181a2c
+     还黑，一旦拿它们当浅底（学生详情信息条、tag、plain 按钮、当前行高亮），
+     整块就凹进背景、看不出边界。现在 light-9 比表面亮一档、light-8 再深一点，
+     和 Element 自己在深色下的做法一致（它的 light-9 也比 bg 亮） */
   --el-color-primary-light-3: #5a62ae;
-  --el-color-primary-light-5: #40467c;
-  --el-color-primary-light-7: #272a4a;
-  --el-color-primary-light-8: #1a1c32;
-  --el-color-primary-light-9: #0d0e19;
+  --el-color-primary-light-5: #3c4170;
+  --el-color-primary-light-7: #2c3050;
+  --el-color-primary-light-8: #252945;
+  --el-color-primary-light-9: #1e2134;
   --el-color-primary-dark-2: #9aa3f9;
-  --el-bg-color: #181a2a;
-  --el-bg-color-page: #0e1020;
-  --el-bg-color-overlay: #1c1f31;
-  --el-border-color-lighter: #24263a;
-  --el-border-color-light: #2a2d44;
-  --el-fill-color-light: #1c1e32;
-  --el-fill-color-lighter: #181a29;
+  /* info 同步换副色，深色下 light-N 按「混黑」规则手算（同 primary 的做法） */
+  --el-color-info: #53c1f5;
+  --el-color-info-light-3: #3a87ab;
+  --el-color-info-light-5: #2a617b;
+  --el-color-info-light-7: #19394a;
+  --el-color-info-light-8: #122530;
+  --el-color-info-light-9: #0b1319;
+  --el-color-info-dark-2: #6fc9ee;
+  /* ============ Element 深色底：整套换成靛蓝色阶 ============
+     Element 的深色主题给的是中性灰（bg #141414、fill #1d1d1d / #262727、
+     border #363637…），和本主题的靛蓝深底完全不同源：
+     凡是没被显式覆盖的组件（折叠面板、输入框、表格行、下拉菜单、分页…）
+     都会直接露出「黑底」—— 这是截图里那些黑块的来源，不是某个组件的 bug。
+     所以这里不是补一两个变量，而是把整族填充/描边变量按同一色调重排一遍，
+     亮度阶差保留（blank→extra-light→lighter→light→fill→dark→darker） */
+  --el-bg-color: #181a2c;
+  --el-bg-color-page: #0d0f1f;
+  --el-bg-color-overlay: #1e2134;
+  /* 输入框底、表格行底、折叠面板底都取这一档 */
+  --el-fill-color-blank: #1a1c2e;
+  --el-fill-color-extra-light: #1e2135;
+  --el-fill-color-lighter: #212437;
+  --el-fill-color-light: #262a41;
+  --el-fill-color: #2b2f4a;
+  --el-fill-color-dark: #333752;
+  --el-fill-color-darker: #3a3e5c;
+  --el-border-color-extra-light: #23263c;
+  --el-border-color-lighter: #2a2d45;
+  --el-border-color-light: #313554;
+  --el-border-color: #3b4066;
+  --el-border-color-dark: #4a5080;
+  --el-border-color-darker: #5a6093;
 }
 
 /* 全局样式 */
@@ -120,13 +194,17 @@ html, body, #app {
   background: var(--el-color-primary-light-3);
 }
 
-/* 卡片通用样式：半透明、圆角、分层投影 + 顶部内高光，背景的蓝紫渐变会透一点上来 */
+/* 卡片通用样式：半透明、圆角、发丝渐变描边、分层投影。
+   描边做法是双层背景：padding-box 那层是半透明底色（描边区裁掉），
+   border-box 那层只露出 1px 的渐变 —— CSS 原生支持，零额外节点、零重绘开销 */
 .page-card {
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--app-surface), var(--app-surface)) padding-box,
+    var(--app-card-border) border-box;
   border-radius: var(--app-radius);
   padding: 24px 26px;
-  box-shadow: var(--app-shadow), var(--app-card-inset);
+  box-shadow: var(--app-shadow);
   /* 大块内容区不做 backdrop-filter：滚动时它要跟着重绘，手机上容易掉帧。
      半透明底色已经足够透出背景，磨砂感留给顶栏和侧边栏 */
 }
@@ -146,10 +224,10 @@ html, body, #app {
   content: '';
   width: 4px;
   height: 18px;
-  background: var(--app-accent-gradient);
+  /* 主色→副色的双色条：和纯主色渐变相比多一档层次，也点出浅蓝副色的存在。
+     不加投影了 —— 那道光是「炫」的来源之一 */
+  background: linear-gradient(180deg, var(--el-color-primary), var(--app-secondary));
   border-radius: 3px;
-  /* 渐变条本身压一层主色投影，两档阴影变量都用，卡片里才有「立起来」的感觉 */
-  box-shadow: var(--app-accent-glow);
 }
 
 /* ============ 通用控件：圆角与柔和的蓝紫主色 ============ */
@@ -158,18 +236,43 @@ html, body, #app {
   overflow: hidden;
   background: var(--app-surface-solid);
   box-shadow: var(--app-shadow-hover), var(--app-card-inset);
+  /* 兜底：各弹窗宽是写死的 px，窄窗口（平板竖屏、半屏分屏）下别再左右顶出去。
+     手机那档（≤768）另有 92% 的规则，见文件末尾的媒体查询 */
+  max-width: calc(100vw - 32px);
+  /* 高度上限 + 内部滚动：学生详情、成绩导入这类长内容弹窗，
+     以前整张弹窗会顶出屏幕、footer 上的「保存」被推出可视区。
+     改成三段式后头部和按钮永远在视口内，只有正文滚。
+     15vh 是 Element 默认的 margin-top，减掉它才是实际可用高度 */
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 15vh - 24px);
+  max-height: calc(100dvh - 15vh - 24px);
 }
 
 .el-dialog__header {
   padding: 20px 24px 12px;
+  flex: 0 0 auto;
 }
 
 .el-dialog__body {
   padding: 8px 24px 20px;
+  /* 只让正文滚：头部标题、底部按钮固定 */
+  flex: 1 1 auto;
+  overflow-y: auto;
+  /* 滚到底别把外面的页面一起带着滚 */
+  overscroll-behavior: contain;
 }
 
 .el-dialog__footer {
   padding: 8px 24px 20px;
+  flex: 0 0 auto;
+}
+
+/* 学生详情弹窗：标题已经在头部占了位，正文顶部留白收掉一点。
+   弹窗现在传送到 body（append-to-body），scoped 里带祖先的选择器不生效，
+   所以这条写在全局 */
+.el-dialog.detail-dialog .el-dialog__body {
+  padding-top: 10px;
 }
 
 .el-dialog__title {
@@ -211,7 +314,7 @@ html.dark .el-overlay {
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover,
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):focus-visible {
   background-image: var(--app-accent-gradient-hover);
-  box-shadow: 0 8px 22px rgba(107, 116, 244, 0.28);
+  box-shadow: 0 6px 16px rgba(107, 116, 244, 0.20);
 }
 
 .el-input__wrapper,
@@ -242,6 +345,48 @@ html.dark .el-overlay {
   box-shadow: var(--app-shadow-hover);
 }
 
+/* ============ 输入聚焦：浅蓝光环 ============
+   Element 默认只有一圈主色描边，这里换成副色浅蓝 + 外扩 3px 的柔光环 ——
+   聚焦态是「信息态」，归副色管；和紫色主按钮也拉开了对比。
+   选择器多带一层 html 压特异性：组件样式可能晚于本文件加载（按需引入是
+   随路由懒加载进来的），同特异性会被后到者盖掉 */
+html .el-input__wrapper.is-focus,
+html .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--app-secondary) inset,
+    0 0 0 3px var(--app-secondary-soft);
+}
+
+html .el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--app-secondary) inset,
+    0 0 0 3px var(--app-secondary-soft);
+}
+
+/* ============ 页面进场上浮 ============
+   路由切换时主区内容上浮淡入。只认挂载（筛选、展开不会反复播），
+   纯 transform+opacity 走合成层，低端机也无感 */
+@keyframes app-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.layout-main > * {
+  animation: app-rise 0.3s cubic-bezier(0.22, 0.8, 0.36, 1) both;
+}
+
+/* 动效敏感的用户（ vestibular 障碍等）直接关掉：系统级的无障碍约定 */
+@media (prefers-reduced-motion: reduce) {
+  .layout-main > * {
+    animation: none;
+  }
+}
+
 /* ============ 手机适配（≤768px）============
    这里只放「全局都该变」的规则，各页面自己的布局改动写在各自组件里。
    组件里的 style 属性（如 width: 200px）比样式表优先级高，所以这几处必须用 !important。 */
@@ -251,6 +396,9 @@ html.dark .el-overlay {
     width: 92% !important;
     max-width: 92% !important;
     margin-top: 8vh !important;
+    /* 手机上上边距是 8vh，高度上限跟着放宽一点，别白白丢掉 7vh 的空间 */
+    max-height: calc(100vh - 8vh - 16px);
+    max-height: calc(100dvh - 8vh - 16px);
   }
 
   .el-message-box {

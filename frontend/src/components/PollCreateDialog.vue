@@ -3,7 +3,7 @@
        也当编辑弹窗用（父组件调 openForEdit）—— 那时候标题和描述随时能改，
        **题目只在还没开始时能改**，**时间按状态分档**（见 utils/poll.js 的
        canEditTimes：没开始的两个都能改、开始了只能改截止时间），表决范围只读 -->
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     :title="isEdit ? '编辑投票' : '发起投票'"
     width="720px"

@@ -1,6 +1,6 @@
 <template>
   <!-- 上传成绩：传 Excel → 确认识别结果 → 结果 -->
-  <el-dialog
+  <el-dialog append-to-body
     v-model="visible"
     title="上传成绩"
     width="820px"

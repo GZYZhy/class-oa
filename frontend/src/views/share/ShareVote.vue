@@ -56,7 +56,7 @@
           v-else-if="!poll.in_scope"
           type="forbidden"
           title="没有权限查看题目"
-          description="你不在本次投票的表决范围内，只能看公开信息"
+          description="你不在本次范围内"
           :home="false"
         />
 
