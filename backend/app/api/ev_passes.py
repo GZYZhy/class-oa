@@ -608,7 +608,7 @@ def correcting_application(
         notify(
             db, background, targets, "电动车通行证申请需要补交材料",
             f"车牌 {req.plate_number}，理由：{clip(req.correction_reason)}",
-            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+            level="timeSensitive", page="/ev-pass?tab=record",
         )
     return _to_response(db, req)
 
@@ -668,7 +668,7 @@ def approve_application(
         notify(
             db, background, targets, "电动车通行证申请已通过",
             f"你的电动车通行证申请（{req.plate_number}）已通过，现在可以下载申请表和承诺书",
-            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+            level="timeSensitive", page="/ev-pass?tab=record",
         )
     return _to_response(db, req)
 
@@ -708,7 +708,7 @@ def revoke_application(
         notify(
             db, background, targets, "电动车通行证申请已撤销",
             f"你的电动车通行证申请（{req.plate_number}）已被管理员撤销",
-            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+            level="timeSensitive", page="/ev-pass?tab=record",
         )
     return _to_response(db, req)
 
@@ -806,7 +806,7 @@ def reject_application(
         notify(
             db, background, targets, "电动车通行证申请被驳回",
             f"牌照号 {req.plate_number}，理由：{clip(req.reject_reason)}",
-            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+            level="timeSensitive", page="/ev-pass?tab=record",
         )
     return {"message": "已驳回"}
 

@@ -181,6 +181,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { syncRecordTab } from '@/composables/recordTab'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getMyEvPasses,
@@ -199,6 +200,8 @@ import ServiceIntro from '@/components/ServiceIntro.vue'
 import QuickSignDialog from '@/components/QuickSignDialog.vue'
 
 const activeTab = ref('apply')
+// 从站内信 / 办件空间的「详情」进来时带 ?tab=record，直接落在记录页签
+syncRecordTab(activeTab, 'mine')
 const loading = ref(false)
 const submitting = ref(false)
 // 上传进度百分比（算不出总大小时为 0，就不显示数字）

@@ -246,6 +246,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { syncRecordTab } from '@/composables/recordTab'
 import { getMyLeaves, submitLeave, updateLeave, deleteLeave, downloadLeavePdf } from '@/api/leave'
 import { formatDate, formatDateTime } from '@/utils/format'
 import { compressImage } from '@/utils/imageCompress'
@@ -256,6 +257,8 @@ import ServiceIntro from '@/components/ServiceIntro.vue'
 import QuickSignDialog from '@/components/QuickSignDialog.vue'
 
 const activeTab = ref('apply')
+// 从站内信 / 办件空间的「详情」进来时带 ?tab=record，直接落在记录页签
+syncRecordTab(activeTab, 'history')
 const submitting = ref(false)
 // 上传进度百分比（算不出总大小时为 0，就不显示数字）
 const uploadProgress = ref(0)

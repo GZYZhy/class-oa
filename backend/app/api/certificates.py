@@ -595,7 +595,7 @@ def correcting_application(
         notify(
             db, background, targets, "证明开具申请需要补交材料",
             f"标题：{req.title}，理由：{clip(req.correction_reason)}",
-            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+            level="timeSensitive", page="/certificate?tab=record",
         )
     return _to_response(db, req)
 
@@ -636,7 +636,7 @@ def approve_application(
         notify(
             db, background, targets, "证明开具申请已通过",
             f"你的证明申请（{req.title}）已通过，请在成品上传后下载",
-            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+            level="timeSensitive", page="/certificate?tab=record",
         )
     return {"message": "已通过"}
 
@@ -675,7 +675,7 @@ def reject_application(
         notify(
             db, background, targets, "证明开具申请被驳回",
             f"标题：{req.title}，理由：{clip(req.reject_reason)}",
-            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+            level="timeSensitive", page="/certificate?tab=record",
         )
     return {"message": "已驳回"}
 
@@ -714,7 +714,7 @@ def revoke_application(
         notify(
             db, background, targets, "证明开具申请已撤销",
             f"你的证明申请（{req.title}）已被管理员撤销",
-            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+            level="timeSensitive", page="/certificate?tab=record",
         )
     return {"message": "已撤销"}
 
@@ -776,7 +776,7 @@ async def upload_result(
         notify(
             db, background, targets, "证明已开好",
             f"你的证明（{req.title}）已开好，现在可以下载",
-            level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+            level="timeSensitive", page="/certificate?tab=record",
         )
     return {"message": "上传成功", "result_original_name": file.filename}
 

@@ -129,6 +129,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { syncRecordTab } from '@/composables/recordTab'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, Paperclip } from '@element-plus/icons-vue'
 import {
@@ -154,6 +155,8 @@ const maxSize = 20 * 1024 * 1024
 const maxCount = 3
 
 const activeTab = ref('submit')
+// 从站内信 / 办件空间的「详情」进来时带 ?tab=record，直接落在记录页签
+syncRecordTab(activeTab, 'my')
 const submitting = ref(false)
 // 上传进度百分比（算不出总大小时为 0，就不显示数字）
 const uploadProgress = ref(0)
