@@ -258,11 +258,12 @@ onMounted(() => {
 
 <style scoped>
 .welcome-banner {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 12px;
-  padding: 26px 32px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #a78bfa 100%);
+  border-radius: var(--app-radius);
+  padding: 28px 32px;
   color: #fff;
   margin-bottom: 20px;
+  box-shadow: 0 16px 40px rgba(99, 102, 241, 0.22);
   position: relative;
   overflow: hidden;
   display: flex;
@@ -339,7 +340,7 @@ onMounted(() => {
   gap: 8px;
   background: linear-gradient(135deg, #f78ca0 0%, #e8657f 100%);
   color: #fff;
-  border-radius: 12px;
+  border-radius: var(--app-radius);
   padding: 14px 20px;
   margin-bottom: 20px;
   font-size: 15px;
@@ -364,25 +365,26 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: var(--el-bg-color);
-  border-radius: 8px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
   padding: 20px;
   display: flex;
   align-items: center;
   gap: 16px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+  box-shadow: var(--app-shadow);
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.1);
+  transform: translateY(-3px);
+  box-shadow: var(--app-shadow-hover);
 }
 
 .stat-icon {
   width: 60px;
   height: 60px;
-  border-radius: 12px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -442,9 +444,9 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 16px 8px;
-  border-radius: 8px;
-  background: var(--el-fill-color-light);
-  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 14px;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--app-outline);
   color: var(--el-text-color-primary);
   text-decoration: none;
   transition: all 0.2s;

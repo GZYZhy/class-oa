@@ -1,3 +1,74 @@
+/* ============ 设计变量 ============
+   浅色系：柔和的蓝紫渐变背景 + 半透明白卡片。
+   深色模式只换这里的值，组件样式一律不写死颜色。 */
+:root {
+  --app-bg: #f5f7ff;
+  --app-bg-image:
+    radial-gradient(1100px 700px at 8% -10%, rgba(129, 140, 248, 0.28), transparent 62%),
+    radial-gradient(900px 700px at 100% 0%, rgba(167, 139, 250, 0.22), transparent 58%),
+    radial-gradient(800px 600px at 50% 112%, rgba(125, 211, 252, 0.18), transparent 60%);
+  --app-surface: rgba(255, 255, 255, 0.86);
+  --app-surface-solid: #ffffff;
+  --app-border: rgba(99, 102, 241, 0.12);
+  --app-outline: rgba(99, 102, 241, 0.10);
+  --app-shadow: 0 12px 32px rgba(79, 70, 229, 0.08);
+  --app-shadow-hover: 0 18px 48px rgba(79, 70, 229, 0.16);
+  --app-radius: 18px;
+  --app-radius-sm: 12px;
+  --app-header-bg: rgba(255, 255, 255, 0.72);
+  --app-aside-bg: rgba(255, 255, 255, 0.62);
+  --app-accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  --app-accent-gradient-hover: linear-gradient(135deg, #5659e8 0%, #7c4ff0 100%);
+
+  /* Element 主色换成柔和的靛蓝，light-N / dark-2 按官方规则手算 */
+  --el-color-primary: #6366f1;
+  --el-color-primary-light-3: #9294f5;
+  --el-color-primary-light-5: #b1b3f8;
+  --el-color-primary-light-7: #d0d1fb;
+  --el-color-primary-light-8: #e0e0fc;
+  --el-color-primary-light-9: #efeffe;
+  --el-color-primary-dark-2: #4f52c1;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: 999px;
+  --el-bg-color-page: #f5f7ff;
+  --el-border-color-lighter: #eef0fb;
+  --el-border-color-light: #e6e9f8;
+  --el-fill-color-light: #f4f5fd;
+  --el-fill-color-lighter: #f8f9fe;
+}
+
+html.dark {
+  --app-bg: #0e1020;
+  --app-bg-image:
+    radial-gradient(1100px 700px at 8% -10%, rgba(99, 102, 241, 0.22), transparent 62%),
+    radial-gradient(900px 700px at 100% 0%, rgba(139, 92, 246, 0.16), transparent 58%),
+    radial-gradient(800px 600px at 50% 112%, rgba(56, 189, 248, 0.08), transparent 60%);
+  --app-surface: rgba(24, 26, 42, 0.86);
+  --app-surface-solid: #181a2a;
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-outline: rgba(255, 255, 255, 0.06);
+  --app-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  --app-shadow-hover: 0 18px 48px rgba(0, 0, 0, 0.5);
+  --app-header-bg: rgba(16, 18, 30, 0.72);
+  --app-aside-bg: rgba(18, 20, 32, 0.62);
+
+  --el-color-primary: #818cf8;
+  --el-color-primary-light-3: #5a62ae;
+  --el-color-primary-light-5: #40467c;
+  --el-color-primary-light-7: #272a4a;
+  --el-color-primary-light-8: #1a1c32;
+  --el-color-primary-light-9: #0d0e19;
+  --el-color-primary-dark-2: #9aa3f9;
+  --el-bg-color: #181a2a;
+  --el-bg-color-page: #0e1020;
+  --el-bg-color-overlay: #1c1f31;
+  --el-border-color-lighter: #24263a;
+  --el-border-color-light: #2a2d44;
+  --el-fill-color-light: #1c1e32;
+  --el-fill-color-lighter: #181a29;
+}
+
 /* 全局样式 */
 * {
   margin: 0;
@@ -10,7 +81,9 @@ html, body, #app {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  background: var(--el-bg-color-page);
+  background-color: var(--app-bg);
+  background-image: var(--app-bg-image);
+  background-attachment: fixed;
   color: var(--el-text-color-primary);
 }
 
@@ -21,25 +94,27 @@ html, body, #app {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--el-fill-color-light);
-  border-radius: 4px;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--el-border-color-darker);
-  border-radius: 4px;
+  background: var(--el-color-primary-light-7);
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--el-text-color-placeholder);
+  background: var(--el-color-primary-light-3);
 }
 
-/* 卡片通用样式 */
+/* 卡片通用样式：半透明、圆角、轻微投影，背景的蓝紫渐变会透一点上来 */
 .page-card {
-  background: var(--el-bg-color);
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  padding: 22px 24px;
+  box-shadow: var(--app-shadow);
+  /* 大块内容区不做 backdrop-filter：滚动时它要跟着重绘，手机上容易掉帧。
+     半透明底色已经足够透出背景，磨砂感留给顶栏和侧边栏 */
 }
 
 .page-title {
@@ -50,14 +125,101 @@ html, body, #app {
   display: flex;
   align-items: center;
   gap: 8px;
+  letter-spacing: 0.2px;
 }
 
 .page-title::before {
   content: '';
   width: 4px;
   height: 18px;
-  background: #409EFF;
+  background: var(--app-accent-gradient);
   border-radius: 2px;
+}
+
+/* ============ 通用控件：圆角与柔和的蓝紫主色 ============ */
+.el-dialog {
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--app-surface-solid);
+  box-shadow: var(--app-shadow-hover);
+}
+
+.el-dialog__header {
+  padding: 20px 24px 12px;
+}
+
+.el-dialog__body {
+  padding: 8px 24px 20px;
+}
+
+.el-dialog__footer {
+  padding: 8px 24px 20px;
+}
+
+.el-dialog__title {
+  font-weight: 600;
+}
+
+.el-message-box {
+  border-radius: 16px;
+}
+
+.el-overlay {
+  background-color: rgba(23, 25, 45, 0.38);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+html.dark .el-overlay {
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+.el-card {
+  border-radius: var(--app-radius);
+  border-color: var(--app-border);
+  box-shadow: var(--app-shadow);
+}
+
+.el-button {
+  font-weight: 500;
+}
+
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
+  background-image: var(--app-accent-gradient);
+  border-color: transparent;
+}
+
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover,
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text):focus-visible {
+  background-image: var(--app-accent-gradient-hover);
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: 10px;
+}
+
+.el-tag {
+  border-radius: 8px;
+}
+
+.el-table {
+  --el-table-border-color: var(--app-outline);
+  --el-table-header-bg-color: var(--el-fill-color-lighter);
+  --el-table-row-hover-bg-color: var(--el-fill-color-light);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.el-table th.el-table__cell {
+  font-weight: 600;
+}
+
+.el-popper.is-light,
+.el-dropdown__popper.el-popper {
+  border-radius: 12px;
+  box-shadow: var(--app-shadow-hover);
 }
 
 /* ============ 手机适配（≤768px）============

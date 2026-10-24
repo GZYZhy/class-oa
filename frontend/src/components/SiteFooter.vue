@@ -21,8 +21,8 @@ import { COPYRIGHT_HTML } from '@/utils/site'
   font-size: 12px;
   line-height: 1.5;
   color: var(--el-text-color-secondary);
-  background: var(--el-bg-color);
-  border-top: 1px solid var(--el-border-color-lighter);
+  background: transparent;
+  border-top: 1px solid var(--app-outline);
   flex-shrink: 0;
 }
 </style>
