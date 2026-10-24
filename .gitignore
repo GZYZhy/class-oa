@@ -36,6 +36,7 @@ backend/data
 # IDE
 .idea/
 .vscode/
+.dsh/
 *.swp
 *.swo
 

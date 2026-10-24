@@ -1,24 +1,32 @@
 /* ============ 设计变量 ============
-   浅色系：柔和的蓝紫渐变背景 + 半透明白卡片。
+   浅色系：清晨薄雾感的蓝紫渐变背景 + 半透明白卡片。
+   高级感来自三件事：分层的柔和阴影（贴地 1px + 远处大扩散）、
+   卡片顶部一道 1px 内高光（玻璃边缘感，比 backdrop-filter 便宜得多）、
+   收敛的发色（大面积都是近白的底，彩色只出现在点缀处）。
    深色模式只换这里的值，组件样式一律不写死颜色。 */
 :root {
-  --app-bg: #f5f7ff;
+  --app-bg: #f5f6fd;
   --app-bg-image:
-    radial-gradient(1100px 700px at 8% -10%, rgba(129, 140, 248, 0.28), transparent 62%),
-    radial-gradient(900px 700px at 100% 0%, rgba(167, 139, 250, 0.22), transparent 58%),
-    radial-gradient(800px 600px at 50% 112%, rgba(125, 211, 252, 0.18), transparent 60%);
-  --app-surface: rgba(255, 255, 255, 0.86);
+    radial-gradient(1200px 800px at 10% -12%, rgba(142, 156, 255, 0.24), transparent 60%),
+    radial-gradient(1000px 720px at 104% -4%, rgba(180, 158, 252, 0.18), transparent 56%),
+    radial-gradient(900px 640px at 50% 116%, rgba(140, 226, 252, 0.15), transparent 58%),
+    radial-gradient(700px 500px at 85% 108%, rgba(134, 239, 211, 0.10), transparent 62%);
+  --app-surface: rgba(255, 255, 255, 0.90);
   --app-surface-solid: #ffffff;
-  --app-border: rgba(99, 102, 241, 0.12);
-  --app-outline: rgba(99, 102, 241, 0.10);
-  --app-shadow: 0 12px 32px rgba(79, 70, 229, 0.08);
-  --app-shadow-hover: 0 18px 48px rgba(79, 70, 229, 0.16);
-  --app-radius: 18px;
+  --app-border: rgba(103, 108, 245, 0.13);
+  --app-outline: rgba(103, 108, 245, 0.09);
+  --app-shadow: 0 1px 2px rgba(88, 84, 214, 0.04), 0 10px 34px rgba(88, 84, 214, 0.06);
+  --app-shadow-hover: 0 2px 6px rgba(88, 84, 214, 0.05), 0 22px 52px rgba(88, 84, 214, 0.13);
+  /* 卡片顶部的内高光：模拟玻璃受光的上缘线，配合半透明底色出「薄壳」质感 */
+  --app-card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  --app-radius: 20px;
   --app-radius-sm: 12px;
-  --app-header-bg: rgba(255, 255, 255, 0.72);
-  --app-aside-bg: rgba(255, 255, 255, 0.62);
-  --app-accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  --app-accent-gradient-hover: linear-gradient(135deg, #5659e8 0%, #7c4ff0 100%);
+  --app-header-bg: rgba(255, 255, 255, 0.74);
+  --app-aside-bg: rgba(255, 255, 255, 0.64);
+  /* 靛蓝收进薰衣草、再晕向天青：尾端一点冷蓝让渐变透气，是「清新」的关键 */
+  --app-accent-gradient: linear-gradient(135deg, #6a73f3 0%, #8b7cf6 55%, #7fb6f4 105%);
+  --app-accent-gradient-hover: linear-gradient(135deg, #5d66e9 0%, #7d6df0 55%, #6ea8ee 105%);
+  --app-accent-glow: 0 6px 18px rgba(107, 116, 244, 0.22);
 
   /* Element 主色换成柔和的靛蓝，light-N / dark-2 按官方规则手算 */
   --el-color-primary: #6366f1;
@@ -39,19 +47,22 @@
 }
 
 html.dark {
-  --app-bg: #0e1020;
+  --app-bg: #0d0f1f;
   --app-bg-image:
-    radial-gradient(1100px 700px at 8% -10%, rgba(99, 102, 241, 0.22), transparent 62%),
-    radial-gradient(900px 700px at 100% 0%, rgba(139, 92, 246, 0.16), transparent 58%),
-    radial-gradient(800px 600px at 50% 112%, rgba(56, 189, 248, 0.08), transparent 60%);
-  --app-surface: rgba(24, 26, 42, 0.86);
-  --app-surface-solid: #181a2a;
+    radial-gradient(1200px 800px at 10% -12%, rgba(99, 102, 241, 0.20), transparent 60%),
+    radial-gradient(1000px 720px at 104% -4%, rgba(139, 92, 246, 0.14), transparent 56%),
+    radial-gradient(900px 640px at 50% 116%, rgba(56, 189, 248, 0.07), transparent 58%),
+    radial-gradient(700px 500px at 85% 108%, rgba(52, 211, 153, 0.05), transparent 62%);
+  --app-surface: rgba(25, 27, 45, 0.88);
+  --app-surface-solid: #181a2c;
   --app-border: rgba(255, 255, 255, 0.08);
   --app-outline: rgba(255, 255, 255, 0.06);
-  --app-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-  --app-shadow-hover: 0 18px 48px rgba(0, 0, 0, 0.5);
-  --app-header-bg: rgba(16, 18, 30, 0.72);
-  --app-aside-bg: rgba(18, 20, 32, 0.62);
+  --app-shadow: 0 1px 2px rgba(0, 0, 0, 0.20), 0 12px 34px rgba(0, 0, 0, 0.32);
+  --app-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.24), 0 22px 52px rgba(0, 0, 0, 0.46);
+  --app-card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --app-header-bg: rgba(15, 17, 29, 0.74);
+  --app-aside-bg: rgba(17, 19, 32, 0.64);
+  --app-accent-glow: 0 6px 18px rgba(129, 140, 248, 0.18);
 
   --el-color-primary: #818cf8;
   --el-color-primary-light-3: #5a62ae;
@@ -85,6 +96,9 @@ html, body, #app {
   background-image: var(--app-bg-image);
   background-attachment: fixed;
   color: var(--el-text-color-primary);
+  /* macOS/iOS 上让细字重更干净，Windows 上无副作用 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* 滚动条美化。颜色也走变量，否则深色下会留一条白边 */
@@ -106,13 +120,13 @@ html, body, #app {
   background: var(--el-color-primary-light-3);
 }
 
-/* 卡片通用样式：半透明、圆角、轻微投影，背景的蓝紫渐变会透一点上来 */
+/* 卡片通用样式：半透明、圆角、分层投影 + 顶部内高光，背景的蓝紫渐变会透一点上来 */
 .page-card {
   background: var(--app-surface);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
-  padding: 22px 24px;
-  box-shadow: var(--app-shadow);
+  padding: 24px 26px;
+  box-shadow: var(--app-shadow), var(--app-card-inset);
   /* 大块内容区不做 backdrop-filter：滚动时它要跟着重绘，手机上容易掉帧。
      半透明底色已经足够透出背景，磨砂感留给顶栏和侧边栏 */
 }
@@ -125,7 +139,7 @@ html, body, #app {
   display: flex;
   align-items: center;
   gap: 8px;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.3px;
 }
 
 .page-title::before {
@@ -133,15 +147,17 @@ html, body, #app {
   width: 4px;
   height: 18px;
   background: var(--app-accent-gradient);
-  border-radius: 2px;
+  border-radius: 3px;
+  /* 渐变条本身压一层主色投影，两档阴影变量都用，卡片里才有「立起来」的感觉 */
+  box-shadow: var(--app-accent-glow);
 }
 
 /* ============ 通用控件：圆角与柔和的蓝紫主色 ============ */
 .el-dialog {
-  border-radius: 20px;
+  border-radius: 22px;
   overflow: hidden;
   background: var(--app-surface-solid);
-  box-shadow: var(--app-shadow-hover);
+  box-shadow: var(--app-shadow-hover), var(--app-card-inset);
 }
 
 .el-dialog__header {
@@ -177,21 +193,25 @@ html.dark .el-overlay {
 .el-card {
   border-radius: var(--app-radius);
   border-color: var(--app-border);
-  box-shadow: var(--app-shadow);
+  box-shadow: var(--app-shadow), var(--app-card-inset);
 }
 
 .el-button {
   font-weight: 500;
 }
 
+/* 主按钮在渐变底上再叠一层同色柔光，让它从页面里「浮」起来一档；
+   plain/link/text 不动，保持它们轻量的定位 */
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
   background-image: var(--app-accent-gradient);
   border-color: transparent;
+  box-shadow: var(--app-accent-glow);
 }
 
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover,
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):focus-visible {
   background-image: var(--app-accent-gradient-hover);
+  box-shadow: 0 8px 22px rgba(107, 116, 244, 0.28);
 }
 
 .el-input__wrapper,
@@ -208,7 +228,7 @@ html.dark .el-overlay {
   --el-table-border-color: var(--app-outline);
   --el-table-header-bg-color: var(--el-fill-color-lighter);
   --el-table-row-hover-bg-color: var(--el-fill-color-light);
-  border-radius: 14px;
+  border-radius: 16px;
   overflow: hidden;
 }
 
