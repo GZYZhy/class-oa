@@ -44,7 +44,8 @@ defineProps({
   justify-content: flex-start;
   padding: 32px 12px;
   box-sizing: border-box;
-  background: linear-gradient(135deg, #1f2d3d 0%, #2c3e50 55%, #3a5169 100%);
+  /* 背景交给 #app 的全局蓝紫渐变 */
+  background: transparent;
 }
 
 /* 脚栏铺满整个页面底部，抵消页面左右/底部的内边距 */
@@ -59,9 +60,12 @@ defineProps({
   padding: 28px 28px 24px;
   /* 内容再长也和底栏留出空隙：长表单最后一个按钮不会贴着页脚 */
   margin-bottom: 32px;
-  background: var(--el-bg-color);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 21, 41, 0.3);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 22px;
+  box-shadow: var(--app-shadow-hover);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .share-head {
@@ -76,6 +80,11 @@ defineProps({
   height: 44px;
   border-radius: 50%;
   object-fit: cover;
+  /* 同登录页：白底衬一圈，深色模式下校徽不会糊在卡片上 */
+  background: #fff;
+  padding: 3px;
+  box-sizing: border-box;
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.16);
 }
 
 .share-site {
