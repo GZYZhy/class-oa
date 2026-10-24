@@ -41,6 +41,9 @@ from ..schemas import (
     RoleUpdateRequest,
     WatermarkExtractResponse,
     DataHealthResponse,
+    AboutAdminResponse,
+    AboutMember,
+    AboutSettingsUpdate,
 )
 from ..services import (
     account_events,
@@ -66,6 +69,12 @@ from ..services import (
     scope_label,
     unban_ip,
     update_resource,
+)
+from ..services.about_service import (
+    committee_members,
+    get_settings as about_settings,
+    parse_order as parse_about_order,
+    put_settings as put_about_settings,
 )
 from ..services.data_health_service import check_data as data_health
 from ..services.student_photo_service import photo_path, photo_response, remove_photo, save_photo
@@ -1378,3 +1387,38 @@ def get_data_health(_: User = Depends(admin_required), db: Session = Depends(get
     而「上次体检是什么时候」这种状态一旦存下来就得考虑失效。
     """
     return data_health(db)
+
+
+@router.get(
+    "/about",
+    response_model=AboutAdminResponse,
+    summary="「关于班级」页的配置（仅管理员）",
+)
+def read_about_settings(_: User = Depends(admin_required), db: Session = Depends(get_db)):
+    """班级简介、任职表开关与顺序
+
+    members 已经按保存的顺序排好：前端照着这个顺序显示，用上下箭头调整完
+    把整串学号交回来就行，不需要它自己再排一次。
+    """
+    cfg = about_settings(db)
+    members = committee_members(db, parse_about_order(cfg.roster_order))
+    return AboutAdminResponse(
+        intro_enabled=bool(cfg.intro_enabled),
+        intro_markdown=cfg.intro_markdown or "",
+        roster_enabled=bool(cfg.roster_enabled),
+        order=parse_about_order(cfg.roster_order),
+        members=[
+            AboutMember(student_no=m.student_no, name=m.name, position=m.class_position)
+            for m in members
+        ],
+    )
+
+
+@router.put("/about", summary="保存「关于班级」页的配置（仅管理员）")
+def save_about_settings(
+    data: AboutSettingsUpdate,
+    _: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    put_about_settings(db, data)
+    return {"message": "已保存"}

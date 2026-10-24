@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..database import month_day_expr
 from ..models import CertificateRequest, EvPassRequest, Student
 from ..schemas import StudentCreate, StudentUpdate
+from .about_service import get_settings as get_about_settings, parse_order as parse_about_order
 
 # 关键词搜索覆盖的字段：学生表里所有承载信息的列，包括备注。
 # 只排除 id（自增主键，没有检索意义）和两个照片路径列（存的是文件名，不是学生信息）。
@@ -400,6 +401,10 @@ def get_statistics(db: Session) -> dict:
         "high_schools": high_school_stats,
         "buildings": building_stats,
         "score_summary": score_summary,
+        # 班委任职表的显示顺序（学号数组，管理员在系统管理里排的）。
+        # 统计页那张「班委任职表」的弹窗照着它排，和「关于班级」页保持同一次序 ——
+        # 两处各排一套的话，同一个人在两个页面的位置会不一样
+        "committee_order": parse_about_order(get_about_settings(db).roster_order),
     }
 
 

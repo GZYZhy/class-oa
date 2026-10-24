@@ -619,6 +619,74 @@
         </div>
       </el-tab-pane>
 
+      <!-- ============ 关于班级 ============ -->
+      <el-tab-pane label="关于班级" name="about">
+        <div v-loading="loadingAbout" class="about-admin-body">
+          <section class="about-admin-block">
+            <div class="about-admin-head">
+              <span class="about-admin-title">班级简介</span>
+              <el-switch v-model="aboutForm.intro_enabled" />
+            </div>
+            <p class="tip">
+              开启后，「关于班级」页会在概况和任职表之间多出一张卡片。内容支持 Markdown；
+              开关开着但一个字没写时，那一页不显示这张卡片。
+            </p>
+            <el-input
+              v-model="aboutForm.intro_markdown"
+              type="textarea"
+              :rows="8"
+              resize="vertical"
+              maxlength="5000"
+              show-word-limit
+              :disabled="!aboutForm.intro_enabled"
+              placeholder="支持 Markdown：标题、列表、加粗、链接、表格…"
+            />
+          </section>
+
+          <section class="about-admin-block">
+            <div class="about-admin-head">
+              <span class="about-admin-title">任职表</span>
+              <el-switch v-model="aboutForm.roster_enabled" />
+            </div>
+            <p class="tip">
+              控制「关于班级」页是否显示「班委成员」这张表；下面的箭头调整的是显示顺序，
+              不改学生信息里的任何数据。
+            </p>
+            <el-table :data="aboutMembers" size="small" border style="width: 100%;">
+              <el-table-column label="序号" width="70" align="center">
+                <template #default="{ $index }">{{ $index + 1 }}</template>
+              </el-table-column>
+              <el-table-column prop="name" label="姓名" min-width="110" align="center" />
+              <el-table-column prop="position" label="职务" min-width="140" align="center" />
+              <el-table-column label="排序" width="140" align="center">
+                <template #default="{ $index }">
+                  <el-button
+                    size="small"
+                    :disabled="$index === 0"
+                    @click="moveAboutMember($index, -1)"
+                  >
+                    <el-icon><Top /></el-icon>
+                  </el-button>
+                  <el-button
+                    size="small"
+                    :disabled="$index === aboutMembers.length - 1"
+                    @click="moveAboutMember($index, 1)"
+                  >
+                    <el-icon><Bottom /></el-icon>
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+
+          <div class="about-admin-actions">
+            <el-button type="primary" :loading="savingAbout" @click="handleSaveAbout">
+              保存
+            </el-button>
+          </div>
+        </div>
+      </el-tab-pane>
+
       <!--
         只有班委及以上能分配日程，但这一页是给管理员收拾烂摊子用的，所以按管理员
         收口（本页面在系统管理里，路由 meta.role 已经是 admin）。后端接口权限照旧
@@ -902,7 +970,9 @@ import {
   deleteResource,
   getFileAccessLogs,
   extractWatermark,
-  getDataHealth
+  getDataHealth,
+  getAboutConfig,
+  saveAboutConfig
 } from '@/api/admin'
 import {
   getBirthdaySettings,
@@ -1591,6 +1661,7 @@ function handleTabChange(name) {
     fetchFileAccessLogs()
   }
   if (name === 'birthday' && !birthdayLoaded.value) fetchBirthdaySettings()
+  if (name === 'about' && !aboutLoaded.value) fetchAboutConfig()
   // 体检每次都重查：脏数据是改完才没的，缓存住上次的结果反而误导人
   if (name === 'health') fetchHealth()
 }
@@ -1835,6 +1906,57 @@ async function moveResourceCategory(index, direction) {
   }
 }
 
+// ---------- 关于班级 ----------
+const aboutLoaded = ref(false)
+const loadingAbout = ref(false)
+const savingAbout = ref(false)
+// 简介开关与正文一起提交；成员顺序按学号数组交回去（学号是业务主键，删号重建也不变）
+const aboutForm = reactive({ intro_enabled: false, intro_markdown: '', roster_enabled: true })
+const aboutMembers = ref([])
+
+async function fetchAboutConfig() {
+  loadingAbout.value = true
+  try {
+    const data = await getAboutConfig()
+    aboutForm.intro_enabled = !!data.intro_enabled
+    aboutForm.intro_markdown = data.intro_markdown || ''
+    aboutForm.roster_enabled = data.roster_enabled !== false
+    // 后端已经按保存的顺序排好，这里照单显示
+    aboutMembers.value = data.members || []
+    aboutLoaded.value = true
+  } catch (e) {
+    ElMessage.error('「关于班级」配置加载失败')
+  } finally {
+    loadingAbout.value = false
+  }
+}
+
+/** 上下挪一位。只在本地挪，点「保存」才提交 —— 每挪一次就发请求会打一堆半成品 */
+function moveAboutMember(index, delta) {
+  const to = index + delta
+  const list = aboutMembers.value
+  if (to < 0 || to >= list.length) return
+  const moved = list.splice(index, 1)[0]
+  list.splice(to, 0, moved)
+}
+
+async function handleSaveAbout() {
+  savingAbout.value = true
+  try {
+    await saveAboutConfig({
+      intro_enabled: aboutForm.intro_enabled,
+      intro_markdown: aboutForm.intro_markdown,
+      roster_enabled: aboutForm.roster_enabled,
+      order: aboutMembers.value.map((m) => m.student_no)
+    })
+    ElMessage.success('已保存')
+  } catch (e) {
+    ElMessage.error('保存失败')
+  } finally {
+    savingAbout.value = false
+  }
+}
+
 // ---------- 生日关怀 ----------
 const birthdayLoaded = ref(false)
 const loadingBirthday = ref(false)
@@ -2015,6 +2137,43 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+/* 关于班级：两块设置上下排，各自一张浅底面板，标题右边就是开关 */
+.about-admin-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.about-admin-block {
+  padding: 16px 18px;
+  border: 1px solid var(--app-line);
+  border-radius: 14px;
+  background: var(--el-fill-color-lighter);
+}
+
+.about-admin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.about-admin-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.about-admin-block .tip {
+  margin: 0 0 12px;
+}
+
+.about-admin-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .tip {

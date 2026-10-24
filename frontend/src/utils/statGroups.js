@@ -91,10 +91,12 @@ function asc(a, b) {
  *
  * @param {string} key 卡片标识（male / female / league / poor / committee / leagueMember / minority）
  * @param {object[]} students GET /api/students 返回的 items
+ * @param {string[]} [order] 班委的显示顺序（学号数组）。管理员在系统管理里排过的那一份，
+ *   由 GET /api/students/statistics 一起带下来；不传就按职务 + 学号排
  * @returns {null | {title: string, column: string, rows: {id: number, name?: string, student_no?: string, group?: string}[]}}
  *   返回 null = 这张卡不弹窗（key 为空或认不出来），调用方据此决定开不开弹窗
  */
-export function buildRoster(key, students) {
+export function buildRoster(key, students, order = []) {
   const spec = SPECS[key]
   if (!spec) return null
 
@@ -106,9 +108,19 @@ export function buildRoster(key, students) {
     return row
   })
   // 顺序显式排定：跟着列表里谁先出现走的话，同样的数据能排出不同结果
-  const rows = spec.field
+  let rows = spec.field
     ? baseRows.sort((a, b) => asc(a.group, b.group) || asc(a.student_no, b.student_no))
     : baseRows.sort((a, b) => asc(a.student_no, b.student_no))
+
+  // 班委这张跟着管理员排的顺序走 —— 和「关于班级」页的任职表是同一次序。
+  // 没排到的人（新当选的）rank 都等于 order.length，稳定排序会保住上面的
+  // 「职务 + 学号」相对次序，接在后面
+  if (key === 'committee' && order.length) {
+    const rank = new Map(order.map((no, i) => [no, i]))
+    rows = [...rows].sort(
+      (a, b) => (rank.get(a.student_no) ?? order.length) - (rank.get(b.student_no) ?? order.length)
+    )
+  }
 
   return { title: spec.title, column: spec.column || '', rows }
 }
