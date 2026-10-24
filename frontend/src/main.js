@@ -39,28 +39,26 @@ import {
   CopyDocument, Delete, Document, Download, EditPen, Female,
   Files, FolderOpened, Grid, Histogram, HomeFilled, InfoFilled,
   Key, Link, List, Loading, Lock, Male,
-  Medal, Menu, Message, MoreFilled, Notification, Paperclip,
+  Medal, Menu, Message, Monitor, Moon, MoreFilled, Notification, Paperclip,
   Picture, PieChart, Plus, Pointer, Postcard, Present,
   Refresh, RefreshLeft, RefreshRight, Right, Search, Select, Setting,
-  Sort, Star, SwitchButton, Tickets, Top, Upload,
+  Sort, Star, Sunny, SwitchButton, Tickets, Top, Upload,
   UploadFilled, User, UserFilled, Van, Warning, ZoomIn,
   ZoomOut
 } from '@element-plus/icons-vue'
 
 import App from './App.vue'
 import router from './router'
+import { initTheme } from '@/composables/useTheme'
 import './styles/main.css'
 
-// 深色模式：跟随设备的当前设置自动切换，站内不提供开关
+// 主题：自动（跟随系统）/ 浅色 / 深色，三档在顶栏那个小按钮里循环切换，
+// 选择记在 cookie 里。规则和 cookie 读写在 composables/useTheme.js。
 //
-// prefers-color-scheme 是「原生」做法 —— 设备切到深色，浏览器就把这个查询变成 true，
-// 用户改系统设置时还会实时触发 change，不用刷新页面。
-// 但光有媒体查询不够：Element Plus 的深色变量挂在 .dark 类上（不在媒体查询里），
-// 所以还得把这个类同步到 <html>。项目自己的样式统一用 var(--el-*)，跟着一起翻。
-const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
-const syncTheme = ({ matches }) => document.documentElement.classList.toggle('dark', matches)
-syncTheme(darkQuery) // 首次进入就按当前设置定好，避免先闪一下浅色
-darkQuery.addEventListener('change', syncTheme)
+// 必须在挂载前先调一次：先把 <html> 的 .dark 定好，否则会先闪一下浅色。
+// Element Plus 的深色变量挂在 .dark 类上（不在媒体查询里），项目自己的样式
+// 统一用 var(--el-*)，于是这一个类就能带着整站翻。
+initTheme()
 
 const app = createApp(App)
 
@@ -76,10 +74,10 @@ const ICONS = {
   CopyDocument, Delete, Document, Download, EditPen, Female,
   Files, FolderOpened, Grid, Histogram, HomeFilled, InfoFilled,
   Key, Link, List, Loading, Lock, Male,
-  Medal, Menu, Message, MoreFilled, Notification, Paperclip,
+  Medal, Menu, Message, Monitor, Moon, MoreFilled, Notification, Paperclip,
   Picture, PieChart, Plus, Pointer, Postcard, Present,
   Refresh, RefreshLeft, RefreshRight, Right, Search, Select, Setting,
-  Sort, Star, SwitchButton, Tickets, Top, Upload,
+  Sort, Star, Sunny, SwitchButton, Tickets, Top, Upload,
   UploadFilled, User, UserFilled, Van, Warning, ZoomIn,
   ZoomOut
 }
