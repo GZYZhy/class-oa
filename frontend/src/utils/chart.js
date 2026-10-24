@@ -17,9 +17,10 @@
 import * as echarts from 'echarts/core'
 import { BarChart, PieChart } from 'echarts/charts'
 // 交互与布局：tooltip 是鼠标悬停的那个浮层，legend 是图例，
-// grid 是直角坐标系的内边距 —— 只有柱状图用得到，但一共才几 KB
-// title 用来在环形图中心写总数（不用 graphic，那件更重）
-import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from 'echarts/components'
+// grid 是直角坐标系的内边距 —— 只有柱状图用得到，但一共才几 KB。
+// 圆心那两行字改成饼图自身的居中标签了（见 renderDonut），
+// 所以不再需要 title 组件，少注册一件就少一份产物
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 // 渲染后端。SVG 版在多饼图的统计页上更省内存，但 canvas 版更小也更通用
 import { CanvasRenderer } from 'echarts/renderers'
 
@@ -28,7 +29,6 @@ echarts.use([
   PieChart,
   GridComponent,
   LegendComponent,
-  TitleComponent,
   TooltipComponent,
   CanvasRenderer
 ])
@@ -92,15 +92,6 @@ export function renderDonut(dom, list) {
   inst.setOption({
     color: CHART_PALETTE,
     tooltip: { trigger: 'item', formatter: '{b}<br/>{c} 人 · {d}%', ...tooltipTheme(t) },
-    title: {
-      text: String(sum),
-      subtext: '总计',
-      left: 'center',
-      top: 'middle',
-      textAlign: 'center',
-      textStyle: { color: t.text, fontSize: 26, fontWeight: 700 },
-      subtextStyle: { color: t.text2, fontSize: 11 }
-    },
     legend: {
       bottom: 0,
       left: 'center',
@@ -109,26 +100,53 @@ export function renderDonut(dom, list) {
       itemHeight: 8,
       itemGap: 14,
       textStyle: { color: t.text2, fontSize: 12 },
+      // 显式给出图例项：下面那个「中心文字」系列的名字是空的，
+      // 不指定的话图例里会多出一个空圆点
+      data: list.map((d) => d.name),
       // 图例直接带人数：省掉图下方那张「同样的数据再列一遍」的表格
       formatter: (name) => {
         const it = list.find((d) => d.name === name)
         return `${name}  ${it ? it.value : 0}`
       }
     },
-    series: [{
-      type: 'pie',
-      radius: ['50%', '70%'],
-      /* 环心必须和 title 的 middle 对齐（都是画布 50%），
-         否则「总计」会浮在环心偏上；70% 的外沿给底部图例留出空间，不会上下被切 */
-      center: ['50%', '50%'],
-      // padAngle 直接把相邻分片「掰开」一道缝，比给每片描一圈底色边更干净
-      padAngle: 2,
-      itemStyle: { borderRadius: 8 },
-      label: { show: false },
-      labelLine: { show: false },
-      emphasis: { scale: true, scaleSize: 6 },
-      data: list
-    }]
+    series: [
+      {
+        type: 'pie',
+        radius: ['50%', '70%'],
+        /* 70% 的外沿给底部图例留出空间，不会上下被切 */
+        center: ['50%', '50%'],
+        // padAngle 直接把相邻分片「掰开」一道缝，比给每片描一圈底色边更干净
+        padAngle: 2,
+        itemStyle: { borderRadius: 8 },
+        label: { show: false },
+        labelLine: { show: false },
+        emphasis: { scale: true, scaleSize: 6 },
+        data: list
+      },
+      {
+        /* 圆心那两行字用「零半径饼图的居中标签」来画，不用 title。
+           title 的 top:'middle' 是按整块文字（数字 + 副标题 + itemGap）算的，
+           两行的行高与基线一叠加，数字就会浮在环心上方 —— 换尺寸还会飘。
+           饼图的 label position:'center' 直接锚在 center 点上，与环心严格重合 */
+        type: 'pie',
+        radius: ['0%', '0%'],
+        center: ['50%', '50%'],
+        silent: true,
+        animation: false,
+        tooltip: { show: false },
+        label: {
+          show: true,
+          position: 'center',
+          formatter: () => `{v|${sum}}\n{s|总计}`,
+          rich: {
+            v: { fontSize: 26, fontWeight: 700, color: t.text, lineHeight: 30, align: 'center' },
+            s: { fontSize: 11, color: t.text2, lineHeight: 18, align: 'center' }
+          }
+        },
+        labelLine: { show: false },
+        data: [{ value: 1, name: '' }]
+      }
+    ]
   })
   return inst
 }

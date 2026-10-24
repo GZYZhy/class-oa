@@ -1,5 +1,14 @@
 <template>
   <div class="login-page">
+    <!-- 校徽纹样：与登录后各页复用同一个全局类（位置、透明度、深浅模式一套规则） -->
+    <img
+      :src="SITE.logoUrl"
+      class="app-emblem"
+      alt=""
+      aria-hidden="true"
+      @error="$event.target.style.display = 'none'"
+    />
+
     <div class="login-card">
       <div class="login-head">
         <img :src="SITE.logoUrl" class="login-logo" alt="校徽" />
@@ -505,6 +514,10 @@ function goHome() {
   box-shadow: var(--app-shadow-hover), var(--app-card-inset);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
+  /* 校徽纹样是 fixed + z-index:0 的底层装饰，卡片抬到它上面
+     （登录页不在 .layout-main 里，拿不到那条统一的 z-index 规则） */
+  position: relative;
+  z-index: 1;
 }
 
 /* 手机上屏幕矮，卡片内边距和校徽都收一点 */
