@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 1.20.4，共 286 个接口。
+> 版本 2.0.0，共 288 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -43,7 +43,7 @@
 - 签字（9）
 - 通行密钥（6）
 - 二次验证（9）
-- 系统管理（27）
+- 系统管理（29）
 - 健康检查（1）
 
 ## 公开信息
@@ -1081,14 +1081,14 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 ## 关于班级
 
-### 班级概况（人数、性别分布、班委名单）
+### 班级概况（人数、性别分布、班委名单、简介）
 
 `GET /api/about`
 
 **响应**
 
 - `200` `AboutResponse` — 成功
-  - 字段：`total`、`gender`、`committee`、`version`
+  - 字段：`total`、`gender`、`committee`、`version`、`intro`、`roster_enabled`
 
 ## 修改申请
 
@@ -4962,6 +4962,34 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 - `200` `DataHealthResponse` — 成功
   - 字段：`checked_at`、`total_students`、`groups`
 
+### 「关于班级」页的配置（仅管理员）
+
+`GET /api/admin/about`
+
+班级简介、任职表开关与顺序 members 已经按保存的顺序排好：前端照着这个顺序显示，用上下箭头调整完 把整串学号交回来就行，不需要它自己再排一次。
+
+**响应**
+
+- `200` `AboutAdminResponse` — 成功
+  - 字段：`intro_enabled`、`intro_markdown`、`roster_enabled`、`order`、`members`
+
+### 保存「关于班级」页的配置（仅管理员）
+
+`PUT /api/admin/about`
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `intro_enabled` | boolean | 否 |  |
+| `intro_markdown` | string | 否 |  |
+| `roster_enabled` | boolean | 否 |  |
+| `order` | string[] | 否 |  |
+
+**响应**
+
+- `200` — 成功
+
 ## 健康检查
 
 ### 健康检查
@@ -4973,5 +5001,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "1.20.4"}
+{"status": "ok", "app": "班级信息管理系统", "version": "2.0.0"}
 ```

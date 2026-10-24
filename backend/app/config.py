@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # 应用信息
     app_name: str = "班级信息管理系统"
     # 版本号。页面上的「关于班级 → 系统版本」、/api/health、接口文档都取这一份
-    app_version: str = "1.20.4"
+    app_version: str = "2.0.0"
     # 站点名称。和前端 window.__SITE__.name 是同**一个**环境变量 SITE_NAME，
     # 后端只在 RSS 频道名里用它（「通知公告 - 示例班信息管理系统」），
     # 目的就是让阅读器里显示的源名和网页标题对得上。
