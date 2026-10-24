@@ -85,8 +85,10 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
   gap: 16px;
   padding: 18px 20px;
   background: var(--el-fill-color-light);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+  /* 描边走 --app-line：原来的 --el-border-color-lighter 在淡紫底上几乎看不见，
+     卡片之间没有边界，看着像一整块 */
+  border: 1px solid var(--app-line);
+  border-radius: 14px;
   cursor: pointer;
   transition: all 0.2s;
   color: inherit;
@@ -95,8 +97,9 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
 
 .service-card:hover {
   background: var(--el-color-primary-light-9);
-  border-color: #409EFF;
+  border-color: var(--app-secondary-border);
   transform: translateX(2px);
+  box-shadow: var(--app-shadow-hover);
 }
 
 .service-icon {

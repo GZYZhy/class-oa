@@ -131,25 +131,25 @@ const routes = [
     path: '/leave',
     name: 'LeaveApply',
     component: () => import('@/views/LeaveApply.vue'),
-    meta: { title: '请假申请', studentOnly: true }
+    meta: { title: '请假申请', activeMenu: '/service', backTo: '/service', backTitle: '办事中心', studentOnly: true }
   },
   {
     path: '/ev-pass',
     name: 'EvPass',
     component: () => import('@/views/EvPass.vue'),
-    meta: { title: '电动车通行证补办', studentOnly: true }
+    meta: { title: '电动车通行证补办', activeMenu: '/service', backTo: '/service', backTitle: '办事中心', studentOnly: true }
   },
   {
     path: '/feedback',
     name: 'Feedback',
     component: () => import('@/views/Feedback.vue'),
-    meta: { title: '意见反馈', studentOnly: true }
+    meta: { title: '意见反馈', activeMenu: '/service', backTo: '/service', backTitle: '办事中心', studentOnly: true }
   },
   {
     path: '/certificate',
     name: 'Certificate',
     component: () => import('@/views/Certificate.vue'),
-    meta: { title: '证明开具', studentOnly: true }
+    meta: { title: '证明开具', activeMenu: '/service', backTo: '/service', backTitle: '办事中心', studentOnly: true }
   },
   {
     path: '/about',

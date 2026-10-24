@@ -22,21 +22,21 @@
         </el-form>
 
         <el-table :data="filteredUsers" v-loading="loadingUsers" stripe border style="width: 100%;">
-          <el-table-column prop="student_no" label="学号" width="130" align="center" />
-          <el-table-column prop="name" label="姓名" width="130" align="center">
+          <el-table-column prop="student_no" label="学号" min-width="130" align="center" />
+          <el-table-column prop="name" label="姓名" min-width="130" align="center">
             <template #default="{ row }">
               {{ row.name }}
               <!-- 冻结是能拦住登录的状态，必须一眼看得见，不能只藏在操作按钮的文字里 -->
               <el-tag v-if="row.is_frozen" type="danger" size="small">已冻结</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="类型" width="90" align="center">
+          <el-table-column label="类型" min-width="90" align="center">
             <template #default="{ row }">
               <el-tag v-if="row.is_external" type="warning" size="small">域外</el-tag>
               <el-tag v-else type="info" size="small">学生</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="角色" width="160" align="center">
+          <el-table-column label="角色" min-width="160" align="center">
             <template #default="{ row }">
               <el-select
                 :model-value="row.role"
@@ -53,20 +53,20 @@
               </el-select>
             </template>
           </el-table-column>
-          <el-table-column label="密码状态" width="150" align="center">
+          <el-table-column label="密码状态" min-width="150" align="center">
             <template #default="{ row }">
               <el-tag v-if="row.must_change_password" type="warning" size="small">待改密</el-tag>
               <el-tag v-else type="success" size="small">已设置</el-tag>
             </template>
           </el-table-column>
           <!-- 每次登录成功都会刷新，点表头可排序，方便看出谁最近还没登过 -->
-          <el-table-column prop="last_login_at" label="最近登录时间" width="170" align="center" sortable>
+          <el-table-column prop="last_login_at" label="最近登录时间" min-width="170" align="center" sortable>
             <template #default="{ row }">
               <span v-if="row.last_login_at">{{ formatDateTime(row.last_login_at) }}</span>
               <span v-else style="color: var(--el-text-color-disabled);">从未登录</span>
             </template>
           </el-table-column>
-          <el-table-column prop="last_login_ip" label="最近登录IP" width="150" align="center">
+          <el-table-column prop="last_login_ip" label="最近登录IP" min-width="150" align="center">
             <template #default="{ row }">
               <span v-if="row.last_login_ip" style="font-family: monospace; font-size: 12px;">
                 {{ row.last_login_ip }}
@@ -74,7 +74,7 @@
               <span v-else style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
-          <el-table-column label="身份证号" width="100" align="center">
+          <el-table-column label="身份证号" min-width="100" align="center">
             <template #default="{ row }">
               <!-- 域外账号没有身份证号这一说 -->
               <span v-if="row.is_external" style="color: var(--el-text-color-disabled);">-</span>
@@ -164,8 +164,8 @@
               <span v-else style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="target" label="对象" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="detail" label="详情" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="target" label="对象" min-width="180" show-overflow-tooltip align="left" />
+          <el-table-column prop="detail" label="详情" min-width="240" show-overflow-tooltip align="left" />
         </el-table>
 
         <div class="pagination-wrap">
@@ -336,7 +336,7 @@
               <span v-else style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="file_title" label="文件" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="file_title" label="文件" min-width="200" show-overflow-tooltip align="left" />
           <el-table-column prop="ip" label="IP" width="140" align="center">
             <template #default="{ row }">
               <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
@@ -416,7 +416,7 @@
               <el-tag v-else type="warning" size="small">自动</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip>
+          <el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip align="left">
             <template #default="{ row }">
               <span v-if="row.reason">{{ row.reason }}</span>
               <span v-else style="color: var(--el-text-color-disabled);">-</span>
@@ -509,8 +509,8 @@
             <el-table-column label="序号" width="60" align="center">
               <template #default="{ $index }">{{ $index + 1 }}</template>
             </el-table-column>
-            <el-table-column prop="name" label="名称" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="original_name" label="原始文件名" min-width="180" show-overflow-tooltip>
+            <el-table-column prop="name" label="名称" min-width="200" show-overflow-tooltip align="left" />
+            <el-table-column prop="original_name" label="原始文件名" min-width="180" show-overflow-tooltip align="left">
               <template #default="{ row }">
                 <span style="font-family: monospace; font-size: 12px;">{{ row.original_name || row.file_name }}</span>
               </template>
@@ -778,8 +778,8 @@
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
           <el-table-column prop="action" label="动作" width="120" align="center" />
-          <el-table-column prop="target" label="对象" min-width="150" show-overflow-tooltip />
-          <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="target" label="对象" min-width="150" show-overflow-tooltip align="left" />
+          <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip align="left" />
         </el-table>
         <el-empty
           v-if="!loadingUserLogs && !userLogs.operations.total"
@@ -814,7 +814,7 @@
             <template #default="{ row }">{{ row.operator_name || row.operator_no || '-' }}</template>
           </el-table-column>
           <el-table-column prop="action" label="动作" width="120" align="center" />
-          <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip align="left" />
         </el-table>
         <el-empty
           v-if="!loadingUserLogs && !userLogs.targeted.total"

@@ -130,7 +130,7 @@
         </el-table-column>
         <!-- 标题：点名的备注、签到的标题都放这一列（搜索也搜它）。
              签到自己的补充说明在明细里，不丢 -->
-        <el-table-column label="标题" min-width="140" show-overflow-tooltip>
+        <el-table-column label="标题" min-width="140" show-overflow-tooltip align="left">
           <template #default="{ row }">
             <span v-if="row.type === 'checkin'">{{ row.title }}</span>
             <span v-else-if="row.remark">{{ row.remark }}</span>

@@ -6,18 +6,37 @@
    深色模式只换这里的值，组件样式一律不写死颜色。 */
 :root {
   --app-bg: #f5f6fd;
+  /* 底色本身几乎等于白（#f5f6fd），卡片再怎么透也只会算出 #fcfcff —— 看着就是白块。
+     所以先把背景做出颜色，卡片才有东西可透：四团渐变的浓度整体提一档，
+     左上靛蓝、右上薰衣草、下方天青与薄荷，撑起一个从冷到暖的场 */
   --app-bg-image:
-    radial-gradient(1200px 800px at 10% -12%, rgba(142, 156, 255, 0.24), transparent 60%),
-    radial-gradient(1000px 720px at 104% -4%, rgba(180, 158, 252, 0.18), transparent 56%),
-    radial-gradient(900px 640px at 50% 116%, rgba(140, 226, 252, 0.15), transparent 58%),
-    radial-gradient(700px 500px at 85% 108%, rgba(134, 239, 211, 0.10), transparent 62%);
-  --app-surface: rgba(255, 255, 255, 0.90);
+    radial-gradient(1200px 800px at 10% -12%, rgba(140, 152, 255, 0.38), transparent 60%),
+    radial-gradient(1000px 720px at 104% -4%, rgba(176, 150, 252, 0.30), transparent 56%),
+    radial-gradient(900px 640px at 50% 116%, rgba(126, 214, 250, 0.26), transparent 58%),
+    radial-gradient(700px 500px at 85% 108%, rgba(134, 239, 211, 0.18), transparent 62%);
+  /* 卡片透到 0.62：0.76 时叠在淡底上还是白，0.62 才能把底色的紫蓝调带进来，
+     又刚好保住正文对比度（0.62 白 + 淡紫底 ≈ #eef0fc，正文仍是深色字） */
+  --app-surface: rgba(255, 255, 255, 0.62);
   --app-surface-solid: #ffffff;
+  /* 卡片自己的「受光面」：左上更白、右下更透。平涂的白永远是一块白，
+     有了这道斜向渐变，卡面上才有方向感和厚度；右下透出来的正好是
+     背景的薄荷/天青和那枚校徽纹样 */
+  --app-surface-sheen: linear-gradient(152deg,
+    rgba(255, 255, 255, 0.90) 0%,
+    rgba(255, 255, 255, 0.60) 58%,
+    rgba(255, 255, 255, 0.46) 100%);
+  /* 内部面板（输入框、下拉、表格行、折叠面板）比卡片再实一点，
+     形成「卡片是薄壳、面板是内容」的内外关系；Element 默认是纯白 */
+  --el-fill-color-blank: rgba(255, 255, 255, 0.70);
   /* 框线两档：border 用于卡片外框、outline 用于表格格线与分隔线。
      上一版太淡（0.13/0.09）导致「糊成一片」，这里各提一档 ——
      界面靠线条分区，比靠阴影分区更清晰、也更省性能 */
   --app-border: rgba(103, 108, 245, 0.20);
   --app-outline: rgba(103, 108, 245, 0.14);
+  /* 网格线专用：表格格线、日历格子、资源卡外框。
+     0.14 那档负责「柔分隔」（表头下缘、列表行间），
+     真正的网格要比它明显一档，否则在淡紫底上直接看不见 */
+  --app-line: rgba(103, 108, 245, 0.26);
   --app-shadow: 0 1px 2px rgba(88, 84, 214, 0.04), 0 10px 34px rgba(88, 84, 214, 0.06);
   --app-shadow-hover: 0 2px 6px rgba(88, 84, 214, 0.05), 0 22px 52px rgba(88, 84, 214, 0.13);
   /* 卡片顶部的内高光：模拟玻璃受光的上缘线，配合半透明底色出「薄壳」质感 */
@@ -36,10 +55,11 @@
   /* 「捕光」发丝边：卡片描边不是均匀纯色，而是上亮下彩的极淡渐变。
      亮度按反馈收敛（白顶 0.72），但彩色端提回来保住「有框」的存在感：
      0.18/0.20 太虚，卡片像浮在雾里；0.30/0.34 才看得出是一张卡 */
+  /* 卡片更透之后边缘会发虚，彩色端各提一档补回来 */
   --app-card-border: linear-gradient(170deg,
     rgba(255, 255, 255, 0.75),
-    rgba(166, 154, 250, 0.30) 48%,
-    rgba(125, 205, 250, 0.34) 100%);
+    rgba(166, 154, 250, 0.38) 48%,
+    rgba(125, 205, 250, 0.42) 100%);
 
   /* ============ 副色：浅蓝（天青） ============
      职责分工：紫（主色）管品牌与行动（标题渐变、主按钮、头像），
@@ -69,6 +89,9 @@
   --el-color-info-light-8: #d6e9f8;
   --el-color-info-light-9: #ebf5fc;
   --el-color-info-dark-2: #257db6;
+  /* 卡片透出底色后，次要文字（日期、备注、元信息）会比在白底上淡一档，
+     这里压深一点把对比度补回来 */
+  --el-text-color-secondary: #7b8292;
   --el-border-radius-base: 10px;
   --el-border-radius-small: 8px;
   --el-border-radius-round: 999px;
@@ -86,11 +109,16 @@ html.dark {
     radial-gradient(1000px 720px at 104% -4%, rgba(139, 92, 246, 0.14), transparent 56%),
     radial-gradient(900px 640px at 50% 116%, rgba(56, 189, 248, 0.07), transparent 58%),
     radial-gradient(700px 500px at 85% 108%, rgba(52, 211, 153, 0.05), transparent 62%);
-  --app-surface: rgba(25, 27, 45, 0.88);
+  --app-surface: rgba(25, 27, 45, 0.66);
   --app-surface-solid: #181a2c;
+  --app-surface-sheen: linear-gradient(152deg,
+    rgba(38, 42, 70, 0.88) 0%,
+    rgba(26, 29, 48, 0.64) 58%,
+    rgba(22, 24, 40, 0.54) 100%);
   /* 深色下同理提一档：0.08/0.06 的线在深底上几乎看不见 */
   --app-border: rgba(255, 255, 255, 0.13);
   --app-outline: rgba(255, 255, 255, 0.10);
+  --app-line: rgba(255, 255, 255, 0.18);
   --app-shadow: 0 1px 2px rgba(0, 0, 0, 0.20), 0 12px 34px rgba(0, 0, 0, 0.32);
   --app-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.24), 0 22px 52px rgba(0, 0, 0, 0.46);
   --app-card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -98,9 +126,9 @@ html.dark {
   --app-aside-bg: rgba(17, 19, 32, 0.64);
   --app-accent-glow: 0 4px 14px rgba(129, 140, 248, 0.14);
   --app-card-border: linear-gradient(170deg,
-    rgba(255, 255, 255, 0.16),
-    rgba(129, 140, 248, 0.26) 48%,
-    rgba(56, 189, 248, 0.18) 100%);
+    rgba(255, 255, 255, 0.18),
+    rgba(129, 140, 248, 0.32) 48%,
+    rgba(56, 189, 248, 0.24) 100%);
 
   /* 副色（深色下提亮一档；浅色下的 deep 反而是浅的 —— 深底上要更亮才够对比） */
   --app-secondary: #53c1f5;
@@ -200,7 +228,7 @@ html, body, #app {
 .page-card {
   border: 1px solid transparent;
   background:
-    linear-gradient(var(--app-surface), var(--app-surface)) padding-box,
+    var(--app-surface-sheen) padding-box,
     var(--app-card-border) border-box;
   border-radius: var(--app-radius);
   padding: 24px 26px;
@@ -367,13 +395,56 @@ html.dark .el-overlay {
 }
 
 .el-table {
-  --el-table-border-color: var(--app-outline);
+  /* 格线走 --app-line 而不是 outline：后者太淡，淡紫底上几乎看不见 */
+  --el-table-border-color: var(--app-line);
   --el-table-header-bg-color: var(--el-fill-color-lighter);
   --el-table-row-hover-bg-color: var(--el-fill-color-light);
+  /* 表格是「内容面板」，比卡片再实一点：行底太透的话，
+     底纹会从字里行间透上来，密集文字反而难读 */
+  --el-table-bg-color: rgba(255, 255, 255, 0.88);
+  --el-table-tr-bg-color: rgba(255, 255, 255, 0.88);
   border-radius: 16px;
   overflow: hidden;
   /* 一道外框：表格从卡片底色里「抬」成独立面板（同页的表头、筛选条各有边界） */
   border: 1px solid var(--app-outline);
+}
+
+/* 表格默认居中。
+   Element 的列默认左对齐，而各页面大部分列又手写了 align="center"，
+   于是同一张表里有的居中有的靠左，看着很乱。这里统一居中；
+   显式写了 align="left" / "right" 的列会带 is-left / is-right 类，保持原样
+   —— 长文本列（事由、标题、备注这些带 show-overflow-tooltip 的）在模板里
+   已经显式左对齐，居中的只有短字段 */
+.el-table .el-table__cell:not(.is-left):not(.is-right) {
+  text-align: center;
+}
+
+/* ============ 折叠面板：圆角容器 + 细线分隔 ============
+   通知公告列表、我的信息里的设置项都是 el-collapse。它默认整块铺
+   `--el-fill-color-blank`（浅色下是纯白），卡片一透就是一整片死白；
+   而且自带的只有上下两条通栏线，四个角是直角，贴在卡片里很生硬。
+   这里给它一张「小卡片」的形：1px 描边 + 14px 圆角（靠 overflow 裁），
+   行与行之间一条细线，左右留出内边距，文字不顶到圆角上 */
+.el-collapse,
+.el-collapse-item__header,
+.el-collapse-item__wrap {
+  background: transparent;
+}
+
+.el-collapse {
+  --el-collapse-border-color: var(--app-line);
+  border: 1px solid var(--app-line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.el-collapse .el-collapse-item__header {
+  padding: 0 16px;
+  border-bottom: 1px solid var(--app-line);
+}
+
+.el-collapse .el-collapse-item__content {
+  padding: 0 16px 16px;
 }
 
 .el-table th.el-table__cell {
@@ -402,6 +473,45 @@ html .el-textarea__inner:focus {
     0 0 0 3px var(--app-secondary-soft);
 }
 
+/* ============ 校徽纹样 ============
+   右下角一枚透明度极低的校徽（logo 本身带透明通道，直接压暗即可）。
+   fixed + pointer-events:none：滚动时不动、不挡点击；内容层统一抬到 z-index:1，
+   保证纹样永远在最底层 */
+.app-emblem {
+  position: fixed;
+  /* 直径给到 520：半个徽记探出屏幕，只留一段弧压在最底层的右下角，
+     面积够大才看得出是纹样，而不是一个模糊的圆点 */
+  right: -110px;
+  bottom: -130px;
+  width: 520px;
+  height: 520px;
+  object-fit: contain;
+  /* 卡片现在透到 0.62，纹样要再浓一点才透得出来 */
+  opacity: 0.13;
+  /* 去色后只剩「形」，不会跟主题色抢注意力 */
+  filter: grayscale(1);
+  /* 品牌定制换上的校徽不一定是透明 PNG（也可能是白底 JPG）：
+     multiply 让白色像素直接「消失」，深色线条才留下 —— 白底不会再糊成一块 */
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
+.layout-main > *:not(.app-emblem) {
+  position: relative;
+  z-index: 1;
+}
+
+html.dark .app-emblem {
+  /* 校徽本体是深色线条，直接压在深底上等于没有；
+     先反相成浅色线再收到极低透明度，才看得出是枚徽记。
+     反相后原白底成了黑底，用 screen 让黑「消失」 */
+  filter: grayscale(1) invert(1);
+  mix-blend-mode: screen;
+  opacity: 0.115;
+}
+
 /* ============ 页面进场上浮 ============
    路由切换时主区内容上浮淡入。只认挂载（筛选、展开不会反复播），
    纯 transform+opacity 走合成层，低端机也无感 */
@@ -417,8 +527,13 @@ html .el-textarea__inner:focus {
   }
 }
 
-.layout-main > * {
-  animation: app-rise 0.3s cubic-bezier(0.22, 0.8, 0.36, 1) both;
+/* fill-mode 用 backwards 而不是 both：动画播完之后元素回到「无 transform」的常态。
+   用 both 时最后一帧的 transform 会一直挂着（Safari 尤其明显），
+   而带 transform 的祖先会成为 position:fixed 的包含块 ——
+   页面里任何 fixed 浮层（图片查看器、第三方遮罩）都会按容器而不是视口铺开。
+   这 0.3 秒的位移只影响入场，播完就交给常态样式 */
+.layout-main > *:not(.app-emblem) {
+  animation: app-rise 0.3s cubic-bezier(0.22, 0.8, 0.36, 1) backwards;
 }
 
 /* 动效敏感的用户（ vestibular 障碍等）直接关掉：系统级的无障碍约定 */
@@ -453,6 +568,14 @@ html .el-textarea__inner:focus {
 
   .page-title {
     font-size: 16px;
+  }
+
+  /* 手机上纹样缩小，别顶到内容区 */
+  .app-emblem {
+    width: 280px;
+    height: 280px;
+    right: -70px;
+    bottom: -86px;
   }
 
   /* 通栏表头跟着卡片内边距一起收，负边距要正好抵消，否则会顶出卡片圆角 */

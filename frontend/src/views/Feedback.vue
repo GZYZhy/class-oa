@@ -58,7 +58,7 @@
         <!-- 我的反馈 -->
         <el-tab-pane label="我的反馈" name="my">
           <el-table :data="list" v-loading="loading" stripe border style="width: 100%;">
-            <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip align="left" />
             <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
                 <el-tag v-if="row.status === 'unread'" type="info" size="small">未读</el-tag>

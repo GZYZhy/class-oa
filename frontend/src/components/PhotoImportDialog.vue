@@ -59,7 +59,7 @@
       </div>
 
       <el-table :data="preview.items" size="small" border max-height="360">
-        <el-table-column prop="filename" label="文件名" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="filename" label="文件名" min-width="180" show-overflow-tooltip align="left" />
         <el-table-column label="大小" width="90">
           <template #default="{ row }">{{ formatSize(row.size) }}</template>
         </el-table-column>

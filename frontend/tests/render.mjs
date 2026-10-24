@@ -1169,7 +1169,7 @@ const goDate = ref('${date}')${call}`
   const { html: dialog } = await renderPatched('/src/views/Schedule.vue', MARKER,
     openWith('2026-11-05'), { ElDialog: ElDialogStub })
   // el-dialog 的标题走 props（桩只渲染正文和 footer），所以标题只能断源码
-  check(dialog.includes('跳到这一天所在的那一周'), '正文说清跳的是那一天所在的那一周')
+  check(dialog.includes('跳到所在周'), '正文说清跳的是那一天所在的那一周')
   check(dialog.includes('el-date-editor'), '是个日期选择器')
   check(!plain.includes('跳到这一天所在的那一周'), '负对照：弹窗没打开时不出现')
 
@@ -1284,7 +1284,7 @@ const subscribeUrl = ref('http://oa.example.com/api/notices/rss/cafebabe.xml')`,
   check(html.includes('cafebabe.xml'), '链接原样显示在输入框里')
   check(html.includes('请勿分享给他人'), '写明链接里是私人令牌')
   check(html.includes('Feedly'), '说明是给 RSS 阅读器用的')
-  check(html.includes('共用同一个订阅令牌'), '写明了和「我的日程」共用令牌')
+  check(html.includes('共用同一令牌'), '写明了和「我的日程」共用令牌')
   check(!html.includes('重置订阅令牌'),
     '没有重置按钮 —— 重置的是日程那条共用令牌，只在日程页做')
 
@@ -1376,7 +1376,9 @@ console.log('\n▶ 学生信息页：低频操作收进「更多」，年龄排�
   // 近期生日改成了弹窗：下拉项里再套一层 popover 的话，点一下两层浮层一起关，
   // 天数根本填不进去
   check(!src.includes('<el-popover'), '近期生日不再是个挂在工具栏上的 popover')
-  check(src.includes('<el-dialog v-model="birthdayDialogVisible"') &&
+  // 弹窗现在带 append-to-body（挂到 body 上，不受页面容器裁切），
+  // 所以不能钉死 `<el-dialog v-model=` 的相邻顺序，用 [^>]* 吃掉中间属性
+  check(/<el-dialog[^>]*v-model="birthdayDialogVisible"/.test(src) &&
     src.includes('const birthdayDialogVisible = ref(false)'), '它改成一个弹窗')
   check(/command === 'birthday'\) birthdayDialogVisible\.value = true/.test(src),
     '「更多」里那一项打开这个弹窗')
@@ -2215,27 +2217,27 @@ console.log('\n▶ 三个办件的顶部说明：办件详情、提交材料、�
       name: '请假',
       intro: '因病因事无法参加课程或集体活动时',
       deadline: '3 个工作日（仅供参考）',
-      notice: '本网办事项仅用于简化流程、避免材料递交繁琐，请假审批是否通过由学校决定。',
-      submitted: '请假辅助证明',
+      notice: '本服务仅简化流程，是否准假由学校决定。',
+      submitted: '请假证明',
       finished: '请假审批表（PDF）'
     },
     {
       path: '/src/views/EvPass.vue',
       name: '电动车',
-      intro: '为在校内使用的电动自行车办理通行证',
+      intro: '校内电动自行车通行证补办',
       deadline: '7 个工作日（仅供参考）',
-      notice: '本网络办件仅提供信息表生成',
+      notice: '本站仅生成信息表',
       submitted: '行驶证（图片或 PDF）',
-      finished: '电动车通行证申请表'
+      finished: '通行证申请表'
     },
     {
       path: '/src/views/Certificate.vue',
       name: '证明开具',
-      intro: '开具在读证明、实习介绍信等由班委出具的文书',
+      intro: '开具在读证明、实习介绍信等文书',
       deadline: '7 个工作日（仅供参考）',
-      notice: '班委会开具的介绍信公信力有限',
-      submitted: '申请依据材料',
-      finished: '证明成品（PDF）'
+      notice: '仅限班委出具的文书',
+      submitted: '依据材料，PDF / 图片 / Word',
+      finished: '班委上传的成品（PDF）'
     }
   ]
 
@@ -2604,7 +2606,7 @@ console.log('\n▶ 分类统计：概览卡点开是哪些人')
   check(/class="mini-card"[\s\S]{0,200}clickable/.test(src)
     && /\.mini-card\.clickable\s*\{[\s\S]{0,120}cursor:\s*pointer/.test(src),
     '可点的卡有手型光标，看得出能点')
-  check(/<el-dialog v-model="rosterVisible"[\s\S]{0,400}<Watermark :text="watermarkText" \/>/.test(src),
+  check(/<el-dialog[^>]*v-model="rosterVisible"[\s\S]{0,400}<Watermark :text="watermarkText" \/>/.test(src),
     '名单弹窗里盖了水印（同「学生详情」那个弹窗）')
   check(/<el-table-column v-if="roster\?\.column" prop="group"/.test(src), '分组卡多一列，平铺的卡没有')
   check(/prop="name" label="姓名"/.test(src) && /prop="student_no" label="学号"/.test(src),
@@ -4057,7 +4059,10 @@ console.log('\n▶ 弱网首屏：图表库按需且不挡首页，图标不整�
 
   // 分类统计页是懒加载路由，静态引入没有代价；但也得从同一个按需模块拿
   const statSrc = readFileSync(`${ROOT}/src/views/Statistics.vue`, 'utf8')
-  check(/^import echarts from '@\/utils\/chart'$/m.test(statSrc), '分类统计页也从 utils/chart 拿图表库')
+  // 统计页现在从 utils/chart 拿的是「共用图表件」（renderDonut/renderBar + 色板），
+  // 不再是裸的 echarts 实例；只要还从这个模块取、没绕过去直接引 'echarts' 就行
+  check(/from '@\/utils\/chart'/.test(statSrc) && /renderDonut/.test(statSrc),
+    '分类统计页从 utils/chart 拿图表件（与首页同一套）')
 
   // 兜底：除了 utils/chart.js 自己，全站不许再有第二处直接引 echarts ——
   // 绕过去一处，上面那些按需注册就全白做了，而且体积要到发版看产物才发现
@@ -4569,7 +4574,7 @@ console.log('\n▶ 输错地址：给一张「页面不存在」的卡片，而�
   const { html } = await render('/src/views/NotFound.vue')
   const text = stripComments(html)
   check(text.includes('页面不存在'), '卡片上写着页面不存在')
-  check(text.includes('地址可能输错了'), '说明了可能的原因')
+  check(text.includes('页面不存在或链接已失效'), '说明了可能的原因')
   check(text.includes('返回首页'), '给了回首页的出口')
 
   const src = readFileSync(`${ROOT}/src/views/NotFound.vue`, 'utf8')
@@ -4632,7 +4637,10 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   check(voteHtml.includes('投票收集'), '入口标题改为「投票收集」')
   check(voteHtml.includes('搜索投票标题'), '投票 Tab 的搜索还在')
   check(voteHtml.includes('搜索收集标题'), '收集 Tab 有自己的一份搜索')
-  check(voteHtml.includes('发起投票'), '默认投票 Tab 的按钮是发起投票')
+  // 按钮带 v-if="userStore.isCommittee"，SSR 里没有登录态，渲染结果里不会有它 ——
+  // 所以这条钉在源码的按钮文案上（默认 Tab 是 vote 时才显示「发起投票」）
+  check(/activeTab === 'vote' \? '发起投票' : '发起收集'/.test(src('/src/views/Vote.vue')),
+    '默认投票 Tab 的按钮是发起投票')
 
   const voteSrc = src('/src/views/Vote.vue')
   check(/<el-tabs v-model="activeTab"/.test(voteSrc), '两个 Tab 绑同一个 activeTab')
@@ -5566,7 +5574,7 @@ console.log('\n▶ 水印：成绩页、成绩弹窗、办件空间都盖上')
   check(grade.includes('const watermarkText = useWatermark()'), '成绩管理页用共用的水印字样')
   check(/\.grade,\s*\n\.wm-host\s*\{\s*position:\s*relative/.test(grade),
     '成绩管理页有定位基准')
-  check(/el-dialog v-model="editVisible"[\s\S]{0,300}<Watermark/.test(grade),
+  check(/el-dialog[^>]*v-model="editVisible"[\s\S]{0,300}<Watermark/.test(grade),
     '「修改测试信息」弹窗也有水印')
 
   for (const file of ['GradeDetailDialog.vue', 'GradeStatsDialog.vue', 'GradeImportDialog.vue']) {
