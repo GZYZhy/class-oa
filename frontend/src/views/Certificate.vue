@@ -44,7 +44,9 @@
                 show-word-limit
               />
             </el-form-item>
-            <el-form-item label="申请依据" prop="attachments">
+            <!-- 同请假页：附件不在 form 上，校验走自定义 validator，
+                 星号用 required 属性给，别写进规则 -->
+            <el-form-item label="申请依据" prop="attachments" required>
               <el-upload
                 ref="uploadRef"
                 :auto-upload="false"
