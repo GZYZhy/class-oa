@@ -14,8 +14,13 @@
 from datetime import datetime
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from app.config import settings
+from app.database import Base
+from app.models import WeatherBannerSettings
+from app.schemas import WeatherBannerSettingsUpdate
 from app.services import weather_notify_service as wn
 from app.services import weather_service as ws
 
@@ -160,6 +165,55 @@ def test_current_tolerates_missing_daily_data(monkeypatch):
     assert data["state"] == "ok"
     assert data["low"] is None and data["high"] is None
     assert data["tomorrow"] is None
+
+
+def test_place_comes_from_admin_settings(tmp_path, monkeypatch):
+    """地点/显示名读管理员配置（weather_banner_settings），不再读 env"""
+    engine = create_engine(f"sqlite:///{tmp_path / 'weather.db'}")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    try:
+        db.add(WeatherBannerSettings(
+            id=1, name="测试地点", lat=39.9, lng=116.2,
+            enabled=False, conditions="", window="today", ignore_night=True,
+        ))
+        db.commit()
+        monkeypatch.setattr(ws, "_fetch", lambda lat, lon: _forecast())
+        ws.reset_cache()
+        data = ws.current(db)
+        assert data["state"] == "ok"
+        assert data["name"] == "测试地点"
+        assert (data["low"], data["high"]) == (10, 36)
+
+        # 只填一个坐标：invalid；两个都清空：unconfigured
+        row = db.get(WeatherBannerSettings, 1)
+        row.lng = None
+        db.commit()
+        ws.reset_cache()
+        assert ws.current(db)["state"] == "invalid"
+
+        row.lat = None
+        db.commit()
+        ws.reset_cache()
+        assert ws.current(db)["state"] == "unconfigured"
+    finally:
+        db.close()
+
+
+def test_put_banner_persists_place(tmp_path):
+    """管理员保存时把地点三项写进单行表，供天气服务和横幅共用"""
+    engine = create_engine(f"sqlite:///{tmp_path / 'weather_set.db'}")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    try:
+        wn.put_banner(db, WeatherBannerSettingsUpdate(
+            name="示例大学", lat=39.9273, lng=116.1998,
+            enabled=False, window="today",
+        ))
+        row = db.get(WeatherBannerSettings, 1)
+        assert (row.name, row.lat, row.lng) == ("示例大学", 39.9273, 116.1998)
+    finally:
+        db.close()
 
 
 def test_parse_conditions_drops_unknown_and_dedupes():
@@ -328,11 +382,22 @@ def test_banner_settings_are_admin_only_and_persist(wb):
     assert wb.login(student_no=ADMIN, password=ADMIN_PW).status_code == 200
     default = wb.client.get("/api/admin/weather-banner").json()
     assert default["enabled"] is False
+    assert default["name"] == ""
+    assert default["lat"] is None and default["lng"] is None
     assert default["window"] == "today"
     assert default["ignore_night"] is True, "横幅也默认忽略夜间天气"
     assert default["preview_active"] is False  # 没配坐标，取不到预报就不显示
 
+    # 坐标必须成对、范围合法；校验在保存前完成，不会去外呼
+    r = wb.client.put("/api/admin/weather-banner", json={"lat": 39.9})
+    assert r.status_code == 400
+    r = wb.client.put("/api/admin/weather-banner", json={"lat": 91, "lng": 116})
+    assert r.status_code == 400
+    r = wb.client.put("/api/admin/weather-banner", json={"lat": 39.9, "lng": 181})
+    assert r.status_code == 400
+
     r = wb.client.put("/api/admin/weather-banner", json={
+        "name": "示例大学",
         "enabled": True,
         "conditions": ["rain", "heat"],
         "rain_threshold": 75,
@@ -344,6 +409,7 @@ def test_banner_settings_are_admin_only_and_persist(wb):
     })
     assert r.status_code == 200, r.text
     saved = wb.client.get("/api/admin/weather-banner").json()
+    assert saved["name"] == "示例大学"
     assert saved["enabled"] is True
     assert saved["conditions"] == ["rain", "heat"]
     assert saved["rain_threshold"] == 75

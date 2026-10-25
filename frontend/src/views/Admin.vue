@@ -687,9 +687,50 @@
         </div>
       </el-tab-pane>
 
-      <!-- ============ 天气横幅 ============ -->
-      <el-tab-pane label="天气横幅" name="weather">
+      <!-- ============ 天气 ============ -->
+      <el-tab-pane label="天气" name="weather">
         <div v-loading="loadingWeatherBanner" class="about-admin-body">
+          <section class="about-admin-block">
+            <div class="about-admin-head">
+              <span class="about-admin-title">天气卡地点</span>
+            </div>
+            <p class="tip">
+              显示名称和经纬度决定首页天气卡的位置。经纬度都留空时，天气卡显示「未配置」；
+              只填一个保存不了，两个要一起填。
+            </p>
+            <el-form label-width="96px" class="weather-place-form">
+              <el-form-item label="显示名称">
+                <el-input
+                  v-model="weatherBanner.name"
+                  maxlength="100"
+                  placeholder="例如：示例大学"
+                />
+              </el-form-item>
+              <el-form-item label="纬度">
+                <el-input-number
+                  v-model="weatherBanner.lat"
+                  :min="-90"
+                  :max="90"
+                  :precision="6"
+                  :controls="false"
+                  placeholder="例如 39.9273"
+                  class="weather-coord"
+                />
+              </el-form-item>
+              <el-form-item label="经度">
+                <el-input-number
+                  v-model="weatherBanner.lng"
+                  :min="-180"
+                  :max="180"
+                  :precision="6"
+                  :controls="false"
+                  placeholder="例如 116.1998"
+                  class="weather-coord"
+                />
+              </el-form-item>
+            </el-form>
+          </section>
+
           <section class="about-admin-block">
             <div class="about-admin-head">
               <span class="about-admin-title">首页广播横幅</span>
@@ -1954,8 +1995,11 @@ async function moveResourceCategory(index, direction) {
 const weatherBannerLoaded = ref(false)
 const loadingWeatherBanner = ref(false)
 const savingWeatherBanner = ref(false)
-// 字段名与个人天气提醒一致（后端共用同一套判断）
+// 字段名与个人天气提醒一致（后端共用同一套判断）；地点三项和横幅一起保存
 const weatherBanner = reactive({
+  name: '',
+  lat: null,
+  lng: null,
   enabled: false,
   conditions: ['rain'],
   rain_threshold: 60,
@@ -1974,6 +2018,9 @@ async function fetchWeatherBanner() {
   loadingWeatherBanner.value = true
   try {
     const data = await getWeatherBanner()
+    weatherBanner.name = data.name || ''
+    weatherBanner.lat = data.lat ?? null
+    weatherBanner.lng = data.lng ?? null
     weatherBanner.enabled = !!data.enabled
     weatherBanner.conditions = data.conditions || []
     weatherBanner.rain_threshold = data.rain_threshold
@@ -1995,6 +2042,9 @@ async function fetchWeatherBanner() {
 }
 
 async function handleSaveWeatherBanner() {
+  if ((weatherBanner.lat == null) !== (weatherBanner.lng == null)) {
+    return ElMessage.warning('经纬度要一起填')
+  }
   if (weatherBanner.enabled && !weatherBanner.conditions.length) {
     return ElMessage.warning('至少要选一种天气')
   }
@@ -2274,6 +2324,10 @@ onMounted(() => {
 
 .about-admin-block .tip {
   margin: 0 0 12px;
+}
+
+.weather-coord {
+  width: 220px;
 }
 
 .weather-preview {

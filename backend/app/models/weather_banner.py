@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, Text, text
+from sqlalchemy import Boolean, Column, Float, Integer, String, Text, text
 
 from ..database import Base
 
@@ -17,6 +17,16 @@ class WeatherBannerSettings(Base):
     __tablename__ = "weather_banner_settings"
 
     id = Column(Integer, primary_key=True)
+
+    # ---- 天气卡地点（原先是 .env 的 WEATHER_NAME / LAT / LON）----
+    # 两列都可空：都空 = 天气卡显示「未配置」；只填一个算脏数据，接口层会拒。
+    # 名称只用于卡片上的显示，不影响取数。
+    name = Column(
+        String(100), nullable=False, default="", server_default=text("('')"),
+        comment="天气卡显示的地点名称",
+    )
+    lat = Column(Float, nullable=True, comment="纬度，空=未配置")
+    lng = Column(Float, nullable=True, comment="经度，空=未配置")
 
     # 默认关：横幅是给所有人看的，管理员明确打开才显示
     enabled = Column(

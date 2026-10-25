@@ -4142,6 +4142,12 @@ console.log('\n▶ 弱网首屏：图表库按需且不挡首页，图标不整�
   const adminSrc = readFileSync(`${ROOT}/src/views/Admin.vue`, 'utf8')
   check(noticeSettingSrc.includes('ignore_night: true') && adminSrc.includes('ignore_night: true'),
     '个人提醒与管理员横幅的开关默认都是打开的')
+  // 天气卡地点已从 .env 迁到「系统管理 → 天气」：三项都得是管理员可改的
+  check(adminSrc.includes('天气卡地点') &&
+    ['name', 'lat', 'lng'].every((k) => adminSrc.includes(`weatherBanner.${k}`)),
+  '管理员能改天气卡的显示名和经纬度')
+  check(adminSrc.includes('经纬度要一起填'),
+    '管理员只填一个坐标时会提示经纬度要成对')
   // 只盯图标：这个桩环境没装 vue-router，router-link 解析不到是桩的事，和图标无关
   const unresolved = warns
     .map((w) => (w.match(/Failed to resolve component: (\w+)/) || [])[1])
