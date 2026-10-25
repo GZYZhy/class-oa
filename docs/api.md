@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 2.1.2，共 293 个接口。
+> 版本 2.1.3，共 293 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -2942,7 +2942,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `WeatherNotifySettingsResponse` — 成功
-  - 字段：`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`quiet_start`、`quiet_end`、`available_conditions`、`windows`
+  - 字段：`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`quiet_start`、`quiet_end`、`ignore_night`、`available_conditions`、`windows`
 
 ### 保存我的天气提醒设置
 
@@ -2961,6 +2961,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | `window` | string | 否 |  |
 | `quiet_start` | integer（默认 22） | 否 |  |
 | `quiet_end` | integer（默认 7） | 否 |  |
+| `ignore_night` | boolean | 否 |  |
 
 **响应**
 
@@ -5041,7 +5042,7 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 - `200` `WeatherBannerResponse` — 成功
-  - 字段：`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`available_conditions`、`windows`、`preview_active`、`preview_lines`
+  - 字段：`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`ignore_night`、`available_conditions`、`windows`、`preview_active`、`preview_lines`
 
 ### 保存首页天气横幅配置（仅管理员）
 
@@ -5058,6 +5059,7 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 | `cold_threshold` | integer（默认 0） | 否 |  |
 | `wind_threshold` | integer（默认 39） | 否 |  |
 | `window` | string | 否 |  |
+| `ignore_night` | boolean | 否 |  |
 
 **响应**
 
@@ -5074,5 +5076,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "2.1.0"}
+{"status": "ok", "app": "班级信息管理系统", "version": "2.1.3"}
 ```
