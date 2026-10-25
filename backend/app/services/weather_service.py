@@ -294,10 +294,15 @@ def current() -> dict:
     data = result["data"]
     now = datetime.now()
     days = data.get("days") or []
+    today = days[0] if days else {}
     return {
         "state": "ok",
         **base,
         **data["current"],
+        # 今天的最低/最高：当前天气只有瞬时温度，日级数据里的这两个值
+        # 是首页「最低 ° · 最高 °」那一行唯一的来源
+        "low": today.get("low"),
+        "high": today.get("high"),
         # 逐小时（前端横条）：时间已经裁成 HH:00
         "hourly": _slim_hourly(data.get("hourly") or [], now),
         # 明天：days[1]。取不到就 None，前端整块不显示

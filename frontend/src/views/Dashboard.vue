@@ -160,7 +160,8 @@
               <span class="weather-temp">{{ weather.temp }}°</span>
             </div>
             <div class="weather-text">{{ weather.text }}</div>
-            <div class="weather-range">
+            <!-- 日级数据偶尔取不到时整行不显示，别留「最低 ° · 最高 °」 -->
+            <div v-if="weather.low != null && weather.high != null" class="weather-range">
               最低 {{ weather.low }}° · 最高 {{ weather.high }}°
             </div>
             <!-- 明天的情况：和管理员配置的时段无关，固定给一行概览 -->

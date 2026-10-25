@@ -138,9 +138,28 @@ def test_current_ok_slims_hourly_and_keeps_tomorrow(monkeypatch):
     data = ws.current()
     assert data["state"] == "ok"
     assert data["temp"] == 18 and data["feels_like"] == 17
+    # 首页「最低 / 最高」来自今天那条日级数据，不能只有明天有
+    assert (data["low"], data["high"]) == (10, 36)
     assert data["tomorrow"]["date"] == "2026-10-26"
+    assert (data["tomorrow"]["low"], data["tomorrow"]["high"]) == (-3, 25)
     assert len(data["hourly"]) == 5  # 假数据一共 5 条，不超过 12
     assert all(len(item["time"]) == 5 for item in data["hourly"])
+
+
+def test_current_tolerates_missing_daily_data(monkeypatch):
+    """日级数组缺失时 low/high 是 None，接口不炸，前端那一行整行不显示"""
+    monkeypatch.setattr(settings, "weather_lat", "39.9")
+    monkeypatch.setattr(settings, "weather_lon", "116.2")
+    monkeypatch.setattr(ws, "_fetch", lambda lat, lon: {
+        "current": {"temp": 18, "feels_like": 17, "code": 0,
+                    "text": "晴", "icon": "Sunny", "updated_at": ""},
+        "hourly": [],
+        "days": [],
+    })
+    data = ws.current()
+    assert data["state"] == "ok"
+    assert data["low"] is None and data["high"] is None
+    assert data["tomorrow"] is None
 
 
 def test_parse_conditions_drops_unknown_and_dedupes():
