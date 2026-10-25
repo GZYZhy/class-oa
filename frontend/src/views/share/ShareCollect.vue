@@ -92,6 +92,9 @@
               <div class="sc-response-head">
                 <span>
                   {{ response.seq_no }} · {{ formatDateTime(response.submitted_at) }}
+                  <template v-if="response.duration_seconds != null">
+                    · 用时 {{ formatDuration(response.duration_seconds) }}
+                  </template>
                 </span>
                 <el-button
                   v-if="canWithdraw"
@@ -154,7 +157,7 @@ import {
 } from '@/api/collection'
 import { useWatermark } from '@/composables/useWatermark'
 import { statusLabel, statusTag, markdownPreview } from '@/utils/collection'
-import { formatDateTime } from '@/utils/format'
+import { formatDateTime, formatDuration } from '@/utils/format'
 import { renderMarkdown } from '@/utils/markdown'
 import { errText } from '@/utils/request'
 import { applyShareMeta, resetShareMeta } from '@/utils/share-meta'
@@ -175,6 +178,17 @@ const withdrawingId = ref(null)
 const justSubmitted = ref(false)
 /** 提交/撤回后换一个 key，整张表单重置（同时回收图片预览地址） */
 const ballotKey = ref(0)
+/** 本次填写的开始时刻：用来统计答卷用时；不能填时清空 */
+const fillStartedAt = ref(null)
+
+watch(
+  () => info.value?.can_submit,
+  (can) => {
+    if (can) fillStartedAt.value = Date.now()
+    else fillStartedAt.value = null
+  },
+  { immediate: true }
+)
 
 const loginHref = computed(() => `#/login?redirect=${encodeURIComponent(route.fullPath)}`)
 
@@ -290,8 +304,11 @@ async function refresh() {
 
 async function handleSubmit(answers) {
   submitting.value = true
+  const duration = fillStartedAt.value
+    ? Math.min(86400, Math.round((Date.now() - fillStartedAt.value) / 1000))
+    : null
   try {
-    const res = await submitCollectionResponse(info.value.id, answers)
+    const res = await submitCollectionResponse(info.value.id, answers, duration)
     ElMessage.success(`第 ${res.seq_no} 份答卷已提交`)
     justSubmitted.value = true
     try {
@@ -300,6 +317,8 @@ async function handleSubmit(answers) {
       // 交卷本身已经成功，不能因为刷新失败提示「提交失败」让人再交一遍
       syncError.value = '答卷已提交，但刷新页面状态失败，请点重试'
     }
+    // 每人多份时，下一份重新计时
+    fillStartedAt.value = Date.now()
   } catch (e) {
     ElMessage.error(errText(e, '提交失败'))
   } finally {

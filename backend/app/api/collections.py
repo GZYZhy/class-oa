@@ -73,6 +73,7 @@ from ..schemas import (
 from ..services import account_name, log_operation, notify, recipients
 from ..services.collection_service import (
     CHOICE_TYPES,
+    duration_stats,
     IMAGE_MAX_FILES,
     IMAGE_SUFFIXES,
     QTYPE_IMAGE,
@@ -985,6 +986,7 @@ def submit_response(
             student_no=user.student_no,
             seq_no=last_seq + 1,
             submitted_at=datetime.now(),
+            duration_seconds=data.duration_seconds,
         )
         db.add(submission)
         db.flush()
@@ -1460,7 +1462,10 @@ def get_statistics(
     db: Session = Depends(get_db),
 ):
     collection = _load_manageable(db, collection_id, user, is_admin(user))
-    return {"items": statistics(db, collection)}
+    return {
+        "items": statistics(db, collection),
+        "duration": duration_stats(db, collection),
+    }
 
 
 @router.post(

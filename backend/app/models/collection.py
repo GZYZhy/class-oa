@@ -159,6 +159,8 @@ class CollectionSubmission(Base):
     student_no = Column(String(20), index=True, comment="学号（匿名只在接口层隐藏）")
     seq_no = Column(Integer, nullable=False, comment="这个人的第几份，从 1 开始")
     submitted_at = Column(DateTime, default=datetime.now, index=True, comment="提交时间")
+    # 答题用时（秒）。旧答卷没有这一项，读出来是 None，展示成「—」
+    duration_seconds = Column(Integer, nullable=True, comment="答题用时（秒），旧答卷为空")
 
 
 class CollectionAnswer(Base):

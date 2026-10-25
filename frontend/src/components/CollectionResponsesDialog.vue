@@ -81,6 +81,7 @@
             row-key="id"
             stripe
             max-height="430"
+            style="width: 100%;"
             empty-text="还没有人提交答卷"
             @selection-change="(rows) => (selectedIds = rows.map((row) => row.id))"
           >
@@ -97,10 +98,13 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="序号" width="64">
-              <template #default="{ row }">{{ row.seq_no }}</template>
+            <el-table-column label="序号" width="64" align="center">
+              <!-- 序号是当前列表里的第几条；seq_no 是「这个人的第几份」，多人时全是 1 -->
+              <template #default="{ $index }">
+                {{ (page - 1) * pageSize + $index + 1 }}
+              </template>
             </el-table-column>
-            <el-table-column label="提交人" width="170">
+            <el-table-column label="提交人" min-width="170">
               <template #default="{ row }">
                 <template v-if="detail.anonymous">匿名</template>
                 <template v-else>
@@ -109,11 +113,14 @@
                 </template>
               </template>
             </el-table-column>
-            <el-table-column label="提交时间" width="165">
+            <el-table-column label="提交时间" min-width="175">
               <template #default="{ row }">{{ formatDateTime(row.submitted_at) }}</template>
             </el-table-column>
             <el-table-column label="作答" width="80" align="center">
               <template #default="{ row }">{{ row.answers.length }} 题</template>
+            </el-table-column>
+            <el-table-column label="用时" min-width="100" align="center">
+              <template #default="{ row }">{{ formatDuration(row.duration_seconds) }}</template>
             </el-table-column>
             <el-table-column v-if="canDelete" label="操作" width="90">
               <template #default="{ row }">
@@ -178,6 +185,21 @@
         <!-- ---------- 统计 ---------- -->
         <el-tab-pane label="统计" name="stats">
           <div v-loading="statsLoading" class="cr-stats">
+            <!-- 答卷用时：旧答卷没有开始时刻，只统计升级后新提交的 -->
+            <div class="cr-stat cr-duration">
+              <div class="cr-stat-title"><span>答卷用时</span></div>
+              <template v-if="statistics.duration?.count">
+                <div class="cr-duration-row">
+                  <span>平均 <b>{{ formatDuration(statistics.duration.average_seconds) }}</b></span>
+                  <span>中位数 <b>{{ formatDuration(statistics.duration.median_seconds) }}</b></span>
+                  <span>最短 <b>{{ formatDuration(statistics.duration.min_seconds) }}</b></span>
+                  <span>最长 <b>{{ formatDuration(statistics.duration.max_seconds) }}</b></span>
+                </div>
+                <div class="cr-sub">共 {{ statistics.duration.count }} 份答卷记录了用时</div>
+              </template>
+              <div v-else class="cr-sub">还没有用时数据；只统计本次升级后提交的答卷。</div>
+            </div>
+
             <div v-for="(item, index) in statistics.items" :key="item.question_id" class="cr-stat">
               <div class="cr-stat-title">
                 <span>{{ index + 1 }}. {{ item.title }}</span>
@@ -256,7 +278,7 @@ import {
 } from '@/api/collection'
 import { useWatermark } from '@/composables/useWatermark'
 import { CHOICE_TYPES, QUESTION_TYPE_LABEL, statusLabel, statusTag } from '@/utils/collection'
-import { formatDateTime } from '@/utils/format'
+import { formatDateTime, formatDuration } from '@/utils/format'
 import { POLL_LETTERS as letters } from '@/utils/poll'
 import { blobErrorDetail, downloadFile } from '@/utils/download'
 import { errText } from '@/utils/request'
@@ -297,7 +319,7 @@ const pending = reactive({
   partial_count: 0
 })
 const pendingLoading = ref(false)
-const statistics = ref({ items: [] })
+const statistics = ref({ items: [], duration: {} })
 const statsLoading = ref(false)
 
 const exporting = ref(false)
@@ -371,7 +393,10 @@ async function loadStats(silent = false) {
   statsLoading.value = !silent
   try {
     const data = await getCollectionStatistics(detail.value.id)
-    statistics.value = data
+    statistics.value = {
+      items: data.items || [],
+      duration: data.duration || {}
+    }
   } catch (e) {
     if (!silent) ElMessage.error(errText(e, '读取统计失败'))
   } finally {
@@ -643,5 +668,19 @@ onBeforeUnmount(stopPolling)
   font-size: 18px;
   font-weight: 600;
   color: var(--el-color-primary);
+}
+
+.cr-duration-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.cr-duration-row b {
+  color: var(--el-color-primary);
+  font-weight: 600;
 }
 </style>

@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useUserStore } from '@/store/user'
 import { formatStamp } from '@/utils/format'
 import { SITE } from '@/utils/site'
@@ -13,16 +13,20 @@ import { SITE } from '@/utils/site'
  */
 export function useWatermark() {
   const userStore = useUserStore()
-  const text = ref('')
-
-  function refresh() {
-    text.value = `${userStore.info?.name || '未知用户'}@${SITE.shortName} ${formatStamp()}`
-  }
+  // 时间每分钟变一次；姓名用 computed，等登录态异步加载完自动跟上。
+  // 以前在 onMounted 里一次性拼好字符串，分享页打开时 fetchMe 还没回来，
+  // 整页水印会一直写着「未知用户」，直到下一分钟才刷新。
+  const stamp = ref(formatStamp())
+  const text = computed(
+    () => `${userStore.info?.name || '未知用户'}@${SITE.shortName} ${stamp.value}`
+  )
 
   let timer = null
   onMounted(() => {
-    refresh()
-    timer = setInterval(refresh, 60000)
+    stamp.value = formatStamp()
+    timer = setInterval(() => {
+      stamp.value = formatStamp()
+    }, 60000)
   })
   onUnmounted(() => clearInterval(timer))
 
