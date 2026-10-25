@@ -143,38 +143,51 @@
             <span v-else class="at-empty">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <!-- 操作列固定在右边。窄屏上 300px 的固定列会盖住大半个表格，
+             所以只保留一个主操作，其余收进「更多」下拉，宽度也跟着收窄 -->
+        <el-table-column label="操作" :width="isMobile ? 132 : 300" fixed="right">
           <template #default="{ row }">
             <div class="at-ops">
-              <template v-if="row.type === 'attendance'">
-                <el-button link type="primary" @click="openDetail(row)">明细</el-button>
-                <el-button link type="primary" @click="handleRemark(row)">标题</el-button>
-                <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+              <template v-if="isMobile">
+                <el-button link type="primary" size="small" @click="primaryAction(row).run()">
+                  {{ primaryAction(row).label }}
+                </el-button>
+                <el-dropdown
+                  v-if="restActions(row).length"
+                  trigger="click"
+                  @command="(action) => action.run()"
+                >
+                  <el-button link type="primary" size="small">
+                    更多<el-icon><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <!-- command 绑的是 action 对象本身：按行算出来的数组，
+                           绑下标容易点错项 -->
+                      <el-dropdown-item
+                        v-for="action in restActions(row)"
+                        :key="action.label"
+                        :command="action"
+                      >
+                        <!-- 删除 / 结束跟别的项长得一样容易点错，标红 -->
+                        <span :class="{ 'at-op-danger': action.type === 'danger' }">
+                          {{ action.label }}
+                        </span>
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </template>
               <template v-else>
-                <!-- 和刚发布完是同一个弹窗：链接 + 大二维码，方便再投屏或复制 -->
-                <el-button link type="primary" @click="createRef?.openShare(row)">链接</el-button>
-                <el-button link type="primary" @click="openCheckinDetail(row)">明细</el-button>
                 <el-button
-                  v-if="row.status === 'ongoing'"
+                  v-for="action in rowOps(row)"
+                  :key="action.label"
                   link
-                  type="warning"
-                  @click="handleTogglePauseCheckin(row)"
-                >暂停</el-button>
-                <el-button
-                  v-else-if="row.status === 'paused'"
-                  link
-                  type="success"
-                  @click="handleTogglePauseCheckin(row)"
-                >恢复</el-button>
-                <el-button link type="danger" @click="handleDeleteCheckin(row)">删除</el-button>
-                <!-- 未开始的也能取消：发布错了，按结束走同一条结算路径 -->
-                <el-button
-                  v-if="row.status !== 'ended'"
-                  link
-                  type="danger"
-                  @click="handleCloseCheckin(row)"
-                >结束</el-button>
+                  :type="action.type"
+                  @click="action.run()"
+                >
+                  {{ action.label }}
+                </el-button>
               </template>
             </div>
           </template>
@@ -271,9 +284,15 @@ import {
   pauseCheckin,
   resumeCheckin
 } from '@/api/checkin'
+import { useIsMobile } from '@/composables/useIsMobile'
 import { blobErrorDetail, downloadFile } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'
+
+// 窄屏下操作列固定在右边，宽度一大就把日期、类型这些关键列压在遮罩下面，
+// 所以只直显一个主操作，其余收进「更多」下拉（和账号管理页同一套做法）
+const isMobile = useIsMobile()
+const MOBILE_PRIMARY = '明细'
 
 /** 时间列只保留时刻：2026-10-19 19:25 → 19:25（日期已经在左边那一列） */
 function formatClock(value) {
@@ -314,6 +333,46 @@ const detailTitle = computed(() =>
 /** 点名的 id 和签到的 id 各自独立，加前缀才不会撞到一起（跨页勾选靠它） */
 function rowKey(row) {
   return `${row.type}-${row.id}`
+}
+
+/**
+ * 一行能做的操作。桌面端按顺序平铺，窄屏取第一项直显、其余进下拉，
+ * 两处共用这一份，免得两边漏改。
+ */
+function rowOps(row) {
+  if (row.type === 'attendance') {
+    return [
+      { label: '明细', type: 'primary', run: () => openDetail(row) },
+      { label: '标题', type: 'primary', run: () => handleRemark(row) },
+      { label: '删除', type: 'danger', run: () => handleDelete(row) }
+    ]
+  }
+  const ops = [
+    // 和刚发布完是同一个弹窗：链接 + 大二维码，方便再投屏或复制
+    { label: '链接', type: 'primary', run: () => createRef.value?.openShare(row) },
+    { label: '明细', type: 'primary', run: () => openCheckinDetail(row) }
+  ]
+  if (row.status === 'ongoing') {
+    ops.push({ label: '暂停', type: 'warning', run: () => handleTogglePauseCheckin(row) })
+  } else if (row.status === 'paused') {
+    ops.push({ label: '恢复', type: 'success', run: () => handleTogglePauseCheckin(row) })
+  }
+  ops.push({ label: '删除', type: 'danger', run: () => handleDeleteCheckin(row) })
+  // 未开始的也能取消：发布错了，按结束走同一条结算路径
+  if (row.status !== 'ended') {
+    ops.push({ label: '结束', type: 'danger', run: () => handleCloseCheckin(row) })
+  }
+  return ops
+}
+
+function primaryAction(row) {
+  const ops = rowOps(row)
+  return ops.find((op) => op.label === MOBILE_PRIMARY) || ops[0]
+}
+
+function restActions(row) {
+  const primary = primaryAction(row)
+  return rowOps(row).filter((op) => op !== primary)
 }
 
 async function fetchList(quiet = false) {
@@ -730,6 +789,22 @@ onBeforeUnmount(() => {
 /* 操作列里的按钮不折行，宁可整列宽一点 */
 .at-ops {
   white-space: nowrap;
+}
+
+/* 窄屏固定列里只放「主操作 + 更多」，居中排一行：
+   el-dropdown 里那层按钮不是相邻的 el-button，自带外边距不生效，改用 gap */
+@media (max-width: 768px) {
+  .at-ops {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+}
+
+/* 下拉里的危险项（删除 / 结束）标红，和「明细」这类区分开 */
+.at-op-danger {
+  color: var(--el-color-danger);
 }
 
 .at-sep {

@@ -5285,7 +5285,11 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
     '勾选后才能批量删除')
   check(pageSrc.includes('batchDeleteAttendance') && pageSrc.includes('clearSelection'),
     '批量删除后清空勾选')
-  check(pageSrc.includes('label="操作" width="300"'), '操作列放得下链接、明细、暂停、删除等按钮')
+  // 操作列固定在右边：桌面端 300px 放得下所有按钮，窄屏收到 132px 只留
+  // 「主操作 + 更多」下拉 —— 否则这块固定列的遮罩会盖住大半个表格
+  check(pageSrc.includes('label="操作"') && pageSrc.includes('fixed="right"')
+    && pageSrc.includes(':width="isMobile ? 132 : 300"'),
+    '操作列固定右侧，窄屏收窄并收进「更多」下拉')
   check(!pageSrc.includes('handleCheckinRemark'),
     '签到的改备注挪进明细，列表上少一个按钮')
 
@@ -5604,8 +5608,9 @@ console.log('\n▶ 签到暂停：暂停中到点照常结算')
     '前端有暂停 / 恢复接口')
 
   const att = readFileSync(`${ROOT}/src/views/Attendance.vue`, 'utf8')
+  // 按钮改成数据驱动了：桌面端平铺、窄屏进下拉，都从 rowOps 这份列表里取
   check(att.includes('handleTogglePauseCheckin') &&
-    att.includes('>暂停</el-button>') && att.includes('>恢复</el-button>'),
+    att.includes("label: '暂停'") && att.includes("label: '恢复'"),
   '考勤列表提供暂停 / 恢复')
   check(att.includes("paused: '已暂停'") && att.includes("ended: '已结束'"),
     '列表状态能显示已暂停 / 已结束')
@@ -5644,7 +5649,7 @@ console.log('\n▶ 签到：发布结果页带大二维码，列表「链接」�
   '发布成功和重新打开都会生成二维码')
 
   const attendanceSrc = readFileSync(`${ROOT}/src/views/Attendance.vue`, 'utf8')
-  check(attendanceSrc.includes('createRef?.openShare(row)'),
+  check(attendanceSrc.includes('createRef.value?.openShare(row)'),
     '考勤列表的「链接」按钮重新打开分享弹窗')
   check(!attendanceSrc.includes('copyText(row.link)'),
     '列表里不再一点就只复制链接')
