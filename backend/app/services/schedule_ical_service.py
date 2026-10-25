@@ -10,35 +10,51 @@
 比少一条更糟（他不会知道那是假的）。
 """
 
+import json
 from datetime import date, datetime, timedelta
 from io import StringIO
 
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..models.schedule import REPEAT_WEEKLY
 from .schedule_service import list_semester_periods, occurrences_between
 
-# 校园常用坐标 → Apple 结构化地点的显示名。
-#
+
+def _load_geo_titles(raw: str) -> dict[tuple[float, float], str]:
+    """SCHEDULE_GEO_TITLES → {(纬度, 经度): 显示名}
+
+    校区坐标与楼名属于各部署自己的数据，放在环境变量里，不进公开源码。
+    空值、坏 JSON、坏条目都按「没有配置」处理 —— 地点文本兜底就够了。
+    """
+    if not (raw or "").strip():
+        return {}
+    try:
+        items = json.loads(raw)
+    except (TypeError, ValueError):
+        print("[iCal] SCHEDULE_GEO_TITLES 不是合法 JSON，按未配置处理", flush=True)
+        return {}
+    if not isinstance(items, list):
+        return {}
+    out: dict[tuple[float, float], str] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            key = (round(float(item["lat"]), 6), round(float(item["lng"]), 6))
+        except (KeyError, TypeError, ValueError):
+            continue
+        name = str(item.get("name") or "").strip()
+        if name:
+            out[key] = name
+    return out
+
+
 # 为什么按坐标反查、不用 location 文本：多地点日程的 location 是一整串分组教室
-# （如「a:浩301,广501 b:广…」），直接塞进 X-TITLE 又长又容易被 Apple 再拿去
+# （如「a:教学楼301,实验楼501 b:…」），直接塞进 X-TITLE 又长又容易被 Apple 再拿去
 # 地理编码；而坐标是补库时已经定好的主地点，用它反查出的名字才和 pin 一致。
-# 以后新增地点在补库时一并补这里；查不到就用原 location 文本兜底。
-_GEO_TITLES = {
-    (39.927123, 116.207772): "教学楼A",
-    (39.927924, 116.205482): "教学楼B",
-    (39.929579, 116.206914): "教学楼C",
-    (39.930125, 116.206675): "教学楼D",
-    (39.928333, 116.206833): "办公楼",
-    (39.925710, 116.206417): "实验楼",
-    (39.928886, 116.209249): "服务中心",
-    (39.929464, 116.206248): "礼堂",
-    (39.926145, 116.205461): "示例大学新操场",
-    (39.926277, 116.205735): "示例大学西区",
-    (39.927424, 116.190589): "示例大学示例园大学生公寓",
-    (39.927225, 116.209075): "示例大学南门",
-    (39.927332, 116.209858): "示例大学宿舍楼",
-}
+# 查不到就用原 location 文本兜底。
+_GEO_TITLES = _load_geo_titles(settings.schedule_geo_titles)
 
 
 def _apple_location_title(lat: float, lng: float, fallback: str) -> str:

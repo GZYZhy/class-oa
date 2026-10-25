@@ -141,11 +141,11 @@ def backend(tmp_path):
                 "DATABASE_URL": f"sqlite:///{db_path}",
                 # 照片也得另起一个目录：DATABASE_URL 只管库文件，照片走的是
                 # config.BASE_DIR 下那个真实数据目录 —— 不隔离的话，测试上传的图
-                # 会落在本机演示库的 photos 里，而且事后没人清得掉
+                # 会落进真实数据的 photos 里，而且事后没人清得掉
                 "PHOTO_DIR": str(tmp_path / "photos"),
                 # 请假那条线的文件同理：辅助证明、班导师签字图副本都落在 LEAVE_DIR。
                 # 接口测试一调「批准（带签字）」就会往里复制文件 —— 不隔离就写进
-                # 本机演示库的真目录了
+                # 真实数据目录了
                 "LEAVE_DIR": str(tmp_path / "leaves"),
                 # 电动车同理：行驶证和经办班委签字图的副本都落在 EV_PASS_DIR，
                 # 接口测试一调「批准（带签字）」或上传行驶证就会往里写文件
@@ -155,7 +155,7 @@ def backend(tmp_path):
                 "CERT_ATTACH_DIR": str(tmp_path / "cert_attachments"),
                 "CERT_RESULT_DIR": str(tmp_path / "cert_results"),
                 # 公告 PDF 同理：上传接口会把文件写进 ANNOUNCEMENT_DIR，
-                # 不隔离的话用例一上传就落进本机演示库的真目录
+                # 不隔离的话用例一上传就落进真实数据目录
                 "ANNOUNCEMENT_DIR": str(tmp_path / "announcements"),
                 # 签到照片同理：学生一签到就写进 CHECKIN_DIR，测试必须另起目录
                 "CHECKIN_DIR": str(tmp_path / "checkins"),
@@ -175,6 +175,10 @@ def backend(tmp_path):
                 "WEATHER_LON": "",
                 "WEATHER_SITE_URL": "",
                 "WEATHER_NOTIFY_SCHEDULER": "0",
+                # 校园坐标名属于部署私有数据，测试用一条虚构映射验证反查逻辑
+                "SCHEDULE_GEO_TITLES": (
+                    '[{"lat":12.34,"lng":56.78,"name":"教学楼 A"}]'
+                ),
                 **env,
             },
             stdout=subprocess.PIPE,

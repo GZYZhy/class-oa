@@ -317,21 +317,21 @@ def test_outside_content_comes_from_config(monkeypatch):
         assert note in text, f"备注少了「{note}」"
 
 
-# 不该出现在源码里的**本部署的真实值** —— 每一项都有对应的配置键，都该从 .env 取。
-# 值取自仓库根的 .env（SITE_* 品牌族 + EV_PASS_* 三项），换学校 / 换届时会变。
-# 「示例专业」既是 SITE_MAJOR 又含在 EV_PASS_GRADE「示例专业26级」里，一个词守两处。
+# 不该写死在源码里的品牌占位值 —— 每一项都有对应的配置键，都该从 .env 取。
+# 公开仓库里用「示例大学」这类占位值；真实校名 / 班名只放在各自的 .env 里。
+# 「示例专业」既是 SITE_MAJOR，又含在 EV_PASS_GRADE「示例专业2026级」里。
 HARDCODED_BRANDING = {
     "示例大学": "SITE_SCHOOL",
     "示例学院": "SITE_COLLEGE",
     "示例专业": "SITE_MAJOR",
     "示例公寓": "EV_PASS_ADDRESS",
-    "2030年": "EV_PASS_GRADUATION",
-    "202600001": "学号（学生自己填的那个，不该有示例值）",
+    "2099年": "EV_PASS_GRADUATION",
+    "202600000": "学号（学生自己填的那个，不该有示例值）",
 }
 
 
 def test_no_hardcoded_branding():
-    """源码里不许写死本部署的品牌字样 —— 当年的 Word 模板里就写着「示例大学」「示例学院」
+    """源码里不许写死品牌字样 —— Word 模板曾经把校名、学院名直接印在版式里
 
     写死的值不报错、也不会让哪条用例红，只是让下次换学校 / 换届的人对着 .env 改半天
     发现没生效。所以只能回来扫源码文本。
