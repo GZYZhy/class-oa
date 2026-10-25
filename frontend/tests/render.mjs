@@ -2541,6 +2541,13 @@ console.log('\n▶ 首页：品牌标签、快捷入口、最新通知')
   const app = readFileSync(`${ROOT}/src/components/AppLayout.vue`, 'utf8')
   check(/import \{ canSee \} from '@\/utils\/roles'/.test(app), '菜单用的是公共那份 canSee')
   check(!/function canSee\(/.test(app), 'AppLayout 里没有第二份 canSee 实现')
+
+  // 「关于班级」是公开页：路由放行，游客侧栏也看得到入口
+  const aboutAt = router.indexOf("path: '/about'")
+  const aboutMeta = (router.slice(aboutAt).match(/meta: \{([^}]*)\}/) || ['', ''])[1]
+  check(flags(aboutMeta).public, '关于班级路由不需要登录')
+  check(/\{ path: '\/about', title: '关于班级', icon: 'InfoFilled', public: true \}/.test(app),
+    '游客的侧边菜单里有「关于班级」')
 }
 
 console.log('\n▶ 分类统计：概览卡点开是哪些人')
