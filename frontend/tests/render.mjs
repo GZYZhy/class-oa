@@ -830,6 +830,22 @@ console.log('\n▶ 我的日程：分配出去的日程能选改谁的表')
   check(labels(own).includes('开启通知'), '对照组确实渲染出了编辑弹窗')
   check(!labels(own).includes('改谁的表'), '个人日程没有「改谁的表」')
 
+  // 地点后面那个小箭头：默认收起，展开后才是经纬度两格。本来就有坐标的直接展开，
+  // 不然编辑一条带坐标的日程时，用户根本不知道下面还藏着东西
+  check(!labels(own).includes('经纬度'), '没坐标时经纬度收着，不占版面')
+  const geoEvt = EVT({
+    id: 6, title: '图书馆', all_day: false, instance_date: '2026-10-08',
+    start_time: '2026-10-08T08:00:00', end_time: '2026-10-08T09:00:00',
+    lat: 39.907501, lng: 116.397232
+  })
+  const { html: geo } = await renderPatched('/src/views/Schedule.vue', MARKER,
+    editWith(geoEvt), { ElDialog: ElDialogStub })
+  check(labels(geo).includes('经纬度'), '有坐标的日程展开经纬度那两格')
+  check(geo.includes('placeholder="纬度"') && geo.includes('placeholder="经度"'),
+    '展开后是纬度 / 经度两格')
+  const geoOpenSrc = readFileSync(`${ROOT}src/views/Schedule.vue`, 'utf-8')
+  check(/@click="geoOpen = !geoOpen"/.test(geoOpenSrc), '地点那一行的箭头能展开/收起')
+
   // 编辑时不能留两个「谁」的控制项：影响范围是新建时的概念
   check(!labels(html).includes('影响范围'), '编辑态不再显示「影响范围」')
   const { html: creating } = await renderPatched('/src/views/Schedule.vue', MARKER,

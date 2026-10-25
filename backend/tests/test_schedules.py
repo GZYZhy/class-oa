@@ -2276,3 +2276,121 @@ def test_import_clamps_a_block_ending_at_midnight():
 
     assert _add_minutes("23:55", 5) == "23:59"
     assert _add_minutes("23:50", 10) == "23:59"
+
+
+# ---------- 地点坐标（GCJ-02） ----------
+
+def test_create_schedule_with_geo(b):
+    """坐标能传进来、存下来、再返回（创建响应 + 列表接口 + 库里三处一致）"""
+    data = _make_schedule(title="图书馆自习", lat=39.907501, lng=116.397232)
+    r = b.client.post("/api/schedules", json=data)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["lat"], body["lng"]) == (39.907501, 116.397232)
+
+    items = b.client.get("/api/schedules", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    }).json()
+    assert [(it["lat"], it["lng"]) for it in items] == [(39.907501, 116.397232)]
+
+    assert b.rows("SELECT lat, lng FROM schedules WHERE title = ?", "图书馆自习") == [
+        (39.907501, 116.397232)
+    ]
+
+
+def test_schedule_without_geo_returns_null(b):
+    """没传坐标就是 null —— 老日程（补列后是 NULL）和手填日程都走这一条，不是 0"""
+    r = b.client.post("/api/schedules", json=_make_schedule(title="没坐标"))
+    assert r.status_code == 200, r.text
+    assert r.json()["lat"] is None and r.json()["lng"] is None
+
+    items = b.client.get("/api/schedules", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    }).json()
+    assert all(it["lat"] is None and it["lng"] is None for it in items)
+
+
+def test_geo_must_be_paired_and_in_range(b):
+    """只给一个坐标、或超出合法范围 → 400（不能让半对坐标落库）"""
+    r = b.client.post("/api/schedules", json=_make_schedule(title="只有纬度", lat=39.9))
+    assert r.status_code == 400, r.text
+    assert "经纬度" in r.json()["detail"]
+
+    r = b.client.post("/api/schedules", json=_make_schedule(title="只有经度", lng=116.4))
+    assert r.status_code == 400, r.text
+
+    r = b.client.post("/api/schedules", json=_make_schedule(title="越界", lat=91, lng=116.4))
+    assert r.status_code == 400, r.text
+    r = b.client.post("/api/schedules", json=_make_schedule(title="越界2", lat=39.9, lng=181))
+    assert r.status_code == 400, r.text
+
+    assert b.rows("SELECT COUNT(*) FROM schedules") == [(0,)]
+
+
+def test_update_geo_and_repeat_split_keeps_it(b):
+    """改坐标能生效；重复日程「仅本次」拆出来的那条也要带着坐标
+
+    拆分是拿 _to_instance 的 dict 去 create_schedule 的，漏了 lat/lng 的话新记录
+    会静默丢坐标（week_start 踩过同一个坑）。
+    """
+    r = b.client.post("/api/schedules", json=_make_schedule(
+        title="周会", repeat_type="weekly", repeat_end_date="2026-11-02",
+    ))
+    assert r.status_code == 200, r.text
+    sid = r.json()["id"]
+
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12"},
+        json={"lat": 31.230416, "lng": 121.473701, "scope": "all"},
+    )
+    assert r.status_code == 200, r.text
+    assert (r.json()["lat"], r.json()["lng"]) == (31.230416, 121.473701)
+
+    # 只改中间那一次：拆出来的独立日程要继承坐标
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-19"},
+        json={"title": "周会（改期）", "scope": "single"},
+    )
+    assert r.status_code == 200, r.text
+
+    rows = b.rows("SELECT title, lat, lng FROM schedules ORDER BY start_time")
+    assert [(t, lat, lng) for t, lat, lng in rows] == [
+        ("周会", 31.230416, 121.473701),
+        ("周会（改期）", 31.230416, 121.473701),
+        ("周会", 31.230416, 121.473701),
+    ]
+
+    # 只改一个坐标时，另一个取库里现有的：成对成立才放行
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12"},
+        json={"lat": 30.5, "scope": "all"},
+    )
+    assert r.status_code == 200, r.text
+    assert (r.json()["lat"], r.json()["lng"]) == (30.5, 121.473701)
+
+    # 整份表单提交时会把没填的坐标一起带成 null：那是「不改」，不是「清空」，
+    # 更不能被当成「只填了一个坐标」拒掉
+    r = b.client.put(
+        f"/api/schedules/item/{sid}",
+        params={"instance_date": "2026-10-12"},
+        json={"title": "周会（改名）", "lat": None, "lng": None, "scope": "all"},
+    )
+    assert r.status_code == 200, r.text
+    assert (r.json()["lat"], r.json()["lng"]) == (30.5, 121.473701)
+
+
+def test_ical_geo_property(b):
+    """订阅里带标准 GEO 属性（纬度;经度），没坐标的日程不写这一行"""
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="有坐标", location="图书馆", lat=39.907501, lng=116.397232,
+    ))
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="没坐标", start="2026-10-13T08:00:00", end="2026-10-13T09:00:00",
+    ))
+
+    events = {ev.get("SUMMARY"): ev for ev in _ical_events(_ical_text(b))}
+    assert events["有坐标"]["GEO"] == "39.907501;116.397232"
+    assert "GEO" not in events["没坐标"]

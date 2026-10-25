@@ -40,6 +40,10 @@ class ScheduleBase(_LocalTime, BaseModel):
     title: str = Field(..., max_length=200, description="日程标题")
     event_type: str = Field("", max_length=20, description="事件类型，如 课程/体育/网络课")
     location: str = Field("", max_length=200, description="地点")
+    # 地点坐标（GCJ-02）。范围与「必须成对」的校验在 api/schedules.py 里做，
+    # 这里只描述形状 —— 见本模块开头的说明
+    lat: Optional[float] = Field(None, description="纬度（GCJ-02），与 lng 同时给")
+    lng: Optional[float] = Field(None, description="经度（GCJ-02），与 lat 同时给")
     description: str = Field("", description="备注")
     start_time: datetime = Field(..., description="开始时间")
     end_time: datetime = Field(..., description="结束时间")
@@ -78,6 +82,9 @@ class ScheduleUpdate(_LocalTime, BaseModel):
     title: Optional[str] = Field(None, max_length=200)
     event_type: Optional[str] = Field(None, max_length=20)
     location: Optional[str] = Field(None, max_length=200)
+    # 坐标可改不可清（null = 不改，与其它字段同一口径）
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     description: Optional[str] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
@@ -101,6 +108,9 @@ class ScheduleResponse(BaseModel):
     title: str
     event_type: str = ""
     location: str = ""
+    # 地点坐标（GCJ-02）。没有坐标时是 null，前端不必关心
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     description: str = ""
     start_time: datetime
     end_time: datetime

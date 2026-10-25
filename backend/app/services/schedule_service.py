@@ -320,7 +320,7 @@ def list_by_range(
     """查询某学生在 [start_date, end_date] 范围内的日程（已展开）
 
     返回的是 dict 列表，每个 dict 是一个具体日程实例，字段：
-    id, template_id, title, location, description, start_time, end_time,
+    id, template_id, title, location, lat, lng, description, start_time, end_time,
     all_day, repeat_type, repeat_end_date, notify_enabled, notify_minutes_before,
     source_type, source_batch_id, instance_date
     """
@@ -439,6 +439,10 @@ def _to_instance(tpl: Schedule, instance_date: date, share_count: int = 1) -> di
         "title": tpl.title,
         "event_type": tpl.event_type or "",
         "location": tpl.location or "",
+        # 坐标要跟着实例走：single/forward 拆分是拿这份 dict 去 create_schedule 的，
+        # 漏了这两项，拆出来的新条目就丢了坐标（同 week_start 那次的教训）
+        "lat": tpl.lat,
+        "lng": tpl.lng,
         "description": tpl.description or "",
         "start_time": start_dt,
         "end_time": end_dt,
@@ -491,6 +495,8 @@ def create_schedule(
         title=data["title"],
         event_type=data.get("event_type", ""),
         location=data.get("location", ""),
+        lat=data.get("lat"),
+        lng=data.get("lng"),
         description=data.get("description", ""),
         start_time=data["start_time"],
         end_time=data["end_time"],

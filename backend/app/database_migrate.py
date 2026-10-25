@@ -102,6 +102,11 @@ NEW_COLUMNS = [
     # schedules 表在早期版本已创建，后来才加 event_type。默认空串 = 旧日程没有类型，
     # 与补列前行为一致（create_all 不会给已存在的表补列，只能走这里 ALTER）
     ("schedules", "event_type", "VARCHAR(20) NOT NULL DEFAULT ''"),
+    # ---------- 我的日程：地点坐标 ----------
+    # 两列都可空，老日程补成 NULL = 「没有坐标」，与补列前行为一致（只有地点名）。
+    # 有值时必须成对出现，这条由接口层保证，不在库里加约束
+    ("schedules", "lat", "FLOAT"),
+    ("schedules", "lng", "FLOAT"),
     # ---------- 请假表的班导师意见与签字 ----------
     # 四列都默认空串 = 「没填、没签字」，与补列前那张空白的班导师格完全一致。
     # advisor_sign_file 存的是签字图的**副本名**（在 data/leaves/ 下），
