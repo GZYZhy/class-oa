@@ -5816,6 +5816,32 @@ console.log('\n▶ 外链分享框架：统一状态、公告页、启动引导'
     '分享弹窗展示标题、可复制链接和二维码')
 }
 
+console.log('\n▶ 首屏骨架、图表按需与资料卡栅格')
+{
+  const indexHtml = readFileSync(`${ROOT}index.html`, 'utf8')
+  check(indexHtml.includes('boot-screen') && indexHtml.includes('${SITE_NAME}') &&
+    indexHtml.includes('正在加载'),
+  'Vue 挂载前先显示品牌骨架，弱网不白屏')
+  check(!/id="app"><\/div>/.test(indexHtml), '骨架就在 #app 里，Vue 挂载时自然替换')
+
+  const dashboard = readFileSync(`${ROOT}/src/views/Dashboard.vue`, 'utf8')
+  check(dashboard.includes('IntersectionObserver') &&
+    dashboard.includes('watchChart()') &&
+    dashboard.includes("rootMargin: '240px 0px'"),
+  'ECharts 等图表滚到可视范围再下载，不跟首屏抢带宽')
+
+  const downloads = readFileSync(`${ROOT}/src/views/Downloads.vue`, 'utf8')
+  check(downloads.includes('class="resource-grid"') &&
+    downloads.includes('repeat(auto-fill, minmax(min(100%, 300px), 1fr))') &&
+    !downloads.includes('<el-col'),
+  '资料卡按内容区宽度自动分列，iPad 竖屏不再硬塞三列')
+  check(downloads.includes("mb.toFixed(1) + ' MB'") &&
+    downloads.includes("(mb / 1024).toFixed(1) + ' GB'"),
+  '文件大小会进位到 MB / GB，不把大文件写成一长串 KB')
+  check(downloads.includes(':title="item.name"'),
+    '卡片放不下时仍能悬停看完整文件名')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)
