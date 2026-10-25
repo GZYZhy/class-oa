@@ -127,7 +127,7 @@ def b(backend):
     """初始化完毕、管理员已登录的后端
 
     PUBLIC_BASE_URL 显式置空：否则仓库根 .env 里那份线上地址会漏进来，
-    服务端会期望 https://1.example.com 作为来源，而测试客户端是 http://127.0.0.1。
+    服务端会期望配置里的公网地址作为来源，而测试客户端是 http://127.0.0.1。
     """
     inst = backend(db="passkey.db", BOOTSTRAP_PASSWORD=PW, PUBLIC_BASE_URL="")
     assert inst.login(password=PW).status_code == 200

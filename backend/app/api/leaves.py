@@ -72,7 +72,7 @@ router = APIRouter(prefix="/api/leaves", tags=["请假申请"])
 
 # 请假相关文件（辅助证明、班导师签字图副本）存放目录。
 # 吃环境变量是为了测试能指到临时目录去 —— 不吃的话接口测试一调「批准（带签字）」
-# 就会往本机演示库的真目录里写文件（照 PHOTO_DIR 的先例）
+# 就会往真实数据目录里写文件（照 PHOTO_DIR 的先例）
 LEAVE_DIR = Path(os.environ.get("LEAVE_DIR") or BASE_DIR / "data" / "leaves")
 LEAVE_DIR.mkdir(parents=True, exist_ok=True)
 
