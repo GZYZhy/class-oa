@@ -120,6 +120,20 @@ def test_broken_order_falls_back_instead_of_500(ab):
 
 # ---------- 权限 ----------
 
+def test_about_is_public(ab):
+    """关于班级不登录也能看；返回的班委只有姓名和职务"""
+    ab.logout()
+    r = ab.client.get("/api/about")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["total"] == 4
+    assert data["committee"]
+    assert all(set(m) == {"name", "position"} for m in data["committee"]), \
+        "公开页不能带出学号或联系方式"
+    # 管理端的配置接口仍然要登录
+    assert ab.client.get("/api/admin/about").status_code in (401, 403)
+
+
 def test_about_settings_are_admin_only(ab):
     """配置接口只给管理员；关于页本身普通学生仍能看"""
     ab.logout()
