@@ -133,7 +133,7 @@
     <!-- 性别分布 + 天气：天气卡替代了原来的政治面貌饼图 -->
     <el-row :gutter="20" style="margin-top: 20px;">
       <el-col :xs="24" :md="12">
-        <div class="page-card">
+        <div class="page-card chart-card">
           <h3 class="page-title">性别分布</h3>
           <div ref="genderChartRef" class="chart-container"></div>
         </div>
@@ -176,6 +176,17 @@
               <span>体感 {{ weather.feels_like }}°</span>
               <span>数据：Open-Meteo</span>
             </div>
+
+            <!-- 逐小时预报：和当前天气是同一个接口返回的，放在同一张卡里看，
+                 不单独占一整行。横条可横向滚动 —— 卡片只有半栏宽，12 格塞不下 -->
+            <div v-if="weather.hourly?.length" class="hourly-strip">
+              <div v-for="h in weather.hourly" :key="h.time" class="hour-cell">
+                <span class="hour-time">{{ h.time }}</span>
+                <el-icon class="hour-icon"><component :is="h.icon" /></el-icon>
+                <span class="hour-temp">{{ h.temp }}°</span>
+                <span class="hour-pop" :class="{ wet: h.pop >= 30 }">{{ h.pop }}%</span>
+              </div>
+            </div>
           </div>
 
           <!-- 加载中：骨架而不是「未配置」。弱网下这两者差得很远，
@@ -205,19 +216,6 @@
       </el-col>
     </el-row>
 
-    <!-- 逐小时预报：和天气卡同一个接口返回，不多一次请求。
-         横条可横向滚动 —— 手机上 12 格塞不下，别硬压 -->
-    <div v-if="weather?.hourly?.length" class="page-card hourly-card">
-      <h3 class="page-title">未来 12 小时</h3>
-      <div class="hourly-strip">
-        <div v-for="h in weather.hourly" :key="h.time" class="hour-cell">
-          <span class="hour-time">{{ h.time }}</span>
-          <el-icon class="hour-icon"><component :is="h.icon" /></el-icon>
-          <span class="hour-temp">{{ h.temp }}°</span>
-          <span class="hour-pop" :class="{ wet: h.pop >= 30 }">{{ h.pop }}%</span>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -313,6 +311,10 @@ async function loadWeather() {
     // 接口本身挂了也当作「暂时取不到」：卡片留在原处，不弹错、不影响页面上其它内容
     weather.value = { state: 'error', site_url: '' }
   }
+  // 天气数据一到，右卡会长高（多出明日 + 逐小时），左卡跟着被拉伸 ——
+  // 图表容器尺寸变了，得让 ECharts 重新量一次，否则饼图还按旧高度画
+  await nextTick()
+  genderChart?.resize()
 }
 
 /** 点整卡新开天气网站。没配 WEATHER_SITE_URL 时不可点（见模板上的 clickable） */
@@ -795,9 +797,26 @@ onBeforeUnmount(() => {
   height: 280px;
 }
 
+/* 同一行里的两张卡等高：右卡高度由内容决定，左卡跟着拉满，图表容器吃掉剩余高度。
+   height:100% 能生效是因为 .el-row 是 flex，.el-col 默认被拉伸 */
+.chart-card,
+.weather-card {
+  height: 100%;
+}
+
+.chart-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-card .chart-container {
+  flex: 1;
+  min-height: 280px;
+}
+
 /* ============ 天气卡 ============
-   占的格子原来放政治面貌饼图，所以高度要跟左边图表对齐（280px），
-   否则同一行两个卡片会一高一矮 */
+   占的格子原来放政治面貌饼图。高度不写死：右卡由内容（含逐小时横条）撑开，
+   左卡跟着拉满，两卡始终等高 */
 .weather-card {
   display: flex;
   flex-direction: column;
@@ -824,6 +843,7 @@ onBeforeUnmount(() => {
 .weather-body {
   flex: 1;
   min-height: 280px;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -898,23 +918,22 @@ onBeforeUnmount(() => {
   color: var(--el-text-color-secondary);
 }
 
-/* 逐小时横条 */
-.hourly-card {
-  margin-top: 20px;
-}
-
+/* 逐小时横条：贴在天气卡底部，和上面的「现在」用一条细线分开 */
 .hourly-strip {
+  width: 100%;
   display: flex;
-  gap: 10px;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--app-line);
   overflow-x: auto;
-  padding-bottom: 4px;
   /* 触屏上惯性滑动，桌面上滚轮横滚也能用 */
   -webkit-overflow-scrolling: touch;
 }
 
 .hour-cell {
   flex: 0 0 auto;
-  width: 64px;
+  width: 56px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1106,7 +1125,7 @@ onBeforeUnmount(() => {
   }
 
   .chart-container {
-    height: 220px;
+    min-height: 220px;
   }
 
   /* 天气卡跟着图表一起收，两个卡片在手机上一上一下，高度对不齐没人看得出来，
