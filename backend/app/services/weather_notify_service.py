@@ -296,13 +296,19 @@ def scheduler_enabled() -> bool:
     return os.environ.get("WEATHER_NOTIFY_SCHEDULER", "1") != "0"
 
 
-def interval_hours() -> float:
+def interval_hours(db=None) -> float:
+    """巡检间隔（小时）。管理员在「系统管理 → 天气」里配，db=None 只给单元测试用"""
+    if db is None:
+        raw = os.environ.get("WEATHER_NOTIFY_INTERVAL_HOURS", DEFAULT_INTERVAL_HOURS)
+    else:
+        raw = getattr(get_banner(db), "notify_interval_hours", DEFAULT_INTERVAL_HOURS)
     try:
-        value = float(os.environ.get("WEATHER_NOTIFY_INTERVAL_HOURS", DEFAULT_INTERVAL_HOURS))
-    except ValueError:
+        value = float(raw)
+    except (TypeError, ValueError):
         return DEFAULT_INTERVAL_HOURS
-    # 太小的值没有意义（预报本身也只按 10 分钟缓存），下限给 1 小时
-    return max(1.0, value)
+    # 太小的值没有意义（预报本身也只按 10 分钟缓存），下限 1 小时；
+    # 上限一周，避免手滑填成 10000 小时变成「再也不提醒」
+    return max(1.0, min(168.0, value))
 
 
 def run_once(db: Session, now: datetime | None = None) -> int:
@@ -368,6 +374,8 @@ def get_banner(db: Session):
         name="",
         lat=None,
         lng=None,
+        site_url="",
+        notify_interval_hours=DEFAULT_INTERVAL_HOURS,
         enabled=False,
         conditions=dump_conditions(DEFAULT_CONDITIONS),
         rain_threshold=DEFAULT_RAIN_THRESHOLD,
@@ -390,6 +398,10 @@ def put_banner(db: Session, data):
     row.name = (getattr(data, "name", "") or "").strip()
     row.lat = getattr(data, "lat", None)
     row.lng = getattr(data, "lng", None)
+    row.site_url = (getattr(data, "site_url", "") or "").strip()
+    row.notify_interval_hours = max(
+        1.0, min(168.0, float(getattr(data, "notify_interval_hours", DEFAULT_INTERVAL_HOURS)))
+    )
     row.enabled = bool(data.enabled)
     row.conditions = dump_conditions(data.conditions)
     row.rain_threshold = _clamp(getattr(data, "rain_threshold", DEFAULT_RAIN_THRESHOLD), 10, 100)
