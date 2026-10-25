@@ -5031,6 +5031,8 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
     attendanceSrc.includes('at-title-cell') &&
     attendanceSrc.includes('.el-table__cell:not(.at-title-cell) .cell'),
   '除标题外所有列都不折行，标题仍可省略')
+  check(attendanceSrc.includes('label="日期" width="112"'),
+    '日期列宽度够放完整的 2026-10-19，不会被截成省略号')
   check(/if \(keyword\.value\.trim\(\)\) params\.keyword = keyword\.value\.trim\(\)/
     .test(attendanceSrc), '考勤列表把关键词带给后端')
   check(/function handleReset\(\) \{[\s\S]{0,80}?keyword\.value = ''/.test(attendanceSrc),

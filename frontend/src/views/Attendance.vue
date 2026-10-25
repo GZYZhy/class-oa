@@ -72,7 +72,7 @@
         <!-- 跨页保留勾选：导出一份记录时不用一页一页地重选 -->
         <el-table-column type="selection" width="46" :reserve-selection="true" fixed="left" />
         <!-- 前面几列都窄一点、单行：日期已经带了年月日，时间列只写时刻 -->
-        <el-table-column prop="date" label="日期" width="100" />
+        <el-table-column prop="date" label="日期" width="112" />
         <el-table-column label="类型" width="70">
           <template #default="{ row }">
             <el-tag
