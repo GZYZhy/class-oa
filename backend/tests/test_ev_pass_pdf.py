@@ -120,14 +120,14 @@ def _sentinel_branding():
 
     不换的话断言的就是本机 .env 里的真校名真年级 —— 那种测试只有本机过，
     换台机器就红，而且分不清是代码错了还是 .env 没配。
-    `major` 故意不带「专业」二字：模板里是「{MAJOR}专业」，配成「示例专业专业」的话
+    `major` 故意不带「专业」二字：模板里是「{MAJOR}专业」，配成「示例专业」的话
     印出来会多一个「专业」（见 ev_pass_pdf.generate_promise_pdf）。
     """
     settings.school = "测试大学"
     settings.college = "测试学院"
     settings.major = "测试学科"
     settings.ev_pass_grade = "测试年级26级"
-    settings.ev_pass_graduation = "2030年6月"
+    settings.ev_pass_graduation = "2099年6月"
     settings.ev_pass_address = "测试公寓1号楼"
 
 
@@ -208,7 +208,7 @@ def test_pass_has_all_labels_and_values():
     text = _flat(_pass_page(student, req)[0])
 
     for value in ("张三", "京A1234567", "13800138000", "测试学院",
-                  "测试年级26级", "2030年6月", "雅迪", "测试公寓1号楼"):
+                  "测试年级26级", "2099年6月", "雅迪", "测试公寓1号楼"):
         assert value in text, f"值「{value}」没印上去"
 
 
@@ -369,7 +369,7 @@ def test_promise_is_one_portrait_page_with_full_date():
     # 模板里只填了年份（20XX年　　月　　日），现在是实日期，取申请当天
     assert "2026年10月12日" in text, "落款日期没填全"
     # 模板里是「{校名}{学院}{专业}专业{班级}班学生」——
-    # major 配成「示例专业专业」的话这里会印成「示例专业专业专业」
+    # major 配成「示例专业」的话这里会印成「示例专业专业」
     assert "测试大学测试学院测试学科专业示例班学生" in text
 
 

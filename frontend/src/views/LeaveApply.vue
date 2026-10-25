@@ -112,7 +112,7 @@
               </el-checkbox>
             </el-form-item>
 
-            <!-- 这段是《示例大学学生请假审批表》上「本人承诺」栏的原话，
+            <!-- 这段是请假审批表模板上「本人承诺」栏的原话，
                  勾选即表示认下表上这两条，落在纸面上的表不用再重复誊写一遍 -->
             <el-form-item prop="promised">
               <el-checkbox v-model="form.promised" class="agree-checkbox">

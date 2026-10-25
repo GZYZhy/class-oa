@@ -2394,7 +2394,7 @@ def test_ical_geo_property(b):
     b.client.post("/api/schedules", json=_make_schedule(
         title="校园坐标", location="多地点教室",
         start="2026-10-14T08:00:00", end="2026-10-14T09:00:00",
-        lat=39.927924, lng=116.205482,
+        lat=12.34, lng=56.78,
     ))
     b.client.post("/api/schedules", json=_make_schedule(
         title="带引号的地点", location='甲"乙,丙;丁',
@@ -2414,7 +2414,7 @@ def test_ical_geo_property(b):
     # 不认识的坐标退回 location 文本
     assert 'X-TITLE="图书馆":geo:39.907501,116.397232' in flat
     # 校园坐标按主地点名，不把「多地点教室」原样塞进去
-    assert 'X-TITLE="教学楼B":geo:39.927924,116.205482' in flat
+    assert 'X-TITLE="教学楼 A":geo:12.34,56.78' in flat
     # 参数里的双引号按 RFC 6868 编码，逗号/分号在引号内不拆参数
     assert 'X-TITLE="甲^\'乙,丙;丁":geo:1.0,2.0' in flat
     assert "X-APPLE-STRUCTURED-LOCATION" not in events["没坐标"]

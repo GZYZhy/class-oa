@@ -171,10 +171,6 @@ NEW_COLUMNS = [
     ("weather_banner_settings", "ignore_night", "BOOLEAN NOT NULL DEFAULT 1"),
 ]
 
-# 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）
-ADMIN_STUDENT_NOS = ("20260000028", "20260000031")
-
-
 def _existing_columns(conn, table: str) -> set:
     """取某张表的现有列名；表不存在时是空集合（正常不会发生，防手滑写错表名）"""
     rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
@@ -186,11 +182,15 @@ def _seed_roles(conn) -> None:
 
     只在 role 列「刚被加上」时调用，所以管理员日后把谁降权，不会重启又变回来。
     """
-    for student_no in ADMIN_STUDENT_NOS:
-        conn.execute(
-            text("UPDATE users SET role = 'admin' WHERE student_no = :no"),
-            {"no": student_no},
-        )
+    # 管理员：班委职务为班长或团支书的账号。不同班级的职务写法可能不同，
+    # 常见的两种都认；老库升级后仍可在页面上重新指定管理员。
+    conn.execute(text(
+        "UPDATE users SET role = 'admin' "
+        "WHERE student_no IN ("
+        "  SELECT student_no FROM students "
+        "  WHERE class_position IN ('班长', '团支书', '团支部书记')"
+        ")"
+    ))
     # 班委：学生表里填了班委职务的人（导入 Excel 时脏值「否」已归一为「无」）
     conn.execute(text(
         "UPDATE users SET role = 'committee' "

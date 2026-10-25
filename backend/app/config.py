@@ -41,11 +41,11 @@ class Settings(BaseSettings):
     # 生成 PDF 时由 utils/ev_pass_pdf.py 填进去。
     # 换届时改这里的配置即可，不用改代码。
     #
-    # 「专业年级」那一栏的**整格**内容，如「示例专业26级」。
-    # 故意不拆成「专业 + 年级」两项再拼：那样得同时配对 SITE_MAJOR 才不重复
-    # ——配成「示例专业示例专业26级」是迟早的事。班级名「示例」是简写，表格里不合适。
+    # 「专业年级」那一栏的**整格**内容，如「示例专业2026级」。
+    # 故意不拆成「专业 + 年级」两项再拼：那样两个字段里都会带一次专业名，
+    # 拼起来就重复了。班级简称也不适合直接放进表格。
     ev_pass_grade: str = Field(default="", validation_alias=AliasChoices("EV_PASS_GRADE"))
-    # 毕业时间，如「2030年6月」
+    # 毕业时间，如「2099年6月」
     ev_pass_graduation: str = Field(
         default="", validation_alias=AliasChoices("EV_PASS_GRADUATION")
     )
@@ -160,6 +160,14 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     # 发件人地址。留空则用 smtp_user
     smtp_from: str = ""
+
+    # ---------- 日程 iCal ----------
+    # Apple 日历结构化地点的显示名，按坐标匹配，JSON 数组：
+    #   [{"lat": 39.9, "lng": 116.4, "name": "图书馆"}, ...]
+    # 留空则直接使用日程的地点文本。校区地点属于部署私有数据，不写进源码。
+    schedule_geo_titles: str = Field(
+        default="", validation_alias=AliasChoices("SCHEDULE_GEO_TITLES")
+    )
 
     # ---------- 首页天气卡 ----------
     # 数据来自 Open-Meteo（免费、无需 Key、非商业可自用），服务端取数并缓存，

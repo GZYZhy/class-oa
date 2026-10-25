@@ -21,7 +21,7 @@ RESOURCE_CATALOG = [
     {
         "category": "班级名单",
         "items": [
-            {"name": "打印用-示例班名单", "file": "打印用-示例.xlsx"},
+            {"name": "打印用-班级名单", "file": "打印用-班级名单.xlsx"},
         ],
     },
     {
