@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 2.0.1，共 288 个接口。
+> 版本 2.1.0，共 293 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -36,6 +36,7 @@
 - 办件空间（3）
 - 站内信（4）
 - 生日关怀（4）
+- 天气（3）
 - 投票（14）
 - 投票收集（22）
 - 成绩（12）
@@ -43,7 +44,7 @@
 - 签字（9）
 - 通行密钥（6）
 - 二次验证（9）
-- 系统管理（29）
+- 系统管理（31）
 - 健康检查（1）
 
 ## 公开信息
@@ -2924,6 +2925,47 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 - `200` — 成功
 
+## 天气
+
+### 当前天气（首页卡片 + 广播横幅）
+
+`GET /api/weather`
+
+**响应**
+
+- `200` — 成功
+
+### 我的天气提醒设置
+
+`GET /api/weather/notify`
+
+**响应**
+
+- `200` `WeatherNotifySettingsResponse` — 成功
+  - 字段：`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`quiet_start`、`quiet_end`、`available_conditions`、`windows`
+
+### 保存我的天气提醒设置
+
+`PUT /api/weather/notify`
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | 否 |  |
+| `conditions` | string[] | 否 |  |
+| `rain_threshold` | integer（默认 60） | 否 |  |
+| `heat_threshold` | integer（默认 35） | 否 |  |
+| `cold_threshold` | integer（默认 0） | 否 |  |
+| `wind_threshold` | integer（默认 39） | 否 |  |
+| `window` | string | 否 |  |
+| `quiet_start` | integer（默认 22） | 否 |  |
+| `quiet_end` | integer（默认 7） | 否 |  |
+
+**响应**
+
+- `200` — 成功
+
 ## 投票
 
 ### 投票列表
@@ -4990,6 +5032,37 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 
 - `200` — 成功
 
+### 首页天气横幅配置（仅管理员）
+
+`GET /api/admin/weather-banner`
+
+广播横幅：和「个人天气提醒」共用同一套判断，只是受众是所有人 preview_active / preview_lines 是按**当前**预报算出来的结果 —— 管理员改完保存就能知道「今天到底会不会冒出来」，不用等明天早上。
+
+**响应**
+
+- `200` `WeatherBannerResponse` — 成功
+  - 字段：`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`available_conditions`、`windows`、`preview_active`、`preview_lines`
+
+### 保存首页天气横幅配置（仅管理员）
+
+`PUT /api/admin/weather-banner`
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | 否 |  |
+| `conditions` | string[] | 否 |  |
+| `rain_threshold` | integer（默认 60） | 否 |  |
+| `heat_threshold` | integer（默认 35） | 否 |  |
+| `cold_threshold` | integer（默认 0） | 否 |  |
+| `wind_threshold` | integer（默认 39） | 否 |  |
+| `window` | string | 否 |  |
+
+**响应**
+
+- `200` — 成功
+
 ## 健康检查
 
 ### 健康检查
@@ -5001,5 +5074,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "2.0.0"}
+{"status": "ok", "app": "班级信息管理系统", "version": "2.1.0"}
 ```
