@@ -22,6 +22,7 @@ from .certificates import router as certificates_router
 from .workspace import router as workspace_router
 from .inbox import router as inbox_router
 from .birthday import router as birthday_router
+from .weather import router as weather_router
 from .polls import router as polls_router
 from .collections import router as collections_router
 from .grades import router as grades_router
@@ -52,6 +53,7 @@ api_router.include_router(certificates_router)   # 证明/介绍信开具：学�
 api_router.include_router(workspace_router)      # 办件空间：我申请的/我审批的聚合列表
 api_router.include_router(inbox_router)          # 站内信：所有推送的存档，登录即可看自己的
 api_router.include_router(birthday_router)       # 生日关怀：条幅公开，设置与测试仅管理员
+api_router.include_router(weather_router)        # 首页天气卡：公开，服务端缓存 10 分钟
 api_router.include_router(polls_router)          # 投票表决：发起需班委，表决看名单
 api_router.include_router(collections_router)    # 投票收集：多题型、多份、竞争名额
 api_router.include_router(grades_router)         # 成绩管理：录入与编辑需班委，学生只看自己

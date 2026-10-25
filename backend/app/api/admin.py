@@ -44,6 +44,8 @@ from ..schemas import (
     AboutAdminResponse,
     AboutMember,
     AboutSettingsUpdate,
+    WeatherBannerResponse,
+    WeatherBannerSettingsUpdate,
 )
 from ..services import (
     account_events,
@@ -76,6 +78,7 @@ from ..services.about_service import (
     parse_order as parse_about_order,
     put_settings as put_about_settings,
 )
+from ..services import weather_notify_service, weather_service
 from ..services.data_health_service import check_data as data_health
 from ..services.student_photo_service import photo_path, photo_response, remove_photo, save_photo
 from ..utils.ip import normalize_target, parse_cidrs, parse_network, target_matches
@@ -1422,3 +1425,52 @@ def save_about_settings(
 ):
     put_about_settings(db, data)
     return {"message": "已保存"}
+
+
+@router.get(
+    "/weather-banner",
+    response_model=WeatherBannerResponse,
+    summary="首页天气横幅配置（仅管理员）",
+)
+def read_weather_banner(_: User = Depends(admin_required), db: Session = Depends(get_db)):
+    """广播横幅：和「个人天气提醒」共用同一套判断，只是受众是所有人
+
+    preview_active / preview_lines 是按**当前**预报算出来的结果 ——
+    管理员改完保存就能知道「今天到底会不会冒出来」，不用等明天早上。
+    """
+    row = weather_notify_service.get_banner(db)
+    state = weather_notify_service.banner_state(db, weather_service.forecast())
+    return WeatherBannerResponse(
+        enabled=bool(row.enabled),
+        conditions=weather_notify_service.parse_conditions(row.conditions),
+        rain_threshold=row.rain_threshold,
+        heat_threshold=row.heat_threshold,
+        cold_threshold=row.cold_threshold,
+        wind_threshold=row.wind_threshold,
+        window=row.window,
+        available_conditions=[
+            {"code": code, "label": label}
+            for code, label in weather_notify_service.CONDITIONS.items()
+        ],
+        windows=[
+            {"code": code, "label": label}
+            for code, label in weather_notify_service.WINDOWS.items()
+        ],
+        preview_active=bool(state.get("active")),
+        preview_lines=list(state.get("lines") or []),
+    )
+
+
+@router.put("/weather-banner", summary="保存首页天气横幅配置（仅管理员）")
+def save_weather_banner(
+    data: WeatherBannerSettingsUpdate,
+    _: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    weather_notify_service.put_banner(db, data)
+    state = weather_notify_service.banner_state(db, weather_service.forecast())
+    return {
+        "message": "已保存",
+        "preview_active": bool(state.get("active")),
+        "preview_lines": list(state.get("lines") or []),
+    }

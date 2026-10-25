@@ -15,6 +15,7 @@ import traceback
 from datetime import date, datetime, timedelta
 
 from ..database import SessionLocal
+from . import weather_notify_service
 from .birthday_service import get_settings, run_daily
 
 # 巡检间隔。不是为了掐准 8:00 —— 定点只需「到点后的第一次巡检把它捡起来」，
@@ -23,6 +24,9 @@ TICK_SECONDS = 300
 RUN_HOUR = 8
 
 _thread: threading.Thread | None = None
+# 天气提醒的上一轮执行时刻（只在内存里）：间隔由 WEATHER_NOTIFY_INTERVAL_HOURS 定，
+# 进程重启就从现在重新算 —— 重启本身已经足够说明「这一轮该重新看了」
+_last_weather_run: datetime | None = None
 
 
 def _enabled() -> bool:
@@ -68,6 +72,35 @@ def tick(now: datetime | None = None) -> bool:
         db.close()
 
 
+def weather_tick(now: datetime | None = None) -> bool:
+    """天气提醒一轮；返回这轮是否真的执行了
+
+    和生日那个 tick 的区别：生日是「每天一次、到点就补」，这里按**间隔**跑
+    （默认 6 小时），所以只需要记住上一次跑的时刻。间隔是运维旋钮
+    （WEATHER_NOTIFY_INTERVAL_HOURS），不是用户设置。
+
+    同样必须自己开会话（请求级的 get_db 在响应之后就关了），并且这一轮里
+    所有用户的判断与发送都复用这一张会话。
+    """
+    global _last_weather_run
+    now = now or datetime.now()
+    if not weather_notify_service.scheduler_enabled():
+        return False
+    gap = timedelta(hours=weather_notify_service.interval_hours())
+    if _last_weather_run is not None and now - _last_weather_run < gap:
+        return False
+
+    _last_weather_run = now
+    db = SessionLocal()
+    try:
+        sent = weather_notify_service.run_once(db, now=now)
+        if sent:
+            print(f"[天气提醒] 本轮发出 {sent} 条", flush=True)
+        return True
+    finally:
+        db.close()
+
+
 def _loop() -> None:
     """线程主体。**这个循环绝不允许退出**
 
@@ -83,6 +116,11 @@ def _loop() -> None:
             tick()
         except Exception:
             print("[生日] 巡检异常：\n" + traceback.format_exc(), flush=True)
+        # 天气提醒单独包一层：它挂了不能连带影响生日任务（反过来也一样）
+        try:
+            weather_tick()
+        except Exception:
+            print("[天气提醒] 巡检异常：\n" + traceback.format_exc(), flush=True)
         time.sleep(_tick_seconds())
 
 

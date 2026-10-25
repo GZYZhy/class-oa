@@ -18,6 +18,8 @@ from .certificate_request import CertificateRequest
 from .access_token import AccessToken
 from .birthday import BirthdaySettings
 from .about_setting import AboutSettings
+from .weather_notify import WeatherNotifySettings
+from .weather_banner import WeatherBannerSettings
 from .attendance import AttendanceRecord, AttendanceItem
 from .checkin import Checkin, CheckinTarget
 from .inbox_message import InboxMessage
@@ -35,4 +37,4 @@ from .sign_photo_request import SignPhotoRequest
 from .passkey import PasskeyCredential
 from .two_factor import TwoFactorChallenge, TwoFactorRecoveryCode
 
-__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "ResourceCategory", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AboutSettings", "AttendanceRecord", "AttendanceItem", "Checkin", "CheckinTarget", "InboxMessage", "Poll", "PollQuestion", "PollTarget", "PollAnswer", "Collection", "CollectionQuestion", "CollectionTarget", "CollectionSubmission", "CollectionAnswer", "GradeTest", "GradeSubject", "GradeItem", "Schedule", "ScheduleBatch", "ICalToken", "SignPhotoRequest", "PasskeyCredential", "TwoFactorChallenge", "TwoFactorRecoveryCode"]
+__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "ResourceCategory", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AboutSettings", "WeatherNotifySettings", "WeatherBannerSettings", "AttendanceRecord", "AttendanceItem", "Checkin", "CheckinTarget", "InboxMessage", "Poll", "PollQuestion", "PollTarget", "PollAnswer", "Collection", "CollectionQuestion", "CollectionTarget", "CollectionSubmission", "CollectionAnswer", "GradeTest", "GradeSubject", "GradeItem", "Schedule", "ScheduleBatch", "ICalToken", "SignPhotoRequest", "PasskeyCredential", "TwoFactorChallenge", "TwoFactorRecoveryCode"]

@@ -500,6 +500,12 @@
                   v-if="newChannelsAvailable"
                   class="notify-channel"
                 />
+
+                <el-divider />
+
+                <!-- 天气提醒：和上面的推送渠道是两件事 —— 上面决定「发到哪」，
+                     这里决定「什么天气发给我」。所以不受 newChannelsAvailable 限制 -->
+                <WeatherNotifySetting class="notify-channel" />
               </div>
             </el-tab-pane>
 
@@ -740,6 +746,7 @@ import { getMyGrades } from '@/api/grade'
 import { getMyAttendance } from '@/api/attendance'
 import { getWebhookSetting } from '@/api/notifyChannels'
 import WebhookSetting from '@/components/WebhookSetting.vue'
+import WeatherNotifySetting from '@/components/WeatherNotifySetting.vue'
 import SignaturePadDialog from '@/components/SignaturePadDialog.vue'
 import Watermark from '@/components/Watermark.vue'
 import { useWatermark } from '@/composables/useWatermark'
