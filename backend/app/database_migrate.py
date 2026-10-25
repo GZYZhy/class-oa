@@ -151,6 +151,11 @@ NEW_COLUMNS = [
     ("users", "two_factor_method", "VARCHAR(10) NOT NULL DEFAULT ''"),
     ("users", "totp_secret", "VARCHAR(64) NOT NULL DEFAULT ''"),
     ("users", "totp_last_step", "INTEGER NOT NULL DEFAULT 0"),
+    # ---------- 天气：忽略夜间天气 ----------
+    # 两张表在 2.1.0 才建，给已存在的表补列。默认 1 = 老用户/老横幅升级后
+    # 直接采用「22:00–06:00 不计入」的新口径，仍可在设置里关掉
+    ("weather_notify_settings", "ignore_night", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("weather_banner_settings", "ignore_night", "BOOLEAN NOT NULL DEFAULT 1"),
 ]
 
 # 首次加 role 列时播种的管理员学号：张三（班长）、李四（团支书）

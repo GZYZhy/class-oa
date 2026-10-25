@@ -64,6 +64,12 @@ class WeatherNotifySettings(Base):
         comment="静默结束时刻（0-23）",
     )
 
+    # 夜间天气：默认忽略 22:00–06:00 的降水/降雪/雷暴，避免半夜或清晨被叫醒
+    ignore_night = Column(
+        Boolean, nullable=False, default=True, server_default=text("1"),
+        comment="是否忽略 22:00–06:00 的夜间天气",
+    )
+
     # 去重：上一次发出去的提醒标识（形如 tomorrow:2026-10-26:rain）。同一件事不重复推
     last_key = Column(
         String(64), nullable=False, default="", server_default=text("('')"),

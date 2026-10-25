@@ -41,6 +41,7 @@ def _notify_payload(row) -> WeatherNotifySettingsResponse:
         window=row.window,
         quiet_start=row.quiet_start,
         quiet_end=row.quiet_end,
+        ignore_night=bool(row.ignore_night),
         # 标签由后端给一份，前端不另写中文 —— 加条件时只改 services/weather_notify_service.py
         available_conditions=[
             WeatherNotifyOption(code=code, label=label)

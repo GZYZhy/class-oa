@@ -182,6 +182,30 @@ def test_all_conditions_cross_the_today_and_tomorrow_windows():
     assert all(h["detail"].startswith("明天") for h in hits)
 
 
+def test_ignore_night_filters_only_hourly_conditions():
+    """默认忽略 22:00–06:00 的降水/降雪；关掉开关后照常计入"""
+    data = {
+        "hourly": [
+            {"time": "2026-10-25T23:00", "temp": 5, "pop": 90, "code": 61,
+             "text": "小雨", "icon": "Drizzling"},
+            {"time": "2026-10-26T02:00", "temp": -1, "pop": 90, "code": 71,
+             "text": "小雪", "icon": "Cloudy"},
+        ],
+        "days": [
+            {"date": "2026-10-25", "high": 20, "low": 10, "wind_kmh": 10},
+            {"date": "2026-10-26", "high": 20, "low": 10, "wind_kmh": 10},
+        ],
+    }
+    now = datetime(2026, 10, 25, 21, 0)
+    row = _rule(window="next24h", conditions=wn.dump_conditions(["rain", "snow"]))
+
+    assert wn.evaluate(data, row, now)[0] == []
+
+    row.ignore_night = False
+    hits, _ = wn.evaluate(data, row, now)
+    assert [h["code"] for h in hits] == ["rain", "snow"]
+
+
 def test_quiet_hours_handle_midnight():
     row = _rule(quiet_start=22, quiet_end=7)
     assert wn.in_quiet_hours(row, datetime(2026, 10, 25, 23, 0)) is True
@@ -245,6 +269,7 @@ def test_notify_settings_require_login_and_are_personal(wb):
     assert default["conditions"] == ["rain"]
     assert default["window"] == "tomorrow"
     assert default["quiet_start"] == 22 and default["quiet_end"] == 7
+    assert default["ignore_night"] is True, "夜间天气默认忽略"
     # 中文标签由后端下发，前端不另写一份
     assert {item["code"] for item in default["available_conditions"]} >= {
         "rain", "snow", "storm", "heat", "cold", "wind",
@@ -260,6 +285,7 @@ def test_notify_settings_require_login_and_are_personal(wb):
         "window": "不存在的时段",
         "quiet_start": 99,
         "quiet_end": -1,
+        "ignore_night": False,
     })
     assert r.status_code == 200, r.text
     saved = wb.client.get("/api/weather/notify").json()
@@ -271,6 +297,7 @@ def test_notify_settings_require_login_and_are_personal(wb):
     assert saved["wind_threshold"] == 10       # 夹到 10–120
     assert saved["window"] == "tomorrow"       # 非法值回默认
     assert saved["quiet_start"] == 23 and saved["quiet_end"] == 0
+    assert saved["ignore_night"] is False
 
 
 def test_banner_settings_are_admin_only_and_persist(wb):
@@ -283,6 +310,7 @@ def test_banner_settings_are_admin_only_and_persist(wb):
     default = wb.client.get("/api/admin/weather-banner").json()
     assert default["enabled"] is False
     assert default["window"] == "today"
+    assert default["ignore_night"] is True, "横幅也默认忽略夜间天气"
     assert default["preview_active"] is False  # 没配坐标，取不到预报就不显示
 
     r = wb.client.put("/api/admin/weather-banner", json={
@@ -293,6 +321,7 @@ def test_banner_settings_are_admin_only_and_persist(wb):
         "cold_threshold": 0,
         "wind_threshold": 39,
         "window": "today",
+        "ignore_night": False,
     })
     assert r.status_code == 200, r.text
     saved = wb.client.get("/api/admin/weather-banner").json()
@@ -301,3 +330,4 @@ def test_banner_settings_are_admin_only_and_persist(wb):
     assert saved["rain_threshold"] == 75
     assert saved["heat_threshold"] == 33
     assert saved["window"] == "today"
+    assert saved["ignore_night"] is False

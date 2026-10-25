@@ -16,6 +16,14 @@
       </el-radio-group>
     </el-form-item>
 
+    <!-- 夜间天气：过滤的是天气发生的时间，不是推送时间（推送另有免打扰） -->
+    <el-form-item label="夜间天气">
+      <el-switch v-model="rule.ignore_night" />
+      <span class="rule-unit">
+        忽略 22:00–06:00 的降水 / 降雪 / 雷暴；高温、低温、大风仍按全天判断
+      </span>
+    </el-form-item>
+
     <!-- 阈值：可定制化主要就体现在这四个数上，默认值给的是「一般人有感的线」 -->
     <el-form-item label="降雨概率">
       <el-input-number v-model="rule.rain_threshold" :min="10" :max="100" :step="10" size="small" />

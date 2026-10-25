@@ -48,7 +48,8 @@ const rule = reactive({
   wind_threshold: 39,
   window: 'tomorrow',
   quiet_start: 22,
-  quiet_end: 7
+  quiet_end: 7,
+  ignore_night: true
 })
 
 // 可选条件 / 时段的中文标签由后端给，前端不另写一份
@@ -67,6 +68,7 @@ async function load() {
     rule.window = data.window || 'tomorrow'
     rule.quiet_start = data.quiet_start
     rule.quiet_end = data.quiet_end
+    rule.ignore_night = data.ignore_night !== false
     meta.conditions = data.available_conditions || []
     meta.windows = data.windows || []
   } catch (e) {

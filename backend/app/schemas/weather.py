@@ -17,6 +17,8 @@ class WeatherNotifySettingsResponse(BaseModel):
     window: str
     quiet_start: int
     quiet_end: int
+    # 默认忽略 22:00–06:00 的降水/降雪/雷暴
+    ignore_night: bool = True
     # 下面两项是静态元数据，省得前端再抄一遍中文
     available_conditions: list[WeatherNotifyOption] = Field(default_factory=list)
     windows: list[WeatherNotifyOption] = Field(default_factory=list)
@@ -32,6 +34,7 @@ class WeatherNotifySettingsUpdate(BaseModel):
     window: str = "tomorrow"
     quiet_start: int = 22
     quiet_end: int = 7
+    ignore_night: bool = True
 
 
 class WeatherBannerSettingsUpdate(BaseModel):
@@ -43,6 +46,7 @@ class WeatherBannerSettingsUpdate(BaseModel):
     cold_threshold: int = 0
     wind_threshold: int = 39
     window: str = "today"
+    ignore_night: bool = True
 
 
 class WeatherBannerResponse(BaseModel):
@@ -53,6 +57,7 @@ class WeatherBannerResponse(BaseModel):
     cold_threshold: int
     wind_threshold: int
     window: str
+    ignore_night: bool = True
     available_conditions: list[WeatherNotifyOption] = Field(default_factory=list)
     windows: list[WeatherNotifyOption] = Field(default_factory=list)
     # 「按现在的预报，横幅会不会显示」—— 管理员保存后能立刻看到判断结果

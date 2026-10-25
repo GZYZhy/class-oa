@@ -1448,6 +1448,7 @@ def read_weather_banner(_: User = Depends(admin_required), db: Session = Depends
         cold_threshold=row.cold_threshold,
         wind_threshold=row.wind_threshold,
         window=row.window,
+        ignore_night=bool(row.ignore_night),
         available_conditions=[
             {"code": code, "label": label}
             for code, label in weather_notify_service.CONDITIONS.items()

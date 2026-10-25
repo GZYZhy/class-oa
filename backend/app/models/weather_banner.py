@@ -51,3 +51,9 @@ class WeatherBannerSettings(Base):
         String(10), nullable=False, default="today", server_default="today",
         comment="横幅关注哪段时间的天气",
     )
+
+    # 夜间天气：默认忽略 22:00–06:00 的降水/降雪/雷暴
+    ignore_night = Column(
+        Boolean, nullable=False, default=True, server_default=text("1"),
+        comment="是否忽略 22:00–06:00 的夜间天气",
+    )

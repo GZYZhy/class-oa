@@ -4116,6 +4116,16 @@ console.log('\n▶ 弱网首屏：图表库按需且不挡首页，图标不整�
   // 卡片本身必须渲染出来，否则客户端拿到数据也没地方放
   check(body.includes('weather-card') && body.includes('weather-body'),
     '天气卡渲染出来了（数据等接口）')
+
+  // 夜间天气开关：个人提醒与管理员横幅共用同一张表单，默认打开
+  const ruleFormSrc = readFileSync(`${ROOT}/src/components/WeatherRuleForm.vue`, 'utf8')
+  check(ruleFormSrc.includes('v-model="rule.ignore_night"') &&
+    ruleFormSrc.includes('22:00–06:00'),
+  '天气规则表单里有「忽略 22:00–06:00」开关，并写明只过滤降水/降雪/雷暴')
+  const noticeSettingSrc = readFileSync(`${ROOT}/src/components/WeatherNotifySetting.vue`, 'utf8')
+  const adminSrc = readFileSync(`${ROOT}/src/views/Admin.vue`, 'utf8')
+  check(noticeSettingSrc.includes('ignore_night: true') && adminSrc.includes('ignore_night: true'),
+    '个人提醒与管理员横幅的开关默认都是打开的')
   // 只盯图标：这个桩环境没装 vue-router，router-link 解析不到是桩的事，和图标无关
   const unresolved = warns
     .map((w) => (w.match(/Failed to resolve component: (\w+)/) || [])[1])
