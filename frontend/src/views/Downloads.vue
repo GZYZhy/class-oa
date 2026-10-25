@@ -11,35 +11,32 @@
           <span class="group-count">{{ group.items.length }} 份</span>
         </div>
 
-        <el-row :gutter="16">
-          <el-col :xs="24" :sm="8" v-for="item in group.items" :key="item.name">
-            <div class="resource-card">
-              <div class="resource-icon" :class="getFileType(item)">
-                <el-icon><component :is="getFileIcon(item)" /></el-icon>
-              </div>
-              <div class="resource-info">
-                <div class="resource-name">{{ item.name }}</div>
-                <div class="resource-meta">
-                  {{ formatSize(item.size) }}
-                  <span class="meta-sep">·</span>
-                  下载 {{ item.download_count || 0 }} 次
-                </div>
-              </div>
-              <el-button
-                type="primary"
-                size="small"
-                :disabled="!item.url"
-                :loading="downloadingId === item.id"
-                @click="download(item)"
-              >
-                <el-icon v-if="downloadingId !== item.id"><Download /></el-icon>
-                <!-- 下大文件时把进度写在按钮上：网络差的时候看着数字涨，
-                     总比一个转圈转到人以为卡死了强 -->
-                {{ downloadingId === item.id && progress ? progress + '%' : '下载' }}
-              </el-button>
+        <div class="resource-grid">
+          <div v-for="item in group.items" :key="item.name" class="resource-card">
+            <div class="resource-icon" :class="getFileType(item)">
+              <el-icon><component :is="getFileIcon(item)" /></el-icon>
             </div>
-          </el-col>
-        </el-row>
+            <div class="resource-info">
+              <div class="resource-name" :title="item.name">{{ item.name }}</div>
+              <div class="resource-meta">
+                <span class="meta-size">{{ formatSize(item.size) }}</span>
+                <span class="meta-downloads">下载 {{ item.download_count || 0 }} 次</span>
+              </div>
+            </div>
+            <el-button
+              type="primary"
+              size="small"
+              :disabled="!item.url"
+              :loading="downloadingId === item.id"
+              @click="download(item)"
+            >
+              <el-icon v-if="downloadingId !== item.id"><Download /></el-icon>
+              <!-- 下大文件时把进度写在按钮上：网络差的时候看着数字涨，
+                   总比一个转圈转到人以为卡死了强 -->
+              {{ downloadingId === item.id && progress ? progress + '%' : '下载' }}
+            </el-button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -80,7 +77,11 @@ function getFileIcon(item) {
 function formatSize(bytes) {
   if (!bytes) return '文件缺失'
   if (bytes < 1024) return bytes + ' B'
-  return (bytes / 1024).toFixed(1) + ' KB'
+  const kb = bytes / 1024
+  if (kb < 1024) return kb.toFixed(1) + ' KB'
+  const mb = kb / 1024
+  if (mb < 1024) return mb.toFixed(1) + ' MB'
+  return (mb / 1024).toFixed(1) + ' GB'
 }
 
 // 下载：经 axios 取回再存盘，这样会话失效时能被 401 拦截器接住（见 utils/download.js）
@@ -143,17 +144,27 @@ onMounted(async () => {
   margin-left: 4px;
 }
 
+/* 按内容区实际宽度自动排，而不是按视口断点：
+   侧栏把内容区压缩后，iPad 竖屏上原来的 sm=8（三列）会把每张卡挤到
+   一百多像素，文件名和大小都没地方放。auto-fill + 最小 300px 在
+   iPad 竖屏落到 1 列、横向落到 2 列，桌面仍是 3 列。 */
+.resource-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+
 .resource-card {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
+  min-width: 0;
   background: var(--el-fill-color-light);
   /* 补一道描边：原来只有浅底和圆角，和卡片的淡紫底几乎融在一起，
      条目之间看不出是一张张独立的卡 */
   border: 1px solid var(--app-line);
   border-radius: 12px;
-  margin-bottom: 12px;
   transition: background 0.2s, border-color 0.2s;
 }
 
@@ -194,29 +205,46 @@ onMounted(async () => {
 }
 
 .resource-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  margin-top: 3px;
+  min-width: 0;
   font-size: 12px;
   color: var(--el-text-color-secondary);
-  margin-top: 3px;
 }
 
-.meta-sep {
-  margin: 0 4px;
+/* 大小和下载次数是两个完整信息块：窄下来时换行也不会把「12.3 KB」
+   和它后面的单位拆开，分隔点跟着后一块走 */
+.meta-size,
+.meta-downloads {
+  white-space: nowrap;
+}
+
+.meta-downloads::before {
+  content: '·';
+  margin-right: 8px;
   color: var(--el-border-color);
 }
 
-/* 手机端：卡片内部竖排，按钮占满宽度，方便点 */
-@media (max-width: 768px) {
+.resource-card .el-button {
+  flex-shrink: 0;
+}
+
+/* 很窄的手机：按钮换到下一行占满，别继续挤文件名 */
+@media (max-width: 480px) {
   .resource-card {
     flex-wrap: wrap;
   }
 
   .resource-info {
-    flex: 1 1 160px;
+    flex: 1 1 calc(100% - 54px);
   }
 
   .resource-card .el-button {
     width: 100%;
-    margin-top: 8px;
+    margin-top: 6px;
   }
 
   .group-title {

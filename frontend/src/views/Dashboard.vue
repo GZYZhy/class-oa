@@ -327,6 +327,8 @@ function openWeatherSite() {
 // 取回来的是 { default: echarts, renderDonut, ... }，环形图直接调共用的那个，
 // 与分类统计页同一套配色和样式（同是「人数占比」，两页不该长成两家）
 let chartKit = null
+let chartObserver = null
+let chartPending = false
 
 const toList = (obj) => Object.entries(obj || {}).map(([name, value]) => ({ name, value }))
 
@@ -335,6 +337,40 @@ function renderCharts() {
   if (!chartKit || !genderChartRef.value) return
   genderChart?.dispose()
   genderChart = chartKit.renderDonut(genderChartRef.value, toList(stats.value?.gender))
+}
+
+/** 真正去下载 ECharts 并画第一版 */
+async function loadChart() {
+  if (chartKit || chartPending) return
+  chartPending = true
+  try {
+    chartKit = await import('@/utils/chart')
+    renderCharts()
+  } finally {
+    chartPending = false
+  }
+}
+
+/**
+ * 等图表滚到可视区域（或离屏幕 240px）再下载 ECharts。
+ *
+ * 它是首屏最重的一件（压缩后仍有一百多 KB），而且首页那张性别环在手机上
+ * 本来就在首屏之外；弱网下提前下载会跟统计、天气、通知抢带宽。等用户真
+ * 滚到那里再取，首屏能更快出内容。
+ */
+function watchChart() {
+  if (chartKit || chartPending || !genderChartRef.value) return
+  if (!('IntersectionObserver' in window)) {
+    loadChart()
+    return
+  }
+  chartObserver = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting)) return
+    chartObserver?.disconnect()
+    chartObserver = null
+    loadChart()
+  }, { rootMargin: '240px 0px' })
+  chartObserver.observe(genderChartRef.value)
 }
 
 async function loadData() {
@@ -356,13 +392,9 @@ async function loadData() {
 
   await nextTick()
 
-  // 图表库单独**动态**取一次（按需之后的体积说明见 utils/chart.js）。
-  // 上面那几个 await 一到手，人数、生日条幅、最新通知就已经渲染出来了，
-  // 不必等图表库；弱网下这几秒的差别就是「首页能看了」和「整页白等着」的差别
-  chartKit = await import('@/utils/chart')
-
-  // 取库的这段时间里用户可能已经离开首页、容器被卸载了，这时 init 会拿到 null
-  renderCharts()
+  // 上面几个 await 一到手，人数、生日条幅、最新通知已经渲染出来了。
+  // 图表库不在这里等：先观察容器，滚到可视范围再下载（见 watchChart）。
+  watchChart()
 }
 
 function onResize() {
@@ -382,6 +414,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
   themeObserver?.disconnect()
+  chartObserver?.disconnect()
   genderChart?.dispose()
 })
 </script>
