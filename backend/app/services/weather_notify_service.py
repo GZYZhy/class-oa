@@ -48,6 +48,12 @@ DEFAULT_WIND_THRESHOLD = 39
 DEFAULT_QUIET_START = 22
 DEFAULT_QUIET_END = 7
 
+# 夜间天气（降水/降雪/雷暴）默认忽略的时段。这不是「几点不发消息」——
+# 那是下面个人设置的 quiet_start/quiet_end；这里过滤的是**天气本身发生的时间**，
+# 避免横幅/提醒把凌晨的雨写成一件白天要处理的事。
+NIGHT_START = 22
+NIGHT_END = 6
+
 
 # ---------------------------------------------------------------- 配置读写
 
@@ -94,6 +100,7 @@ def _default_notify_row(student_no: str) -> WeatherNotifySettings:
         window="tomorrow",
         quiet_start=DEFAULT_QUIET_START,
         quiet_end=DEFAULT_QUIET_END,
+        ignore_night=True,
         last_key="",
     )
 
@@ -129,6 +136,7 @@ def put_settings(db: Session, student_no: str, data) -> WeatherNotifySettings:
     row.window = window if window in WINDOWS else "tomorrow"
     row.quiet_start = _clamp(getattr(data, "quiet_start", DEFAULT_QUIET_START), 0, 23)
     row.quiet_end = _clamp(getattr(data, "quiet_end", DEFAULT_QUIET_END), 0, 23)
+    row.ignore_night = bool(getattr(data, "ignore_night", True))
 
     db.commit()
     db.refresh(row)
@@ -189,6 +197,14 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
         moment = _parse_hour(item.get("time"))
         if moment is not None and start <= moment <= end:
             hours.append((moment, item))
+
+    # 夜间天气默认不计入：22:00–06:00 的降水/降雪/雷暴不触发横幅，也不发提醒。
+    # 日级的高温/低温/大风没有具体小时，仍按全天数据判断。
+    if getattr(row, "ignore_night", True):
+        hours = [
+            (moment, item) for moment, item in hours
+            if NIGHT_END <= moment.hour < NIGHT_START
+        ]
 
     # 日级数据只覆盖今天和明天；next24h 可能跨两天，两头都看
     days = data.get("days") or []
@@ -356,6 +372,7 @@ def get_banner(db: Session):
         cold_threshold=DEFAULT_COLD_THRESHOLD,
         wind_threshold=DEFAULT_WIND_THRESHOLD,
         window="today",
+        ignore_night=True,
     )
 
 
@@ -375,6 +392,7 @@ def put_banner(db: Session, data):
     row.wind_threshold = _clamp(getattr(data, "wind_threshold", DEFAULT_WIND_THRESHOLD), 10, 120)
     window = getattr(data, "window", "today")
     row.window = window if window in WINDOWS else "today"
+    row.ignore_night = bool(getattr(data, "ignore_night", True))
 
     db.commit()
     db.refresh(row)

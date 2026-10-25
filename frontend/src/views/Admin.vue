@@ -1962,7 +1962,8 @@ const weatherBanner = reactive({
   heat_threshold: 35,
   cold_threshold: 0,
   wind_threshold: 39,
-  window: 'today'
+  window: 'today',
+  ignore_night: true
 })
 // 可选条件 / 时段的中文标签由后端给
 const weatherMeta = reactive({ conditions: [], windows: [] })
@@ -1980,6 +1981,7 @@ async function fetchWeatherBanner() {
     weatherBanner.cold_threshold = data.cold_threshold
     weatherBanner.wind_threshold = data.wind_threshold
     weatherBanner.window = data.window || 'today'
+    weatherBanner.ignore_night = data.ignore_night !== false
     weatherMeta.conditions = data.available_conditions || []
     weatherMeta.windows = data.windows || []
     bannerPreview.active = !!data.preview_active
