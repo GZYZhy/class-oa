@@ -2755,6 +2755,9 @@ console.log('\n▶ 投票页盖水印：整页 + 两个弹窗')
   // 所以断言也得编码后再比 —— 直接 includes('示例班') 永远为假
   check(html.includes(encodeURIComponent(SITE.shortName)),
     '整页真渲染出一层水印（字样「当前登录人@班级」，SSR 里没登录态所以是「未知用户」）')
+  const wmSrc = readFileSync(`${ROOT}/src/composables/useWatermark.js`, 'utf8')
+  check(/computed\(/.test(wmSrc) && /userStore\.info\?\.name/.test(wmSrc),
+    '水印姓名跟着异步登录态更新，不会一直停在「未知用户」')
   check((html.match(/class="watermark"/g) || []).length === 1,
     '页面上只铺一层：弹窗没打开，水印不该跟着混进来')
 
@@ -4816,15 +4819,27 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   check(respText.includes('答卷（0）') && respText.includes('未填满（0）') &&
     respText.includes('统计'), '三个页签都在')
   const respSrc = src('/src/components/CollectionResponsesDialog.vue')
+  const shareCollectSrc = src('/src/views/share/ShareCollect.vue')
+  check(/const fillStartedAt = ref\(null\)/.test(shareCollectSrc) &&
+    /submitCollectionResponse\(info\.value\.id, answers, duration\)/.test(shareCollectSrc),
+  '填写页从打开表单开始计时，提交时把用时一起发出去')
   check(/canDelete = computed\(\(\) => userStore\.isAdmin\)/.test(respSrc),
     '删除按钮只对系统管理员出现（后端 admin_required 兜底）')
   check(/setInterval\(refreshAll, POLL_INTERVAL\)/.test(respSrc),
     '打开期间按间隔刷新答卷/未填/统计')
   check(/batchDeleteCollectionResponses/.test(respSrc), '支持批量删除')
   check(/CollectionAnswers/.test(respSrc), '展开行复用同一份答卷展示')
-  check(/<el-table-column label="序号"[\s\S]{0,160}?\{\{ row\.seq_no \}\}/
-    .test(respSrc) && !respSrc.includes('第 {{ row.seq_no }} 份'),
-  '序号列只写数字，不再写「第 x 份」')
+  check(/\(page - 1\) \* pageSize \+ \$index \+ 1/.test(respSrc),
+    '答卷列表的序号是当前页的连续行号（seq_no 是每个人的第几份）')
+  check(respSrc.includes('label="用时"') &&
+    /formatDuration\(row\.duration_seconds\)/.test(respSrc),
+  '答卷列表逐份显示用时')
+  check(respSrc.includes('答卷用时') && /statistics\.duration\?\.count/.test(respSrc) &&
+    /duration\.median_seconds/.test(respSrc),
+  '统计页给出平均/中位数/最短/最长用时')
+  check(/label="提交人" min-width="170"/.test(respSrc) &&
+    /label="提交时间" min-width="175"/.test(respSrc),
+  '答卷表格的弹性列会铺满弹窗')
   check(/row\.is_self/.test(respSrc) &&
     /pending\.unfilled_count/.test(respSrc) && /pending\.partial_count/.test(respSrc),
   '未填名单包含本人并标出来；两个催填入口分别用后端的可催人数')

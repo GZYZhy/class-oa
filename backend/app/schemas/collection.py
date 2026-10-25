@@ -101,6 +101,7 @@ class CollectionResponseItem(BaseModel):
     id: int
     seq_no: int
     submitted_at: datetime
+    duration_seconds: int | None = None
     student_no: str | None = None
     student_name: str | None = None
     answers: list[CollectionAnswerResponse] = Field(default_factory=list)
@@ -204,12 +205,15 @@ class CollectionAnswerIn(BaseModel):
 
 class CollectionSubmitIn(BaseModel):
     answers: list[CollectionAnswerIn] = Field(..., min_length=1)
+    # 前端从打开填写页到提交的秒数；上限 24 小时，避免异常值把统计带偏
+    duration_seconds: int | None = Field(None, ge=0, le=86400)
 
 
 class CollectionSubmitResponse(BaseModel):
     id: int
     seq_no: int
     submitted_at: datetime
+    duration_seconds: int | None = None
     my_submitted_count: int
     my_remaining: int
     can_submit: bool
@@ -283,8 +287,17 @@ class CollectionTargetList(BaseModel):
     items: list[CollectionTargetItem]
 
 
+class CollectionDurationStats(BaseModel):
+    count: int = 0
+    average_seconds: int = 0
+    median_seconds: int = 0
+    min_seconds: int = 0
+    max_seconds: int = 0
+
+
 class CollectionStatisticsResponse(BaseModel):
     items: list[dict] = Field(default_factory=list)
+    duration: CollectionDurationStats = Field(default_factory=CollectionDurationStats)
 
 
 class CollectionExportRequest(BaseModel):

@@ -28,3 +28,16 @@ export function formatStamp(date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0')
   return `${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
+
+/** 秒 → 中文时长；空值显示「—」 */
+export function formatDuration(seconds) {
+  if (seconds == null || seconds === '' || Number.isNaN(Number(seconds))) return '—'
+  const total = Math.max(0, Math.round(Number(seconds)))
+  if (total < 60) return `${total} 秒`
+  const minutes = Math.floor(total / 60)
+  const rest = total % 60
+  if (minutes < 60) return rest ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`
+  const hours = Math.floor(minutes / 60)
+  const left = minutes % 60
+  return left ? `${hours} 小时 ${left} 分` : `${hours} 小时`
+}

@@ -117,8 +117,11 @@ def _create(b, **kw):
     return r.json()
 
 
-def _submit(b, collection_id, answers):
-    return b.client.post(f"/api/collections/{collection_id}/responses", json={"answers": answers})
+def _submit(b, collection_id, answers, duration=None):
+    payload = {"answers": answers}
+    if duration is not None:
+        payload["duration_seconds"] = duration
+    return b.client.post(f"/api/collections/{collection_id}/responses", json=payload)
 
 
 def _poll_body(**kw):
@@ -156,6 +159,32 @@ def _inbox_count(b, student_no):
     return b.rows(
         "SELECT COUNT(*) FROM inbox_messages WHERE student_no = ?", student_no
     )[0][0]
+
+
+def test_answer_duration_is_recorded_and_summarized(cb):
+    """答卷用时：提交时带上秒数，列表逐份可见，统计给平均/中位数/范围"""
+    collection = _create(cb, submit_quota=2)
+    cid = collection["id"]
+    qid = collection["questions"][0]["id"]
+
+    _login(cb, VOTER, VOTER_PW)
+    assert _submit(cb, cid, [{"question_id": qid, "text": "第一份"}], duration=30).status_code == 200
+    assert _submit(cb, cid, [{"question_id": qid, "text": "第二份"}], duration=90).status_code == 200
+    # 超出 24 小时的异常值由 schema 挡掉
+    assert _submit(cb, cid, [{"question_id": qid, "text": "第三份"}], duration=86401).status_code == 422
+
+    _login(cb, CREATOR, CREATOR_PW)
+    items = cb.client.get(f"/api/collections/{cid}/responses").json()["items"]
+    assert [item["duration_seconds"] for item in items] == [30, 90]
+
+    stats = cb.client.get(f"/api/collections/{cid}/statistics").json()
+    assert stats["duration"] == {
+        "count": 2,
+        "average_seconds": 60,
+        "median_seconds": 60,
+        "min_seconds": 30,
+        "max_seconds": 90,
+    }
 
 
 # ---------- 六种题型 ----------

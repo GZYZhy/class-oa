@@ -524,6 +524,7 @@ def responses_page(
             "id": row.id,
             "seq_no": row.seq_no,
             "submitted_at": row.submitted_at,
+            "duration_seconds": row.duration_seconds,
             "answers": [
                 answer_payload(question, answers_by_question.get(question.id))
                 for question in question_map.values()
@@ -559,6 +560,7 @@ def submission_payload(
         "id": submission.id,
         "seq_no": submission.seq_no,
         "submitted_at": submission.submitted_at,
+        "duration_seconds": submission.duration_seconds,
         "answers": [
             answer_payload(question, answers.get(question.id))
             for question in questions
@@ -606,6 +608,41 @@ def pending_rows(db: Session, collection: Collection) -> list[dict]:
             }
         )
     return rows
+
+
+def duration_stats(db: Session, collection: Collection) -> dict:
+    """答卷用时聚合；旧答卷、没带用时的答卷不计入
+
+    只统计升级后新提交的答卷：旧数据没有开始时刻，补不出来。
+    """
+    values = [
+        max(0, min(86400, int(value)))
+        for (value,) in db.query(CollectionSubmission.duration_seconds)
+        .filter(
+            CollectionSubmission.collection_id == collection.id,
+            CollectionSubmission.duration_seconds.isnot(None),
+        )
+        .all()
+    ]
+    if not values:
+        return {
+            "count": 0, "average_seconds": 0, "median_seconds": 0,
+            "min_seconds": 0, "max_seconds": 0,
+        }
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    median = (
+        ordered[middle]
+        if len(ordered) % 2
+        else round((ordered[middle - 1] + ordered[middle]) / 2)
+    )
+    return {
+        "count": len(values),
+        "average_seconds": round(sum(values) / len(values)),
+        "median_seconds": median,
+        "min_seconds": ordered[0],
+        "max_seconds": ordered[-1],
+    }
 
 
 def statistics(db: Session, collection: Collection) -> list[dict]:

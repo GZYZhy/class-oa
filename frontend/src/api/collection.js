@@ -50,9 +50,11 @@ export function extendCollection(id) {
   return request({ url: `/collections/${id}/extend`, method: 'post' })
 }
 
-/** 提交一份答卷 */
-export function submitCollectionResponse(id, answers) {
-  return request({ url: `/collections/${id}/responses`, method: 'post', data: { answers } })
+/** 提交一份答卷；durationSeconds = 从打开填写页到提交的秒数 */
+export function submitCollectionResponse(id, answers, durationSeconds) {
+  const data = { answers }
+  if (durationSeconds != null) data.duration_seconds = Math.max(0, Math.round(durationSeconds))
+  return request({ url: `/collections/${id}/responses`, method: 'post', data })
 }
 
 /** 答卷列表（发起人/管理员，服务端按提交时间排序） */

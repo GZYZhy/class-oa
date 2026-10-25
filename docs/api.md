@@ -3476,6 +3476,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `answers` | CollectionAnswerIn[] | 是 |  |
+| `duration_seconds` | integer（≥0，≤86400），可空 | 否 |  |
 
 `answers` 的字段：
 
@@ -3488,7 +3489,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CollectionSubmitResponse` — 成功
-  - 字段：`id`、`seq_no`、`submitted_at`、`my_submitted_count`、`my_remaining`、`can_submit`
+  - 字段：`id`、`seq_no`、`submitted_at`、`duration_seconds`、`my_submitted_count`、`my_remaining`、`can_submit`
 
 ### 上传答卷图片（返回提交凭证）
 
@@ -3631,7 +3632,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CollectionStatisticsResponse` — 成功
-  - 字段：`items`
+  - 字段：`items`、`duration`
 
 ### 提醒还没填满的人（发起人/管理员）
 
