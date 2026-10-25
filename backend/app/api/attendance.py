@@ -57,8 +57,9 @@ from .deps import committee_required, get_client_ip, get_current_student
 
 router = APIRouter(prefix="/api/attendance", tags=["考勤记录"])
 
-# 状态的中文名。库里存的是英文枚举（present/absent/leave），页面和导出都显示中文
-STATUS_LABELS = {"present": "到", "absent": "无应答", "leave": "请假"}
+# 状态的中文名。库里存的是英文枚举（present/absent/leave/late），页面和导出都显示中文。
+# 注意 late 只在「改某人状态」时才会出现，点名的创建接口不收它。
+STATUS_LABELS = {"present": "到", "absent": "无应答", "leave": "请假", "late": "迟到"}
 
 # 导出时写在列上的顺序。最后一列是这次点名上的一句话（库里仍叫 remark），
 # 列表里统一叫「标题」，导出也跟着叫标题；同一批明细的每一行都带同一个值
@@ -99,7 +100,7 @@ def _counts(items: list[AttendanceItem]) -> dict[str, int]:
 
     表里没有计数列，一律现算 —— 改某人状态时不需要再去同步第二份数据。
     """
-    result = {"total": len(items), "present": 0, "leave": 0, "absent": 0}
+    result = {"total": len(items), "present": 0, "late": 0, "leave": 0, "absent": 0}
     for item in items:
         if item.status in result:
             result[item.status] += 1
@@ -115,12 +116,14 @@ def _to_response(
         id=record.id,
         call_date=record.call_date,
         scope=record.scope or "",
+        scope_label=_manual_scope_label(record.scope, len(items or [])),
         called_at=record.called_at,
         operator_no=record.operator_no or "",
         operator_name=record.operator_name or "",
         remark=record.remark or "",
         total=data["total"],
         present=data["present"],
+        late=data["late"],
         leave=data["leave"],
         absent=data["absent"],
         items=[
@@ -158,8 +161,11 @@ def _summary_detail(scope: str, items: list[AttendanceItem]) -> str:
     absent_names = "、".join(
         f"{i.student_name}({i.student_no})" for i in items if i.status == "absent"
     )
+    # 实到包含迟到（迟到的人确实到了），迟到再单独括起来；这样各计数之和还是应到
+    attended = data["present"] + data["late"]
+    late_text = f"（含迟到 {data['late']} 人）" if data["late"] else ""
     return (
-        f"共 {data['total']} 人，实到 {data['present']} 人，"
+        f"共 {data['total']} 人，实到 {attended} 人{late_text}，"
         f"请假 {data['leave']} 人，无应答 {data['absent']} 人"
         + (f"：{absent_names}" if absent_names else "（全部到齐）")
     )
@@ -245,7 +251,12 @@ def export_attendance(
         for item in items:
             values = [
                 record.call_date.strftime("%Y-%m-%d") if record.call_date else "",
-                record.scope or "",
+                # 签到结算生成的那条保留「签到·N人」，导出文件里没有类型列，
+                # 去掉前缀就分不出它是签到还是手动点名；手动点名的自定义范围
+                # （男生 / 临时集合…）统一写成标准简语「N人」
+                (record.scope or "")
+                if (record.scope or "").startswith("签到·")
+                else _manual_scope_label(record.scope, len(items)),
                 record.called_at.strftime("%Y-%m-%d %H:%M") if record.called_at else "",
                 record.operator_name or "",
                 item.student_no,
@@ -410,10 +421,12 @@ def overview_attendance(
                 date=record.call_date,
                 time=record.called_at,
                 title=record.scope or "",
+                scope_label=_manual_scope_label(record.scope, sum(counts.values())),
                 operator_name=record.operator_name or "",
                 remark=record.remark or "",
                 total=sum(counts.values()),
                 present=counts.get("present", 0),
+                late=counts.get("late", 0),
                 leave=counts.get("leave", 0),
                 absent=counts.get("absent", 0),
             )
@@ -453,11 +466,15 @@ def overview_attendance(
                 date=reference.date(),
                 time=reference,
                 title=checkin.title or "",
+                scope_label=_checkin_scope_label(
+                    db, checkin.id, targets.get(checkin.id, 0)
+                ),
                 operator_name=checkin.created_by_name or "",
                 remark=checkin.remark or "",
                 # 结算前 total 是 0，前端按 status 显示实时的「已签 x / y」
                 total=sum(counts.values()),
                 present=counts.get("present", 0),
+                late=counts.get("late", 0),
                 leave=counts.get("leave", 0),
                 absent=counts.get("absent", 0),
                 status=checkin_status(checkin),
@@ -640,12 +657,14 @@ def list_attendance(
                 id=record.id,
                 call_date=record.call_date,
                 scope=record.scope or "",
+                scope_label=_manual_scope_label(record.scope, sum(counts.values())),
                 called_at=record.called_at,
                 operator_no=record.operator_no or "",
                 operator_name=record.operator_name or "",
                 remark=record.remark or "",
                 total=sum(counts.values()),
                 present=counts.get("present", 0),
+                late=counts.get("late", 0),
                 leave=counts.get("leave", 0),
                 absent=counts.get("absent", 0),
             )
@@ -709,11 +728,22 @@ def create_attendance(
     return _to_response(record, items)
 
 
-def _manual_scope_label(scope: str) -> str:
-    """点名的范围落库时是「共青团员」，学生端统一说「团员」"""
+def _manual_scope_label(scope: str, total: int | None = None) -> str:
+    """点名的范围 → 标准简语：全班 / 团员 / 班委 / N人
+
+    原始 scope 是点名时的快捷选项（「男生」「女生」「共青团员」等），
+    页面上的「范围」列只认这四个标准说法。给了 total 时，其余范围一律
+    写成「N人」；没给 total 的老调用方保持原样（只归一「团员」）。
+    """
     value = (scope or "").strip()
-    if value == "共青团员":
+    if value == "全班":
+        return "全班"
+    if value in ("共青团员", "团员"):
         return "团员"
+    if value == "班委":
+        return "班委"
+    if total is not None:
+        return f"{total}人"
     return value or "—"
 
 
@@ -800,6 +830,18 @@ def _student_attendance_items(db: Session, student: Student) -> list[MyAttendanc
         .filter(AttendanceItem.student_no == student.student_no)
         .all()
     )
+    # 每条记录的应到人数，用来把「男生 / 女生」这类原始范围写成「N人」
+    record_ids = [record.id for _, record in rows]
+    record_totals = (
+        dict(
+            db.query(AttendanceItem.record_id, func.count())
+            .filter(AttendanceItem.record_id.in_(record_ids))
+            .group_by(AttendanceItem.record_id)
+            .all()
+        )
+        if record_ids
+        else {}
+    )
     for item, record in rows:
         # 签到结算出来的那条考勤归到签到那一行，不重复展示
         if record.id in settled_ids:
@@ -814,7 +856,9 @@ def _student_attendance_items(db: Session, student: Student) -> list[MyAttendanc
                 occurred_at=occurred,
                 title=(record.remark or "").strip() or "点名",
                 category="点名",
-                scope=_manual_scope_label(record.scope),
+                scope=_manual_scope_label(
+                    record.scope, record_totals.get(record.id, 0)
+                ),
                 status=item.status or "",
                 status_label=STATUS_LABELS.get(item.status or "", item.status or ""),
             )

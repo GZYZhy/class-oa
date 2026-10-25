@@ -5021,9 +5021,16 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
   check(attendanceSrc.includes('class="at-filter"') && attendanceSrc.includes('class="at-search"')
     && !/el-form-item label="搜索"/.test(attendanceSrc),
     '筛选栏不再用表单项标签，搜索、日期和按钮收进同一条')
-  check(/formatDateTime\(row\.start_at \|\| row\.time\)/.test(attendanceSrc)
-    && !attendanceSrc.includes("row.status === 'ongoing' ? '截止' : '结束'"),
-    '时间列显示签到的开始时间，不再标「截止 / 结束」')
+  check(/formatClock\(row\.type === 'checkin' \? \(row\.start_at \|\| row\.time\) : row\.time\)/
+    .test(attendanceSrc)
+    && !attendanceSrc.includes('formatDateTime(row.')
+    && !attendanceSrc.includes("row.status === 'ongoing' ? '截止' : '结束'")
+    && !attendanceSrc.includes('>开始</div>'),
+  '时间列只显示时刻，不再标「截止 / 结束 / 开始」')
+  check(attendanceSrc.includes('class="at-table"') &&
+    attendanceSrc.includes('at-title-cell') &&
+    attendanceSrc.includes('.el-table__cell:not(.at-title-cell) .cell'),
+  '除标题外所有列都不折行，标题仍可省略')
   check(/if \(keyword\.value\.trim\(\)\) params\.keyword = keyword\.value\.trim\(\)/
     .test(attendanceSrc), '考勤列表把关键词带给后端')
   check(/function handleReset\(\) \{[\s\S]{0,80}?keyword\.value = ''/.test(attendanceSrc),
@@ -5035,6 +5042,23 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
     '点名按 AttendanceRecord.remark 过滤')
   check(/chk_match = keyword_like\(keyword, Checkin\.title\)/.test(attendancePy),
     '签到按 Checkin.title 过滤')
+
+  // 迟到：只能事后在明细里手动改，点名界面不提供
+  check(attendanceSrc.includes('row.present + (row.late || 0)') &&
+    attendanceSrc.includes('迟到 {{ row.late || 0 }}'),
+  '列表的实到包含迟到，迟到单独列一项')
+  check((attendanceSrc.match(/label="迟到" value="late"/g) || []).length === 1,
+    '点名明细可以手动改成迟到')
+  const rollCallSrc = src('/src/components/RollCallDialog.vue')
+  check(!rollCallSrc.includes('value="late"'),
+    '点名界面不提供迟到，保证只能事后手动标记')
+  const checkinDetailSrc = src('/src/components/CheckinDetailDialog.vue')
+  check(checkinDetailSrc.includes('label="迟到" value="late"'),
+    '签到结算后的明细也能手动标记迟到')
+  for (const p of ['/src/views/MyInfo.vue', '/src/views/StudentList.vue']) {
+    check(src(p).includes("if (status === 'late') return 'primary'"),
+      `${p} 的迟到标签有自己的颜色`)
+  }
 
   // ---------- 成绩：按考试名搜 ----------
   const { html: gradeHtml } = await render('/src/views/Grade.vue')
@@ -5192,8 +5216,8 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
 
   // 范围：点名是班级口径，签到按应到人数算
   check(pageSrc.includes('label="范围"'), '列表有「范围」列')
-  check(pageSrc.includes("row.type === 'checkin' ? `${row.target_count}人` : row.title"),
-    '签到的范围显示为应到 x 人')
+  check(pageSrc.includes('row.scope_label') && pageSrc.includes('`${row.target_count}人`'),
+    '范围用后端标准简语（全班/团员/班委/N人），旧数据退回人数')
   check(!pageSrc.includes('<el-tabs'), '去掉标签页，点名与签到同表')
   check(!pageSrc.includes('CheckinPanel'), '不再挂单独的签到面板')
   check(pageSrc.includes('type="selection"') && pageSrc.includes(':reserve-selection="true"'),
@@ -5229,7 +5253,7 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
     '签到结算生成的那条考勤不单独出现在列表里')
   check(pageSrc.includes("row.type === 'attendance' || row.status === 'ended'")
     && pageSrc.includes('已签 {{ row.signed_count }} / {{ row.target_count }}'),
-    '签到结算后本行显示应到/实到/请假/无应答，进行中才显示已签人数')
+    '签到结算后本行显示应到/实到/迟到/请假/无应答，进行中才显示已签人数')
   check(/record_ids: list\[int\] = Query\(default=\[\]/.test(attendancePy)
     && /checkin_ids: list\[int\] = Query\(default=\[\]/.test(attendancePy),
     '导出接口接收勾选的记录 id')

@@ -83,8 +83,9 @@
               @change="(value) => changeStatus(row, value)"
             >
               <el-option label="到" value="present" />
-              <el-option label="无应答" value="absent" />
+              <el-option label="迟到" value="late" />
               <el-option label="请假" value="leave" />
+              <el-option label="无应答" value="absent" />
             </el-select>
             <el-tag v-else-if="row.signed_at" type="success" size="small">已签到</el-tag>
             <el-tag v-else-if="row.on_leave" type="warning" size="small">请假中</el-tag>

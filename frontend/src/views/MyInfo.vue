@@ -983,9 +983,10 @@ async function fetchMyGrades() {
 const attendanceList = ref([])
 const attendanceLoading = ref(false)
 
-/** 出勤状态的颜色：到绿、请假橙、无应答红，还没签到的灰 */
+/** 出勤状态的颜色：到绿、迟到蓝、请假橙、无应答红，还没签到的灰 */
 function attendanceTag(status) {
   if (status === 'present') return 'success'
+  if (status === 'late') return 'primary'
   if (status === 'leave') return 'warning'
   if (status === 'absent') return 'danger'
   return 'info'

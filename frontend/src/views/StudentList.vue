@@ -1694,6 +1694,7 @@ function handleCurrentChange(page) {
 /** 出勤状态的颜色，与「我的信息 → 考勤情况」保持一致 */
 function attendanceTag(status) {
   if (status === 'present') return 'success'
+  if (status === 'late') return 'primary'
   if (status === 'leave') return 'warning'
   if (status === 'absent') return 'danger'
   return 'info'

@@ -64,14 +64,16 @@
         :data="rows"
         :row-key="rowKey"
         stripe
+        class="at-table"
         style="margin-top: 12px;"
         empty-text="还没有考勤或签到记录"
         @selection-change="handleSelectionChange"
       >
         <!-- 跨页保留勾选：导出一份记录时不用一页一页地重选 -->
         <el-table-column type="selection" width="46" :reserve-selection="true" fixed="left" />
-        <el-table-column prop="date" label="日期" width="110" />
-        <el-table-column label="类型" width="80">
+        <!-- 前面几列都窄一点、单行：日期已经带了年月日，时间列只写时刻 -->
+        <el-table-column prop="date" label="日期" width="100" />
+        <el-table-column label="类型" width="70">
           <template #default="{ row }">
             <el-tag
               :type="row.type === 'checkin' ? 'success' : 'primary'"
@@ -82,32 +84,30 @@
             </el-tag>
           </template>
         </el-table-column>
-        <!-- 范围：点名是「全班 / 团员 / 班委 / x 人」，签到按应到人数显示 x 人 -->
-        <el-table-column label="范围" width="100">
+        <!-- 范围：后端统一成标准简语「全班 / 团员 / 班委 / x人」 -->
+        <el-table-column label="范围" width="90">
           <template #default="{ row }">
-            <span>{{ row.type === 'checkin' ? `${row.target_count}人` : row.title }}</span>
+            <span>{{ row.scope_label || (row.type === 'checkin' ? `${row.target_count}人` : row.title) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="时间" width="160">
+        <el-table-column label="时间" width="70">
           <template #default="{ row }">
-            <!-- 签到这一列统一显示开始时间，不再标「截止 / 结束」；
-                 老签到没有开始时间，退回原来的时刻 -->
-            <template v-if="row.type === 'checkin'">
-              <div>{{ formatDateTime(row.start_at || row.time) }}</div>
-              <div v-if="row.start_at" class="at-sub">开始</div>
-            </template>
-            <div v-else>{{ formatDateTime(row.time) }}</div>
+            <!-- 只写时刻；日期已经在左边那一列了 -->
+            <span>{{ formatClock(row.type === 'checkin' ? (row.start_at || row.time) : row.time) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="operator_name" label="发起人" width="110" />
-        <el-table-column label="出勤情况" min-width="210">
+        <el-table-column prop="operator_name" label="发起人" width="90" />
+        <el-table-column label="出勤情况" width="360" class-name="at-counts-cell">
           <template #default="{ row }">
-            <!-- 点名，以及结算后的签到：标准四计数。签到结算后本行直接换成
-                 这个格式，不再另生成一条「点名」行 -->
+            <!-- 点名，以及结算后的签到：标准计数。签到结算后本行直接换成
+                 这个格式，不再另生成一条「点名」行。
+                 实到 = 到 + 迟到（迟到的人确实到了），迟到再单独列出来 -->
             <template v-if="row.type === 'attendance' || row.status === 'ended'">
               <span>应到 {{ row.total }}</span>
               <span class="at-sep">·</span>
-              <span>实到 {{ row.present }}</span>
+              <span>实到 {{ row.present + (row.late || 0) }}</span>
+              <span class="at-sep">·</span>
+              <span :class="{ 'at-late': row.late }">迟到 {{ row.late || 0 }}</span>
               <span class="at-sep">·</span>
               <span :class="{ 'at-warn': row.leave }">请假 {{ row.leave }}</span>
               <span class="at-sep">·</span>
@@ -130,7 +130,13 @@
         </el-table-column>
         <!-- 标题：点名的备注、签到的标题都放这一列（搜索也搜它）。
              签到自己的补充说明在明细里，不丢 -->
-        <el-table-column label="标题" min-width="140" show-overflow-tooltip align="left">
+        <el-table-column
+          label="标题"
+          min-width="140"
+          show-overflow-tooltip
+          align="left"
+          class-name="at-title-cell"
+        >
           <template #default="{ row }">
             <span v-if="row.type === 'checkin'">{{ row.title }}</span>
             <span v-else-if="row.remark">{{ row.remark }}</span>
@@ -204,8 +210,9 @@
               @change="(value) => changeStatus(row, value)"
             >
               <el-option label="到" value="present" />
-              <el-option label="无应答" value="absent" />
+              <el-option label="迟到" value="late" />
               <el-option label="请假" value="leave" />
+              <el-option label="无应答" value="absent" />
             </el-select>
           </template>
         </el-table-column>
@@ -268,6 +275,12 @@ import { blobErrorDetail, downloadFile } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'
 
+/** 时间列只保留时刻：2026-10-19 19:25 → 19:25（日期已经在左边那一列） */
+function formatClock(value) {
+  const text = formatDateTime(value)
+  return text === '-' ? '-' : text.slice(11, 16)
+}
+
 const loading = ref(false)
 const exporting = ref(false)
 const rows = ref([])
@@ -293,7 +306,9 @@ const detailSaving = ref(false)
 const detail = ref({ items: [], call_date: '', scope: '' })
 
 const detailTitle = computed(() =>
-  detail.value.id ? `${detail.value.call_date} ${detail.value.scope} 点名明细` : '点名明细'
+  detail.value.id
+    ? `${detail.value.call_date} ${detail.value.scope_label || detail.value.scope} 点名明细`
+    : '点名明细'
 )
 
 /** 点名的 id 和签到的 id 各自独立，加前缀才不会撞到一起（跨页勾选靠它） */
@@ -679,6 +694,20 @@ onBeforeUnmount(() => {
   }
 }
 
+/* 除标题外都不折行；标题列仍走 show-overflow-tooltip 的省略号 */
+.at-table :deep(.el-table__cell:not(.at-title-cell) .cell) {
+  white-space: nowrap;
+}
+
+/* 五个计数挤在一行，字号收一档才放得下 */
+.at-counts-cell :deep(.cell) {
+  font-size: 13px;
+}
+
+.at-late {
+  color: var(--el-color-primary);
+}
+
 .at-warn {
   color: var(--el-color-warning);
   font-weight: 600;
@@ -706,12 +735,6 @@ onBeforeUnmount(() => {
 .at-sep {
   margin: 0 4px;
   color: var(--el-text-color-placeholder);
-}
-
-.at-sub {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
 }
 
 .at-empty {
