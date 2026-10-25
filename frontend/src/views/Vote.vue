@@ -59,7 +59,7 @@
         style="margin-top: 16px;"
         empty-text="还没有投票"
       >
-        <el-table-column label="标题" min-width="220">
+        <el-table-column label="标题" min-width="220" align="left">
           <template #default="{ row }">
             <div class="vt-title">
               <span>{{ row.title }}</span>
@@ -97,42 +97,44 @@
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <!-- 普通参与者进统一的外链整页；发起人/管理员看实时票数仍用旧的结果弹窗 -->
-            <el-button link type="primary" @click="openMainAction(row)">
-              {{ row.can_manage ? '实时预览' : actionText(row) }}
-            </el-button>
-            <!-- 管理动作收进下拉：行内五个按钮太挤，也容易误点「立即结束」 -->
-            <el-dropdown
-              v-if="row.can_manage"
-              trigger="click"
-              @command="(cmd) => handleCommand(cmd, row)"
-            >
-              <el-button link type="primary">
-                管理<el-icon><ArrowDown /></el-icon>
+            <div class="vt-actions">
+              <!-- 普通参与者进统一的外链整页；发起人/管理员看实时票数仍用旧的结果弹窗 -->
+              <el-button link type="primary" @click="openMainAction(row)">
+                {{ row.can_manage ? '实时预览' : actionText(row) }}
               </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="edit">编辑</el-dropdown-item>
-                  <el-dropdown-item command="roster">投票名单</el-dropdown-item>
-                  <!-- 管理入口走弹窗后，仍要从这里去到统一的投票页（自己也要投的时候用） -->
-                  <el-dropdown-item command="openSharePage">
-                    {{ row.can_vote ? '去投票' : '打开投票页' }}
-                  </el-dropdown-item>
-                  <el-dropdown-item command="share">分享</el-dropdown-item>
-                  <!-- 一个入口两用，文案跟着状态走。暂停不是结束：解锁后照样能投 -->
-                  <el-dropdown-item command="toggleLock" :disabled="!canToggleLock(row)">
-                    {{ row.status === 'locked' ? '恢复投票' : '暂停投票' }}
-                  </el-dropdown-item>
-                  <el-dropdown-item command="extend" :disabled="!canExtendPoll(row)">
-                    延长5分钟
-                  </el-dropdown-item>
-                  <el-dropdown-item command="close" :disabled="row.status === 'closed'">
-                    立即结束
-                  </el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+              <!-- 管理动作收进下拉：行内五个按钮太挤，也容易误点「立即结束」 -->
+              <el-dropdown
+                v-if="row.can_manage"
+                trigger="click"
+                @command="(cmd) => handleCommand(cmd, row)"
+              >
+                <el-button link type="primary">
+                  管理<el-icon><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                    <el-dropdown-item command="roster">投票名单</el-dropdown-item>
+                    <!-- 管理入口走弹窗后，仍要从这里去到统一的投票页（自己也要投的时候用） -->
+                    <el-dropdown-item command="openSharePage">
+                      {{ row.can_vote ? '去投票' : '打开投票页' }}
+                    </el-dropdown-item>
+                    <el-dropdown-item command="share">分享</el-dropdown-item>
+                    <!-- 一个入口两用，文案跟着状态走。暂停不是结束：解锁后照样能投 -->
+                    <el-dropdown-item command="toggleLock" :disabled="!canToggleLock(row)">
+                      {{ row.status === 'locked' ? '恢复投票' : '暂停投票' }}
+                    </el-dropdown-item>
+                    <el-dropdown-item command="extend" :disabled="!canExtendPoll(row)">
+                      延长5分钟
+                    </el-dropdown-item>
+                    <el-dropdown-item command="close" :disabled="row.status === 'closed'">
+                      立即结束
+                    </el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -230,7 +232,7 @@
                 催还没投的人（{{ unvotedCount }}）
               </el-button>
             </div>
-            <el-table :data="ballots.rows" max-height="380" stripe>
+            <el-table :data="ballots.rows" max-height="380" stripe style="width: 100%;">
               <el-table-column label="姓名" width="100">
                 <template #default="{ row }">{{ row.name || '—' }}</template>
               </el-table-column>
@@ -242,7 +244,7 @@
                   <el-tag v-else type="warning" size="small">未投</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="投票时间" width="150">
+              <el-table-column label="投票时间" min-width="170">
                 <template #default="{ row }">
                   {{ row.voted_at ? formatDateTime(row.voted_at) : '—' }}
                 </template>
@@ -814,6 +816,17 @@ watch(
 
 .vt-warn {
   color: var(--el-color-warning);
+}
+
+/* 「实时预览」和管理下拉并排，两者的行高不同，用 flex 居中对齐 */
+.vt-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vt-actions :deep(.el-button) {
+  margin-left: 0;
 }
 
 .vt-pager {

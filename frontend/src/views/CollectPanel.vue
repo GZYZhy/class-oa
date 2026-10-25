@@ -99,45 +99,47 @@
       <el-table-column label="操作" width="150" fixed="right">
         <template #default="{ row }">
           <!-- 普通参与者去统一填写页；发起人/管理员看实时答卷仍用弹窗 -->
-          <el-button link type="primary" @click="openMainAction(row)">
-            {{ row.can_manage ? '实时预览' : collectionActionText(row) }}
-          </el-button>
-          <el-dropdown
-            v-if="row.can_manage"
-            trigger="click"
-            @command="(cmd) => handleCommand(cmd, row)"
-          >
-            <el-button link type="primary">
-              管理<el-icon><ArrowDown /></el-icon>
+          <div class="cp-actions">
+            <el-button link type="primary" @click="openMainAction(row)">
+              {{ row.can_manage ? '实时预览' : collectionActionText(row) }}
             </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="edit">编辑</el-dropdown-item>
-                <el-dropdown-item command="responses">答卷详情</el-dropdown-item>
-                <!-- 管理入口走弹窗后，仍从这里去统一填写页（自己也要填的时候用） -->
-                <el-dropdown-item command="openFillPage">
-                  {{ row.can_submit ? '去填写' : '打开填写页' }}
-                </el-dropdown-item>
-                <el-dropdown-item command="share">分享</el-dropdown-item>
-                <el-dropdown-item
-                  command="remind"
-                  :disabled="row.status !== 'open' || row.cap_reached"
-                >
-                  提醒未填
-                </el-dropdown-item>
-                <el-dropdown-item command="togglePause" :disabled="!canPause(row)">
-                  {{ row.status === 'paused' ? '恢复收集' : '暂停收集' }}
-                </el-dropdown-item>
-                <el-dropdown-item command="extend" :disabled="!canExtend(row)">
-                  延长5分钟
-                </el-dropdown-item>
-                <el-dropdown-item command="close" :disabled="row.status === 'closed'">
-                  立即结束
-                </el-dropdown-item>
-                <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+            <el-dropdown
+              v-if="row.can_manage"
+              trigger="click"
+              @command="(cmd) => handleCommand(cmd, row)"
+            >
+              <el-button link type="primary">
+                管理<el-icon><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                  <el-dropdown-item command="responses">答卷详情</el-dropdown-item>
+                  <!-- 管理入口走弹窗后，仍从这里去统一填写页（自己也要填的时候用） -->
+                  <el-dropdown-item command="openFillPage">
+                    {{ row.can_submit ? '去填写' : '打开填写页' }}
+                  </el-dropdown-item>
+                  <el-dropdown-item command="share">分享</el-dropdown-item>
+                  <el-dropdown-item
+                    command="remind"
+                    :disabled="row.status !== 'open' || row.cap_reached"
+                  >
+                    提醒未填
+                  </el-dropdown-item>
+                  <el-dropdown-item command="togglePause" :disabled="!canPause(row)">
+                    {{ row.status === 'paused' ? '恢复收集' : '暂停收集' }}
+                  </el-dropdown-item>
+                  <el-dropdown-item command="extend" :disabled="!canExtend(row)">
+                    延长5分钟
+                  </el-dropdown-item>
+                  <el-dropdown-item command="close" :disabled="row.status === 'closed'">
+                    立即结束
+                  </el-dropdown-item>
+                  <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -422,6 +424,17 @@ onMounted(fetchList)
 
 .cp-warn {
   color: var(--el-color-warning);
+}
+
+/* 「实时预览」和管理下拉并排，两者的行高不同，用 flex 居中对齐 */
+.cp-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cp-actions :deep(.el-button) {
+  margin-left: 0;
 }
 
 .cp-pager {
