@@ -178,6 +178,11 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
     window = row.window if row.window in WINDOWS else "tomorrow"
     start, end, date_key = _window_bounds(window, now)
     label = WINDOWS[window]
+    # 「未来 24 小时」比「今天 / 明天」长一截，放进每一条详情开头很容易折行；
+    # 横幅标题里已经写了时段，详情里就省掉这个前缀。今天 / 明天仍保留，
+    # 文案和以前逐字一致。
+    label_prefix = "" if window == "next24h" else label
+    time_prefix = "" if window == "next24h" else f"{label} "
 
     hours = []
     for item in data.get("hourly") or []:
@@ -206,7 +211,7 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
             hits.append({
                 "code": "rain",
                 "title": f"{label}可能有雨",
-                "detail": f"{label} {span} 降雨概率最高 {best[1].get('pop')}%，记得带伞。",
+                "detail": f"{time_prefix}{span} 降雨概率最高 {best[1].get('pop')}%，记得带伞。",
             })
 
     if "snow" in wanted and hours:
@@ -215,7 +220,7 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
             hits.append({
                 "code": "snow",
                 "title": f"{label}有降雪",
-                "detail": f"{label} {snowy[0][0]:%H:%M} 起有降雪，注意路面结冰。",
+                "detail": f"{time_prefix}{snowy[0][0]:%H:%M} 起有降雪，注意路面结冰。",
             })
 
     if "storm" in wanted and hours:
@@ -224,7 +229,7 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
             hits.append({
                 "code": "storm",
                 "title": f"{label}有雷阵雨",
-                "detail": f"{label} {stormy[0][0]:%H:%M} 前后有雷阵雨，尽量减少户外停留。",
+                "detail": f"{time_prefix}{stormy[0][0]:%H:%M} 前后有雷阵雨，尽量减少户外停留。",
             })
 
     if "heat" in wanted:
@@ -233,7 +238,7 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
             hits.append({
                 "code": "heat",
                 "title": f"{label}高温",
-                "detail": f"{label}最高 {max(highs)}°，注意防暑补水。",
+                "detail": f"{label_prefix}最高 {max(highs)}°，注意防暑补水。",
             })
 
     if "cold" in wanted:
@@ -242,7 +247,7 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
             hits.append({
                 "code": "cold",
                 "title": f"{label}低温",
-                "detail": f"{label}最低 {min(lows)}°，注意保暖。",
+                "detail": f"{label_prefix}最低 {min(lows)}°，注意保暖。",
             })
 
     if "wind" in wanted:
@@ -251,7 +256,7 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
             hits.append({
                 "code": "wind",
                 "title": f"{label}大风",
-                "detail": f"{label}阵风可达 {max(winds)} km/h，注意防风。",
+                "detail": f"{label_prefix}阵风可达 {max(winds)} km/h，注意防风。",
             })
 
     return hits, date_key

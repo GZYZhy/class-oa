@@ -126,6 +126,15 @@ def test_current_ok_slims_hourly_and_keeps_tomorrow(monkeypatch):
     monkeypatch.setattr(settings, "weather_lat", "39.9")
     monkeypatch.setattr(settings, "weather_lon", "116.2")
     monkeypatch.setattr(ws, "_fetch", lambda lat, lon: _forecast())
+
+    # 固定「现在」为 07:30：否则测试在 09:00 之后跑会跳过 08:00 那条，
+    # 条数随执行时刻变化。这里断的是裁剪逻辑，不该看钟。
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 25, 7, 30)
+
+    monkeypatch.setattr(ws, "datetime", _FixedDateTime)
     data = ws.current()
     assert data["state"] == "ok"
     assert data["temp"] == 18 and data["feels_like"] == 17
@@ -158,6 +167,9 @@ def test_all_conditions_cross_the_today_and_tomorrow_windows():
     )
     hits, _ = wn.evaluate(data, row, datetime(2026, 10, 25, 8, 0))
     assert [h["code"] for h in hits] == ["rain", "snow", "storm", "heat", "cold", "wind"]
+    # 「未来 24 小时」只在标题里出现一次；详情里不再重复，避免横幅折行
+    assert all("未来 24 小时" not in h["detail"] for h in hits)
+    assert all(h["title"].startswith("未来 24 小时") for h in hits)
 
     # 明天窗口只能看明天的日期，今天的高温不能算进来
     row.window = "tomorrow"
@@ -166,6 +178,8 @@ def test_all_conditions_cross_the_today_and_tomorrow_windows():
     codes = [h["code"] for h in hits]
     assert "rain" in codes and "cold" in codes and "wind" in codes
     assert "heat" not in codes
+    # 明天窗口的详情仍保留「明天」，和以前逐字一致
+    assert all(h["detail"].startswith("明天") for h in hits)
 
 
 def test_quiet_hours_handle_midnight():
