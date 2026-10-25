@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 2.1.6，共 293 个接口。
+> 版本 2.1.7，共 293 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -1584,7 +1584,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `AttendanceRecordResponse` — 成功
-  - 字段：`id`、`call_date`、`scope`、`called_at`、`operator_no`、`operator_name`、`remark`、`total`、`present`、`leave`、`absent`、`items`
+  - 字段：`id`、`call_date`、`scope`、`scope_label`、`called_at`、`operator_no`、`operator_name`、`remark`、`total`、`present`、`late`、`leave`、`absent`、`items`
 
 ### 我的考勤情况（学生本人）
 
@@ -1627,7 +1627,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `AttendanceRecordResponse` — 成功
-  - 字段：`id`、`call_date`、`scope`、`called_at`、`operator_no`、`operator_name`、`remark`、`total`、`present`、`leave`、`absent`、`items`
+  - 字段：`id`、`call_date`、`scope`、`scope_label`、`called_at`、`operator_no`、`operator_name`、`remark`、`total`、`present`、`late`、`leave`、`absent`、`items`
 
 ### 写某次点名的备注（班委及以上）
 
@@ -1650,7 +1650,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `AttendanceRecordResponse` — 成功
-  - 字段：`id`、`call_date`、`scope`、`called_at`、`operator_no`、`operator_name`、`remark`、`total`、`present`、`leave`、`absent`、`items`
+  - 字段：`id`、`call_date`、`scope`、`scope_label`、`called_at`、`operator_no`、`operator_name`、`remark`、`total`、`present`、`late`、`leave`、`absent`、`items`
 
 ### 删除一条考勤记录（班委及以上）
 
@@ -1690,7 +1690,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `AttendanceRecordResponse` — 成功
-  - 字段：`id`、`call_date`、`scope`、`called_at`、`operator_no`、`operator_name`、`remark`、`total`、`present`、`leave`、`absent`、`items`
+  - 字段：`id`、`call_date`、`scope`、`scope_label`、`called_at`、`operator_no`、`operator_name`、`remark`、`total`、`present`、`late`、`leave`、`absent`、`items`
 
 ## 签到
 
@@ -5080,5 +5080,5 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 ```json
-{"status": "ok", "app": "班级信息管理系统", "version": "2.1.6"}
+{"status": "ok", "app": "班级信息管理系统", "version": "2.1.7"}
 ```
