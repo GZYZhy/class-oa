@@ -307,3 +307,95 @@ def test_unwritten_remark_exports_blank(b):
     values = [row[col].value for row in ws.iter_rows(min_row=2)]
     assert all(v is None or v == "" for v in values), f"没写备注的那列应当是空的：{values}"
     assert not any(isinstance(v, str) for v in values), "别把 Python 的 None 当字符串打进单元格"
+
+
+# ---------- 迟到 ----------
+
+def test_late_is_manual_only_and_shows_everywhere(b):
+    """「迟到」只能由班委/管理员事后改状态产生，点名上报收不了它
+
+    这条测试同时盯着三个落点：创建接口的闸门、改状态后的计数、学生端和导出
+    的中文标签。少一处就会出现「后台看着是迟到，学生看到无应答/导出是 late」。
+    """
+    # 1) 点名上报不能直接写 late（界面上也没有这个键）
+    r = b.client.post("/api/attendance", json={
+        "scope": "全班",
+        "records": [{"student_no": ADMIN_NO, "name": "甲", "status": "late"}],
+    })
+    assert r.status_code == 422, f"点名上报不该收迟到，实际 {r.status_code}"
+
+    # 2) 正常点名后，在明细里手动改
+    rid = make_record(b)
+    r = b.client.patch(f"/api/attendance/{rid}/items/{ADMIN_NO}", json={"status": "late"})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert (data["present"], data["late"], data["leave"], data["absent"], data["total"]) == (
+        0, 1, 0, 1, 2,
+    )
+
+    # 3) 列表与详情一致
+    row = next(
+        x for x in b.client.get("/api/attendance").json()["items"] if x["id"] == rid
+    )
+    assert (row["present"], row["late"], row["absent"]) == (0, 1, 1)
+
+    # 4) 学生端标签是「迟到」，不是英文枚举
+    mine = b.client.get("/api/attendance/mine").json()["items"]
+    assert [x["status_label"] for x in mine] == ["迟到"]
+
+    # 5) 导出状态列也显示中文
+    r = b.client.get("/api/attendance/export")
+    assert r.status_code == 200, r.text
+    ws = openpyxl.load_workbook(BytesIO(r.content)).active
+    header = [c.value for c in ws[1]]
+    col = header.index("状态")
+    values = [row[col].value for row in ws.iter_rows(min_row=2)]
+    assert "迟到" in values, f"导出里没有「迟到」：{values}"
+
+    # 6) 操作日志留痕：从「到」改成「迟到」
+    detail = b.rows(
+        "SELECT detail FROM operation_logs WHERE action='修改考勤' ORDER BY id DESC LIMIT 1"
+    )[0][0]
+    assert "到 → 迟到" in detail, detail
+
+
+def test_overview_scope_uses_standard_short_names(b):
+    """列表「范围」只出现全班 / 团员 / 班委 / N人，不直接露原始选项"""
+    make_record(b, scope="全班")
+    ids = {}
+    for scope in ("共青团员", "男生", "班委"):
+        r = b.client.post("/api/attendance", json={
+            "scope": scope,
+            "records": [{"student_no": ADMIN_NO, "name": "甲", "status": "present"}],
+        })
+        assert r.status_code == 200, r.text
+        ids[scope] = r.json()["id"]
+
+    items = b.client.get("/api/attendance/overview").json()["items"]
+    labels = {i["title"]: i["scope_label"] for i in items if i["type"] == "attendance"}
+    assert labels["全班"] == "全班"
+    assert labels["共青团员"] == "团员"
+    assert labels["班委"] == "班委"
+    assert labels["男生"] == "1人"
+
+    # 列表 / 详情 / 导出都用同一套简语
+    row = next(
+        x for x in b.client.get("/api/attendance").json()["items"]
+        if x["id"] == ids["共青团员"]
+    )
+    assert row["scope_label"] == "团员"
+    detail = b.client.get(f"/api/attendance/{ids['共青团员']}").json()
+    assert detail["scope_label"] == "团员"
+
+    r = b.client.get("/api/attendance/export")
+    ws = openpyxl.load_workbook(BytesIO(r.content)).active
+    header = [c.value for c in ws[1]]
+    col = header.index("范围")
+    values = {row[col].value for row in ws.iter_rows(min_row=2)}
+    assert {"全班", "团员", "班委", "1人"} <= values, values
+
+    # 学生端「考勤情况」的参与范围用同一套口径
+    mine = b.client.get("/api/attendance/mine").json()["items"]
+    scopes = {i["scope"] for i in mine}
+    assert "团员" in scopes, scopes
+    assert "1人" in scopes, scopes

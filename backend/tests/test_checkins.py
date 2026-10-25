@@ -374,6 +374,15 @@ def test_scope_says_league_only_when_whole_group(cb):
     assert by_id[("checkin", one["id"])]["scope"] == "1人"
     assert by_id[("checkin", both["id"])]["scope"] == "团员"
 
+    # 班委端合并列表的「范围」列用同一套简语
+    _as_admin(cb)
+    overview = {
+        i["id"]: i for i in cb.client.get("/api/attendance/overview").json()["items"]
+        if i["type"] == "checkin"
+    }
+    assert overview[one["id"]]["scope_label"] == "1人"
+    assert overview[both["id"]]["scope_label"] == "团员"
+
 
 def test_create_rejects_past_end_and_unknown_student(cb):
     past = datetime.now() - timedelta(minutes=1)
@@ -1128,7 +1137,7 @@ def test_export_contains_rollcall_and_checkin_sheets(cb):
 
     # 第一张表里两种记录都在
     scopes = {row[1] for row in wb["考勤记录"].iter_rows(min_row=2, values_only=True)}
-    assert {"签到·1人", "临时集合"} <= scopes
+    assert {"签到·1人", "1人"} <= scopes
 
     # 第二张表带签到本人的时间与最终状态
     header = [c.value for c in wb["签到记录"][1]]
@@ -1180,6 +1189,7 @@ def test_overview_merges_rollcall_and_checkin(cb):
     chk = next(i for i in data["items"] if i["type"] == "checkin")
     assert chk["title"] == "晚点名"
     assert chk["status"] == "ended"
+    assert chk["scope_label"] == "2人"
     assert chk["time"] is not None
     assert chk["link"].endswith(f"/share/checkin/{checkin['code']}")
     # 结算后人数就是标准四计数：签到的算到，没签的算无应答
@@ -1189,6 +1199,7 @@ def test_overview_merges_rollcall_and_checkin(cb):
         i for i in data["items"]
         if i["type"] == "attendance" and i["title"] == "全班"
     )
+    assert rollcall["scope_label"] == "全班"
     assert (rollcall["total"], rollcall["present"], rollcall["leave"], rollcall["absent"]) \
         == (2, 1, 0, 1)
 
@@ -1248,8 +1259,10 @@ def test_export_only_selected_records(cb):
         ids.append(r.json()["id"])
 
     wb = _export(cb, record_ids=[ids[0]], checkin_ids=[c2["id"]])
-    scopes = {row[1] for row in wb["考勤记录"].iter_rows(min_row=2, values_only=True)}
-    assert scopes == {"第一次"}
+    rows = list(wb["考勤记录"].iter_rows(min_row=2, values_only=True))
+    assert len(rows) == 1
+    assert rows[0][1] == "1人"                 # 自定义范围按标准简语导出
+    assert rows[0][4] == PEOPLE[0][0]          # 且确实只导了勾选的那一条
     titles = {row[1] for row in wb["签到记录"].iter_rows(min_row=2, values_only=True)}
     assert titles == {"签到二"}
     assert c1["title"] == "签到一"  # 没被选中的那条确实存在

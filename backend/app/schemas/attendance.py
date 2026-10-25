@@ -4,9 +4,13 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
-# 三种状态的合法取值。前后端各写一份，改的时候两边一起改：
-# 前端在 RollCallDialog.vue / Attendance.vue，这里是入库前的最后一道闸
+# 上报点名时只收这三种。**late（迟到）不在里面**：它只能由班委/管理员事后在
+# 明细里手动标记（AttendanceItemUpdate），不能由点名流程顺手写进去 ——
+# 点名的界面本来也只有「到 / 无应答」两个键。
 STATUS_PATTERN = "^(present|absent|leave)$"
+
+# 事后改状态时多一个迟到。与 STATUS_PATTERN 分开，才能保证「只能手动标记」
+ALL_STATUS_PATTERN = "^(present|absent|leave|late)$"
 
 
 class AttendanceItemIn(BaseModel):
@@ -37,6 +41,8 @@ class AttendanceRecordResponse(BaseModel):
     id: int
     call_date: date
     scope: str
+    # 展示用的标准简语（全班/团员/班委/N人）；原始 scope 仍保留给日志和兼容调用
+    scope_label: str = ""
     called_at: datetime | None = None
     operator_no: str = ""
     operator_name: str = ""
@@ -44,6 +50,8 @@ class AttendanceRecordResponse(BaseModel):
 
     total: int = Field(0, description="应到")
     present: int = 0
+    # 迟到是「到」的子集：页面上的实到 = present + late
+    late: int = Field(0, description="迟到（只能由班委/管理员手动标记）")
     leave: int = 0
     absent: int = 0
 
@@ -69,12 +77,16 @@ class AttendanceOverviewItem(BaseModel):
     time: datetime | None = None
     # 点名的范围 / 签到的标题
     title: str = ""
+    # 列表「范围」列用的标准简语：全班 / 团员 / 班委 / N人。
+    # 点名的原始 scope 可能是「男生」「共青团员」，不直接拿去展示
+    scope_label: str = ""
     operator_name: str = ""
     remark: str = ""
 
     # 点名记录的计数
     total: int = 0
     present: int = 0
+    late: int = Field(0, description="迟到，实到 = present + late")
     leave: int = 0
     absent: int = 0
 
@@ -108,8 +120,8 @@ class MyAttendanceItem(BaseModel):
     title: str = ""
     category: str = Field("", description="点名 / 签到")
     scope: str = Field("", description="全班 / 团员 / 班委 / N人")
-    status: str = Field("", description="present/leave/absent/pending/unsigned")
-    status_label: str = Field("", description="到 / 请假 / 无应答 / 未签到 / 未开始")
+    status: str = Field("", description="present/late/leave/absent/pending/unsigned")
+    status_label: str = Field("", description="到 / 迟到 / 请假 / 无应答 / 未签到 / 未开始")
 
 
 class MyAttendanceListResponse(BaseModel):
@@ -118,8 +130,8 @@ class MyAttendanceListResponse(BaseModel):
 
 
 class AttendanceItemUpdate(BaseModel):
-    """改某人状态"""
-    status: str = Field(..., pattern=STATUS_PATTERN)
+    """改某人状态。**这里是产生「迟到」的唯一入口**（班委/管理员手动标记）"""
+    status: str = Field(..., pattern=ALL_STATUS_PATTERN)
 
 
 class AttendanceRemarkUpdate(BaseModel):
