@@ -57,7 +57,7 @@ router = APIRouter(prefix="/api/certificates", tags=["证明开具"])
 APPROVER_ROLES = ["admin"]
 
 # 附件存放目录。吃环境变量是为了测试能指到临时目录去 —— 不吃的话用例一上传附件
-# 就写进本机演示库的真目录，而且事后没人清得掉（照 PHOTO_DIR / LEAVE_DIR 的先例）
+# 就写进真实数据目录，而且事后没人清得掉（照 PHOTO_DIR / LEAVE_DIR 的先例）
 ATTACH_DIR = Path(os.environ.get("CERT_ATTACH_DIR") or BASE_DIR / "data" / "certificates" / "attachments")
 ATTACH_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -71,7 +71,7 @@ router = APIRouter(prefix="/api/ev-passes", tags=["电动车通行证"])
 APPROVER_ROLES = ["admin"]
 
 # 行驶证与经办班委**签字图副本**存放目录。吃环境变量是为了测试能指到临时目录去 ——
-# 不吃的话接口测试一调「批准（带签字）」就会往本机演示库的真目录里写文件
+# 不吃的话接口测试一调「批准（带签字）」就会往真实数据目录里写文件
 # （照 PHOTO_DIR / LEAVE_DIR 的先例）
 EV_PASS_DIR = Path(os.environ.get("EV_PASS_DIR") or BASE_DIR / "data" / "ev_passes")
 EV_PASS_DIR.mkdir(parents=True, exist_ok=True)

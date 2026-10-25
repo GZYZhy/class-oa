@@ -9,9 +9,9 @@
 1. **挑战（challenge）存在服务端会话里，一次性、限时十分钟**。挑战本身不是秘密，
    但必须由服务端签发并在验证时比对；让前端回传一个「我刚生成的挑战」，
    等于把防重放交给攻击者来保证。
-2. **RP ID / 期望来源从配置或浏览器 Origin 推导**。两个班级各是一个独立实例，
-   要让钥匙只对本站有效：1.example.com 的钥匙不该在 2.example.com 上被提示出来。
-   所以 RP ID 取完整主机名，不取父域 example.com。
+2. **RP ID / 期望来源从配置或浏览器 Origin 推导**。不同部署各自是独立实例，
+    要让钥匙只对本站有效：一个部署的钥匙不该在另一个部署上被提示出来。
+    所以 RP ID 取完整主机名，不取父域。
 3. **登录不需要先输学号**。登记时要求「可发现凭据」，钥匙里带着账号；登录时
    浏览器列出本站的钥匙让用户挑，服务器在验证那一步按凭据 ID 反查持有人。
    凭据 ID 由认证器随机生成、全表唯一，反查结果就是这次登录的账号。
@@ -157,7 +157,7 @@ def register_options(
         user_display_name=account_name(db, user),
         # 要求「可发现凭据」（resident key）：钥匙里同时存下本站的账号，
         # 登录时浏览器就能把本机的钥匙列出来让用户挑，不用先输学号。
-        # RP ID 仍是完整主机名，另一套班级实例的钥匙不会串到这里
+        # RP ID 仍是完整主机名，其他部署的钥匙不会串到这里
         authenticator_selection=AuthenticatorSelectionCriteria(
             resident_key=ResidentKeyRequirement.REQUIRED,
             user_verification=UserVerificationRequirement.PREFERRED,

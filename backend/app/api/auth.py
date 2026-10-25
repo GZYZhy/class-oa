@@ -84,7 +84,7 @@ router = APIRouter(prefix="/api/auth", tags=["认证"])
 # 头像目录：域外账号的头像存这里，学生账号的照片在 data/photos（见 students.py）
 AVATAR_DIR = BASE_DIR / "data" / "avatars"
 # 测试跑的是真后端进程，照片目录也得能像其它文件目录一样被环境变量换走，
-# 否则这里会去读本机演示库的 photos
+# 否则这里会去读真实数据目录里的 photos
 PHOTO_DIR = Path(os.environ.get("PHOTO_DIR") or (BASE_DIR / "data" / "photos"))
 
 # 学生账号头像的照片优先级：自备证件照 > 高考照片 > 实地采集照片。

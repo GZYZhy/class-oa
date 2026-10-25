@@ -37,10 +37,13 @@ services:
       # - SESSION_SECRET_KEY=请改成随机字符串
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      # 启动期 2 秒探一次：前端要等 backend 健康才启动，默认 30 秒的间隔会让
+      # 每次换镜像多出几十秒空窗。健康后恢复 30 秒，避免常态空转。
+      start_interval: 2s
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 60s
 
   # 前端服务
   frontend:
@@ -106,7 +109,8 @@ services:
       # 必须写 127.0.0.1 而不是 localhost：容器里 localhost 同时映射到 ::1，
       # busybox wget 会先试 IPv6，而 nginx 只 listen 了 IPv4，于是永远"连接被拒"
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      start_interval: 2s
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 60s

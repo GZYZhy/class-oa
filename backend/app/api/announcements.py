@@ -42,7 +42,7 @@ from .deps import (
 router = APIRouter(prefix="/api/announcements", tags=["文件公开"])
 
 # 公告 PDF 存放目录。
-# 吃环境变量是为了测试能隔离 —— 不给的话，接口测试一上传公告就把 PDF 写进本机
+# 吃环境变量是为了测试能隔离 —— 不给的话，接口测试一上传公告就把 PDF 写进
 # 真实的数据目录，而且事后没人清得掉（照 PHOTO_DIR / LEAVE_DIR / CERT_*_DIR 的先例）
 ANNOUNCEMENT_DIR = Path(os.environ.get("ANNOUNCEMENT_DIR") or BASE_DIR / "data" / "announcements")
 ANNOUNCEMENT_DIR.mkdir(parents=True, exist_ok=True)
