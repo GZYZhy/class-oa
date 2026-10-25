@@ -48,7 +48,8 @@
       style="margin-top: 16px;"
       empty-text="还没有收集"
     >
-      <el-table-column label="标题" min-width="230">
+      <!-- 标题和下面那行详情都靠左；全局表格规则会把没标方向的列居中 -->
+      <el-table-column label="标题" min-width="230" align="left">
         <template #default="{ row }">
           <div class="cp-title">
             <span>{{ row.title }}</span>

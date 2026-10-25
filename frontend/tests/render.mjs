@@ -4692,6 +4692,8 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
     '投票管理里也能延长5分钟')
 
   const panelSrc = src('/src/views/CollectPanel.vue')
+  check(panelSrc.includes('label="标题" min-width="230" align="left"'),
+    '收集列表的标题和详情靠左，不跟全局表格规则居中')
   const { collectionMyState, collectionActionText } = await server.ssrLoadModule(
     '/src/utils/collection.js'
   )
