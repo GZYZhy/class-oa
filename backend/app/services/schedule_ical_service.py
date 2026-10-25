@@ -18,6 +18,45 @@ from sqlalchemy.orm import Session
 from ..models.schedule import REPEAT_WEEKLY
 from .schedule_service import list_semester_periods, occurrences_between
 
+# 校园常用坐标 → Apple 结构化地点的显示名。
+#
+# 为什么按坐标反查、不用 location 文本：多地点日程的 location 是一整串分组教室
+# （如「a:浩301,广501 b:广…」），直接塞进 X-TITLE 又长又容易被 Apple 再拿去
+# 地理编码；而坐标是补库时已经定好的主地点，用它反查出的名字才和 pin 一致。
+# 以后新增地点在补库时一并补这里；查不到就用原 location 文本兜底。
+_GEO_TITLES = {
+    (39.927123, 116.207772): "教学楼A",
+    (39.927924, 116.205482): "教学楼B",
+    (39.929579, 116.206914): "教学楼C",
+    (39.930125, 116.206675): "教学楼D",
+    (39.928333, 116.206833): "办公楼",
+    (39.925710, 116.206417): "实验楼",
+    (39.928886, 116.209249): "服务中心",
+    (39.929464, 116.206248): "礼堂",
+    (39.926145, 116.205461): "示例大学新操场",
+    (39.926277, 116.205735): "示例大学西区",
+    (39.927424, 116.190589): "示例大学示例园大学生公寓",
+    (39.927225, 116.209075): "示例大学南门",
+    (39.927332, 116.209858): "示例大学宿舍楼",
+}
+
+
+def _apple_location_title(lat: float, lng: float, fallback: str) -> str:
+    """结构化地点的显示名：先按坐标找，找不到退回 location 文本"""
+    title = _GEO_TITLES.get((round(float(lat), 6), round(float(lng), 6)))
+    return title or (fallback or "地点")
+
+
+def _apple_param_text(value: str) -> str:
+    """iCal 参数值：压成一行并加引号，按 RFC 6868 处理 ^ 和双引号
+
+    地点名里可能有逗号、分号、斜杠（分组教室串），引号包起来才不会被当成
+    参数分隔符；Apple 对带引号的 X-TITLE 解析是正常的。
+    """
+    text = " ".join(str(value or "").split())
+    text = text.replace("^", "^^").replace('"', "^'")
+    return f'"{text}"'
+
 
 def generate_ical(
     db: Session,
@@ -159,6 +198,14 @@ def _write_event(buf: StringIO, tpl, day: date, uid: str) -> None:
     # 只在成对存在时写 —— 接口层已经保证不会有单个坐标落库，这里再挡一道
     if tpl.lat is not None and tpl.lng is not None:
         buf.write(f"GEO:{tpl.lat};{tpl.lng}\r\n")
+        # Apple 日历的地图和「出发时间」认的是这个私有属性，不写它的话
+        # 标准 GEO 可能被忽略，仍按 LOCATION 短语重新地理编码（「篮球场」
+        # 会被猜到校外同名场地）。geo: 后面是「纬度,经度」，与标准 GEO 相反
+        title = _apple_location_title(tpl.lat, tpl.lng, tpl.location)
+        buf.write(
+            "X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-APPLE-RADIUS=100;"
+            f"X-TITLE={_apple_param_text(title)}:geo:{tpl.lat},{tpl.lng}\r\n"
+        )
 
     # 描述：优先放备注；导入的事件没有备注时，用「类型：X」补一条，信息不丢
     desc_parts = []

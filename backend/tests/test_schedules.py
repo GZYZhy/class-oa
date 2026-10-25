@@ -2383,14 +2383,39 @@ def test_update_geo_and_repeat_split_keeps_it(b):
 
 
 def test_ical_geo_property(b):
-    """订阅里带标准 GEO 属性（纬度;经度），没坐标的日程不写这一行"""
+    """订阅里带标准 GEO + Apple 结构化地点；没坐标的日程两条都不写
+
+    Apple 日历的交通时间/出发提醒认的是 X-APPLE-STRUCTURED-LOCATION，
+    单有标准 GEO 往往被忽略、仍按 LOCATION 短语重新地理编码。
+    """
     b.client.post("/api/schedules", json=_make_schedule(
         title="有坐标", location="图书馆", lat=39.907501, lng=116.397232,
+    ))
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="校园坐标", location="多地点教室",
+        start="2026-10-14T08:00:00", end="2026-10-14T09:00:00",
+        lat=39.927924, lng=116.205482,
+    ))
+    b.client.post("/api/schedules", json=_make_schedule(
+        title="带引号的地点", location='甲"乙,丙;丁',
+        start="2026-10-15T08:00:00", end="2026-10-15T09:00:00",
+        lat=1.0, lng=2.0,
     ))
     b.client.post("/api/schedules", json=_make_schedule(
         title="没坐标", start="2026-10-13T08:00:00", end="2026-10-13T09:00:00",
     ))
 
-    events = {ev.get("SUMMARY"): ev for ev in _ical_events(_ical_text(b))}
+    text = _ical_text(b)
+    # 折行还原后再比对整条属性（X-APPLE 这行肯定超过 75 字节）
+    flat = text.replace("\r\n ", "")
+    events = {ev.get("SUMMARY"): ev for ev in _ical_events(text)}
     assert events["有坐标"]["GEO"] == "39.907501;116.397232"
+    assert events["有坐标"]["X-APPLE-STRUCTURED-LOCATION"] == "geo:39.907501,116.397232"
+    # 不认识的坐标退回 location 文本
+    assert 'X-TITLE="图书馆":geo:39.907501,116.397232' in flat
+    # 校园坐标按主地点名，不把「多地点教室」原样塞进去
+    assert 'X-TITLE="教学楼B":geo:39.927924,116.205482' in flat
+    # 参数里的双引号按 RFC 6868 编码，逗号/分号在引号内不拆参数
+    assert 'X-TITLE="甲^\'乙,丙;丁":geo:1.0,2.0' in flat
+    assert "X-APPLE-STRUCTURED-LOCATION" not in events["没坐标"]
     assert "GEO" not in events["没坐标"]
