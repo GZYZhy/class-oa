@@ -137,29 +137,8 @@ onMounted(load)
 </script>
 
 <style scoped>
-/* 父组件 MyInfo.vue 的样式是 scoped 的，跨组件不生效，所以这里自带一份。
-   同 .pagination-wrap 那份注释的由来 */
-.collapse-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-}
-
-.collapse-badge {
-  margin-left: 8px;
-  padding: 1px 8px;
-  border-radius: 10px;
-  background: var(--el-color-primary-light-9);
-  color: #409eff;
-  font-size: 12px;
-  font-weight: 400;
-}
-
-/* 配了地址但开关关着：灰色，和「已开启」的蓝色区分开 */
-.collapse-badge.off {
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-secondary);
-}
+/* .collapse-title / .collapse-badge 在 styles/main.css 里统一定义 ——
+   通知设置页五个渠道共用同一套标题样式，各写一份会各自漂移 */
 
 .desc {
   font-size: 12px;

@@ -369,7 +369,7 @@
 
             <!-- ==================== 通知设置 ==================== -->
             <el-tab-pane label="通知设置" name="notify">
-              <div class="tab-section">
+              <div class="tab-section notify-tab">
                 <p class="section-sub" style="margin-bottom: 12px;">
                   按需选择通知方式
                 </p>
@@ -392,8 +392,13 @@
                 </el-alert>
 
                 <!-- ==================== 浏览器通知 ==================== -->
-                <div class="section-title">浏览器通知</div>
-                <div class="section-sub">无需安装，浏览器直接接收</div>
+                <NotifyChannelPanel
+                  name="web"
+                  title="浏览器通知"
+                  sub="无需安装，浏览器直接接收"
+                  :badge="webState === 'on' ? '已开启' : '未开启'"
+                  :badge-off="webState !== 'on'"
+                >
 
                 <!-- 不支持 / 环境限制 -->
                 <el-alert v-if="webState === 'blocked'" type="warning" :closable="false" show-icon>
@@ -447,26 +452,27 @@
                     </template>
                   </div>
                 </template>
+                </NotifyChannelPanel>
 
                 <!-- ==================== 后加的渠道 ====================
                      整块藏在 newChannelsAvailable 后面：新前端配旧后端时这几个接口是 404，
                      与其给用户看半截能用、点一下报错的界面，不如不显示（见 fetchAccountData）。
-                     顺序是「浏览器通知 → 邮件 → Bark → Webhook」：由简到繁，最常用的在前。
-                     渠道之间用一条分割线分开；折叠组件自带的外边框在这一块里关掉，
-                     否则会出现「分割线 + 边框」并排的两条线 -->
-                <el-divider v-if="newChannelsAvailable" />
+                     顺序是「浏览器通知 → 邮件 → Bark → Webhook → 天气提醒」：由简到繁，最常用的在前。
+                     每个渠道是一张**独立折叠卡**（默认全收起），不再用分割线串成一条 -->
 
                 <EmailNotifySetting
                   v-if="newChannelsAvailable"
                   class="notify-channel"
                 />
 
-                <el-divider />
-
                 <!-- ==================== Bark 推送 ==================== -->
-                <div class="notify-channel">
-                  <div class="section-title">Bark 推送</div>
-                  <div class="section-sub">在手机安装 Bark App，填入设备 ID</div>
+                <NotifyChannelPanel
+                  name="bark"
+                  title="Bark 推送"
+                  sub="在手机安装 Bark App，填入设备 ID"
+                  :badge="savedBarkKey ? '已绑定' : '未绑定'"
+                  :badge-off="!savedBarkKey"
+                >
 
                   <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px;">
                     <template #title>怎么拿到设备 ID</template>
@@ -492,16 +498,12 @@
                       解除绑定
                     </el-button>
                   </div>
-                </div>
-
-                <el-divider v-if="newChannelsAvailable" />
+                </NotifyChannelPanel>
 
                 <WebhookSetting
                   v-if="newChannelsAvailable"
                   class="notify-channel"
                 />
-
-                <el-divider />
 
                 <!-- 天气提醒：和上面的推送渠道是两件事 —— 上面决定「发到哪」，
                      这里决定「什么天气发给我」。所以不受 newChannelsAvailable 限制 -->
@@ -747,6 +749,7 @@ import { getMyAttendance } from '@/api/attendance'
 import { getWebhookSetting } from '@/api/notifyChannels'
 import WebhookSetting from '@/components/WebhookSetting.vue'
 import WeatherNotifySetting from '@/components/WeatherNotifySetting.vue'
+import NotifyChannelPanel from '@/components/NotifyChannelPanel.vue'
 import SignaturePadDialog from '@/components/SignaturePadDialog.vue'
 import Watermark from '@/components/Watermark.vue'
 import { useWatermark } from '@/composables/useWatermark'
@@ -1533,11 +1536,17 @@ onMounted(async () => {
   border-top: 0;
 }
 
-/* 通知设置里的渠道块之间由 el-divider 分开；折叠组件自带上下边框，
-   留在这里会和分割线并排成两条线，所以在这一块里关掉 */
-.notify-channel :deep(.el-collapse) {
-  border-top: 0;
-  border-bottom: 0;
+/* 通知设置：每个渠道是一张独立的折叠卡（默认全收起）。
+   选择器特意带上 .notify-channel，是为了压过上面那条「相邻两块去掉上边框」的规则 ——
+   那条是给账号安全的三块用的，通知页每张卡互不相连，四条边都得在 */
+.notify-tab .notify-channel:deep(.el-collapse) {
+  border: 1px solid var(--app-line);
+  border-radius: 14px;
+}
+
+/* 卡片之间留一道缝，别再靠分割线串成一条 */
+.notify-tab > * + * {
+  margin-top: 12px;
 }
 
 /* 「退出登录」复用 addable 的 add-icon 槽（见模板注释），把默认的 20×20 加号

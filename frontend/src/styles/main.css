@@ -419,6 +419,31 @@ html.dark .el-overlay {
   text-align: center;
 }
 
+/* 通知渠道折叠面板的标题行：标题 + 状态徽章。
+   放在全局而不是各组件里 —— 通知设置页有五个渠道（浏览器 / 邮件 / Bark / Webhook / 天气），
+   各自 scoped 一份就会各写各的字号，展开收起时看着像两种控件 */
+.collapse-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.collapse-badge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* 关闭状态：灰色，和「已开启」的蓝色区分开 */
+.collapse-badge.off {
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+}
+
 /* ============ 折叠面板：圆角容器 + 细线分隔 ============
    通知公告列表、我的信息里的设置项都是 el-collapse。它默认整块铺
    `--el-fill-color-blank`（浅色下是纯白），卡片一透就是一整片死白；
