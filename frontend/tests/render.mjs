@@ -4410,16 +4410,23 @@ console.log('\n▶ 账号安全：三块折叠面板之间不再叠分割线')
   check(src.includes('.channel-block + .channel-block :deep(.el-collapse)'),
     '相邻折叠面板去掉后一块的上边框，避免两条线并排')
 
-  // 通知设置：渠道顺序改为 邮件 → Bark → Webhook，且不再叠 el-divider
+  // 通知设置：每个渠道一张独立折叠卡（默认全收起），不再用 el-divider 串成一条
   const notify = src.slice(src.indexOf('后加的渠道'), src.indexOf('我的日志'))
   const iEmail = notify.indexOf('EmailNotifySetting')
   const iBark = notify.indexOf('Bark 推送')
   const iHook = notify.indexOf('WebhookSetting')
   check(iEmail > 0 && iBark > iEmail && iHook > iBark,
     '通知渠道顺序：电子邮件 → Bark → Webhook')
-  check(notify.includes('<el-divider'), '渠道之间保留一条分割线')
-  check(src.includes('.notify-channel :deep(.el-collapse)'),
-    '折叠块自带的外边框在通知设置里关掉，避免和分割线并排成双线')
+  check(!notify.includes('<el-divider'), '渠道之间不再用 el-divider 串成一条')
+  check(notify.includes('<NotifyChannelPanel'), '浏览器通知 / Bark 用统一的折叠外壳包起来')
+  check(src.includes('.notify-tab .notify-channel:deep(.el-collapse)'),
+    '通知设置里每张折叠卡保留完整边框（相邻渠道不会吃掉上边框）')
+
+  // 默认收起：外壳和三个自带状态的组件都必须是空数组
+  for (const name of ['NotifyChannelPanel', 'EmailNotifySetting', 'WebhookSetting', 'WeatherNotifySetting']) {
+    const body = readFileSync(`${ROOT}/src/components/${name}.vue`, 'utf8')
+    check(/const active = ref\(\[\]\)/.test(body), `${name} 默认收起（active 为空数组）`)
+  }
 }
 
 console.log('\n▶ 登录与账号操作：事件都映射成中文')

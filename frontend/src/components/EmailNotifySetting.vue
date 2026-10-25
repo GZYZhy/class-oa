@@ -1,33 +1,45 @@
 <template>
   <div class="channel-block">
-    <div class="section-title">电子邮件通知</div>
-    <div class="section-sub">发到你的邮箱，不用装 App，也不用打开浏览器</div>
+    <!-- 通知设置页的每个渠道都是一张折叠卡，默认收起；
+         标题旁的徽章让「收起状态」也能看出这个渠道开没开 -->
+    <el-collapse v-model="active">
+      <el-collapse-item name="email">
+        <template #title>
+          <span class="collapse-title">电子邮件通知</span>
+          <span class="collapse-badge" :class="{ off: !smtpEnabled || !form.enabled }">
+            {{ !smtpEnabled ? '不可用' : form.enabled ? '已开启' : '未开启' }}
+          </span>
+        </template>
 
-    <!-- 管理员没把 SMTP 配齐时全站没人能收到邮件。与其让用户对着一个存得下、
-         按钮也点得动、就是不来信的开关，不如直接说清楚并置灰 -->
-    <el-alert v-if="!smtpEnabled" type="info" :closable="false" show-icon style="margin-bottom: 16px;">
-      <template #title>管理员还没有配置发信服务（SMTP），此渠道暂不可用</template>
-      等管理员配好之后，这里的开关会自动变成可用的，你到时再打开就行。
-    </el-alert>
+        <div class="panel-sub">发到你的邮箱，不用装 App，也不用打开浏览器</div>
 
-    <el-form :model="form" label-width="100px" :disabled="!smtpEnabled || busy">
-      <el-form-item label="接收邮箱">
-        <el-input v-model="form.email" :placeholder="emailPlaceholder" clearable />
-      </el-form-item>
-      <el-form-item label="开启通知">
-        <el-switch v-model="form.enabled" />
-        <span class="desc" style="margin-left: 12px;">打开后才会给你发邮件</span>
-      </el-form-item>
-    </el-form>
+        <!-- 管理员没把 SMTP 配齐时全站没人能收到邮件。与其让用户对着一个存得下、
+             按钮也点得动、就是不来信的开关，不如直接说清楚并置灰 -->
+        <el-alert v-if="!smtpEnabled" type="info" :closable="false" show-icon style="margin-bottom: 16px;">
+          <template #title>管理员还没有配置发信服务（SMTP），此渠道暂不可用</template>
+          等管理员配好之后，这里的开关会自动变成可用的，你到时再打开就行。
+        </el-alert>
 
-    <div class="actions">
-      <el-button size="small" :disabled="!smtpEnabled" :loading="testing" @click="handleTest">
-        发送测试
-      </el-button>
-      <el-button type="primary" size="small" :disabled="!smtpEnabled" :loading="saving" @click="handleSave">
-        保存
-      </el-button>
-    </div>
+        <el-form :model="form" label-width="100px" :disabled="!smtpEnabled || busy">
+          <el-form-item label="接收邮箱">
+            <el-input v-model="form.email" :placeholder="emailPlaceholder" clearable />
+          </el-form-item>
+          <el-form-item label="开启通知">
+            <el-switch v-model="form.enabled" />
+            <span class="desc" style="margin-left: 12px;">打开后才会给你发邮件</span>
+          </el-form-item>
+        </el-form>
+
+        <div class="actions">
+          <el-button size="small" :disabled="!smtpEnabled" :loading="testing" @click="handleTest">
+            发送测试
+          </el-button>
+          <el-button type="primary" size="small" :disabled="!smtpEnabled" :loading="saving" @click="handleSave">
+            保存
+          </el-button>
+        </div>
+      </el-collapse-item>
+    </el-collapse>
   </div>
 </template>
 
@@ -38,6 +50,9 @@ import { useUserStore } from '@/store/user'
 import { getEmailNotifySetting, saveEmailNotifySetting, testEmailNotify } from '@/api/notifyChannels'
 
 const userStore = useUserStore()
+
+// 空数组 = 收起
+const active = ref([])
 
 const form = reactive({ email: '', enabled: false })
 // 学生档案里**可用**的邮箱，留空时回退到它。域外账号没有档案，后端回空串
@@ -104,14 +119,8 @@ onMounted(load)
 
 <style scoped>
 /* 父组件 MyInfo.vue 的样式是 scoped 的，跨组件不生效，所以这里自带一份 */
-.section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-}
-
-.section-sub {
-  margin: 2px 0 12px;
+.panel-sub {
+  margin-bottom: 12px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
