@@ -4108,9 +4108,14 @@ console.log('\n▶ 弱网首屏：图表库按需且不挡首页，图标不整�
   const { html, warns } = await render('/src/views/Dashboard.vue')
   const body = stripComments(html)
   check(body.includes('class="dashboard"'), '首页真渲染出来了（图表库动态引入之前这一页渲染不了）')
-  // 两个饼图容器：SSR 里当然是空的（数据要等接口，图要等图表库），
-  // 但容器在不在决定了图有没有地方画 —— 容器被 v-if 掉的话客户端也补不回来
-  check((body.match(/chart-container/g) || []).length === 2, '性别/政治面貌两个饼图容器都渲染出来了')
+  // 图表容器：SSR 里当然是空的（数据要等接口，图要等图表库），
+  // 但容器在不在决定了图有没有地方画 —— 容器被 v-if 掉的话客户端也补不回来。
+  // 政治面貌那张饼图已换成天气卡，所以只剩性别这一个容器
+  check((body.match(/chart-container/g) || []).length === 1, '性别饼图容器还在（政治面貌已换成天气卡）')
+  // 天气卡：SSR 时 weather 还是 null，走的是「未配置/取不到」那条占位分支，
+  // 卡片本身必须渲染出来，否则客户端拿到数据也没地方放
+  check(body.includes('weather-card') && body.includes('weather-body'),
+    '天气卡渲染出来了（数据等接口）')
   // 只盯图标：这个桩环境没装 vue-router，router-link 解析不到是桩的事，和图标无关
   const unresolved = warns
     .map((w) => (w.match(/Failed to resolve component: (\w+)/) || [])[1])

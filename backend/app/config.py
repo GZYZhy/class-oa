@@ -161,6 +161,16 @@ class Settings(BaseSettings):
     # 发件人地址。留空则用 smtp_user
     smtp_from: str = ""
 
+    # ---------- 首页天气卡 ----------
+    # 数据来自 Open-Meteo（免费、无需 Key、非商业可自用），服务端取数并缓存，
+    # 浏览器不直连外部接口（CSP 也只允许连自家后端）。
+    # **经纬度留空即整卡降级为「天气未配置」占位，且不会外呼。**
+    weather_name: str = Field(default="", validation_alias=AliasChoices("WEATHER_NAME"))
+    weather_lat: str = Field(default="", validation_alias=AliasChoices("WEATHER_LAT"))
+    weather_lon: str = Field(default="", validation_alias=AliasChoices("WEATHER_LON"))
+    # 点开卡片跳转的天气网站。留空则卡片不可点
+    weather_site_url: str = Field(default="", validation_alias=AliasChoices("WEATHER_SITE_URL"))
+
     class Config:
         # 先找项目根目录的 .env（部署时统一放根目录），再找当前目录的 .env（本地开发直接在 backend/ 里跑）
         env_file = ["../.env", ".env"]

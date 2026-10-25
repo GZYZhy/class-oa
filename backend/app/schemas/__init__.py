@@ -211,6 +211,14 @@ from .grade import (
     MyGradeItem,
 )
 
+from .weather import (
+    WeatherBannerResponse,
+    WeatherBannerSettingsUpdate,
+    WeatherNotifyOption,
+    WeatherNotifySettingsResponse,
+    WeatherNotifySettingsUpdate,
+)
+
 __all__ = [
     "StudentBase",
     "StudentCreate",
@@ -220,6 +228,11 @@ __all__ = [
     "StudentCreateResponse",
     "DrawLogRequest",
     "student_response",
+    "WeatherBannerResponse",
+    "WeatherBannerSettingsUpdate",
+    "WeatherNotifyOption",
+    "WeatherNotifySettingsResponse",
+    "WeatherNotifySettingsUpdate",
     "AnnouncementResponse",
     "NoticeCreate",
     "NoticeResponse",

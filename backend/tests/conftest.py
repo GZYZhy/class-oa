@@ -168,6 +168,13 @@ def backend(tmp_path):
                 # 同理。配了公网地址后，所有「链接」类断言都会拿到生产域名，
                 # 而不是这次临时起在 127.0.0.1 上的服务
                 "PUBLIC_BASE_URL": "",
+                # 天气：默认置空 = 不配置、不外呼。仓库根 .env 里可能配了真实经纬度，
+                # 不隔离的话接口测试会真的去打 Open-Meteo，既慢又看网络脸色
+                "WEATHER_NAME": "",
+                "WEATHER_LAT": "",
+                "WEATHER_LON": "",
+                "WEATHER_SITE_URL": "",
+                "WEATHER_NOTIFY_SCHEDULER": "0",
                 **env,
             },
             stdout=subprocess.PIPE,

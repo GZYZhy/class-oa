@@ -292,3 +292,20 @@ export function saveAboutConfig(data) {
     data
   })
 }
+
+// ==================== 首页天气横幅 ====================
+
+/**
+ * 广播横幅（仅管理员）
+ *
+ * 和「个人天气提醒」共用同一套判断，只是受众是所有人、显示在首页。
+ * 响应里的 preview_active / preview_lines 是按**当前**预报算的，
+ * 保存完就能知道今天到底会不会冒出来。
+ */
+export function getWeatherBanner() {
+  return request({ url: '/admin/weather-banner', method: 'get' })
+}
+
+export function saveWeatherBanner(data) {
+  return request({ url: '/admin/weather-banner', method: 'put', data })
+}

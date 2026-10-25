@@ -687,6 +687,46 @@
         </div>
       </el-tab-pane>
 
+      <!-- ============ 天气横幅 ============ -->
+      <el-tab-pane label="天气横幅" name="weather">
+        <div v-loading="loadingWeatherBanner" class="about-admin-body">
+          <section class="about-admin-block">
+            <div class="about-admin-head">
+              <span class="about-admin-title">首页广播横幅</span>
+              <el-switch v-model="weatherBanner.enabled" />
+            </div>
+            <p class="tip">
+              命中条件时，首页顶部会显示一条和生日横幅并列的提示，所有访客都看得到。
+              判断逻辑与「个人天气提醒」完全一致；横幅不发推送，所以不需要去重。
+            </p>
+
+            <WeatherRuleForm
+              :rule="weatherBanner"
+              :meta="weatherMeta"
+              :disabled="!weatherBanner.enabled"
+            />
+
+            <div class="weather-preview" :class="{ on: bannerPreview.active }">
+              <el-icon><component :is="bannerPreview.active ? 'Warning' : 'InfoFilled'" /></el-icon>
+              <span v-if="bannerPreview.active">
+                按当前预报会显示：{{ bannerPreview.lines.join('；') }}
+              </span>
+              <span v-else>按当前预报不会显示（条件没命中）</span>
+            </div>
+          </section>
+
+          <div class="about-admin-actions">
+            <el-button
+              type="primary"
+              :loading="savingWeatherBanner"
+              @click="handleSaveWeatherBanner"
+            >
+              保存
+            </el-button>
+          </div>
+        </div>
+      </el-tab-pane>
+
       <!--
         只有班委及以上能分配日程，但这一页是给管理员收拾烂摊子用的，所以按管理员
         收口（本页面在系统管理里，路由 meta.role 已经是 admin）。后端接口权限照旧
@@ -972,7 +1012,9 @@ import {
   extractWatermark,
   getDataHealth,
   getAboutConfig,
-  saveAboutConfig
+  saveAboutConfig,
+  getWeatherBanner,
+  saveWeatherBanner
 } from '@/api/admin'
 import {
   getBirthdaySettings,
@@ -984,6 +1026,7 @@ import { ROLE_LABELS } from '@/utils/roles'
 import { formatDateTime } from '@/utils/format'
 import { useIsMobile } from '@/composables/useIsMobile'
 import ScheduleBatchPanel from '@/components/ScheduleBatchPanel.vue'
+import WeatherRuleForm from '@/components/WeatherRuleForm.vue'
 import AccountEventTag from '@/components/AccountEventTag.vue'
 
 // 手机上操作列只直显这一个按钮，其余收进「更多」下拉。想换直显项改这里一个词
@@ -1662,6 +1705,7 @@ function handleTabChange(name) {
   }
   if (name === 'birthday' && !birthdayLoaded.value) fetchBirthdaySettings()
   if (name === 'about' && !aboutLoaded.value) fetchAboutConfig()
+  if (name === 'weather' && !weatherBannerLoaded.value) fetchWeatherBanner()
   // 体检每次都重查：脏数据是改完才没的，缓存住上次的结果反而误导人
   if (name === 'health') fetchHealth()
 }
@@ -1903,6 +1947,65 @@ async function moveResourceCategory(index, direction) {
     fetchResources()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '调整分类顺序失败')
+  }
+}
+
+// ---------- 天气横幅 ----------
+const weatherBannerLoaded = ref(false)
+const loadingWeatherBanner = ref(false)
+const savingWeatherBanner = ref(false)
+// 字段名与个人天气提醒一致（后端共用同一套判断）
+const weatherBanner = reactive({
+  enabled: false,
+  conditions: ['rain'],
+  rain_threshold: 60,
+  heat_threshold: 35,
+  cold_threshold: 0,
+  wind_threshold: 39,
+  window: 'today'
+})
+// 可选条件 / 时段的中文标签由后端给
+const weatherMeta = reactive({ conditions: [], windows: [] })
+// 按当前预报的即时判断，保存后立刻能看到结果
+const bannerPreview = reactive({ active: false, lines: [] })
+
+async function fetchWeatherBanner() {
+  loadingWeatherBanner.value = true
+  try {
+    const data = await getWeatherBanner()
+    weatherBanner.enabled = !!data.enabled
+    weatherBanner.conditions = data.conditions || []
+    weatherBanner.rain_threshold = data.rain_threshold
+    weatherBanner.heat_threshold = data.heat_threshold
+    weatherBanner.cold_threshold = data.cold_threshold
+    weatherBanner.wind_threshold = data.wind_threshold
+    weatherBanner.window = data.window || 'today'
+    weatherMeta.conditions = data.available_conditions || []
+    weatherMeta.windows = data.windows || []
+    bannerPreview.active = !!data.preview_active
+    bannerPreview.lines = data.preview_lines || []
+    weatherBannerLoaded.value = true
+  } catch (e) {
+    ElMessage.error('天气横幅配置加载失败')
+  } finally {
+    loadingWeatherBanner.value = false
+  }
+}
+
+async function handleSaveWeatherBanner() {
+  if (weatherBanner.enabled && !weatherBanner.conditions.length) {
+    return ElMessage.warning('至少要选一种天气')
+  }
+  savingWeatherBanner.value = true
+  try {
+    const res = await saveWeatherBanner({ ...weatherBanner })
+    bannerPreview.active = !!res.preview_active
+    bannerPreview.lines = res.preview_lines || []
+    ElMessage.success('已保存')
+  } catch (e) {
+    ElMessage.error('保存失败')
+  } finally {
+    savingWeatherBanner.value = false
   }
 }
 
@@ -2169,6 +2272,27 @@ onMounted(() => {
 
 .about-admin-block .tip {
   margin: 0 0 12px;
+}
+
+.weather-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--app-outline);
+}
+
+/* 会显示时给一点存在感：管理员一眼知道「保存下去首页就会出现」 */
+.weather-preview.on {
+  color: var(--app-secondary-deep);
+  background: var(--app-secondary-soft);
+  border-color: var(--app-secondary-border);
 }
 
 .about-admin-actions {
