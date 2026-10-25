@@ -4856,6 +4856,19 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   '收集：管理员/发起人主按钮打开实时答卷弹窗')
   check(/command="openFillPage"/.test(panelSrc), '管理下拉仍保留去填写页的入口')
 
+  // 列表可读性：标题与说明靠左；操作列两个入口用 flex 居中对齐
+  check(/<el-table-column label="标题"[^>]*align="left"/.test(voteListSrc),
+    '投票列表的标题与详情靠左')
+  check(voteListSrc.includes('class="vt-actions"') &&
+    /\.vt-actions \{[^}]*align-items: center/.test(voteListSrc),
+  '投票的「实时预览 / 管理」纵向对齐')
+  check(panelSrc.includes('class="cp-actions"') &&
+    /\.cp-actions \{[^}]*align-items: center/.test(panelSrc),
+  '收集的「实时预览 / 管理」纵向对齐')
+  // 不记名投票没有「选择」列，其余列全是固定宽度时表格会缩在左边
+  check(voteListSrc.includes('label="投票时间" min-width="170"'),
+    '投票名单的时间列可随弹窗宽度伸展')
+
   // 所有打开分享页的入口都开新标签：列表的填写/投票、管理下拉、站内信
   check(panelSrc.includes("openShareInNewTab('collect'"),
     '收集列表的填写入口在新标签页打开分享页')
