@@ -733,6 +733,35 @@
 
           <section class="about-admin-block">
             <div class="about-admin-head">
+              <span class="about-admin-title">天气网站与提醒</span>
+            </div>
+            <p class="tip">
+              天气卡点开后跳转的网站，留空则卡片不可点。
+              巡检间隔决定天气提醒多久检查一次预报（1–168 小时），改小会更及时，但外呼也更频繁。
+            </p>
+            <el-form label-width="96px" class="weather-place-form">
+              <el-form-item label="天气网站">
+                <el-input
+                  v-model="weatherBanner.site_url"
+                  maxlength="500"
+                  placeholder="https://www.qweather.com/weather/…"
+                />
+              </el-form-item>
+              <el-form-item label="巡检间隔">
+                <el-input-number
+                  v-model="weatherBanner.notify_interval_hours"
+                  :min="1"
+                  :max="168"
+                  :precision="0"
+                  class="weather-coord"
+                />
+                <span class="weather-unit">小时</span>
+              </el-form-item>
+            </el-form>
+          </section>
+
+          <section class="about-admin-block">
+            <div class="about-admin-head">
               <span class="about-admin-title">首页广播横幅</span>
               <el-switch v-model="weatherBanner.enabled" />
             </div>
@@ -2000,6 +2029,8 @@ const weatherBanner = reactive({
   name: '',
   lat: null,
   lng: null,
+  site_url: '',
+  notify_interval_hours: 6,
   enabled: false,
   conditions: ['rain'],
   rain_threshold: 60,
@@ -2021,6 +2052,8 @@ async function fetchWeatherBanner() {
     weatherBanner.name = data.name || ''
     weatherBanner.lat = data.lat ?? null
     weatherBanner.lng = data.lng ?? null
+    weatherBanner.site_url = data.site_url || ''
+    weatherBanner.notify_interval_hours = data.notify_interval_hours ?? 6
     weatherBanner.enabled = !!data.enabled
     weatherBanner.conditions = data.conditions || []
     weatherBanner.rain_threshold = data.rain_threshold
@@ -2328,6 +2361,11 @@ onMounted(() => {
 
 .weather-coord {
   width: 220px;
+}
+
+.weather-unit {
+  margin-left: 8px;
+  color: var(--el-text-color-regular);
 }
 
 .weather-preview {

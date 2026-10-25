@@ -27,6 +27,16 @@ class WeatherBannerSettings(Base):
     )
     lat = Column(Float, nullable=True, comment="纬度，空=未配置")
     lng = Column(Float, nullable=True, comment="经度，空=未配置")
+    # 天气卡点开的网站；空 = 卡片不可点
+    site_url = Column(
+        String(500), nullable=False, default="", server_default=text("('')"),
+        comment="天气卡跳转的网站地址",
+    )
+    # 天气提醒任务的巡检间隔（小时）；原先是环境变量 WEATHER_NOTIFY_INTERVAL_HOURS
+    notify_interval_hours = Column(
+        Float, nullable=False, default=6.0, server_default=text("6.0"),
+        comment="天气提醒巡检间隔（小时）",
+    )
 
     # 默认关：横幅是给所有人看的，管理员明确打开才显示
     enabled = Column(

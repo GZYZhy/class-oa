@@ -76,8 +76,8 @@ def weather_tick(now: datetime | None = None) -> bool:
     """天气提醒一轮；返回这轮是否真的执行了
 
     和生日那个 tick 的区别：生日是「每天一次、到点就补」，这里按**间隔**跑
-    （默认 6 小时），所以只需要记住上一次跑的时刻。间隔是运维旋钮
-    （WEATHER_NOTIFY_INTERVAL_HOURS），不是用户设置。
+    （默认 6 小时），所以只需要记住上一次跑的时刻。间隔由管理员配置，
+    不是每个用户的设置。
 
     同样必须自己开会话（请求级的 get_db 在响应之后就关了），并且这一轮里
     所有用户的判断与发送都复用这一张会话。
@@ -86,13 +86,15 @@ def weather_tick(now: datetime | None = None) -> bool:
     now = now or datetime.now()
     if not weather_notify_service.scheduler_enabled():
         return False
-    gap = timedelta(hours=weather_notify_service.interval_hours())
-    if _last_weather_run is not None and now - _last_weather_run < gap:
-        return False
 
-    _last_weather_run = now
     db = SessionLocal()
     try:
+        # 间隔由管理员配置（原先是 WEATHER_NOTIFY_INTERVAL_HOURS），每次巡检现读
+        gap = timedelta(hours=weather_notify_service.interval_hours(db))
+        if _last_weather_run is not None and now - _last_weather_run < gap:
+            return False
+
+        _last_weather_run = now
         sent = weather_notify_service.run_once(db, now=now)
         if sent:
             print(f"[天气提醒] 本轮发出 {sent} 条", flush=True)

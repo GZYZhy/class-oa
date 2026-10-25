@@ -175,6 +175,7 @@ def test_place_comes_from_admin_settings(tmp_path, monkeypatch):
     try:
         db.add(WeatherBannerSettings(
             id=1, name="测试地点", lat=39.9, lng=116.2,
+            site_url="https://example.com/weather", notify_interval_hours=3,
             enabled=False, conditions="", window="today", ignore_night=True,
         ))
         db.commit()
@@ -183,6 +184,8 @@ def test_place_comes_from_admin_settings(tmp_path, monkeypatch):
         data = ws.current(db)
         assert data["state"] == "ok"
         assert data["name"] == "测试地点"
+        assert data["site_url"] == "https://example.com/weather"
+        assert wn.interval_hours(db) == 3
         assert (data["low"], data["high"]) == (10, 36)
 
         # 只填一个坐标：invalid；两个都清空：unconfigured
@@ -208,10 +211,14 @@ def test_put_banner_persists_place(tmp_path):
     try:
         wn.put_banner(db, WeatherBannerSettingsUpdate(
             name="示例大学", lat=39.9273, lng=116.1998,
+            site_url="https://example.com/weather", notify_interval_hours=12,
             enabled=False, window="today",
         ))
         row = db.get(WeatherBannerSettings, 1)
         assert (row.name, row.lat, row.lng) == ("示例大学", 39.9273, 116.1998)
+        assert (row.site_url, row.notify_interval_hours) == (
+            "https://example.com/weather", 12,
+        )
     finally:
         db.close()
 
@@ -384,6 +391,8 @@ def test_banner_settings_are_admin_only_and_persist(wb):
     assert default["enabled"] is False
     assert default["name"] == ""
     assert default["lat"] is None and default["lng"] is None
+    assert default["site_url"] == ""
+    assert default["notify_interval_hours"] == 6
     assert default["window"] == "today"
     assert default["ignore_night"] is True, "横幅也默认忽略夜间天气"
     assert default["preview_active"] is False  # 没配坐标，取不到预报就不显示
@@ -395,9 +404,15 @@ def test_banner_settings_are_admin_only_and_persist(wb):
     assert r.status_code == 400
     r = wb.client.put("/api/admin/weather-banner", json={"lat": 39.9, "lng": 181})
     assert r.status_code == 400
+    r = wb.client.put("/api/admin/weather-banner", json={"site_url": "www.qweather.com"})
+    assert r.status_code == 400
+    r = wb.client.put("/api/admin/weather-banner", json={"notify_interval_hours": 0})
+    assert r.status_code == 400
 
     r = wb.client.put("/api/admin/weather-banner", json={
         "name": "示例大学",
+        "site_url": "https://www.qweather.com/weather/shijingshan-101011000.html",
+        "notify_interval_hours": 8,
         "enabled": True,
         "conditions": ["rain", "heat"],
         "rain_threshold": 75,
@@ -410,6 +425,8 @@ def test_banner_settings_are_admin_only_and_persist(wb):
     assert r.status_code == 200, r.text
     saved = wb.client.get("/api/admin/weather-banner").json()
     assert saved["name"] == "示例大学"
+    assert saved["site_url"] == "https://www.qweather.com/weather/shijingshan-101011000.html"
+    assert saved["notify_interval_hours"] == 8
     assert saved["enabled"] is True
     assert saved["conditions"] == ["rain", "heat"]
     assert saved["rain_threshold"] == 75

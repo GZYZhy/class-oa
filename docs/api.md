@@ -5046,7 +5046,7 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 - `200` `WeatherBannerResponse` — 成功
-  - 字段：`name`、`lat`、`lng`、`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`ignore_night`、`available_conditions`、`windows`、`preview_active`、`preview_lines`
+  - 字段：`name`、`lat`、`lng`、`site_url`、`notify_interval_hours`、`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`ignore_night`、`available_conditions`、`windows`、`preview_active`、`preview_lines`
 
 ### 保存首页天气横幅配置（仅管理员）
 
@@ -5059,6 +5059,8 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 | `name` | string | 否 | 天气卡显示的地点名称 |
 | `lat` | number，可空 | 否 | 纬度；与 lng 同时给 |
 | `lng` | number，可空 | 否 | 经度；与 lat 同时给 |
+| `site_url` | string | 否 | 天气卡跳转的网站，空=不可点 |
+| `notify_interval_hours` | number（默认 6） | 否 | 天气提醒巡检间隔（小时） |
 | `enabled` | boolean | 否 |  |
 | `conditions` | string[] | 否 |  |
 | `rain_threshold` | integer（默认 60） | 否 |  |

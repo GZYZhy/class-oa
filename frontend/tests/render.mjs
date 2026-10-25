@@ -4148,6 +4148,10 @@ console.log('\n▶ 弱网首屏：图表库按需且不挡首页，图标不整�
   '管理员能改天气卡的显示名和经纬度')
   check(adminSrc.includes('经纬度要一起填'),
     '管理员只填一个坐标时会提示经纬度要成对')
+  // 网站地址和巡检间隔也归管理员，不再只靠 .env
+  check(['site_url', 'notify_interval_hours'].every(
+    (k) => adminSrc.includes(`weatherBanner.${k}`)),
+  '天气网站和巡检间隔也能在后台改')
   // 只盯图标：这个桩环境没装 vue-router，router-link 解析不到是桩的事，和图标无关
   const unresolved = warns
     .map((w) => (w.match(/Failed to resolve component: (\w+)/) || [])[1])

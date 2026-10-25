@@ -1444,6 +1444,8 @@ def read_weather_banner(_: User = Depends(admin_required), db: Session = Depends
         name=row.name or "",
         lat=row.lat,
         lng=row.lng,
+        site_url=row.site_url or "",
+        notify_interval_hours=float(row.notify_interval_hours or 6),
         enabled=bool(row.enabled),
         conditions=weather_notify_service.parse_conditions(row.conditions),
         rain_threshold=row.rain_threshold,
@@ -1478,6 +1480,11 @@ def save_weather_banner(
         -90 <= data.lat <= 90 and -180 <= data.lng <= 180
     ):
         raise HTTPException(status_code=400, detail="经纬度超出合法范围")
+    # 留空 = 天气卡不可点；填了就必须是能直接打开的 http(s) 地址
+    if data.site_url and not data.site_url.strip().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="天气网站要以 http:// 或 https:// 开头")
+    if not 1 <= data.notify_interval_hours <= 168:
+        raise HTTPException(status_code=400, detail="巡检间隔要在 1–168 小时之间")
 
     weather_notify_service.put_banner(db, data)
     # 地点可能刚改过：丢掉按旧坐标缓存的预报，下一轮/下一次打开首页立即按新地点取

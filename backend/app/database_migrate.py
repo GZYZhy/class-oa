@@ -113,6 +113,8 @@ NEW_COLUMNS = [
     ("weather_banner_settings", "name", "VARCHAR(100) NOT NULL DEFAULT ''"),
     ("weather_banner_settings", "lat", "FLOAT"),
     ("weather_banner_settings", "lng", "FLOAT"),
+    ("weather_banner_settings", "site_url", "VARCHAR(500) NOT NULL DEFAULT ''"),
+    ("weather_banner_settings", "notify_interval_hours", "FLOAT NOT NULL DEFAULT 6.0"),
     # ---------- 请假表的班导师意见与签字 ----------
     # 四列都默认空串 = 「没填、没签字」，与补列前那张空白的班导师格完全一致。
     # advisor_sign_file 存的是签字图的**副本名**（在 data/leaves/ 下），

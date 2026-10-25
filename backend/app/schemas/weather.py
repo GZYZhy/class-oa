@@ -46,6 +46,8 @@ class WeatherBannerSettingsUpdate(BaseModel):
     name: str = Field("", max_length=100, description="天气卡显示的地点名称")
     lat: float | None = Field(None, description="纬度；与 lng 同时给")
     lng: float | None = Field(None, description="经度；与 lat 同时给")
+    site_url: str = Field("", max_length=500, description="天气卡跳转的网站，空=不可点")
+    notify_interval_hours: float = Field(6.0, description="天气提醒巡检间隔（小时）")
     enabled: bool = False
     conditions: list[str] = Field(default_factory=list)
     rain_threshold: int = 60
@@ -60,6 +62,8 @@ class WeatherBannerResponse(BaseModel):
     name: str = ""
     lat: float | None = None
     lng: float | None = None
+    site_url: str = ""
+    notify_interval_hours: float = 6.0
     enabled: bool
     conditions: list[str]
     rain_threshold: int

@@ -1,8 +1,8 @@
 """天气数据源
 
 用 **Open-Meteo**：免费、无需注册和 Key、支持 HTTPS + JSON、非商业自用没有调用门槛。
-地理位置的经纬度和显示名全部来自配置（WEATHER_LAT / WEATHER_LON / WEATHER_NAME），
-换校区只改 .env，不用动代码。
+地理位置（显示名、经纬度）和跳转网站都由管理员在「系统管理 → 天气」里配置，
+存在 weather_banner_settings；换校区在后台改，不用动代码。
 
 为什么是后端取数而不是浏览器直连：
   ① CSP 的 connect-src 只允许自家后端，前端直连会被浏览器拦掉；
@@ -131,8 +131,12 @@ def enabled(db=None) -> bool:
     return state_of(db) == "ok"
 
 
-def site_url() -> str:
-    return (settings.weather_site_url or "").strip()
+def site_url(db=None) -> str:
+    """天气卡点开的网站；db=None 只给单元测试用，生产读管理员配置"""
+    if db is None:
+        return (settings.weather_site_url or "").strip()
+    row = db.get(WeatherBannerSettings, 1)
+    return (row.site_url or "").strip() if row is not None else ""
 
 
 def weather_text(code: int) -> tuple[str, str]:
@@ -302,7 +306,7 @@ def current(db=None) -> dict:
     """
     base = {
         "name": _place(db)[0],
-        "site_url": site_url(),
+        "site_url": site_url(db),
     }
 
     state = state_of(db)
