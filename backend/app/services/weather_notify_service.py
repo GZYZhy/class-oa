@@ -316,7 +316,7 @@ def run_once(db: Session, now: datetime | None = None) -> int:
     if not rows:
         return 0
 
-    data = weather_service.forecast()
+    data = weather_service.forecast(db)
     if not data:
         # 取不到预报就整轮跳过：宁可这次不提醒，也不要发一条「猜的」
         return 0
@@ -365,6 +365,9 @@ def get_banner(db: Session):
     # 未入库的默认值：Column default 只在 INSERT 时生效，构造出来的字段是 None
     return WeatherBannerSettings(
         id=1,
+        name="",
+        lat=None,
+        lng=None,
         enabled=False,
         conditions=dump_conditions(DEFAULT_CONDITIONS),
         rain_threshold=DEFAULT_RAIN_THRESHOLD,
@@ -384,6 +387,9 @@ def put_banner(db: Session, data):
         row = WeatherBannerSettings(id=1)
         db.add(row)
 
+    row.name = (getattr(data, "name", "") or "").strip()
+    row.lat = getattr(data, "lat", None)
+    row.lng = getattr(data, "lng", None)
     row.enabled = bool(data.enabled)
     row.conditions = dump_conditions(data.conditions)
     row.rain_threshold = _clamp(getattr(data, "rain_threshold", DEFAULT_RAIN_THRESHOLD), 10, 100)

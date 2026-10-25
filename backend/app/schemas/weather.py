@@ -38,7 +38,14 @@ class WeatherNotifySettingsUpdate(BaseModel):
 
 
 class WeatherBannerSettingsUpdate(BaseModel):
-    """管理员配置首页天气横幅（和栏位名与个人提醒一致，判断逻辑复用同一套）"""
+    """管理员配置首页天气横幅与天气卡地点
+
+    地点三件套原先在 .env（WEATHER_NAME / LAT / LON），现在改成管理员保存；
+    两个坐标要么都给、要么都空，成对校验在 api/admin.py 里做。
+    """
+    name: str = Field("", max_length=100, description="天气卡显示的地点名称")
+    lat: float | None = Field(None, description="纬度；与 lng 同时给")
+    lng: float | None = Field(None, description="经度；与 lat 同时给")
     enabled: bool = False
     conditions: list[str] = Field(default_factory=list)
     rain_threshold: int = 60
@@ -50,6 +57,9 @@ class WeatherBannerSettingsUpdate(BaseModel):
 
 
 class WeatherBannerResponse(BaseModel):
+    name: str = ""
+    lat: float | None = None
+    lng: float | None = None
     enabled: bool
     conditions: list[str]
     rain_threshold: int

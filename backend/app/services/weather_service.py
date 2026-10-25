@@ -23,6 +23,7 @@ from typing import Optional
 import requests
 
 from ..config import settings
+from ..models import WeatherBannerSettings
 
 API_URL = "https://api.open-meteo.com/v1/forecast"
 TIMEOUT = 3
@@ -75,17 +76,31 @@ _cache: dict = {"at": 0.0, "payload": None}
 _lock = threading.Lock()
 
 
-def _raw_coords() -> tuple[str, str]:
-    return ((settings.weather_lat or "").strip(), (settings.weather_lon or "").strip())
+def _place(db=None) -> tuple[str, object, object]:
+    """天气卡地点：名称、纬度、经度
+
+    管理员配置在 weather_banner_settings 单行表里（原先是 .env 的三项）。
+    **db=None 只给单元测试用**，这时退回 env；生产调用一律传 db，管理员保存即生效。
+    """
+    if db is None:
+        return (
+            (settings.weather_name or "").strip(),
+            (settings.weather_lat or "").strip(),
+            (settings.weather_lon or "").strip(),
+        )
+    row = db.get(WeatherBannerSettings, 1)
+    if row is None:
+        return "", None, None
+    return (row.name or "").strip(), row.lat, row.lng
 
 
-def _coords() -> Optional[tuple[float, float]]:
+def _coords(db=None) -> Optional[tuple[float, float]]:
     """有效的经纬度；没配或写错都返回 None
 
     「没配」和「配错了」在接口上要分开告诉前端（见 state_of）：
     前者是管理员还没开这个功能，后者是填了但值不对，页面提示不该一样。
     """
-    lat_raw, lon_raw = _raw_coords()
+    _, lat_raw, lon_raw = _place(db)
     try:
         lat = float(lat_raw)
         lon = float(lon_raw)
@@ -96,16 +111,24 @@ def _coords() -> Optional[tuple[float, float]]:
     return lat, lon
 
 
-def state_of() -> str:
+def state_of(db=None) -> str:
     """配置状态：unconfigured（两个都空）/ invalid（填了但不合法）/ ok"""
-    lat_raw, lon_raw = _raw_coords()
-    if not lat_raw and not lon_raw:
-        return "unconfigured"
-    return "ok" if _coords() is not None else "invalid"
+    _, lat_raw, lon_raw = _place(db)
+    if db is None:
+        # env 是字符串，空串算没填
+        if not lat_raw and not lon_raw:
+            return "unconfigured"
+    else:
+        # 数据库是 NULL/浮点数；0 是合法坐标，不能用真值判断
+        if lat_raw is None and lon_raw is None:
+            return "unconfigured"
+        if lat_raw is None or lon_raw is None:
+            return "invalid"
+    return "ok" if _coords(db) is not None else "invalid"
 
 
-def enabled() -> bool:
-    return state_of() == "ok"
+def enabled(db=None) -> bool:
+    return state_of(db) == "ok"
 
 
 def site_url() -> str:
@@ -212,7 +235,7 @@ def _fetch(lat: float, lon: float) -> dict:
     }
 
 
-def _load() -> dict:
+def _load(db=None) -> dict:
     """取数（带缓存）。返回 {"ok": True, "data": ...} 或 {"ok": False}"""
     now = time.time()
     with _lock:
@@ -220,7 +243,7 @@ def _load() -> dict:
         if cached is not None and now - _cache["at"] < cached["ttl"]:
             return cached["data"]
 
-    coords = _coords()
+    coords = _coords(db)
     # 没配 / 配错时不去外呼。**这个判断必须在 try 外面单独做**：以前写在
     # `lat, lon = _coords()` 里，None 一解包就抛 TypeError，首页的横幅判断
     # 调 forecast() 时整页 500 —— 恰恰是「还没配置天气」的默认状态。
@@ -240,9 +263,9 @@ def _load() -> dict:
     return payload
 
 
-def forecast() -> Optional[dict]:
+def forecast(db=None) -> Optional[dict]:
     """给提醒任务用的完整预报；取不到返回 None"""
-    result = _load()
+    result = _load(db)
     return result["data"] if result["ok"] else None
 
 
@@ -267,7 +290,7 @@ def _slim_hourly(hourly: list[dict], now: datetime) -> list[dict]:
     return out
 
 
-def current() -> dict:
+def current(db=None) -> dict:
     """首页天气卡（带缓存）
 
     永远返回一个能直接渲染的 dict，用 `state` 区分四种情况：
@@ -278,16 +301,16 @@ def current() -> dict:
     前端按 state 显示不同文案；后两种都仍带 site_url，卡片照样能点开天气网站。
     """
     base = {
-        "name": (settings.weather_name or "").strip(),
+        "name": _place(db)[0],
         "site_url": site_url(),
     }
 
-    state = state_of()
+    state = state_of(db)
     if state != "ok":
         # 配置层面的问题：不缓存、不外呼（配错了再刷也不会变好）
         return {"state": state, **base}
 
-    result = _load()
+    result = _load(db)
     if not result["ok"]:
         return {"state": "error", **base}
 

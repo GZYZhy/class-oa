@@ -1439,8 +1439,11 @@ def read_weather_banner(_: User = Depends(admin_required), db: Session = Depends
     管理员改完保存就能知道「今天到底会不会冒出来」，不用等明天早上。
     """
     row = weather_notify_service.get_banner(db)
-    state = weather_notify_service.banner_state(db, weather_service.forecast())
+    state = weather_notify_service.banner_state(db, weather_service.forecast(db))
     return WeatherBannerResponse(
+        name=row.name or "",
+        lat=row.lat,
+        lng=row.lng,
         enabled=bool(row.enabled),
         conditions=weather_notify_service.parse_conditions(row.conditions),
         rain_threshold=row.rain_threshold,
@@ -1468,8 +1471,18 @@ def save_weather_banner(
     _: User = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
+    # 地点坐标：要么都给、要么都空；只填一个会让天气卡处于「配错了」状态
+    if (data.lat is None) != (data.lng is None):
+        raise HTTPException(status_code=400, detail="经纬度要一起填，只填一个不算有效坐标")
+    if data.lat is not None and not (
+        -90 <= data.lat <= 90 and -180 <= data.lng <= 180
+    ):
+        raise HTTPException(status_code=400, detail="经纬度超出合法范围")
+
     weather_notify_service.put_banner(db, data)
-    state = weather_notify_service.banner_state(db, weather_service.forecast())
+    # 地点可能刚改过：丢掉按旧坐标缓存的预报，下一轮/下一次打开首页立即按新地点取
+    weather_service.reset_cache()
+    state = weather_notify_service.banner_state(db, weather_service.forecast(db))
     return {
         "message": "已保存",
         "preview_active": bool(state.get("active")),

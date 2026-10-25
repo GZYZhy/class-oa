@@ -22,10 +22,10 @@ router = APIRouter(prefix="/api/weather", tags=["天气"])
 
 @router.get("", summary="当前天气（首页卡片 + 广播横幅）")
 def current_weather(db: Session = Depends(get_db)):
-    payload = weather_service.current()
+    payload = weather_service.current(db)
     # 横幅挂在同一个响应里：首页只发一次请求，不额外多打一个接口
     payload["banner"] = weather_notify_service.banner_state(
-        db, weather_service.forecast(), None
+        db, weather_service.forecast(db), None
     )
     return payload
 
