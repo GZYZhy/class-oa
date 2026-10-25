@@ -21,6 +21,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    Float,
     Integer,
     String,
     Text,
@@ -75,6 +76,10 @@ class Schedule(Base):
     title = Column(String(200), nullable=False, comment="日程标题")
     event_type = Column(String(20), default="", comment="事件类型，如 课程/体育/网络课；导入时识别")
     location = Column(String(200), default="", comment="地点")
+    # 地点坐标（GCJ-02，与签到同一坐标系）。两列都可空：
+    # 空 = 只写了地点名或没填地点；有值时必须成对出现（接口层校验）
+    lat = Column(Float, nullable=True, comment="纬度（GCJ-02），可空")
+    lng = Column(Float, nullable=True, comment="经度（GCJ-02），可空")
     description = Column(Text, default="", comment="备注")
 
     # 单次日程：就是具体那一次的起止

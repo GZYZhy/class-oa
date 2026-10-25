@@ -248,7 +248,37 @@
           />
         </el-form-item>
         <el-form-item label="地点">
-          <el-input v-model="editForm.location" maxlength="200" placeholder="选填" />
+          <div class="loc-field">
+            <el-input v-model="editForm.location" maxlength="200" placeholder="选填" style="flex: 1" />
+            <el-button
+              text
+              class="loc-arrow"
+              :icon="geoOpen ? ArrowUp : ArrowDown"
+              @click="geoOpen = !geoOpen"
+            />
+          </div>
+        </el-form-item>
+        <el-form-item v-if="geoOpen" label="经纬度">
+          <div class="geo-field">
+            <el-input-number
+              v-model="editForm.lat"
+              :min="-90"
+              :max="90"
+              :precision="6"
+              :controls="false"
+              placeholder="纬度"
+              style="width: 48%"
+            />
+            <el-input-number
+              v-model="editForm.lng"
+              :min="-180"
+              :max="180"
+              :precision="6"
+              :controls="false"
+              placeholder="经度"
+              style="width: 48%"
+            />
+          </div>
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="editForm.description" type="textarea" :rows="2" placeholder="选填" />
@@ -1298,6 +1328,8 @@ const defaultForm = () => ({
   end_time: '09:00',
   all_day: false,
   location: '',
+  lat: null,
+  lng: null,
   description: '',
   repeat_type: 'none',
   repeat_end_date: '',
@@ -1308,11 +1340,16 @@ const defaultForm = () => ({
   share: true,         // 编辑分配出去的日程时，默认改所有人的表
 })
 
+// 经纬度收在地点后面那个小箭头里，默认收起。
+// 必须在 editForm 之前声明：下面调 openEdit 的路径（以及渲染测试在 setup 里直接
+// 调 openEdit）会立刻读到它，声明在后面就是 TDZ
+const geoOpen = ref(false)
 const editForm = ref(defaultForm())
 const saving = ref(false)
 
 function openCreate(date = null, time = null) {
   editForm.value = defaultForm()
+  geoOpen.value = false
   if (date) {
     editForm.value.date = date
     editForm.value.end_date = date   // 打开「全天」时先当单天，要跨天再往后拖
@@ -1354,6 +1391,8 @@ function fillEditState(evt, records = null) {
     end_time: allDay ? '09:00' : (evt.end_time.split('T')[1]?.substring(0, 5) || '09:00'),
     all_day: allDay,
     location: evt.location || '',
+    lat: evt.lat ?? null,
+    lng: evt.lng ?? null,
     description: evt.description || '',
     repeat_type: evt.repeat_type,
     repeat_end_date: evt.repeat_end_date || '',
@@ -1363,6 +1402,8 @@ function fillEditState(evt, records = null) {
     scope: 'all',
     share: true,   // 默认「所有人的」，要只改自己那份得手动改
   }
+  // 本来就有坐标的，直接展开那两格
+  geoOpen.value = evt.lat != null && evt.lng != null
   editDialog.value = {
     visible: false,   // 开窗是 openEdit 的事，详情页只要这份状态
     isEdit: true,
@@ -1387,6 +1428,8 @@ function formFields() {
     title: form.title.trim(),
     event_type: form.event_type,
     location: form.location,
+    lat: form.lat,
+    lng: form.lng,
     description: form.description,
     repeat_type: form.repeat_type,
     repeat_end_date: form.repeat_end_date || null,
@@ -1472,6 +1515,11 @@ async function handleSave() {
   const form = editForm.value
   if (!form.title.trim()) {
     ElMessage.warning('请输入日程标题')
+    return
+  }
+  // 坐标成对：只填一个后端会拒，先在页面上拦一道
+  if ((form.lat == null) !== (form.lng == null)) {
+    ElMessage.warning('经纬度要一起填')
     return
   }
   if (!form.all_day && (!form.start_time || !form.end_time)) {
@@ -2520,5 +2568,25 @@ async function handleResetToken() {
   margin-bottom: 12px;
   color: var(--el-text-color-primary);
   word-break: break-word;
+}
+
+/* 地点那一行：输入框 + 展开经纬度的小箭头 */
+.loc-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.loc-arrow {
+  padding: 0 4px;
+  color: var(--el-text-color-secondary);
+}
+
+.geo-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
 }
 </style>

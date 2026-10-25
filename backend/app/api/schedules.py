@@ -107,6 +107,24 @@ def _validate_times(start_time: datetime, end_time: datetime) -> None:
         raise HTTPException(status_code=400, detail="结束时间必须晚于开始时间")
 
 
+def _validate_geo(lat: Optional[float], lng: Optional[float]) -> None:
+    """地点坐标必须成对出现，且落在合法范围内。
+
+    只填一个坐标是没有意义的脏数据：客户端拿它画不出点，而「有坐标」又会被
+    当成「这个日程有地点位置」。范围也在这里判而不是 schema 的 Field —— 那边
+    超范围是 422、detail 是数组，前端拿不到能直接显示的中文（同本模块其它校验）。
+
+    坐标系是 GCJ-02（与签到一致，见 frontend/src/utils/geolocation.js 的说明）。
+    这里不校验地球曲率之类的东西，-90..90 / -180..180 之外的一定是错的。
+    """
+    if lat is None and lng is None:
+        return
+    if lat is None or lng is None:
+        raise HTTPException(status_code=400, detail="经纬度要一起填，只填一个不算有效坐标")
+    if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+        raise HTTPException(status_code=400, detail="经纬度超出合法范围")
+
+
 def _all_day_times(day: date) -> tuple[datetime, datetime]:
     """全天事件的起止时刻：当天 00:00 到 23:59 —— 全天就是不带时刻
 
@@ -221,6 +239,7 @@ def create_schedule(
     班委及以上：可通过 target_all / target_student_ids 批量创建
     """
     _check_repeat_type(data.repeat_type)
+    _validate_geo(data.lat, data.lng)
     # 重复日程依赖 repeat_end_date 展开，缺了会在展开/删除时静默出错，强制必填。
     # 前端表单已拦一道，这里兜底挡掉直接调接口的路径。
     if data.repeat_type != REPEAT_NONE and not data.repeat_end_date:
@@ -302,6 +321,8 @@ def create_schedule(
         "template_id": 0,
         "title": data.title,
         "location": data.get("location", ""),
+        "lat": data.lat,
+        "lng": data.lng,
         "description": data.get("description", ""),
         "start_time": data.start_time,
         "end_time": data.end_time,
@@ -403,6 +424,14 @@ def update_schedule(
     # 这里允许学生改自己的那份，包括 scope=all（只改自己的模板）
 
     update_data = data.model_dump(exclude={"scope"}, exclude_unset=True)
+
+    # 坐标校验看「改完之后」那一对：只传了一个（或另一个显式传 null）时，
+    # 另一个取库里现在的 —— None 一律表示「不改」，和 service 层的写入口径一致。
+    # 前端表单是整份提交的，常会把没填的 lat/lng 一起带成 null
+    _validate_geo(
+        update_data["lat"] if update_data.get("lat") is not None else tpl.lat,
+        update_data["lng"] if update_data.get("lng") is not None else tpl.lng,
+    )
 
     # 如果改了 repeat_type，校验；改成重复类型还必须带结束日期
     if "repeat_type" in update_data and update_data["repeat_type"] is not None:

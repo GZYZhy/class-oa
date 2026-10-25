@@ -155,6 +155,11 @@ def _write_event(buf: StringIO, tpl, day: date, uid: str) -> None:
     if tpl.location:
         buf.write(f"LOCATION:{_escape_text(tpl.location)}\r\n")
 
+    # 坐标：RFC5545 的 GEO 是「纬度;经度」，分号本身不能转义（它是结构分隔符）。
+    # 只在成对存在时写 —— 接口层已经保证不会有单个坐标落库，这里再挡一道
+    if tpl.lat is not None and tpl.lng is not None:
+        buf.write(f"GEO:{tpl.lat};{tpl.lng}\r\n")
+
     # 描述：优先放备注；导入的事件没有备注时，用「类型：X」补一条，信息不丢
     desc_parts = []
     if tpl.description:

@@ -3948,6 +3948,8 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 | `title` | string | 是 | 日程标题 |
 | `event_type` | string | 否 | 事件类型，如 课程/体育/网络课 |
 | `location` | string | 否 | 地点 |
+| `lat` | number，可空 | 否 | 纬度（GCJ-02），与 lng 同时给 |
+| `lng` | number，可空 | 否 | 经度（GCJ-02），与 lat 同时给 |
 | `description` | string | 否 | 备注 |
 | `start_time` | string（日期时间） | 是 | 开始时间 |
 | `end_time` | string（日期时间） | 是 | 结束时间 |
@@ -3963,7 +3965,7 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 **响应**
 
 - `200` `ScheduleResponse` — 成功
-  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
+  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`lat`、`lng`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
 
 ### Search Schedules
 
@@ -4009,7 +4011,7 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 **响应**
 
 - `200` `ScheduleResponse` — 成功
-  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
+  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`lat`、`lng`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
 
 ### Update Schedule
 
@@ -4032,6 +4034,8 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 | `title` | string，可空 | 否 |  |
 | `event_type` | string，可空 | 否 |  |
 | `location` | string，可空 | 否 |  |
+| `lat` | number，可空 | 否 |  |
+| `lng` | number，可空 | 否 |  |
 | `description` | string，可空 | 否 |  |
 | `start_time` | string（日期时间），可空 | 否 |  |
 | `end_time` | string（日期时间），可空 | 否 |  |
@@ -4045,7 +4049,7 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 **响应**
 
 - `200` `ScheduleResponse` — 成功
-  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
+  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`lat`、`lng`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
 
 ### Delete Schedule
 
