@@ -534,6 +534,75 @@
             </el-table-column>
           </el-table>
         </div>
+
+        <!-- 分享外链：创建入口在「资料下载」页，这里只看和吊销 -->
+        <div class="resource-group resource-share-block">
+          <div class="resource-group-title">
+            <el-icon><Link /></el-icon>
+            分享外链
+            <span class="group-count">{{ resourceShares.length }} 条</span>
+            <span class="category-order">
+              <el-button size="small" @click="fetchResourceShares">
+                <el-icon><Refresh /></el-icon>
+              </el-button>
+            </span>
+          </div>
+
+          <el-table
+            v-loading="loadingResourceShares"
+            :data="resourceShares"
+            stripe
+            border
+            style="width: 100%;"
+            empty-text="还没有人分享过资料"
+          >
+            <el-table-column prop="resource_name" label="资料" min-width="160" show-overflow-tooltip align="left" />
+            <el-table-column label="创建人" width="150" align="center">
+              <template #default="{ row }">
+                {{ row.created_by_name || row.created_by_no }}
+              </template>
+            </el-table-column>
+            <el-table-column label="创建时间" width="150" align="center">
+              <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+            </el-table-column>
+            <el-table-column label="有效期" width="150" align="center">
+              <template #default="{ row }">
+                {{ row.expires_at ? formatDateTime(row.expires_at) : '永久' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="90" align="center">
+              <template #default="{ row }">
+                <el-tag :type="shareStatusType(row.status)" size="small" effect="plain">
+                  {{ row.status_label }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="download_count" label="下载次数" width="90" align="center" />
+            <el-table-column label="最近下载" width="150" align="center">
+              <template #default="{ row }">
+                {{ row.last_download_at ? formatDateTime(row.last_download_at) : '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="110" align="center">
+              <template #default="{ row }">
+                <el-button
+                  size="small"
+                  type="danger"
+                  plain
+                  :disabled="row.status !== 'valid'"
+                  @click="handleRevokeResourceShare(row)"
+                >
+                  吊销
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="tip">
+            「有效期」到点后链接自动失效；吊销则立即失效。
+            下载次数只统计经此链接的下载，最近下载时间是最后一次。
+          </div>
+        </div>
       </el-tab-pane>
 
       <!-- ============ 生日关怀 ============ -->
@@ -1078,6 +1147,8 @@ import {
   reorderResourceCategories,
   reorderResources,
   deleteResource,
+  listResourceShares,
+  revokeResourceShare,
   getFileAccessLogs,
   extractWatermark,
   getDataHealth,
@@ -1851,6 +1922,9 @@ async function handleUnban(row) {
 // ---------- 资料下载管理 ----------
 const resources = ref([])
 const loadingResources = ref(false)
+// 资料分享外链：创建在「资料下载」页，这里只管看和吊销
+const resourceShares = ref([])
+const loadingResourceShares = ref(false)
 const uploading = ref(false)
 // 上传进度百分比（算不出总大小时为 0，就不显示数字）
 const uploadProgress = ref(0)
@@ -1881,6 +1955,44 @@ async function fetchResources() {
     ElMessage.error('资料列表加载失败')
   } finally {
     loadingResources.value = false
+  }
+}
+
+/** 分享外链列表：连同创建人、有效期、下载次数一起给 */
+async function fetchResourceShares() {
+  loadingResourceShares.value = true
+  try {
+    resourceShares.value = await listResourceShares()
+  } catch (e) {
+    ElMessage.error('分享外链加载失败')
+  } finally {
+    loadingResourceShares.value = false
+  }
+}
+
+/** 外链状态 → 标签配色：有效绿、过期灰、吊销红 */
+function shareStatusType(status) {
+  if (status === 'valid') return 'success'
+  if (status === 'expired') return 'info'
+  return 'danger'
+}
+
+async function handleRevokeResourceShare(row) {
+  try {
+    await ElMessageBox.confirm(
+      `吊销后「${row.resource_name}」的这条外链立即失效；已经下载过的文件收不回来。`,
+      '吊销外链',
+      { type: 'warning', confirmButtonText: '吊销', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return // 用户取消
+  }
+  try {
+    await revokeResourceShare(row.id)
+    ElMessage.success('已吊销')
+    fetchResourceShares()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '吊销失败')
   }
 }
 
@@ -2317,6 +2429,7 @@ onMounted(() => {
   fetchUsers()
   fetchLogs()
   fetchResources()
+  fetchResourceShares()
 })
 </script>
 
@@ -2662,5 +2775,12 @@ onMounted(() => {
   margin-left: auto;
   display: inline-flex;
   gap: 6px;
+}
+
+/* 分享外链接在资料分组下面，用一条分隔线断开，避免看着像又一个分类 */
+.resource-share-block {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 </style>

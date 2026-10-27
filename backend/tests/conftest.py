@@ -157,6 +157,8 @@ def backend(tmp_path):
                 # 公告 PDF 同理：上传接口会把文件写进 ANNOUNCEMENT_DIR，
                 # 不隔离的话用例一上传就落进真实数据目录
                 "ANNOUNCEMENT_DIR": str(tmp_path / "announcements"),
+                # 资料文件同理：上传资料、创建分享外链都会碰这个目录
+                "RESOURCE_DIR": str(tmp_path / "downloads"),
                 # 签到照片同理：学生一签到就写进 CHECKIN_DIR，测试必须另起目录
                 "CHECKIN_DIR": str(tmp_path / "checkins"),
                 # 固定成生产容器的时区：带时区的时间会换算成「本地墙上时间」，

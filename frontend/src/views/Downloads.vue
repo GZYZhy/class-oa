@@ -23,28 +23,37 @@
                 <span class="meta-downloads">下载 {{ item.download_count || 0 }} 次</span>
               </div>
             </div>
-            <el-button
-              type="primary"
-              size="small"
-              :disabled="!item.url"
-              :loading="downloadingId === item.id"
-              @click="download(item)"
-            >
-              <el-icon v-if="downloadingId !== item.id"><Download /></el-icon>
-              <!-- 下大文件时把进度写在按钮上：网络差的时候看着数字涨，
-                   总比一个转圈转到人以为卡死了强 -->
-              {{ downloadingId === item.id && progress ? progress + '%' : '下载' }}
-            </el-button>
+            <div class="resource-actions">
+              <!-- 分享：生成一条外链，拿到链接的人不用登录就能下 -->
+              <el-button size="small" :disabled="!item.url" @click="openShare(item)">
+                <el-icon><Link /></el-icon>分享
+              </el-button>
+              <el-button
+                type="primary"
+                size="small"
+                :disabled="!item.url"
+                :loading="downloadingId === item.id"
+                @click="download(item)"
+              >
+                <el-icon v-if="downloadingId !== item.id"><Download /></el-icon>
+                <!-- 下大文件时把进度写在按钮上：网络差的时候看着数字涨，
+                     总比一个转圈转到人以为卡死了强 -->
+                {{ downloadingId === item.id && progress ? progress + '%' : '下载' }}
+              </el-button>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    <ResourceShareDialog v-model="shareVisible" :resource="shareTarget" />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import ResourceShareDialog from '@/components/ResourceShareDialog.vue'
 import request from '@/utils/request'
 import { downloadFile, blobErrorDetail } from '@/utils/download'
 
@@ -54,6 +63,15 @@ const loading = ref(false)
 // 下着的时候点不动）
 const downloadingId = ref(null)
 const progress = ref(0)
+
+// 分享弹窗：在哪条资料上点的「分享」，弹窗里就用它建外链
+const shareVisible = ref(false)
+const shareTarget = ref(null)
+
+function openShare(item) {
+  shareTarget.value = item
+  shareVisible.value = true
+}
 
 // 根据扩展名判断文件类型
 function getFileType(item) {
@@ -228,11 +246,13 @@ onMounted(async () => {
   color: var(--el-border-color);
 }
 
-.resource-card .el-button {
+.resource-actions {
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
 }
 
-/* 很窄的手机：按钮换到下一行占满，别继续挤文件名 */
+/* 很窄的手机：两个按钮一起换到下一行、平分宽度，别继续挤文件名 */
 @media (max-width: 480px) {
   .resource-card {
     flex-wrap: wrap;
@@ -242,9 +262,13 @@ onMounted(async () => {
     flex: 1 1 calc(100% - 54px);
   }
 
-  .resource-card .el-button {
+  .resource-actions {
     width: 100%;
     margin-top: 6px;
+  }
+
+  .resource-actions .el-button {
+    flex: 1;
   }
 
   .group-title {
