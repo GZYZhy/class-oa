@@ -159,6 +159,14 @@ def backend(tmp_path):
                 "ANNOUNCEMENT_DIR": str(tmp_path / "announcements"),
                 # 资料文件同理：上传资料、创建分享外链都会碰这个目录
                 "RESOURCE_DIR": str(tmp_path / "downloads"),
+                # 通知附件、域外账号头像：文件体检会扫这两个目录，必须隔离
+                "NOTICE_ATTACH_DIR": str(tmp_path / "notices"),
+                "AVATAR_DIR": str(tmp_path / "avatars"),
+                # 收集附件、反馈附件、学生备注附件、导出产物：同样在体检范围里
+                "COLLECTION_FILE_DIR": str(tmp_path / "collection_files"),
+                "FEEDBACK_DIR": str(tmp_path / "feedbacks"),
+                "REMARK_ATTACH_DIR": str(tmp_path / "remark_attachments"),
+                "EXPORT_DIR": str(tmp_path / "exports"),
                 # 签到照片同理：学生一签到就写进 CHECKIN_DIR，测试必须另起目录
                 "CHECKIN_DIR": str(tmp_path / "checkins"),
                 # 固定成生产容器的时区：带时区的时间会换算成「本地墙上时间」，

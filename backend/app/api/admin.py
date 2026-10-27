@@ -41,11 +41,17 @@ from ..schemas import (
     RoleUpdateRequest,
     WatermarkExtractResponse,
     DataHealthResponse,
+    OrphanCleanupRequest,
+    OrphanCleanupResponse,
     AboutAdminResponse,
     AboutMember,
     AboutSettingsUpdate,
     WeatherBannerResponse,
     WeatherBannerSettingsUpdate,
+    OpsConfigResponse,
+    OpsConfigSaved,
+    OpsConfigUpdate,
+    UpdateCheckResponse,
 )
 from ..services import (
     account_events,
@@ -80,9 +86,11 @@ from ..services.about_service import (
     parse_order as parse_about_order,
     put_settings as put_about_settings,
 )
-from ..services import weather_notify_service, weather_service
+from ..services import runtime_config, update_service, weather_notify_service, weather_service
 from ..services.data_health_service import check_data as data_health
+from ..services.file_health_service import cleanup_orphans
 from ..services.student_photo_service import photo_path, photo_response, remove_photo, save_photo
+from ..utils.human_size import human_size
 from ..utils.ip import normalize_target, parse_cidrs, parse_network, target_matches
 from ..utils.security import hash_password, validate_password
 from .deps import admin_required, get_client_ip
@@ -93,7 +101,7 @@ ROLES = ("student", "committee", "admin")
 ROLE_LABELS = {"student": "普通学生", "committee": "班委", "admin": "管理员"}
 
 # 域外账号的头像存放目录（容器内 /app/data/avatars，启动时由 main.py 创建）
-AVATAR_DIR = BASE_DIR / "data" / "avatars"
+AVATAR_DIR = Path(os.environ.get("AVATAR_DIR") or (BASE_DIR / "data" / "avatars"))
 ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2MB，头像不需要更大
 # 域外账号登录名：不能有空白字符，否则登录时 strip 过就对不上了
@@ -1439,6 +1447,36 @@ def get_data_health(_: User = Depends(admin_required), db: Session = Depends(get
     return data_health(db)
 
 
+@router.post(
+    "/data-health/orphans/cleanup",
+    response_model=OrphanCleanupResponse,
+    summary="清理孤儿文件（仅管理员）",
+)
+def cleanup_orphan_files(
+    payload: OrphanCleanupRequest,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """删掉「磁盘上有、数据库没有任何记录指向」的文件
+
+    **只删文件，不删数据库记录**：这些文件没有任何记录引用，删掉不会让任何页面
+    变成 404。反过来、「登记了但文件丢失」只报告、不尝试修复 —— 该补哪一份
+    得由人决定。删除前会重新算一遍引用，1 小时内新写的文件一律不动。
+    """
+    result = cleanup_orphans(db, payload.domains)
+    log_operation(
+        db, user, "清理孤儿文件", target="文件体检",
+        detail=(
+            f"删除 {result['deleted']} 个文件，释放 {human_size(result['freed_bytes'])}"
+            + (f"，{result['failed']} 个删除失败" if result["failed"] else "")
+        ),
+        ip=ip,
+    )
+    db.commit()
+    return {"message": "已清理", **result}
+
+
 @router.get(
     "/about",
     response_model=AboutAdminResponse,
@@ -1542,3 +1580,70 @@ def save_weather_banner(
         "preview_active": bool(state.get("active")),
         "preview_lines": list(state.get("lines") or []),
     }
+
+
+# ==================== 运维 ====================
+# 运行时可改的配置（存 runtime_settings）+ 检查更新。都只有管理员能碰。
+
+
+@router.get("/ops/config", summary="运行时配置（仅管理员）", response_model=OpsConfigResponse)
+def read_ops_config(
+    _: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    """当前所有运行时配置：分组、生效值、值是从哪来的（库 / 环境变量 / 默认）
+
+    顺带把库里的值同步进本进程 —— 多个实例部署时，管理员打开这一页就能让
+    当前实例立刻用上别处保存的配置（平时由中间件每分钟自己回查一次）。
+    """
+    runtime_config.load(db)
+    return runtime_config.snapshot(db)
+
+
+@router.put("/ops/config", summary="保存运行时配置（仅管理员）", response_model=OpsConfigSaved)
+def save_ops_config(
+    payload: OpsConfigUpdate,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """只改传上来的项；空串表示清除覆盖、回落到环境变量
+
+    校验不通过时整批不落库（先校验再写），避免一半生效一半没生效。
+    """
+    try:
+        changed = runtime_config.save(
+            db,
+            payload.values,
+            updated_by_no=user.student_no,
+            updated_by_name=account_name(db, user),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    labels = [
+        runtime_config.FIELD_BY_KEY[key].label
+        for key in changed
+        if key in runtime_config.FIELD_BY_KEY
+    ]
+    log_operation(
+        db, user, "修改运维配置", target="系统配置",
+        detail="、".join(labels) if labels else "没有实际变化",
+        ip=ip,
+    )
+    db.commit()
+    return {"message": "已保存", "changed": changed}
+
+
+@router.get(
+    "/update-check",
+    summary="检查是否有新版本（仅管理员）",
+    response_model=UpdateCheckResponse,
+)
+def check_update(_: User = Depends(admin_required)):
+    """问一次 GitHub Releases，结果缓存 6 小时（失败缓存 10 分钟）
+
+    查不到时**不报错**：返回 error=unreachable，页面说一句「暂时查不到」即可。
+    这里也不写操作日志 —— 只读操作不进日志（见 log_service 的说明）。
+    """
+    return update_service.check()

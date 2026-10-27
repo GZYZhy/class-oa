@@ -107,6 +107,24 @@ class RejectEarlyDataMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class RuntimeConfigMiddleware(BaseHTTPMiddleware):
+    """让多实例部署也能看到别处保存的运维配置
+
+    配置保存在哪个进程，那个进程立刻生效（runtime_config.save 里直接 load）。
+    其它实例靠这一层每 REFRESH_SECONDS 秒回查一次库；没到点的话只是一次
+    time.time() 比较，不碰数据库。
+
+    单实例部署（Dockerfile 里的 uvicorn 没带 --workers）时它基本什么都不做，
+    但留着才能保证「以后加多实例不用回头想起还有这么一层」。
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        from .services import runtime_config  # 函数内导入：避免 config → services 的循环
+
+        runtime_config.maybe_refresh()
+        return await call_next(request)
+
+
 class DefaultCacheControlMiddleware(BaseHTTPMiddleware):
     """给**没有自己表态**的接口补一句 Cache-Control: no-store。
 

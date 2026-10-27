@@ -1,6 +1,7 @@
 """意见反馈：学生提交，班委查看/标记已读/回复"""
 
 import json
+import os
 import uuid
 from datetime import date, datetime
 from pathlib import Path
@@ -38,7 +39,7 @@ router = APIRouter(prefix="/api/feedback", tags=["意见反馈"])
 VALID_STATUSES = {"unread", "read", "replied"}
 
 # 反馈附件存放目录
-FEEDBACK_DIR = BASE_DIR / "data" / "feedbacks"
+FEEDBACK_DIR = Path(os.environ.get("FEEDBACK_DIR") or (BASE_DIR / "data" / "feedbacks"))
 FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
 
 # 允许的附件类型：图片 / 视频 / 音频 / 文档。

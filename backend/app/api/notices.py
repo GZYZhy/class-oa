@@ -1,4 +1,5 @@
 import json
+import os
 import uuid
 from datetime import date
 from pathlib import Path
@@ -56,8 +57,11 @@ from .deps import (
 
 router = APIRouter(prefix="/api/notices", tags=["通知公告"])
 
-# 通知附件存放目录
-NOTICE_ATTACH_DIR = BASE_DIR / "data" / "notices"
+# 通知附件存放目录。吃环境变量是为了测试能隔离（照 PHOTO_DIR / RESOURCE_DIR 的先例），
+# 文件体检扫描的就是这个目录
+NOTICE_ATTACH_DIR = Path(
+    os.environ.get("NOTICE_ATTACH_DIR") or (BASE_DIR / "data" / "notices")
+)
 NOTICE_ATTACH_DIR.mkdir(parents=True, exist_ok=True)
 
 # 允许的附件类型：复用反馈附件的白名单（图片 / 视频 / 音频 / 文档）+ 压缩包

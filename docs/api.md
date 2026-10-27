@@ -44,7 +44,7 @@
 - 签字（9）
 - 通行密钥（6）
 - 二次验证（9）
-- 系统管理（33）
+- 系统管理（37）
 - 健康检查（1）
 
 ## 公开信息
@@ -5083,16 +5083,46 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 - `200` `WatermarkExtractResponse` — 成功
   - 字段：`found`、`token`、`file_id`、`user_no`、`user_name`、`file_title`、`accessed_at`、`source_type`、`export_type`、`export_scope`、`export_status`、`export_reviewer`、`action`、`ip`、`log_matched`、`file_deleted`、`message`
 
-### 学生数据体检（仅管理员）
+### 数据体检（仅管理员）
 
 `GET /api/admin/data-health`
 
-把学生表里的脏数据逐项查出来（只报告，不改数据） 每次都全表扫一遍，不缓存也不落库：一个班几十人，查询本身就是毫秒级， 而「上次体检是什么时候」这种状态一旦存下来就得考虑失效。
+把学生表里的脏数据和文件系统的对不上逐项查出来（只报告，不改数据）。每次都全表扫一遍，不缓存也不落库。
+
+卡片：身份证、联系方式、必填字段、照片、**签字图**、**文件丢失**、**孤儿文件**。
+
+- 签字图：学生 / 域外账号的签字图有记录但磁盘上没有；没上传签字图不算问题
+- 文件丢失：资料、公告、通知附件、请假证明、行驶证、证明附件与成品、签到照片、收集答卷图片、意见反馈附件、学生备注附件、导出产物等登记了但文件不存在
+- 孤儿文件：磁盘上有、但没有任何记录指向的文件（可一键清理）
 
 **响应**
 
 - `200` `DataHealthResponse` — 成功
-  - 字段：`checked_at`、`total_students`、`groups`
+  - 字段：`checked_at`、`total_students`、`groups[]`
+  - `groups[].items[]`：学生类为 `id`、`student_no`、`name`、`reason`；文件类为 `subject`、`domain`、`file`、`size`、`reason`，`id` 为空
+  - `groups[].can_cleanup`：仅「孤儿文件」为 `true`
+
+### 清理孤儿文件（仅管理员）
+
+`POST /api/admin/data-health/orphans/cleanup`
+
+删掉磁盘上存在、但数据库没有任何记录指向的文件。**只删文件，不删数据库记录**；「登记了但文件丢失」只报告、不修复。
+
+安全约束：删除前按当前数据库重新计算引用（不信任前端传来的列表）；只处理目录白名单内的文件；不到 1 小时的新文件一律跳过（避免删掉正在上传、还没入库的文件）。
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `domains` | string[] | 否 | 只清理这些目录；不传 = 全部 |
+
+**响应**
+
+- `200` `OrphanCleanupResponse` — 成功
+  - 字段：`message`、`deleted`、`freed_bytes`、`failed`、`by_domain[]`（`domain`、`label`、`deleted`、`freed_bytes`）
+- `403` — 非管理员
+
+清理动作记操作日志「清理孤儿文件」。
 
 ### 「关于班级」页的配置（仅管理员）
 
@@ -5158,6 +5188,48 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 - `200` — 成功
+
+### 运行时配置（仅管理员）
+
+`GET /api/admin/ops/config`
+
+返回「系统管理 → 运维」页要的全部内容：配置项元数据（分组、类型、约束）、当前生效值（密文项为 `********`）、每个值的来源（`database` / `environment` / `default`），以及**仍由环境变量配置、不放进后台**的项和原因。
+
+字段清单由后端 `services/runtime_config.FIELDS` 给出，前端只按 `group` 渲染。
+
+**响应**
+
+- `200` `OpsConfigResponse` — 成功
+  - 字段：`groups`、`fields[]`（`key`、`label`、`group`、`kind`、`help`、`choices`、`min`、`max`、`value`、`source`、`updated_at`、`updated_by_name`）、`env_only[]`（`keys`、`label`、`reason`）、`version`
+
+### 保存运行时配置（仅管理员）
+
+`PUT /api/admin/ops/config`
+
+只改传上来的项，保存后**立刻生效**（写回进程内 settings，不需要重启）。校验不通过时整批不落库。记操作日志「修改运维配置」。
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `values` | object | 是 | 键为配置项名（同 `Settings` 字段名）。空串 = 删除覆盖值、回落到环境变量；密文项传 `********` 表示不修改，传 `__CLEAR__` 表示清除 |
+
+**响应**
+
+- `200` `OpsConfigSaved` — 成功（`message`、`changed`）
+- `400` — 不认识的配置项，或值不合法（如端口不是整数、加密方式不在枚举内）
+
+### 检查是否有新版本（仅管理员）
+
+`GET /api/admin/update-check`
+
+问一次 GitHub Releases（`UPDATE_CHECK_REPO` 可改，`UPDATE_CHECK_URL` 供测试替换）。结果缓存：成功 6 小时、失败 10 分钟。**连不上时也返回 200**，`error=unreachable`，由页面显示「暂时查不到」。只读操作，不记操作日志。
+
+**响应**
+
+- `200` `UpdateCheckResponse` — 成功
+  - 字段：`current_version`、`current_parsed`、`latest_version`、`latest_tag`、`published_at`、`release_url`、`update_available`、`checked_at`、`cached`、`error`
+  - `current_parsed=false` 表示当前版本解析不成 `x.y.z`（本地 dev 构建），页面显示「开发版」且不做新旧判断
 
 ## 健康检查
 

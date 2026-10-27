@@ -1,4 +1,5 @@
 import json
+import os
 import uuid
 from pathlib import Path
 
@@ -94,7 +95,9 @@ COMMITTEE_EDITABLE_FIELDS = {"remark", "remark_attachments"}
 
 # ---------- 备注附件 ----------
 # 附件存放目录
-REMARK_ATTACH_DIR = BASE_DIR / "data" / "remark_attachments"
+REMARK_ATTACH_DIR = Path(
+    os.environ.get("REMARK_ATTACH_DIR") or (BASE_DIR / "data" / "remark_attachments")
+)
 REMARK_ATTACH_DIR.mkdir(parents=True, exist_ok=True)
 
 # 允许的附件类型：在通知附件白名单基础上加上压缩包（zip/rar/7z）

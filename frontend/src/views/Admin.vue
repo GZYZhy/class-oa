@@ -882,7 +882,9 @@
             <span v-if="healthLoaded" class="health-summary">
               全班 {{ health.total_students }} 名学生，查出 {{ healthCount }} 处待确认
             </span>
-            <span v-else class="health-summary">检查身份证、联系方式、必填字段、照片四类</span>
+            <span v-else class="health-summary">
+              检查身份证、联系方式、必填字段、照片，以及签字图与各类文件的「库里有、盘上没有」
+            </span>
             <el-button :loading="loadingHealth" @click="fetchHealth">重新检查</el-button>
           </div>
 
@@ -903,20 +905,202 @@
               </el-tag>
               <!-- 一个人可能在同一类里占两条（比如身份证号和生日都对不上），所以数的是「条」不是「人」 -->
               <span class="health-count">{{ group.items.length }} 条</span>
+              <!-- 只有孤儿文件能清理：删的是磁盘上没有记录引用的文件，库一行不动 -->
+              <el-button
+                v-if="group.can_cleanup"
+                class="health-cleanup"
+                link
+                type="danger"
+                size="small"
+                :loading="cleaningOrphans"
+                @click="handleCleanupOrphans(group)"
+              >
+                一键清理
+              </el-button>
             </div>
             <el-table :data="group.items" size="small" border>
-              <el-table-column prop="student_no" label="学号" width="130" />
-              <el-table-column prop="name" label="姓名" width="110" />
+              <!-- 学生问题显示姓名，文件类显示「资料『xx』」「公告『xx』」这类对象说明 -->
+              <el-table-column label="对象" min-width="200">
+                <template #default="{ row }">
+                  <span v-if="row.subject">{{ row.subject }}</span>
+                  <span v-else>{{ row.name }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="学号" width="130">
+                <template #default="{ row }">{{ row.student_no || '—' }}</template>
+              </el-table-column>
               <el-table-column prop="reason" label="问题" min-width="260" />
               <el-table-column label="操作" width="90" align="center">
                 <template #default="{ row }">
-                  <el-button link type="primary" size="small" @click="openStudent(row.id)">
+                  <el-button v-if="row.id" link type="primary" size="small" @click="openStudent(row.id)">
                     查看
                   </el-button>
+                  <span v-else>—</span>
                 </template>
               </el-table-column>
             </el-table>
           </div>
+        </div>
+      </el-tab-pane>
+
+      <!-- ============ 运维 ============ -->
+      <el-tab-pane label="运维" name="ops">
+        <div v-loading="loadingOps" class="ops-wrap">
+          <!-- 系统更新：只有点按钮才外呼一次 -->
+          <section class="ops-block">
+            <div class="ops-block-head">
+              <span class="ops-title">系统更新</span>
+              <el-button :loading="checkingUpdate" @click="handleCheckUpdate">
+                <el-icon v-if="!checkingUpdate"><Refresh /></el-icon>
+                检查更新
+              </el-button>
+            </div>
+
+            <div class="ops-version">
+              当前版本
+              <strong>{{ opsConfig?.version?.app_version || '—' }}</strong>
+              <span v-if="updateResult && !updateResult.current_parsed" class="ops-note">开发版</span>
+            </div>
+
+            <template v-if="updateResult">
+              <el-alert
+                v-if="updateResult.error"
+                type="info"
+                :closable="false"
+                show-icon
+                title="暂时查不到新版本"
+                description="连不上发布页（部分校园网会拦截），不影响使用，稍后再试即可。"
+              />
+              <el-alert
+                v-else-if="!updateResult.current_parsed"
+                type="info"
+                :closable="false"
+                show-icon
+                title="当前是开发版，不做新旧比较"
+                :description="`最新发布版本 ${updateResult.latest_tag || '未知'}`"
+              />
+              <el-alert
+                v-else-if="updateResult.update_available"
+                type="warning"
+                :closable="false"
+                show-icon
+                :title="`有新版本 ${updateResult.latest_tag}`"
+                :description="`发布于 ${formatDate(updateResult.published_at)}`"
+              />
+              <el-alert
+                v-else
+                type="success"
+                :closable="false"
+                show-icon
+                title="已是最新版本"
+                :description="`最新发布版本 ${updateResult.latest_tag || '未知'}`"
+              />
+
+              <div v-if="updateResult.update_available && !updateResult.error" class="ops-upgrade">
+                <code class="ops-code">{{ UPGRADE_COMMAND }}</code>
+                <el-button link type="primary" size="small" @click="copyText(UPGRADE_COMMAND)">
+                  复制
+                </el-button>
+                <a
+                  v-if="updateResult.release_url"
+                  class="ops-link"
+                  :href="updateResult.release_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >更新说明</a>
+                <p class="tip">
+                  升级前先备份 <code>data/</code> 目录。只执行 up -d 不会去 registry 拉新镜像，必须带 pull。
+                </p>
+              </div>
+
+              <div class="ops-checked">
+                检查于 {{ formatDateTime(updateResult.checked_at) }}
+                <span v-if="updateResult.cached">（缓存结果，6 小时内不再请求）</span>
+              </div>
+            </template>
+            <p v-else class="tip">
+              点「检查更新」才会去问一次发布页；结果缓存 6 小时。查不到时静默处理，不影响任何页面。
+            </p>
+          </section>
+
+          <!-- 运行配置：字段清单由后端给，前端只按分组渲染 -->
+          <section v-for="group in opsConfig?.groups || []" :key="group" class="ops-block">
+            <div class="ops-block-head">
+              <span class="ops-title">{{ group }}</span>
+            </div>
+            <el-form label-width="170px" label-position="left" class="ops-form">
+              <el-form-item v-for="f in fieldsOf(group)" :key="f.key">
+                <template #label>
+                  <span class="ops-label">
+                    {{ f.label }}
+                    <el-tag v-if="f.source === 'database'" size="small" type="primary" effect="plain">
+                      后台
+                    </el-tag>
+                    <el-tag v-else-if="f.source === 'environment'" size="small" type="info" effect="plain">
+                      环境变量
+                    </el-tag>
+                  </span>
+                </template>
+
+                <div class="ops-field">
+                  <template v-if="f.kind === 'secret'">
+                    <el-input
+                      v-if="!opsClear[f.key]"
+                      v-model="opsForm[f.key]"
+                      type="password"
+                      show-password
+                      class="ops-input"
+                      :placeholder="f.value === SECRET_MASK ? '已配置，留空表示不修改' : '未配置'"
+                    />
+                    <span v-else class="ops-note">保存后清除</span>
+                    <el-checkbox v-if="f.value === SECRET_MASK" v-model="opsClear[f.key]">
+                      清除
+                    </el-checkbox>
+                  </template>
+
+                  <el-select v-else-if="f.kind === 'choice'" v-model="opsForm[f.key]" class="ops-input">
+                    <el-option v-for="choice in f.choices" :key="choice" :label="choice" :value="choice" />
+                  </el-select>
+
+                  <el-input-number
+                    v-else-if="f.kind === 'int'"
+                    v-model="opsForm[f.key]"
+                    :min="f.min"
+                    :max="f.max"
+                    :controls="false"
+                    class="ops-input"
+                  />
+
+                  <el-input v-else v-model="opsForm[f.key]" class="ops-input" />
+
+                  <span v-if="f.help" class="ops-help">{{ f.help }}</span>
+                </div>
+              </el-form-item>
+            </el-form>
+          </section>
+
+          <div class="ops-actions">
+            <el-button type="primary" :loading="savingOps" @click="handleSaveOps">保存配置</el-button>
+            <el-button :disabled="savingOps" @click="fetchOpsConfig">放弃修改</el-button>
+            <span class="tip">保存后立即生效，不需要重启后端。</span>
+          </div>
+
+          <!-- 仍由环境变量配置的项 -->
+          <section class="ops-block">
+            <div class="ops-block-head">
+              <span class="ops-title">以下项仍由环境变量配置</span>
+            </div>
+            <p class="tip">
+              机密、安全边界、前端品牌与部署形态不放进后台 —— 具体理由逐条写在下面。
+            </p>
+            <div v-for="item in opsConfig?.env_only || []" :key="item.keys" class="ops-env-row">
+              <div class="ops-env-head">
+                <span class="ops-env-label">{{ item.label }}</span>
+                <code class="ops-code">{{ item.keys }}</code>
+              </div>
+              <div class="tip">{{ item.reason }}</div>
+            </div>
+          </section>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -1152,10 +1336,14 @@ import {
   getFileAccessLogs,
   extractWatermark,
   getDataHealth,
+  cleanupOrphanFiles,
   getAboutConfig,
   saveAboutConfig,
   getWeatherBanner,
-  saveWeatherBanner
+  saveWeatherBanner,
+  getOpsConfig,
+  saveOpsConfig,
+  checkUpdate
 } from '@/api/admin'
 import {
   getBirthdaySettings,
@@ -1164,7 +1352,8 @@ import {
 } from '@/api/birthday'
 import { useRouter } from 'vue-router'
 import { ROLE_LABELS } from '@/utils/roles'
-import { formatDateTime } from '@/utils/format'
+import { formatDate, formatDateTime, formatFileSize } from '@/utils/format'
+import { copyText } from '@/utils/clipboard'
 import { useIsMobile } from '@/composables/useIsMobile'
 import ScheduleBatchPanel from '@/components/ScheduleBatchPanel.vue'
 import WeatherRuleForm from '@/components/WeatherRuleForm.vue'
@@ -1844,6 +2033,7 @@ function handleTabChange(name) {
     fileAccessLoaded = true
     fetchFileAccessLogs()
   }
+  if (name === 'ops' && !opsLoaded) fetchOpsConfig()
   if (name === 'birthday' && !birthdayLoaded.value) fetchBirthdaySettings()
   if (name === 'about' && !aboutLoaded.value) fetchAboutConfig()
   if (name === 'weather' && !weatherBannerLoaded.value) fetchWeatherBanner()
@@ -1916,6 +2106,91 @@ async function handleUnban(row) {
     fetchIpBans()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '解封失败')
+  }
+}
+
+// ---------- 运维：运行时配置 + 检查更新 ----------
+const opsConfig = ref(null)
+const loadingOps = ref(false)
+const savingOps = ref(false)
+// key → 表单值。密文项初始为空，留空表示「不修改」
+const opsForm = reactive({})
+// key → 是否勾了「清除」
+const opsClear = reactive({})
+const checkingUpdate = ref(false)
+const updateResult = ref(null)
+// 后端给密文项的占位符：前端只判断「是否已配置」，不关心真值
+const SECRET_MASK = '********'
+// 升级始终是人工动作，这里只把命令摆出来方便复制
+const UPGRADE_COMMAND = 'docker compose pull && docker compose up -d'
+let opsLoaded = false
+
+function fieldsOf(group) {
+  return (opsConfig.value?.fields || []).filter((field) => field.group === group)
+}
+
+function fillOpsForm() {
+  for (const field of opsConfig.value?.fields || []) {
+    if (field.kind === 'int') opsForm[field.key] = Number(field.value) || 0
+    else if (field.kind === 'secret') opsForm[field.key] = ''
+    else opsForm[field.key] = field.value
+    opsClear[field.key] = false
+  }
+}
+
+async function fetchOpsConfig() {
+  loadingOps.value = true
+  try {
+    opsConfig.value = await getOpsConfig()
+    fillOpsForm()
+    opsLoaded = true
+  } catch (e) {
+    ElMessage.error('运维配置加载失败')
+  } finally {
+    loadingOps.value = false
+  }
+}
+
+async function handleSaveOps() {
+  const values = {}
+  for (const field of opsConfig.value?.fields || []) {
+    if (field.kind === 'secret') {
+      // 留空 = 不修改；勾了「清除」才真的删掉库里的覆盖值
+      if (opsClear[field.key]) values[field.key] = '__CLEAR__'
+      else if (String(opsForm[field.key] || '').trim()) values[field.key] = opsForm[field.key]
+      continue
+    }
+    // 只提交改动过的项：没碰的字段不该被重新写一遍（也会让日志里多出一串无关项）
+    if (String(opsForm[field.key] ?? '') !== String(field.value ?? '')) {
+      values[field.key] = opsForm[field.key]
+    }
+  }
+  if (!Object.keys(values).length) {
+    ElMessage.info('没有改动')
+    return
+  }
+
+  savingOps.value = true
+  try {
+    await saveOpsConfig(values)
+    ElMessage.success('已保存，立即生效')
+    await fetchOpsConfig()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    savingOps.value = false
+  }
+}
+
+async function handleCheckUpdate() {
+  checkingUpdate.value = true
+  try {
+    updateResult.value = await checkUpdate()
+  } catch (e) {
+    // 接口本身失败（权限/网络）也不弹错误：卡片里说「暂时查不到」就够了
+    updateResult.value = { error: 'unreachable', current_parsed: true }
+  } finally {
+    checkingUpdate.value = false
   }
 }
 
@@ -2405,6 +2680,9 @@ const healthCount = computed(() =>
   health.groups.reduce((sum, group) => sum + group.items.length, 0)
 )
 
+// 清理孤儿文件：删的是磁盘上没人认领的文件，数据库一行不动
+const cleaningOrphans = ref(false)
+
 async function fetchHealth() {
   loadingHealth.value = true
   try {
@@ -2417,6 +2695,34 @@ async function fetchHealth() {
     ElMessage.error(e?.response?.data?.detail || '数据体检失败')
   } finally {
     loadingHealth.value = false
+  }
+}
+
+async function handleCleanupOrphans(group) {
+  const count = group.items.length
+  try {
+    await ElMessageBox.confirm(
+      `将删除 ${count} 个没有任何记录引用的文件，删除后不可恢复。` +
+        '数据库里的记录不会被修改，也不会让任何页面变成 404。',
+      '清理孤儿文件',
+      { type: 'warning', confirmButtonText: '清理', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return // 用户取消
+  }
+
+  cleaningOrphans.value = true
+  try {
+    // 不传 domains：后端自己按目录白名单重算一遍孤儿，不信任前端这份列表
+    const result = await cleanupOrphanFiles()
+    ElMessage.success(
+      `已删除 ${result.deleted} 个文件，释放 ${formatFileSize(result.freed_bytes)}`
+    )
+    await fetchHealth()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '清理失败')
+  } finally {
+    cleaningOrphans.value = false
   }
 }
 
@@ -2630,6 +2936,11 @@ onMounted(() => {
   margin-bottom: 8px;
 }
 
+/* 「一键清理」推到卡片头最右边，别和标签、条数挤在一起 */
+.health-cleanup {
+  margin-left: auto;
+}
+
 .health-count {
   font-size: 13px;
   color: var(--el-text-color-secondary);
@@ -2782,5 +3093,149 @@ onMounted(() => {
   margin-top: 24px;
   padding-top: 18px;
   border-top: 1px solid var(--el-border-color-lighter);
+}
+
+/* ---------- 运维 ---------- */
+.ops-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ops-block {
+  padding: 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+}
+
+.ops-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ops-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.ops-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.ops-version strong {
+  font-size: 15px;
+  color: var(--el-text-color-primary);
+}
+
+.ops-note {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.ops-upgrade {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+}
+
+.ops-upgrade .tip {
+  margin: 8px 0 0;
+}
+
+.ops-code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--el-fill-color);
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.ops-link {
+  margin-left: 12px;
+  font-size: 13px;
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+
+.ops-checked {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.ops-form :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+
+.ops-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ops-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.ops-input {
+  width: 320px;
+  max-width: 100%;
+}
+
+.ops-help {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+}
+
+.ops-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ops-actions .tip {
+  margin: 0;
+}
+
+.ops-env-row {
+  padding: 10px 0;
+  border-top: 1px dashed var(--el-border-color-lighter);
+}
+
+.ops-env-row:first-of-type {
+  border-top: none;
+}
+
+.ops-env-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.ops-env-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-regular);
 }
 </style>

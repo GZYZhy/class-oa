@@ -16,6 +16,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import shutil
 import uuid
 from datetime import datetime, timedelta
@@ -129,7 +130,9 @@ router = APIRouter(prefix="/api/collections", tags=["投票收集"])
 
 MAX_PAGE_SIZE = 100
 MAX_FILE_BYTES = 10 * 1024 * 1024
-COLLECTION_FILE_DIR = BASE_DIR / "data" / "collection_files"
+COLLECTION_FILE_DIR = Path(
+    os.environ.get("COLLECTION_FILE_DIR") or (BASE_DIR / "data" / "collection_files")
+)
 COLLECTION_FILE_DIR.mkdir(parents=True, exist_ok=True)
 
 

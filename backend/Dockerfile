@@ -12,7 +12,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TZ=Asia/Shanghai
 
 # 安装系统依赖（sqlite3 已内置在 Python 中；tzdata 提供时区数据库）
+# ca-certificates 必须显式装：slim 镜像 + --no-install-recommends 下它不会被
+# curl 带进来，而 urllib 的外呼（Bark / Turnstile / 检查更新）会因此报
+# CERTIFICATE_VERIFY_FAILED（requests 用 certifi，不受影响，所以只有这几处坏）
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     curl \
     tzdata \
     && rm -rf /var/lib/apt/lists/*

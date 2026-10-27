@@ -12,6 +12,7 @@ from .feedback import Feedback
 from .push_subscription import PushSubscription
 from .resource import Resource, ResourceCategory
 from .resource_share import ResourceShareLink
+from .runtime_setting import RuntimeSetting
 from .file_access_log import FileAccessLog
 from .ev_pass_request import EvPassRequest
 from .export_request import ExportRequest
@@ -38,4 +39,4 @@ from .sign_photo_request import SignPhotoRequest
 from .passkey import PasskeyCredential
 from .two_factor import TwoFactorChallenge, TwoFactorRecoveryCode
 
-__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "ResourceCategory", "ResourceShareLink", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AboutSettings", "WeatherNotifySettings", "WeatherBannerSettings", "AttendanceRecord", "AttendanceItem", "Checkin", "CheckinTarget", "InboxMessage", "Poll", "PollQuestion", "PollTarget", "PollAnswer", "Collection", "CollectionQuestion", "CollectionTarget", "CollectionSubmission", "CollectionAnswer", "GradeTest", "GradeSubject", "GradeItem", "Schedule", "ScheduleBatch", "ICalToken", "SignPhotoRequest", "PasskeyCredential", "TwoFactorChallenge", "TwoFactorRecoveryCode"]
+__all__ = ["Student", "Announcement", "Notice", "NoticeRead", "User", "ChangeRequest", "OperationLog", "AccountEvent", "IpBan", "LeaveRequest", "Feedback", "PushSubscription", "Resource", "ResourceCategory", "ResourceShareLink", "RuntimeSetting", "FileAccessLog", "EvPassRequest", "ExportRequest", "CertificateRequest", "AccessToken", "BirthdaySettings", "AboutSettings", "WeatherNotifySettings", "WeatherBannerSettings", "AttendanceRecord", "AttendanceItem", "Checkin", "CheckinTarget", "InboxMessage", "Poll", "PollQuestion", "PollTarget", "PollAnswer", "Collection", "CollectionQuestion", "CollectionTarget", "CollectionSubmission", "CollectionAnswer", "GradeTest", "GradeSubject", "GradeItem", "Schedule", "ScheduleBatch", "ICalToken", "SignPhotoRequest", "PasskeyCredential", "TwoFactorChallenge", "TwoFactorRecoveryCode"]

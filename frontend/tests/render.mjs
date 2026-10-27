@@ -6011,6 +6011,102 @@ console.log('\n▶ 资料分享外链：任何人可下载，管理员可吊销'
     '已失效的链接不再给吊销按钮')
 }
 
+console.log('\n▶ 数据体检：签字图、文件丢失与孤儿文件清理')
+{
+  const adminSrc = readFileSync(`${ROOT}src/views/Admin.vue`, 'utf8')
+  check(adminSrc.includes('cleanupOrphanFiles') && adminSrc.includes('一键清理'),
+    '孤儿文件卡片有「一键清理」')
+  check(adminSrc.includes('group.can_cleanup') && adminSrc.includes("row.student_no || '—'"),
+    '只有可清理的卡片给按钮；文件类行没有学号也照常显示')
+  check(adminSrc.includes('row.subject') && adminSrc.includes('row.id'),
+    '文件类行显示对象说明，且不给「查看」入口（没有学生 ID）')
+  check(adminSrc.includes('数据库里的记录不会被修改'),
+    '清理前说清楚只删文件、不动数据库')
+
+  const adminApi = readFileSync(`${ROOT}src/api/admin.js`, 'utf8')
+  check(adminApi.includes("'/admin/data-health/orphans/cleanup'"),
+    '清理接口路径与后端一致')
+
+  const fileHealth = readFileSync(`${ROOT}../backend/app/services/file_health_service.py`, 'utf8')
+  check(fileHealth.includes('def check_files') && fileHealth.includes('def cleanup_orphans'),
+    '文件体检提供报告与清理两个入口')
+  check(fileHealth.includes('ORPHAN_MIN_AGE_SECONDS'),
+    '刚写盘的文件不算孤儿（避免删掉正在上传的文件）')
+  check(fileHealth.includes('sign_photo') && fileHealth.includes('_SIGN_PHOTO'),
+    '签字图单独成组')
+  check(fileHealth.includes('refs[domain.key]'),
+    '清理前按数据库重新算引用，不信任前端传来的列表')
+  for (const domain of ['resources', 'announcements', 'leaves', 'ev_passes',
+                        'cert_attachments', 'cert_results', 'checkins', 'notices',
+                        'collection_files', 'feedbacks', 'remark_attachments', 'exports']) {
+    check(fileHealth.includes(`Domain("${domain}"`), `扫描目录：${domain}`)
+  }
+  check(fileHealth.includes('recursive=True') &&
+    fileHealth.includes('rel=f"{collection_id}/'),
+  '收集附件按收集 ID 分子目录，相对路径参与比对')
+  check(fileHealth.includes('_prune_empty_dirs'),
+    '清理收集附件后连带收掉空子目录')
+
+  const dataHealth = readFileSync(`${ROOT}../backend/app/services/data_health_service.py`, 'utf8')
+  check(dataHealth.includes('check_files(db)'), '文件检查并进同一份体检报告')
+
+  const adminPy = readFileSync(`${ROOT}../backend/app/api/admin.py`, 'utf8')
+  check(adminPy.includes('/data-health/orphans/cleanup') &&
+    adminPy.includes('"清理孤儿文件"'), '清理动作记日志')
+}
+
+console.log('\n▶ 运维页：运行时配置与检查更新')
+{
+  const adminSrc = readFileSync(`${ROOT}src/views/Admin.vue`, 'utf8')
+  check(adminSrc.includes('label="运维" name="ops"'), '系统管理里有「运维」页')
+  check(adminSrc.includes('getOpsConfig') && adminSrc.includes('saveOpsConfig'),
+    '运维页能读写运行时配置')
+  check(adminSrc.includes('checkUpdate') && adminSrc.includes('检查更新'),
+    '有「检查更新」按钮')
+  check(adminSrc.includes('docker compose pull && docker compose up -d'),
+    '给出升级命令原文，可直接复制')
+  check(adminSrc.includes('升级前先备份'), '提醒升级前先备份 data/')
+  check(!adminSrc.includes('location.reload') && !/setInterval\([^)]*checkUpdate/.test(adminSrc),
+    '不自动重启、不轮询检查更新')
+
+  // 只有点开运维页才拉配置：普通管理员打开后台不该多打一次接口
+  const mountedStart = adminSrc.indexOf('onMounted(() => {')
+  const mountedBlock = adminSrc.slice(mountedStart, adminSrc.indexOf('})', mountedStart))
+  check(mountedStart > 0 && !mountedBlock.includes('fetchOpsConfig'),
+    '运维配置只在进入运维页时加载')
+
+  check(adminSrc.includes('env_only'), '仍由环境变量配置的项以只读清单展示')
+  check(adminSrc.includes("field.kind === 'secret'") && adminSrc.includes('SECRET_MASK'),
+    '密文项打码，留空表示不修改')
+  check(adminSrc.includes('current_parsed'), '开发版不参与新旧比较')
+
+  const adminApi = readFileSync(`${ROOT}src/api/admin.js`, 'utf8')
+  check(adminApi.includes("url: '/admin/ops/config'") && adminApi.includes("url: '/admin/update-check'"),
+    '接口路径与后端一致')
+
+  const runtimePy = readFileSync(`${ROOT}../backend/app/services/runtime_config.py`, 'utf8')
+  for (const key of ['smtp_host', 'turnstile_secret_key', 'login_ban_threshold', 'ev_pass_grade']) {
+    check(runtimePy.includes(`"${key}"`), `可以在线改：${key}`)
+  }
+
+  // 机密与安全边界项只能出现在「只读清单」里，不能变成可写字段
+  const fieldsBlock = runtimePy.slice(
+    runtimePy.indexOf('FIELDS: tuple'),
+    runtimePy.indexOf('FIELD_BY_KEY')
+  )
+  check(!fieldsBlock.includes('"master_password"') && !fieldsBlock.includes('"trusted_proxies"') &&
+    !fieldsBlock.includes('"session_secret_key"') && !fieldsBlock.includes('"database_url"'),
+  '通开密码 / 会话密钥 / 可信代理 / 数据库地址都不是可写项')
+  check(runtimePy.includes('MASTER_PASSWORD / TWO_FACTOR_MASTER_CODE / BOOTSTRAP_PASSWORD'),
+    '应急口令在只读清单里写明为什么不能在线改')
+
+  const updatePy = readFileSync(`${ROOT}../backend/app/services/update_service.py`, 'utf8')
+  check(updatePy.includes('SUCCESS_TTL = 6 * 3600') && updatePy.includes('FAIL_TTL = 10 * 60'),
+    '成功结果缓存 6 小时，失败 10 分钟')
+  check(updatePy.includes('parse_version') && updatePy.includes('USER_AGENT') === false &&
+    updatePy.includes('User-Agent'), '按语义化版本比较，并带 GitHub 要求的 User-Agent')
+}
+
 console.log('\n▶ 首屏骨架、图表按需与资料卡栅格')
 {
   const indexHtml = readFileSync(`${ROOT}index.html`, 'utf8')
