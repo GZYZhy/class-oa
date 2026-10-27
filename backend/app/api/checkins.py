@@ -175,6 +175,8 @@ def _list_item(
         created_at=checkin.created_at,
         start_at=checkin.start_at,
         end_at=checkin.end_at,
+        notify_on_start=bool(checkin.notify_on_start),
+        start_notified_at=checkin.start_notified_at,
         target_count=target_count,
         signed_count=signed_count,
         link=_link(request, checkin),
@@ -469,6 +471,7 @@ def create_checkin(
         created_at=datetime.now(),
         start_at=data.start_at,
         end_at=data.end_at,
+        notify_on_start=bool(data.notify_on_start),
         require_photo=data.require_photo,
         lat=location.lat if location else None,
         lng=location.lng if location else None,
@@ -498,29 +501,36 @@ def create_checkin(
         + (f"，{data.start_at:%m-%d %H:%M} 开始" if data.start_at else "")
         + f"，截止 {data.end_at:%m-%d %H:%M}"
         + ("，需照片" if data.require_photo else "")
-        + ("，需定位" if location else ""),
+        + ("，需定位" if location else "")
+        + ("，开始时提醒" if data.notify_on_start else "，不提醒"),
         ip=get_client_ip(request),
     )
     db.commit()
 
+    # 提醒只在「开始时刻」发生：发布即可签（开始时间为空或已到）就现在发，
+    # 未来开始的交给 start_notify_service 到点发；关掉提醒则两边都不发。
     # commit 之后才通知（见文件头第 2 条）。逐个人调 recipients：范围是任意子集，
     # recipients 没有「批量学号」参数；班级几十人，循环最简单。
-    # 不排除发布人：发布人自己在范围内时同样要签到，也得收到这条信
-    body = (
-        (f"{checkin.start_at:%m-%d %H:%M} 开始，" if checkin.start_at else "")
-        + f"截止 {checkin.end_at:%m-%d %H:%M}，打开链接完成签到"
-    )
-    for no in nos:
-        notify(
-            db,
-            background,
-            recipients(db, only_no=no),
-            f"新签到：{title}",
-            body,
-            level="timeSensitive",
-            # 站内信直接落到分享落地页：和列表、外链是同一张整页
-            page=share_path("checkin", checkin.code),
+    # 不排除发布人：发布人自己在范围内时同样要签到，也得收到这条信。
+    now = datetime.now()
+    if checkin.notify_on_start and (checkin.start_at is None or checkin.start_at <= now):
+        body = (
+            (f"{checkin.start_at:%m-%d %H:%M} 开始，" if checkin.start_at else "")
+            + f"截止 {checkin.end_at:%m-%d %H:%M}，打开链接完成签到"
         )
+        for no in nos:
+            notify(
+                db,
+                background,
+                recipients(db, only_no=no),
+                f"新签到：{title}",
+                body,
+                level="timeSensitive",
+                # 站内信直接落到分享落地页：和列表、外链是同一张整页
+                page=share_path("checkin", checkin.code),
+            )
+        checkin.start_notified_at = now
+        db.commit()
 
     db.refresh(checkin)
     return _detail(db, request, checkin)

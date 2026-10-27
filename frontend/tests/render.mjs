@@ -5598,6 +5598,12 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
   check(create.includes('label="开始时间"') && create.includes('v-model="form.start_at"')
     && create.includes('start_at: form.start_at'), '发布弹窗可以指定开始时间并随表单提交')
   check(create.includes('开始时间必须早于截止时间'), '开始时间晚于截止时间时前端先拦一道')
+  check(create.includes('label="开始提醒"') && create.includes('notify_on_start: true') &&
+    create.includes('notify_on_start: form.notify_on_start'),
+  '发布签到可以选开始提醒，默认开启并随表单提交')
+  check(create.includes("created.notify_on_start ? '开始时会提醒范围内的同学。'"),
+    '发布结果页说明开启后会在开始时刻提醒')
+
   check(create.includes('label="地点展示名"'), '地点名称那一项叫「地点展示名」')
 }
 

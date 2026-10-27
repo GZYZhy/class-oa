@@ -158,6 +158,9 @@ NEW_COLUMNS = [
     # 可空 = 补列前发布的签到一律「发布即可签」，与补列前行为完全一致，
     # 不需要回填。新发布的签到总会填开始时间（默认就是发布那一刻）
     ("checkins", "start_at", "DATETIME"),
+    # 签到也开始支持「到点提醒」：旧签到当年是发布时立即发信，补列时一并标成已提醒
+    ("checkins", "notify_on_start", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("checkins", "start_notified_at", "DATETIME"),
     # 收集答卷用时：旧答卷为 NULL，不参与统计
     ("collection_submissions", "duration_seconds", "INTEGER"),
     # ---------- 二次验证 ----------
@@ -331,6 +334,23 @@ def _backfill_poll_start_notified(conn) -> None:
         )
 
 
+def _backfill_checkin_start_notified(conn) -> None:
+    """把老签到标记成「开始提醒已发送」
+
+    旧版签到在创建时就发站内信；新巡检会找「notify_on_start=1 且
+    start_notified_at 为空」的签到，不回填的话升级后老签到会被补发一遍。
+    """
+    result = conn.execute(text(
+        "UPDATE checkins SET start_notified_at = COALESCE(created_at, CURRENT_TIMESTAMP) "
+        "WHERE start_notified_at IS NULL"
+    ))
+    if result.rowcount:
+        print(
+            f"[迁移] 已把 {result.rowcount} 场老签到标记为「开始提醒已发送」，不会补发",
+            flush=True,
+        )
+
+
 def run_migrations() -> None:
     """补齐老库缺失的列；新库上什么都不做"""
     if engine.dialect.name != "sqlite":
@@ -348,6 +368,7 @@ def run_migrations() -> None:
     view_count_added = False
     webhook_enabled_added = False
     poll_start_notified_added = False
+    checkin_start_notified_added = False
     with engine.begin() as conn:
         for table, column, ddl in NEW_COLUMNS:
             columns = _existing_columns(conn, table)
@@ -363,6 +384,8 @@ def run_migrations() -> None:
                 webhook_enabled_added = True
             if table == "polls" and column == "start_notified_at":
                 poll_start_notified_added = True
+            if table == "checkins" and column == "start_notified_at":
+                checkin_start_notified_added = True
 
         if seed_needed:
             _seed_roles(conn)
@@ -375,5 +398,8 @@ def run_migrations() -> None:
 
         if poll_start_notified_added:
             _backfill_poll_start_notified(conn)
+
+        if checkin_start_notified_added:
+            _backfill_checkin_start_notified(conn)
 
         _rebuild_leave_table(conn)

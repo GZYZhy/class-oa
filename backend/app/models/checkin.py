@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 
 from ..database import Base
@@ -43,6 +44,15 @@ class Checkin(Base):
     # 可空 = 老数据：发布即可签。新发布的签到总会填上，支持「到点才开始」
     start_at = Column(DateTime, index=True, comment="开始时间，可空 = 发布即可签")
     end_at = Column(DateTime, index=True, comment="截止时间")
+    # 是否在开始时刻提醒范围内的人。老版本是发布即发站内信，升级时由迁移
+    # 把已有签到标成「已提醒」，不会补发；新发布默认开启，可关掉。
+    notify_on_start = Column(
+        Boolean, nullable=False, default=True, server_default=text("1"),
+        comment="到开始时间是否提醒范围内的人",
+    )
+    start_notified_at = Column(
+        DateTime, nullable=True, comment="开始提醒已发送的时刻，空=还没发",
+    )
     closed_at = Column(DateTime, comment="提前结束的时刻，可空")
     # 「暂停」不是结束：只是暂时不收签到，恢复后还能继续签。
     # 暂停期间到了截止时间照样自动结束并结算（状态判断里 end_at 排在它前面）。
