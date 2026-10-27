@@ -33,6 +33,7 @@
       <p class="cc-tip">
         {{ created.start_at ? `${formatDateTime(created.start_at)} 开始，` : '' }}截止
         {{ formatDateTime(created.end_at) }} 自动结束，也可以在考勤记录里手动结束。
+        {{ created.notify_on_start ? '开始时会提醒范围内的同学。' : '不发送开始提醒。' }}
       </p>
     </div>
 
@@ -86,6 +87,16 @@
           <span class="cc-tip cc-inline">
             {{ form.require_photo ? '需上传照片才能签到' : '不要求照片' }}
           </span>
+        </el-form-item>
+        <el-form-item label="开始提醒">
+          <el-switch
+            v-model="form.notify_on_start"
+            active-text="提醒"
+            inactive-text="不提醒"
+          />
+          <div class="cc-tip">
+            开启后到「开始时间」才给范围内的人发一次提醒；发布即可签时立即发
+          </div>
         </el-form-item>
       </el-form>
 
@@ -217,6 +228,7 @@ function blankForm() {
     start_at: defaultStart(),
     end_at: defaultEnd(),
     require_photo: false,
+    notify_on_start: true,
     targets: [],
     useLocation: false,
     radius_m: 500,
@@ -348,6 +360,7 @@ async function handleSubmit() {
     start_at: form.start_at,
     end_at: form.end_at,
     require_photo: form.require_photo,
+    notify_on_start: form.notify_on_start,
     targets: [...form.targets]
   }
   if (form.useLocation && point.value) {

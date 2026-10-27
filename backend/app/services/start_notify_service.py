@@ -1,4 +1,4 @@
-"""投票 / 收集的「开始提醒」调度器
+"""投票 / 收集 / 签到的「开始提醒」调度器
 
 出卷时由发起人决定要不要提醒（notify_on_start）。**创建时不发**，等 start_at 到了
 才由这里巡检发一次：
@@ -18,10 +18,12 @@ import time
 import traceback
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from ..database import SessionLocal
 from ..models import (
+    Checkin,
+    CheckinTarget,
     Collection,
     CollectionQuestion,
     CollectionTarget,
@@ -112,6 +114,31 @@ def _notify_collection(db, collection: Collection) -> None:
         )
 
 
+def _notify_checkin(db, checkin: Checkin) -> None:
+    """给一场到点的签到发开始提醒
+
+    签到的发布人很可能自己也在范围内，得一起收到 —— 和创建时立即发的那条
+    口径一致，不按 creator_no 排除。
+    """
+    body = f"截止 {checkin.end_at:%m-%d %H:%M}，打开链接完成签到"
+    if checkin.require_photo:
+        body += "，需上传照片"
+    if checkin.lat is not None and checkin.lng is not None:
+        body += "，需在指定地点签到"
+    title = f"签到开始：{checkin.title}"
+    page = share_path("checkin", checkin.code)
+
+    for (student_no,) in (
+        db.query(CheckinTarget.student_no)
+        .filter(CheckinTarget.checkin_id == checkin.id)
+        .all()
+    ):
+        targets = ns.recipients(db, only_no=student_no)
+        ns.deliver_now(
+            db, targets, title, body, level="timeSensitive", page=page
+        )
+
+
 def tick(now: datetime | None = None, db=None) -> int:
     """巡检一轮，返回这一轮成功提醒的活动数
 
@@ -171,6 +198,36 @@ def tick(now: datetime | None = None, db=None) -> int:
                 db.rollback()
                 print(
                     f"[开始提醒] 收集 {collection.id} 发送失败：\n"
+                    f"{traceback.format_exc()}",
+                    flush=True,
+                )
+
+        checkins = (
+            db.query(Checkin)
+            .filter(
+                Checkin.notify_on_start.is_(True),
+                Checkin.start_notified_at.is_(None),
+                # 老签到的 start_at 可能为空（发布即可签）；新签到创建时已立即
+                # 发出并标记，这里主要兜住未来开始的签到
+                or_(
+                    Checkin.start_at.is_(None),
+                    Checkin.start_at <= now,
+                ),
+                Checkin.end_at >= now,
+                Checkin.closed_at.is_(None),
+            )
+            .all()
+        )
+        for checkin in checkins:
+            try:
+                _notify_checkin(db, checkin)
+                checkin.start_notified_at = now
+                db.commit()
+                sent += 1
+            except Exception:
+                db.rollback()
+                print(
+                    f"[开始提醒] 签到 {checkin.id} 发送失败：\n"
                     f"{traceback.format_exc()}",
                     flush=True,
                 )

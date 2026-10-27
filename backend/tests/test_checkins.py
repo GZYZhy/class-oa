@@ -24,6 +24,8 @@ from io import BytesIO
 
 import pytest
 from openpyxl import load_workbook
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from conftest import png_bytes
 
@@ -98,7 +100,8 @@ def _end_at(minutes=30):
 
 
 def _create(b, targets, *, minutes=30, title="晚点名", remark="宿舍区集合",
-            require_photo=False, location=None, end_at=None, start_at=None):
+            require_photo=False, location=None, end_at=None, start_at=None,
+            notify_on_start=None):
     payload = {
         "title": title,
         "remark": remark,
@@ -110,6 +113,8 @@ def _create(b, targets, *, minutes=30, title="晚点名", remark="宿舍区集�
     # 不传 = 发布即可签（老前端的写法），新前端总会带上
     if start_at is not None:
         payload["start_at"] = start_at.strftime("%Y-%m-%dT%H:%M:%S")
+    if notify_on_start is not None:
+        payload["notify_on_start"] = notify_on_start
     r = b.client.post("/api/checkins", json=payload)
     assert r.status_code == 200, r.text
     return r.json()
@@ -489,6 +494,76 @@ def test_targets_and_creator_in_range_get_inbox_message(cb):
     r = cb.client.get("/api/inbox")
     hits = [m for m in r.json()["items"] if m["title"] == "新签到：晚点名二"]
     assert not hits, "不在范围内的发布人不该收到"
+
+
+def _tick(b, now=None):
+    """在测试进程里对测试库跑一轮开始提醒（后台线程被关掉了）"""
+    from app.services import start_notify_service as sns
+
+    engine = create_engine(f"sqlite:///{b.db}")
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    try:
+        return sns.tick(now=now or datetime.now(), db=db)
+    finally:
+        db.close()
+
+
+def test_future_checkin_reminds_at_start_time(cb):
+    """未来开始的签到：创建时不发，到点发一次，重复巡检不补发"""
+    start = datetime.now() + timedelta(minutes=10)
+    checkin = _create(
+        cb, [PEOPLE[0][0]], start_at=start,
+        end_at=start + timedelta(minutes=30), title="未来签到",
+    )
+    assert checkin["notify_on_start"] is True
+    assert checkin["start_notified_at"] is None
+
+    _login(cb, PEOPLE[0][0])
+    assert not [m for m in cb.client.get("/api/inbox").json()["items"]
+                if m["title"] == "签到开始：未来签到"]
+
+    _as_admin(cb)
+    assert _tick(cb, now=start - timedelta(seconds=1)) == 0
+    assert _tick(cb, now=start + timedelta(seconds=1)) == 1
+    assert _tick(cb, now=start + timedelta(seconds=2)) == 0, "不能重复发"
+
+    _login(cb, PEOPLE[0][0])
+    hits = [m for m in cb.client.get("/api/inbox").json()["items"]
+            if m["title"] == "签到开始：未来签到"]
+    assert len(hits) == 1
+    assert hits[0]["page"] == f"/share/checkin/{checkin['code']}"
+    assert cb.rows("SELECT start_notified_at FROM checkins WHERE id = ?",
+                   checkin["id"])[0][0] is not None
+
+
+def test_checkin_can_skip_start_reminder(cb):
+    """把「开始提醒」关掉：现在发布不发，到点也不发"""
+    checkin = _create(cb, [PEOPLE[0][0]], title="不提醒签到", notify_on_start=False)
+    assert checkin["notify_on_start"] is False
+
+    _login(cb, PEOPLE[0][0])
+    assert not [m for m in cb.client.get("/api/inbox").json()["items"]
+                if m["title"].endswith("不提醒签到")]
+
+    _as_admin(cb)
+    _tick(cb)
+    _login(cb, PEOPLE[0][0])
+    assert not [m for m in cb.client.get("/api/inbox").json()["items"]
+                if m["title"].endswith("不提醒签到")]
+
+
+def test_future_checkin_without_reminder_stays_silent(cb):
+    start = datetime.now() + timedelta(minutes=10)
+    _create(cb, [PEOPLE[0][0]], start_at=start,
+            end_at=start + timedelta(minutes=30), title="安静签到",
+            notify_on_start=False)
+
+    _as_admin(cb)
+    assert _tick(cb, now=start + timedelta(seconds=1)) == 0
+    _login(cb, PEOPLE[0][0])
+    assert not [m for m in cb.client.get("/api/inbox").json()["items"]
+                if m["title"].endswith("安静签到")]
 
 
 # ---------- 公开信息 ----------

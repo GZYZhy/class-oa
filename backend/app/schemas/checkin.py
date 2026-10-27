@@ -27,6 +27,8 @@ class CheckinCreate(BaseModel):
     start_at: datetime | None = Field(None, description="开始时间，为空 = 发布即可签")
     end_at: datetime = Field(..., description="截止时间")
     require_photo: bool = Field(False, description="是否要求上传一张照片")
+    # 默认提醒，与投票 / 收集同一口径；发布即可签时立即发，未来开始时到点发
+    notify_on_start: bool = Field(True, description="到开始时间是否提醒范围内的人")
     location: CheckinLocationIn | None = None
 
 
@@ -75,6 +77,8 @@ class CheckinListItem(BaseModel):
     # 为空 = 老数据（发布即可签）
     start_at: datetime | None = None
     end_at: datetime
+    notify_on_start: bool = True
+    start_notified_at: datetime | None = None
     target_count: int = 0
     signed_count: int = 0
     link: str = ""
