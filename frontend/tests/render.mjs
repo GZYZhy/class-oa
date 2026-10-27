@@ -5927,6 +5927,90 @@ console.log('\n▶ 外链分享框架：统一状态、公告页、启动引导'
     '分享弹窗展示标题、可复制链接和二维码')
 }
 
+console.log('\n▶ 资料分享外链：任何人可下载，管理员可吊销')
+{
+  const INFO = {
+    valid: true,
+    reason: '',
+    resource_name: '打印用-示例班名单',
+    category: '班级名单',
+    file_ext: '.pdf',
+    size: 2048,
+    download_name: '打印用-示例班名单.pdf',
+    expires_at: '2026-11-03T12:00:00',
+    created_at: '2026-10-27T12:00:00',
+    download_url: '/api/resources/share/abc123/file'
+  }
+
+  const { html } = await renderPatchedMany('/src/views/share/ShareResource.vue', [
+    ['const loading = ref(true)', 'const loading = ref(false)'],
+    ['const info = ref(null)', `const info = ref(${JSON.stringify(INFO)})`]
+  ])
+  const text = stripComments(html)
+  check(text.includes('打印用-示例班名单'), '资料外链页显示材料名')
+  check(text.includes('班级名单') && text.includes('2.0 KB'), '显示分类和大小')
+  check(text.includes('有效期至'), '显示这条链接的有效期')
+  check(text.includes('无需登录'), '说明拿到链接就能下载，不用登录')
+
+  // 过期 / 被吊销各说各的原因：游客看到「已过期」才知道该找谁再要一条
+  for (const [reason, expected] of [
+    ['expired', '链接已过期'],
+    ['revoked', '链接已被收回']
+  ]) {
+    const { html: bad } = await renderPatchedMany('/src/views/share/ShareResource.vue', [
+      ['const loading = ref(true)', 'const loading = ref(false)'],
+      ['const info = ref(null)',
+        `const info = ref(${JSON.stringify({ ...INFO, valid: false, reason })})`]
+    ])
+    check(stripComments(bad).includes(expected), `失效页说明了原因：${reason}`)
+  }
+
+  // 前后端两张注册表 + 路由，三处都得认识 resource，否则落地页是空白/失效
+  const sharePageSrc = readFileSync(`${ROOT}src/views/share/SharePage.vue`, 'utf8')
+  check(sharePageSrc.includes('resource: defineAsyncComponent'),
+    'SharePage 认识 resource 这一种外链')
+  const routerSrc = readFileSync(`${ROOT}src/router/index.js`, 'utf8')
+  check(routerSrc.includes("path: '/share/:kind/:token'"),
+    '沿用通用分享路由，不需要为资料再加一条')
+
+  const metaPy = readFileSync(`${ROOT}../backend/app/api/share_meta.py`, 'utf8')
+  check(metaPy.includes('def _resource_meta') && metaPy.includes('"resource": _resource_meta'),
+    '后端 SSI 卡片注册了 resource（爬虫能读到标题和有效期）')
+  check(metaPy.includes('SHARE_STATUS_VALID') && metaPy.includes('valid=False'),
+    '过期/吊销的外链给失效卡片，不继续被收录')
+
+  const resourcesPy = readFileSync(`${ROOT}../backend/app/api/resources.py`, 'utf8')
+  check(resourcesPy.includes('"/share/{token}/info"') && resourcesPy.includes('"/share/{token}/file"'),
+    '外链信息与下载接口都对游客开放')
+  const shareApi = readFileSync(`${ROOT}../backend/app/api/resources.py`, 'utf8')
+  const infoFn = shareApi.slice(shareApi.indexOf('def resource_share_info'))
+  check(!infoFn.slice(0, 400).includes('get_current_user'),
+    '外链信息接口不带登录依赖（进分享页不该被跳登录）')
+
+  // 创建入口在资料卡片上，有效期四档由分享人选
+  const downloadsSrc = readFileSync(`${ROOT}src/views/Downloads.vue`, 'utf8')
+  check(downloadsSrc.includes('openShare(item)') && downloadsSrc.includes('<ResourceShareDialog'),
+    '资料卡片有「分享」入口，弹窗按当前资料建外链')
+
+  const dialogSrc = readFileSync(`${ROOT}src/components/ResourceShareDialog.vue`, 'utf8')
+  for (const label of ['1 天', '7 天', '30 天', '永久']) {
+    check(dialogSrc.includes(`label: '${label}'`), `有效期可选「${label}」`)
+  }
+  check(dialogSrc.includes('createResourceShare') && dialogSrc.includes('makeQrDataUrl'),
+    '创建成功后给链接 + 二维码')
+  check(dialogSrc.includes('expires_at'), '结果里写清到期时间')
+
+  // 管理员那条线：看得到创建人/时间/有效期/次数/最近下载，能吊销
+  const adminSrc = readFileSync(`${ROOT}src/views/Admin.vue`, 'utf8')
+  check(adminSrc.includes('listResourceShares') && adminSrc.includes('handleRevokeResourceShare'),
+    '管理员能看外链列表并吊销')
+  check(adminSrc.includes('row.created_by_name') && adminSrc.includes('row.last_download_at') &&
+    adminSrc.includes('prop="download_count"') && adminSrc.includes('row.expires_at'),
+    '管理列表展示创建人、有效期、下载次数、最近下载时间')
+  check(adminSrc.includes(":disabled=\"row.status !== 'valid'\""),
+    '已失效的链接不再给吊销按钮')
+}
+
 console.log('\n▶ 首屏骨架、图表按需与资料卡栅格')
 {
   const indexHtml = readFileSync(`${ROOT}index.html`, 'utf8')

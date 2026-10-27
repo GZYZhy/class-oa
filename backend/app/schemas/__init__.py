@@ -211,6 +211,7 @@ from .grade import (
     MyGradeItem,
 )
 
+from .resource import ResourceShareCreate, ResourceShareCreated, ResourceShareInfo
 from .weather import (
     WeatherBannerResponse,
     WeatherBannerSettingsUpdate,
@@ -386,6 +387,9 @@ __all__ = [
     "ScheduleImportResultResponse",
     "ScheduleBatchResponse",
     "ICalTokenResponse",
+    "ResourceShareCreate",
+    "ResourceShareCreated",
+    "ResourceShareInfo",
     "SignPhotoRequestCreate",
     "SignPhotoRequestListResponse",
     "SignPhotoRequestResponse",

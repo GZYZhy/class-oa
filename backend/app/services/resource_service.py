@@ -6,16 +6,21 @@
 """
 
 import os
+import secrets
 import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
 from ..models.resource import Resource, ResourceCategory
+from ..models.resource_share import ResourceShareLink
 
-# 资料文件放在 data/downloads/ 下，和旧版一致
-RESOURCE_DIR = BASE_DIR / "data" / "downloads"
+# 资料文件放在 data/downloads/ 下，和旧版一致。
+# 吃环境变量是为了测试能指到临时目录去 —— 不吃的话用例一上传资料就写进
+# 真实数据目录，而且事后没人清得掉（照 PHOTO_DIR / LEAVE_DIR / 公告目录的先例）
+RESOURCE_DIR = Path(os.environ.get("RESOURCE_DIR") or (BASE_DIR / "data" / "downloads"))
 RESOURCE_DIR.mkdir(parents=True, exist_ok=True)
 
 # 下载接口 URL 前缀，旧版是 /api/resources/file，保持不变
@@ -226,9 +231,160 @@ def delete_resource(db: Session, resource_id: int) -> bool:
     if file_path.exists():
         file_path.unlink()
 
+    # 资料没了，指向它的外链自然也该消失：留着只会变成一个点开就失效的死链，
+    # 还会在管理员的「分享外链」列表里占一行
+    db.query(ResourceShareLink).filter(
+        ResourceShareLink.resource_id == row.id
+    ).delete(synchronize_session=False)
+
     db.delete(row)
     db.flush()
     return True
+
+
+# ==================== 分享外链 ====================
+
+# 有效期四档（天）。0 = 永久，前端的单选项和这里一一对应
+SHARE_DAY_CHOICES = (1, 7, 30, 0)
+SHARE_DAY_LABELS = {1: "1 天", 7: "7 天", 30: "30 天", 0: "永久"}
+
+SHARE_STATUS_VALID = "valid"
+SHARE_STATUS_EXPIRED = "expired"
+SHARE_STATUS_REVOKED = "revoked"
+SHARE_STATUS_MISSING = "missing"  # 链接不存在，或资料/文件已被删掉
+
+
+def new_share_token(db: Session) -> str:
+    """12 位 URL 安全随机串。够长，猜不到；撞了换一个，最多试 5 次
+
+    不用投票/收集那套「id + HMAC 签名」：签名串没法按条吊销 ——
+    换密钥等于把所有链接一起作废。资料外链既要能单独吊销，又要按条统计
+    下载次数，所以令牌必须落库（见 ResourceShareLink 的说明）。
+    """
+    for _ in range(5):
+        token = secrets.token_urlsafe(12)
+        if not db.query(ResourceShareLink.id).filter(
+            ResourceShareLink.token == token
+        ).first():
+            return token
+    raise RuntimeError("生成资料分享链接失败，请重试")
+
+
+def create_share_link(
+    db: Session,
+    resource: Resource,
+    *,
+    created_by_no: str,
+    created_by_name: str,
+    days: int,
+) -> ResourceShareLink:
+    """为一份资料建一条外链
+
+    days 只接四档：1 / 7 / 30 / 0（永久）。不在这里做「最小 1 天」之类的
+    自动纠正 —— 传了别的值说明调用方算错了，直接报错比悄悄改成 7 天好。
+    """
+    if days not in SHARE_DAY_CHOICES:
+        raise ValueError("有效期只能是 1 天、7 天、30 天或永久")
+
+    now = datetime.now()
+    row = ResourceShareLink(
+        resource_id=resource.id,
+        token=new_share_token(db),
+        created_by_no=created_by_no,
+        created_by_name=created_by_name or "",
+        expires_at=None if days == 0 else now + timedelta(days=days),
+        created_at=now,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def get_share_link(db: Session, token: str) -> ResourceShareLink | None:
+    if not token:
+        return None
+    return db.query(ResourceShareLink).filter(ResourceShareLink.token == token).first()
+
+
+def share_link_status(link: ResourceShareLink | None, now: datetime | None = None) -> str:
+    """一条外链现在是什么状态
+
+    吊销优先于过期：管理员主动停掉的链接，哪怕时间也早就到了，
+    列表里也显示「已吊销」—— 那是他能理解的那件事。
+    """
+    if link is None:
+        return SHARE_STATUS_MISSING
+    if link.revoked_at is not None:
+        return SHARE_STATUS_REVOKED
+    now = now or datetime.now()
+    if link.expires_at is not None and link.expires_at <= now:
+        return SHARE_STATUS_EXPIRED
+    return SHARE_STATUS_VALID
+
+
+def share_link_status_label(link: ResourceShareLink | None, now: datetime | None = None) -> str:
+    return {
+        SHARE_STATUS_VALID: "有效",
+        SHARE_STATUS_EXPIRED: "已过期",
+        SHARE_STATUS_REVOKED: "已吊销",
+        SHARE_STATUS_MISSING: "资料不存在",
+    }.get(share_link_status(link, now), "有效")
+
+
+def list_share_links(db: Session) -> list[dict]:
+    """管理员看的全部外链，按创建时间倒序（新的在最上面）
+
+    一次把资料表捞出来做映射，避免每行都去查一次资料名。
+    """
+    rows = (
+        db.query(ResourceShareLink)
+        .order_by(ResourceShareLink.created_at.desc(), ResourceShareLink.id.desc())
+        .all()
+    )
+    resources = {r.id: r for r in db.query(Resource).all()}
+    now = datetime.now()
+    result: list[dict] = []
+    for row in rows:
+        resource = resources.get(row.resource_id)
+        result.append({
+            "id": row.id,
+            "resource_id": row.resource_id,
+            # 资料被删时外链会一起删掉，这里只是兜底，正常不会出现
+            "resource_name": resource.name if resource else "（资料已删除）",
+            "created_by_no": row.created_by_no,
+            "created_by_name": row.created_by_name,
+            "token": row.token,
+            "expires_at": row.expires_at,
+            "revoked_at": row.revoked_at,
+            "status": share_link_status(row, now),
+            "status_label": share_link_status_label(row, now),
+            "download_count": row.download_count or 0,
+            "last_download_at": row.last_download_at,
+            "created_at": row.created_at,
+        })
+    return result
+
+
+def revoke_share_link(db: Session, link_id: int) -> ResourceShareLink | None:
+    """吊销一条外链。已经吊销过的不报错，原样返回（重复点不该是失败）"""
+    row = db.query(ResourceShareLink).filter(ResourceShareLink.id == link_id).first()
+    if not row:
+        return None
+    if row.revoked_at is None:
+        row.revoked_at = datetime.now()
+        db.flush()
+    return row
+
+
+def record_share_download(db: Session, link: ResourceShareLink) -> None:
+    """经外链下载一次：链接自己的计数 + 资料的总下载次数一起涨"""
+    now = datetime.now()
+    link.download_count = (link.download_count or 0) + 1
+    link.last_download_at = now
+    resource = db.query(Resource).filter(Resource.id == link.resource_id).first()
+    if resource:
+        resource.download_count = (resource.download_count or 0) + 1
+    db.flush()
 
 
 def seed_from_catalog(db: Session, catalog: list[dict]) -> int:

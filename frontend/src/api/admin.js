@@ -225,6 +225,24 @@ export function deleteResource(id) {
   })
 }
 
+// ==================== 资料分享外链 ====================
+
+/** 全部资料外链：创建人、创建时间、有效期、下载次数、最近下载时间、状态 */
+export function listResourceShares() {
+  return request({
+    url: '/admin/resource-shares',
+    method: 'get'
+  })
+}
+
+/** 吊销一条外链（立刻失效，已下载的文件收不回来） */
+export function revokeResourceShare(id) {
+  return request({
+    url: `/admin/resource-shares/${id}/revoke`,
+    method: 'post'
+  })
+}
+
 // ==================== 文件访问日志 ====================
 
 /** 文件访问日志列表（查看/下载），分页 + 筛选 */

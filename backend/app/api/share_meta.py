@@ -29,6 +29,7 @@ from ..models import (
     Poll,
     PollQuestion,
     PollTarget,
+    Resource,
 )
 from ..services import clip
 from ..services.checkin_service import (
@@ -55,6 +56,12 @@ from ..services.poll_service import (
     parse_poll_share_token,
     poll_status,
     scope_label,
+)
+from ..services.resource_service import (
+    RESOURCE_DIR,
+    SHARE_STATUS_VALID,
+    get_share_link,
+    share_link_status,
 )
 from ..services.share_service import ShareMeta, render_meta_html
 from ..utils.notify_text import markdown_to_text
@@ -199,12 +206,72 @@ def _notice_meta(db: Session, token: str) -> ShareMeta | None:
     )
 
 
+def _size_text(size: int) -> str:
+    """文件大小的人类可读写法，口径与前端资料卡片一致"""
+    if not size:
+        return "文件缺失"
+    if size < 1024:
+        return f"{size} B"
+    kb = size / 1024
+    if kb < 1024:
+        return f"{kb:.1f} KB"
+    mb = kb / 1024
+    if mb < 1024:
+        return f"{mb:.1f} MB"
+    return f"{mb / 1024:.1f} GB"
+
+
+def _resource_meta(db: Session, token: str) -> ShareMeta | None:
+    """资料外链卡片：材料名 + 分类、大小、有效期
+
+    资料外链是可以单独吊销的，token 由数据库里那条记录决定；
+    过期或已吊销时给失效卡片（robots 也会跟着变成 noindex）——
+    微信里转发出去之后失效的链接，不该继续被搜索引擎收录。
+    """
+    link = get_share_link(db, token)
+    if not link:
+        return None
+    resource = db.query(Resource).filter(Resource.id == link.resource_id).first()
+    if not resource:
+        return None
+
+    title = f"资料：{resource.name}"
+    if share_link_status(link) != SHARE_STATUS_VALID:
+        return ShareMeta(
+            kind="resource",
+            token=token,
+            title=title,
+            description="这个分享链接已过期或被发布人收回",
+            valid=False,
+        )
+
+    file_path = RESOURCE_DIR / resource.file_name
+    if not file_path.exists():
+        # 链接本身还有效但文件没了：落地页会显示「文件暂不可用」，
+        # 卡片也不能继续让搜索引擎收录这个死链
+        return ShareMeta(
+            kind="resource",
+            token=token,
+            title=title,
+            description="资料文件已不在服务器上，请联系管理员",
+            valid=False,
+        )
+    size = file_path.stat().st_size
+    desc = f"{resource.category} · {_size_text(size)}"
+    if link.expires_at:
+        desc += f" · 有效期至 {link.expires_at:%Y-%m-%d %H:%M}"
+    else:
+        desc += " · 永久有效"
+    return ShareMeta(kind="resource", token=token, title=title, description=desc)
+
+
 # 类型注册表。新增外链类型只加一行，不需要动 nginx 和 index.html
 _RESOLVERS = {
     "vote": _vote_meta,
     "checkin": _checkin_meta,
     "notice": _notice_meta,
     "collect": _collection_meta,
+    "resource": _resource_meta,
 }
 
 

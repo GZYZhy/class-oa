@@ -65,9 +65,11 @@ from ..services import (
     TOKEN_SOURCE_LEAVE,
     extract_watermark,
     list_all_resources,
+    list_share_links,
     log_operation,
     parse_watermark_token,
     reorder_category,
+    revoke_share_link,
     scope_label,
     unban_ip,
     update_resource,
@@ -1133,6 +1135,51 @@ def remove_resource(
     )
     db.commit()
     return {"message": "已删除"}
+
+
+# ==================== 资料分享外链 ====================
+# 创建在用户侧（resources.py，登录即可），管理和吊销只给管理员。
+
+
+@router.get("/resource-shares", summary="资料分享外链列表（管理员）")
+def admin_list_resource_shares(
+    _: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    """全部资料外链：创建人、创建时间、有效期、经链接的下载次数、最近下载时间
+
+    按创建时间倒序，新的在最上面。过期 / 已吊销的行照样返回 ——
+    管理员要看的是「我分享过什么」，不是「还有哪些能用」。
+    """
+    return list_share_links(db)
+
+
+@router.post("/resource-shares/{link_id}/revoke", summary="吊销资料分享外链")
+def admin_revoke_resource_share(
+    link_id: int,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """立刻让一条外链失效。已下载的文件收不回来，但链接此后打不开"""
+    link = revoke_share_link(db, link_id)
+    if not link:
+        raise HTTPException(status_code=404, detail="外链不存在")
+
+    resource = db.query(Resource).filter(Resource.id == link.resource_id).first()
+    target = (
+        f"{resource.category}/{resource.name}" if resource else f"资料 id={link.resource_id}"
+    )
+    log_operation(
+        db, user, "吊销资料外链", target=target,
+        detail=(
+            f"创建人 {link.created_by_no} {link.created_by_name}；"
+            f"经链接下载 {link.download_count or 0} 次"
+        ),
+        ip=ip,
+    )
+    db.commit()
+    return {"message": "已吊销"}
 
 
 # ==================== 文件访问日志 ====================

@@ -23,7 +23,9 @@ const COMPONENTS = {
   vote: defineAsyncComponent(() => import('./ShareVote.vue')),
   checkin: defineAsyncComponent(() => import('./ShareCheckin.vue')),
   notice: defineAsyncComponent(() => import('./ShareNotice.vue')),
-  collect: defineAsyncComponent(() => import('./ShareCollect.vue'))
+  collect: defineAsyncComponent(() => import('./ShareCollect.vue')),
+  // 资料下载外链：拿到链接的人不用登录就能下
+  resource: defineAsyncComponent(() => import('./ShareResource.vue'))
 }
 
 const route = useRoute()
