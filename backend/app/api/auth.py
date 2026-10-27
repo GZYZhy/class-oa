@@ -82,7 +82,7 @@ from .deps import get_current_user, get_client_ip, require_cookie_auth
 router = APIRouter(prefix="/api/auth", tags=["认证"])
 
 # 头像目录：域外账号的头像存这里，学生账号的照片在 data/photos（见 students.py）
-AVATAR_DIR = BASE_DIR / "data" / "avatars"
+AVATAR_DIR = Path(os.environ.get("AVATAR_DIR") or (BASE_DIR / "data" / "avatars"))
 # 测试跑的是真后端进程，照片目录也得能像其它文件目录一样被环境变量换走，
 # 否则这里会去读真实数据目录里的 photos
 PHOTO_DIR = Path(os.environ.get("PHOTO_DIR") or (BASE_DIR / "data" / "photos"))

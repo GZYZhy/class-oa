@@ -43,6 +43,9 @@ from .admin import (
     DataHealthItem,
     DataHealthGroup,
     DataHealthResponse,
+    OrphanCleanupRequest,
+    OrphanCleanupDomain,
+    OrphanCleanupResponse,
 )
 from .about import (
     AboutAdminResponse,
@@ -212,6 +215,15 @@ from .grade import (
 )
 
 from .resource import ResourceShareCreate, ResourceShareCreated, ResourceShareInfo
+from .ops import (
+    OpsConfigField,
+    OpsConfigResponse,
+    OpsConfigSaved,
+    OpsConfigUpdate,
+    OpsEnvOnly,
+    OpsVersionInfo,
+    UpdateCheckResponse,
+)
 from .weather import (
     WeatherBannerResponse,
     WeatherBannerSettingsUpdate,
@@ -270,6 +282,9 @@ __all__ = [
     "DataHealthItem",
     "DataHealthGroup",
     "DataHealthResponse",
+    "OrphanCleanupRequest",
+    "OrphanCleanupDomain",
+    "OrphanCleanupResponse",
     "InboxMessageResponse",
     "InboxListResponse",
     "CommitteeMember",
@@ -390,6 +405,13 @@ __all__ = [
     "ResourceShareCreate",
     "ResourceShareCreated",
     "ResourceShareInfo",
+    "OpsConfigField",
+    "OpsConfigResponse",
+    "OpsConfigSaved",
+    "OpsConfigUpdate",
+    "OpsEnvOnly",
+    "OpsVersionInfo",
+    "UpdateCheckResponse",
     "SignPhotoRequestCreate",
     "SignPhotoRequestListResponse",
     "SignPhotoRequestResponse",

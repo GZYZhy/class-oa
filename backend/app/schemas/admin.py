@@ -157,12 +157,19 @@ class WatermarkExtractResponse(BaseModel):
 
 
 class DataHealthItem(BaseModel):
-    """一条体检问题：哪个学生 + 一句人话说明"""
-    id: int
+    """一条体检问题：哪个学生（或哪个文件）+ 一句人话说明"""
+    # 学生行才有；文件类（签字图/文件丢失/孤儿文件）没有
+    id: Optional[int] = None
     # 这两个理论上可能为空（库里的历史脏数据），空着也别让整个报告 500
     student_no: Optional[str] = None
     name: Optional[str] = None
+    # 文件类：给人看的对象说明（资料「xx」、公告「xx」、账号 张三）
+    subject: Optional[str] = None
     reason: str
+    # 孤儿文件要能定位到具体目录 + 文件名，清理时才敢删
+    domain: Optional[str] = None
+    file: Optional[str] = None
+    size: Optional[int] = None
 
 
 class DataHealthGroup(BaseModel):
@@ -172,6 +179,8 @@ class DataHealthGroup(BaseModel):
     # error = 确实有问题；warn = 可疑或缺失，可能只是还没填。前端据此上色
     level: str
     items: list[DataHealthItem]
+    # 只有「孤儿文件」这类能一键清理；丢失文件只报告，绝不删库记录
+    can_cleanup: bool = False
 
 
 class DataHealthResponse(BaseModel):
@@ -180,6 +189,27 @@ class DataHealthResponse(BaseModel):
     total_students: int
     # 一项问题都没有的卡片不会出现在这里，前端直接顺序渲染
     groups: list[DataHealthGroup]
+
+
+class OrphanCleanupRequest(BaseModel):
+    """清理孤儿文件：domains 为空 = 所有目录"""
+
+    domains: list[str] | None = None
+
+
+class OrphanCleanupDomain(BaseModel):
+    domain: str
+    label: str
+    deleted: int
+    freed_bytes: int
+
+
+class OrphanCleanupResponse(BaseModel):
+    message: str
+    deleted: int
+    freed_bytes: int
+    failed: int
+    by_domain: list[OrphanCleanupDomain] = Field(default_factory=list)
 
 
 class IpBanRequest(BaseModel):

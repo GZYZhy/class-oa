@@ -64,6 +64,7 @@ from ..services.resource_service import (
     share_link_status,
 )
 from ..services.share_service import ShareMeta, render_meta_html
+from ..utils.human_size import human_size
 from ..utils.notify_text import markdown_to_text
 
 logger = logging.getLogger(__name__)
@@ -208,17 +209,7 @@ def _notice_meta(db: Session, token: str) -> ShareMeta | None:
 
 def _size_text(size: int) -> str:
     """文件大小的人类可读写法，口径与前端资料卡片一致"""
-    if not size:
-        return "文件缺失"
-    if size < 1024:
-        return f"{size} B"
-    kb = size / 1024
-    if kb < 1024:
-        return f"{kb:.1f} KB"
-    mb = kb / 1024
-    if mb < 1024:
-        return f"{mb:.1f} MB"
-    return f"{mb / 1024:.1f} GB"
+    return "文件缺失" if not size else human_size(size)
 
 
 def _resource_meta(db: Session, token: str) -> ShareMeta | None:

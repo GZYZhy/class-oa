@@ -10,6 +10,7 @@ PDF 自动打不可见水印，溯源是谁导出的。
 """
 
 import json
+import os
 import uuid
 from datetime import date, datetime
 from pathlib import Path
@@ -52,7 +53,7 @@ from .deps import admin_required, committee_required, get_client_ip, get_current
 router = APIRouter(prefix="/api/export-requests", tags=["学生信息导出"])
 
 # 导出文件存放目录
-EXPORT_DIR = BASE_DIR / "data" / "exports"
+EXPORT_DIR = Path(os.environ.get("EXPORT_DIR") or (BASE_DIR / "data" / "exports"))
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 # 学生照片目录（PDF 里要嵌入照片）

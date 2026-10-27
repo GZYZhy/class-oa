@@ -21,6 +21,7 @@ from .middleware import (
     RejectEarlyDataMiddleware,
     RememberMeMiddleware,
     DefaultCacheControlMiddleware,
+    RuntimeConfigMiddleware,
 )
 from .api import api_router
 from .database import Base, database_kind, engine, SessionLocal
@@ -71,6 +72,26 @@ Base.metadata.create_all(bind=engine)
 
 # 再给老表补上新增的列（create_all 不会做这件事），必须在任何查询之前
 run_migrations()
+
+
+def load_runtime_config() -> None:
+    """把「运维」页保存的运行时配置写回 settings
+
+    必须排在 create_all / run_migrations 之后：它要读 runtime_settings 表。
+    也必须早于任何请求 —— 邮件、Turnstile、封禁阈值这些判定都在请求里读 settings。
+    """
+    from .services import runtime_config
+
+    db = SessionLocal()
+    try:
+        applied = runtime_config.load(db)
+        if applied:
+            print(f"[初始化] 已应用 {applied} 项运维配置（系统管理 → 运维）", flush=True)
+    finally:
+        db.close()
+
+
+load_runtime_config()
 
 # 平滑升级：只在 notice_reads 刚建出来的这一次补，之后每次启动都不会再跑
 if NOTICE_READS_IS_NEW:
@@ -369,6 +390,10 @@ app.add_middleware(
     # 这一行是给「前端另起一个域名」那种配法兜底的，不加会是个很难查的坑
     expose_headers=["X-Bootstrap-Required"],
 )
+
+# 运行时配置：多实例部署时，别的实例改过的配置最迟一分钟内在这里被回收。
+# 单实例下每次请求只是一次时间戳比较，不碰数据库。
+app.add_middleware(RuntimeConfigMiddleware)
 
 # 注意中间件顺序：**后加的在外层**（add_middleware 把新中间件插到列表最前，
 # 构建时又从后往前包，净效果是最后注册的那个最先拿到请求、最后拿到响应）。

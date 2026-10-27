@@ -254,6 +254,15 @@ export function getFileAccessLogs(params) {
   })
 }
 
+/** 一键清理孤儿文件（磁盘上有、数据库没记录指向的文件；不动数据库） */
+export function cleanupOrphanFiles(domains) {
+  return request({
+    url: '/admin/data-health/orphans/cleanup',
+    method: 'post',
+    data: domains ? { domains } : {}
+  })
+}
+
 /** 从上传的 PDF 中提取不可见水印，返回下载人/时间/文件信息
  *
  * onProgress：(loaded, total) => void。要溯源的 PDF 可能很大（公告上限 50MB），
@@ -326,4 +335,30 @@ export function getWeatherBanner() {
 
 export function saveWeatherBanner(data) {
   return request({ url: '/admin/weather-banner', method: 'put', data })
+}
+
+// ==================== 运维 ====================
+
+/**
+ * 运行时配置：字段元数据 + 当前生效值 + 值是从哪来的
+ *
+ * 字段清单由后端给（services/runtime_config.FIELDS），前端只按 group 渲染，
+ * 加一项配置不用改前端。
+ */
+export function getOpsConfig() {
+  return request({ url: '/admin/ops/config', method: 'get' })
+}
+
+/** 保存运行时配置。空串 = 清除覆盖、回落到环境变量；密文项传 ******** 表示不改 */
+export function saveOpsConfig(values) {
+  return request({ url: '/admin/ops/config', method: 'put', data: { values } })
+}
+
+/**
+ * 检查有没有新版本
+ *
+ * 只有点按钮才调；后端缓存 6 小时，连不上发布页时也返回 200（error 字段说明原因）。
+ */
+export function checkUpdate() {
+  return request({ url: '/admin/update-check', method: 'get' })
 }

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from ..models import Student
 from ..utils.email_addr import is_valid_email
 from ..utils.student_fields import field_label
+from .file_health_service import check_files
 from .student_import_service import PHOTO_DIR
 
 # 18 位身份证的校验位算法（GB 11643-1999）：前 17 位各乘一个加权因子，
@@ -74,10 +75,15 @@ def check_data(db: Session) -> dict:
     for group in groups.values():
         group["items"].sort(key=lambda item: item["student_no"] or "")
 
+    report = [group for group in groups.values() if group["items"]]
+    # 文件类检查（签字图缺失 / 文件丢失 / 孤儿文件）在单独的服务里：
+    # 它们不是「按学生」的行，但卡片形状一样，直接接在后面
+    report.extend(check_files(db))
+
     return {
         "checked_at": datetime.now(),
         "total_students": len(students),
-        "groups": [group for group in groups.values() if group["items"]],
+        "groups": report,
     }
 
 
