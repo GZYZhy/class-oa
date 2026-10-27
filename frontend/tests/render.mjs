@@ -6081,6 +6081,14 @@ console.log('\n▶ 运维页：运行时配置与检查更新')
   check(adminSrc.includes('env_only'), '仍由环境变量配置的项以只读清单展示')
   check(adminSrc.includes("field.kind === 'secret'") && adminSrc.includes('SECRET_MASK'),
     '密文项打码，留空表示不修改')
+  check(adminSrc.includes(":label-width=\"isMobile ? 'auto' : '250px'\"") &&
+    adminSrc.includes(":label-position=\"isMobile ? 'top' : 'left'\""),
+  '运维表单的标签列够宽，窄屏自动改成上下排')
+  check(/\.ops-label \{[^}]*white-space: nowrap/.test(adminSrc),
+    '标签与「环境变量 / 后台」徽章不拆行')
+  check(/\.ops-form :deep\(\.el-input-number \.el-input__inner\) \{[^}]*text-align: left/.test(adminSrc),
+    '数字输入框和文本框一样左对齐')
+
   check(adminSrc.includes('current_parsed'), '开发版不参与新旧比较')
 
   const adminApi = readFileSync(`${ROOT}src/api/admin.js`, 'utf8')
