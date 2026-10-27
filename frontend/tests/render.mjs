@@ -5739,8 +5739,11 @@ console.log('\n▶ 公开页缓存与分享卡片')
   check(site.includes('logoUrl: raw.logoUrl'), '前端从 SITE 读校徽地址')
   check(readFileSync(`${ROOT}src/views/Login.vue`, 'utf8').includes(':src="SITE.logoUrl"'),
     'Login.vue 的校徽走缓存地址')
-  check(readFileSync(`${ROOT}src/components/share/ShareLayout.vue`, 'utf8')
-    .includes(':src="SITE.logoUrl"'), '所有外链分享页的校徽走缓存地址')
+  const shareLayoutSrc = readFileSync(`${ROOT}src/components/share/ShareLayout.vue`, 'utf8')
+  check(shareLayoutSrc.includes(':src="SITE.logoUrl"'),
+    '所有外链分享页的校徽走缓存地址')
+  check(shareLayoutSrc.includes('class="app-emblem"'),
+    '分享页底部也有和站内一致的校徽纹样')
   const robots = readFileSync(`${ROOT}public/robots.txt`, 'utf8')
   check(robots.includes('Allow: /share/') &&
     robots.includes('Allow: /api/checkins/share/') &&

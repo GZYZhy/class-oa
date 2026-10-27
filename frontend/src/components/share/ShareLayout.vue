@@ -7,6 +7,16 @@
 -->
 <template>
   <div class="share-page">
+    <!-- 校徽纹样：和登录页、站内页面共用同一个全局类，固定在视口右下角。
+         纯装饰，不接鼠标事件，也不进无障碍树 -->
+    <img
+      :src="SITE.logoUrl"
+      class="app-emblem"
+      alt=""
+      aria-hidden="true"
+      @error="$event.target.style.display = 'none'"
+    />
+
     <div class="share-card">
       <div class="share-head">
         <img :src="SITE.logoUrl" class="share-logo" alt="校徽" />
@@ -46,6 +56,12 @@ defineProps({
   box-sizing: border-box;
   /* 背景交给 #app 的全局蓝紫渐变 */
   background: transparent;
+}
+
+/* 纹样固定在视口，内容层抬到它上面，避免极淡的校徽盖住文字 */
+.share-page > *:not(.app-emblem) {
+  position: relative;
+  z-index: 1;
 }
 
 /* 脚栏铺满整个页面底部，抵消页面左右/底部的内边距 */
