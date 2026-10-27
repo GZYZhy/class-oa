@@ -1028,7 +1028,11 @@
             <div class="ops-block-head">
               <span class="ops-title">{{ group }}</span>
             </div>
-            <el-form label-width="170px" label-position="left" class="ops-form">
+            <el-form
+              :label-width="isMobile ? 'auto' : '250px'"
+              :label-position="isMobile ? 'top' : 'left'"
+              class="ops-form"
+            >
               <el-form-item v-for="f in fieldsOf(group)" :key="f.key">
                 <template #label>
                   <span class="ops-label">
@@ -3181,7 +3185,14 @@ onMounted(() => {
 .ops-label {
   display: inline-flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 6px;
+  white-space: nowrap;
+}
+
+/* el-input-number 默认把数字居中；和相邻的文本框保持左对齐 */
+.ops-form :deep(.el-input-number .el-input__inner) {
+  text-align: left;
 }
 
 .ops-field {
