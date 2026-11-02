@@ -1,8 +1,9 @@
 """Cloudflare Turnstile 的服务端校验
 
-登录页的人机验证有两套：内置的算术题（utils/captcha.py）和这个。
-配了 .env 里的两个 key 就用 Turnstile，没配就还是算术题 ——
-判定在 config.turnstile_enabled()，这里只管「拿 token 问 Cloudflare 通没通过」。
+登录页的人机验证有三种：内置的字符图（含语音）和拖动拼图（utils/captcha.py），
+以及这里的 Turnstile。用哪种由 config.captcha_mode() 决定（后台/环境变量），
+**选了 turnstile 就不回退**：Key 不齐时登录直接拒绝，不会改认另外两种的答案。
+这里只管「拿 token 问 Cloudflare 通没通过」。
 
 写法整套照搬 services/bark_service.py：stdlib urllib（零新依赖）、模块级 TIMEOUT、
 两段式 except（HTTPError 单独读响应正文）、print 打日志、**绝不抛异常**。

@@ -175,7 +175,8 @@ server {
 | `TWO_FACTOR_MASTER_CODE` | 二次验证万能码，6 位数字，仅登录第二因素生效 |
 | `LOGIN_BAN_THRESHOLD` / `_MINUTES` / `LOGIN_FAIL_WINDOW_MINUTES` | 登录失败封禁 |
 | `SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_SECURITY` | 邮件通知与邮箱验证码 |
-| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile 人机验证 |
+| `CAPTCHA_MODE` | 人机验证方式：`captcha`（默认，字符图 + 语音）/ `slider`（拖动拼图）/ `turnstile` |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile 的两个 Key，仅 `CAPTCHA_MODE=turnstile` 时用；两个都必须有 |
 | `HEAD_INJECT` | 原样插入每页 `<head>`，放统计或第三方脚本；非空时启动脚本会自动放宽 CSP 的 `script-src` |
 | `SCHEDULE_GEO_TITLES` | Apple 日历结构化地点的「坐标 → 名称」映射（JSON 数组），留空则使用日程的地点文本 |
 | `DATABASE_URL` | 默认 SQLite；也可指向 MySQL |
@@ -183,7 +184,7 @@ server {
 | `BARK_SERVER` | Bark 推送服务地址 |
 
 上表里有几项**不用再改这里**：`PUBLIC_BASE_URL`、`BARK_SERVER`、`VAPID_SUBJECT`、
-`SMTP_*`、`TURNSTILE_*`、`LOGIN_BAN_*` 以及电动车办件文档的三项，都可以在
+`SMTP_*`、`CAPTCHA_MODE`、`TURNSTILE_*`、`LOGIN_BAN_*` 以及电动车办件文档的三项，都可以在
 「系统管理 → 运维」里直接改，保存即生效。后台保存过的项以数据库为准，这里只作为初始值；
 把后台那一项清空保存，就回落到这里。机密与安全边界（通开密码、密钥、可信代理网段、
 `DATABASE_URL`、`SITE_*` 品牌）仍然只能配在这里。

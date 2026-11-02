@@ -12,10 +12,13 @@ class LoginRequest(BaseModel):
     student_no: str = Field(..., description="学号")
     password: str = Field(..., description="密码")
     remember: bool = Field(False, description="是否保持登录 7 天")
-    captcha: Optional[str] = Field(None, description="算术验证码的答案（失败 1 次后必填）")
-    # 人机验证有两套，靠「哪个字段有值」区分，不做格式嗅探：
-    # 配了 Turnstile 且控件正常 → 填 turnstile_token；没配、或浏览器加载不出控件
-    # 而退回算术题 → 填上面的 captcha。两条路后端都认，见 api/auth.py 的登录接口
+    captcha: Optional[str] = Field(
+        None, description="拼图验证：滑块停在的横向位置（原图坐标，失败 1 次后必填）"
+    )
+    # 人机验证有三套，由后台/环境变量选定（config.captcha_mode()）：
+    #   captcha（默认）→ 填上面 captcha 里的字符；slider → 填拖动位置；
+    #   turnstile → 填下面的 turnstile_token。后端按当前模式只认对应字段，
+    #   选了 turnstile 不会回退到前两种，见 api/auth.py 的登录接口
     turnstile_token: Optional[str] = Field(None, description="Turnstile 控件给的 token")
 
 

@@ -7,7 +7,9 @@ from sqlalchemy.engine import make_url
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import (
+    CAPTCHA_MODE_LABELS,
     SMTP_SECURITY_MODES,
+    captcha_mode,
     fail_window_minutes,
     login_ban_values,
     settings,
@@ -187,21 +189,33 @@ def init_about_settings() -> None:
 init_about_settings()
 
 
-def warn_turnstile() -> None:
-    """TURNSTILE 只配了一个 key 时提示一句
+def warn_captcha_mode() -> None:
+    """人机验证方式配错时提示一句
 
-    这时 turnstile_enabled() 是 False，登录页走的还是内置算术验证码。
-    不提示的话，配了 site key 的人会一直以为 Turnstile 已经生效了。
+    两件容易踩的事：
+      * 模式选了 turnstile，但两个 Key 不齐 —— **不会回退**，登录会直接失败；
+      * Key 配了，但模式不是 turnstile —— 配了也不生效（以前是「配了就启用」）。
     """
-    if bool(settings.turnstile_site_key) != bool(settings.turnstile_secret_key):
+    mode = captcha_mode()
+    keys = bool(settings.turnstile_site_key and settings.turnstile_secret_key)
+
+    if mode == "turnstile" and not keys:
         print(
-            "[初始化] TURNSTILE 的 SITE_KEY / SECRET_KEY 只配了一个，"
-            "已退回内置算术验证码（两个都填齐才启用）",
+            "[初始化] 验证方式为 turnstile，但 TURNSTILE 的 SITE_KEY / SECRET_KEY 不完整 —— "
+            "不会回退到字符图或拼图，登录会在校验这一步被拒绝，请立刻补齐",
             flush=True,
         )
+    elif mode != "turnstile" and keys:
+        print(
+            f"[初始化] 配了 Turnstile 的 Key，但验证方式当前是 {mode}，"
+            "Turnstile 不会启用（要启用请把验证方式改成 turnstile）",
+            flush=True,
+        )
+    else:
+        print(f"[初始化] 人机验证方式：{CAPTCHA_MODE_LABELS[mode]}", flush=True)
 
 
-warn_turnstile()
+warn_captcha_mode()
 
 
 def warn_security_config() -> None:

@@ -5,10 +5,36 @@ export function login(data) {
   return request({ url: '/auth/login', method: 'post', data })
 }
 
-/** 获取验证码（SVG 图片，直接设到 <img src> 上就行） */
-export function getCaptcha() {
+/** 获取拖动拼图验证码（背景图 + 拼图块，两张 data URL） */
+/**
+ * 字符图验证码（默认方式）：返回 PNG 的 object URL
+ *
+ * 答案不在响应里 —— 4 位数字存在服务端会话，登录时由后端校验。
+ */
+export function getCaptchaImage() {
   return request({ url: '/auth/captcha', method: 'get', responseType: 'blob' })
-    .then(blob => URL.createObjectURL(blob))
+    .then((blob) => URL.createObjectURL(blob))
+}
+
+/**
+ * 语音验证码（无障碍）：返回 WAV 的 object URL
+ *
+ * **会换一组新数字**：和图片共用会话里那个答案槽位，所以切到语音后以语音为准，
+ * 前端要把图片藏起来，否则图上的字和耳里的数字对不上。
+ */
+export function getCaptchaAudio() {
+  return request({ url: '/auth/captcha/audio', method: 'get', responseType: 'blob' })
+    .then((blob) => URL.createObjectURL(blob))
+}
+
+/**
+ * 拖动拼图验证码（可选方式）
+ *
+ * 返回 { background, puzzle, width, height, puzzle_size, y } —— 两张 PNG 的 data URL
+ * 加画布尺寸。缺口的横坐标只存在服务端会话里。
+ */
+export function getCaptchaSlide() {
+  return request({ url: '/auth/captcha', method: 'get' })
 }
 
 /**

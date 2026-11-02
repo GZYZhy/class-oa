@@ -78,9 +78,13 @@ class Settings(BaseSettings):
     # 初始化完成后建议清空并重启，避免这把钥匙一直留在配置里。
     bootstrap_password: str = ""
 
-    # Cloudflare Turnstile 人机验证（可选）：替代内置的算术验证码。
-    # 两个都填才启用；只填一个、或都留空 = 继续用内置的算术验证码，
-    # 行为和加这个功能之前一模一样（这是默认值，也是出问题时的退路）。
+    # 人机验证方式：captcha（字符图 + 语音，默认）/ slider（拖动拼图）/ turnstile
+    # 三种都由后台「系统管理 → 运维」或这里配置，后台优先。
+    # **选了 turnstile 就不回退**：key 没配齐也不会改用别的方式（保存时会被拦住）。
+    captcha_mode: str = Field(default="captcha", validation_alias=AliasChoices("CAPTCHA_MODE"))
+
+    # Cloudflare Turnstile 的两个 key。选了 turnstile 模式才用得到，
+    # 两个都必须有（保存时会校验，不齐不让存）。
     # site key 是公开的，会经 /api/auth/captcha-required 下发给浏览器；
     # secret key 是机密的，只在后端用，不提交、不进镜像。
     turnstile_site_key: str = ""
@@ -200,13 +204,36 @@ SECRET_FILE = BASE_DIR / "data" / ".session_secret"
 VAPID_FILE = BASE_DIR / "data" / ".vapid_private.pem"
 
 
-def turnstile_enabled() -> bool:
-    """Turnstile 两个 key 都配齐了才算启用
+# 人机验证的三种方式。顺序即后台下拉框的顺序
+CAPTCHA_MODES = ("captcha", "slider", "turnstile")
+CAPTCHA_MODE_LABELS = {
+    "captcha": "字符图 + 语音（默认）",
+    "slider": "拖动拼图",
+    "turnstile": "Cloudflare Turnstile",
+}
 
-    只配一半多半是漏填。这时候退回算术验证码，比「以为配了 Turnstile
-    其实没生效」或者「浏览器拿不到 site key 被拒」都好排查。
-    main.py 启动时会为这种情况打一行警告。
+
+def captcha_mode() -> str:
+    """当前的人机验证方式；配错/留空一律当默认的字符图
+
+    做成判定函数（和 smtp_enabled 一个路子），就不存在「配置里写着 turnstile、
+    实际却在用别的方式」这种中间状态。
     """
+    mode = (settings.captcha_mode or "").strip().lower()
+    return mode if mode in CAPTCHA_MODES else "captcha"
+
+
+def turnstile_enabled() -> bool:
+    """是否选用了 Turnstile
+
+    **只看模式，不看 key 配没配齐**：选了 turnstile 就不回退到别的方式，
+    少了 key 会由保存接口拦住（启动时也会打警告），而不是悄悄换成字符图。
+    """
+    return captcha_mode() == "turnstile"
+
+
+def turnstile_ready() -> bool:
+    """Turnstile 的两个 key 是否都在。缺了就没法真的验证，只能报错让人去补"""
     return bool(settings.turnstile_site_key and settings.turnstile_secret_key)
 
 

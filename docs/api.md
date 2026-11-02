@@ -59,25 +59,44 @@
 
 ## 认证
 
-### 获取验证码（SVG 图片）
+### 获取人机验证码（按当前验证方式）
 
 `GET /api/auth/captcha`
 
-生成一道算术题，答案存会话里，下一次登录时校验。 验证码 SVG 直接返回，不需要额外 id —— 未登录用户也有会话 Cookie， 答案就存在 session["captcha_answer"] 里。 每次调用都会刷新答案。
+按 `CAPTCHA_MODE`（或后台「运维」里的设置）出题：
 
-**响应**
+| 验证方式 | 返回 |
+| --- | --- |
+| `captcha`（默认） | `image/png` 字节流：4 位数字的字符图 |
+| `slider` | JSON：`background`、`puzzle`（`data:image/png;base64,…`）、`width`、`height`、`puzzle_size`、`y`、`tolerance`、`expires_in` |
+| `turnstile` | `404` —— 这个方式由前端控件直接问 Cloudflare，不需要后端出题 |
 
-- `200` — 成功
+答案（字符或缺口横坐标）只存在会话里，**响应里不含**；每次调用换一份并刷新答案，120 秒有效、校验后立刻清除。响应头 `Cache-Control: no-store`。
+
+### 获取语音验证码（无障碍，仅字符图方式）
+
+`GET /api/auth/captcha/audio`
+
+把 4 位数字念出来（`audio/wav`），给看不清图片的人用。只有 `captcha` 方式提供；其他方式返回 `404`。**会换一组新数字**（与图片共用会话槽位），所以前端切到语音后以语音为准。
+
+- `200` — WAV 字节流
+- `404` — 当前验证方式没有语音版本
 
 ### 当前 IP 是否需要人机验证，以及用哪一种
 
 `GET /api/auth/captcha-required`
 
-登录页先问一下要不要显示验证码框，免得每次都加载 SVG。 required 为 False 时也要带上 mode / site_key：前端要靠它知道 「等会儿万一输错了，该去加载 Turnstile 控件还是拉算术题」。 site key 本来就是公开的（它要发给浏览器），secret key 永远不出后端。 顺带带上 banned / banned_until：让登录页能**直接**显示「本机 IP 已被封禁， X 解除」，而不是等用户填完表单吃了 403，还先看到一张永远用不上的验证码。
+登录页先问一下要不要显示验证码框。`required=false` 时也要带上 `mode` 等字段：前端要靠它知道「等会儿万一输错了，该渲染哪一种控件」。
 
 **响应**
 
 - `200` — 成功
+  - `required`：当前 IP 是否需要人机验证（失败 1 次后为 `true`）
+  - `mode`：`captcha` / `slider` / `turnstile`
+  - `audio`：是否提供语音（只有 `mode=captcha` 为 `true`）
+  - `ready`：Turnstile 的两个 Key 是否齐全；`false` 时页面提示联系管理员，不切换方式
+  - `site_key`：仅 `mode=turnstile` 时有值（本来就公开）
+  - `banned`、`banned_until`、`ban_message`：本机 IP 的封禁状态
 
 ### 登录
 
@@ -90,7 +109,7 @@
 | `student_no` | string | 是 | 学号 |
 | `password` | string | 是 | 密码 |
 | `remember` | boolean | 否 | 是否保持登录 7 天 |
-| `captcha` | string，可空 | 否 | 算术验证码的答案（失败 1 次后必填） |
+| `captcha` | string，可空 | 否 | 字符图方式填 4 位数字；拼图方式填滑块位置（原图坐标）。失败 1 次后必填 |
 | `turnstile_token` | string，可空 | 否 | Turnstile 控件给的 token |
 
 **响应**

@@ -17,8 +17,9 @@ import uvicorn
 from app.main import app  # noqa: E402  —— 必须晚于环境变量就位才能 import
 from app.services import login_guard  # noqa: E402
 
-# 验证码不测：失败一次就要求验证码，会让「先故意错一次再正确登录」的场景全废
-login_guard._CAPTCHA_THRESHOLD = 10 ** 6
+# 默认不要求验证码：失败一次就要求它，会让「先故意错一次再正确登录」的场景全废。
+# 专门测验证码的用例把 CAPTCHA_THRESHOLD=1 传进来，还原成真实阈值。
+login_guard._CAPTCHA_THRESHOLD = int(os.environ.get("CAPTCHA_THRESHOLD", 10 ** 6))
 
 uvicorn.run(
     app,
