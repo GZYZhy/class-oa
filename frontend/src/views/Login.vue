@@ -130,46 +130,47 @@
             v-model="form.captcha"
           />
 
-          <!-- 默认：字符图 + 语音（无障碍） -->
+          <!-- 默认：字符图 + 语音（无障碍）。图在左、输入框在右 -->
           <div v-else class="captcha-char">
-            <div class="captcha-media">
-              <img
-                v-if="!audioMode && captchaSrc"
-                :src="captchaSrc"
-                class="captcha-img"
-                alt="验证码图片：4 位数字"
-                title="点击换一张"
-                @click="refreshCaptcha"
-              />
-              <div v-else-if="audioMode" class="captcha-audio-note">
-                语音验证已启用，请听写 4 位数字
-              </div>
-              <span v-else class="captcha-loading">验证码加载中…</span>
-            </div>
-
-            <div class="captcha-line">
-              <el-input
-                v-model="form.captcha"
-                size="large"
-                inputmode="numeric"
-                maxlength="4"
-                placeholder="输入图中的 4 位数字"
-                aria-label="验证码，4 位数字"
-                @keyup.enter="handleLogin"
-              />
-              <el-button text type="primary" @click="refreshCaptcha">换一张</el-button>
-              <el-button
-                v-if="captchaAudioEnabled"
-                text
-                type="primary"
-                @click="toggleAudio"
+            <div class="captcha-row">
+              <div
+                class="captcha-media"
+                :title="audioMode ? '点击重听语音' : '点击换一张'"
+                @click="audioMode ? playAudio() : refreshCaptcha()"
               >
-                {{ audioMode ? '改用图像' : '听语音' }}
-              </el-button>
-            </div>
+                <img
+                  v-if="!audioMode && captchaSrc"
+                  :src="captchaSrc"
+                  class="captcha-img"
+                  alt="验证码图片：4 位数字"
+                />
+                <div v-else-if="audioMode" class="captcha-audio-note">
+                  语音验证已启用
+                </div>
+                <span v-else class="captcha-loading">验证码加载中…</span>
+              </div>
 
-            <div class="captcha-a11y-tip">
-              看不清图片？点「听语音」用播放器听这 4 位数字。
+              <div class="captcha-right">
+                <el-input
+                  v-model="form.captcha"
+                  size="large"
+                  inputmode="numeric"
+                  maxlength="4"
+                  placeholder="输入 4 位数字"
+                  aria-label="验证码，4 位数字"
+                  @keyup.enter="handleLogin"
+                />
+                <el-button
+                  v-if="captchaAudioEnabled"
+                  link
+                  type="primary"
+                  size="small"
+                  class="captcha-audio-toggle"
+                  @click="toggleAudio"
+                >
+                  {{ audioMode ? '改用图像' : '听语音' }}
+                </el-button>
+              </div>
             </div>
 
             <audio
@@ -212,7 +213,7 @@
       </el-form>
 
       <div class="login-foot">
-        <el-link type="info" :underline="false" @click="goHome">先随便看看首页 →</el-link>
+        <el-link type="info" :underline="false" @click="goHome">先随便看看 →</el-link>
       </div>
     </div>
   </div>
@@ -694,47 +695,60 @@ function goHome() {
   width: 100%;
 }
 
+.captcha-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
 .captcha-media {
+  flex: 0 0 150px;
+  width: 150px;
+  height: 60px;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 60px;
-  margin-bottom: 8px;
+  overflow: hidden;
   border-radius: 6px;
   background: var(--el-fill-color-light);
   border: 1px solid var(--el-border-color);
+  cursor: pointer;
 }
 
 .captcha-img {
-  height: 60px;
-  width: auto;
-  max-width: 100%;
-  border-radius: 5px;
-  cursor: pointer;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .captcha-loading,
 .captcha-audio-note {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--el-text-color-secondary);
-}
-
-.captcha-audio-note {
-  padding: 18px 12px;
   text-align: center;
 }
 
-.captcha-line {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.captcha-audio-note {
+  padding: 0 8px;
 }
 
-.captcha-a11y-tip {
-  margin-top: 4px;
+.captcha-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.captcha-audio-toggle {
+  align-self: flex-end;
+  height: auto;
+  padding: 0;
   font-size: 12px;
-  line-height: 1.6;
-  color: var(--el-text-color-secondary);
+  line-height: 1.4;
 }
 
 .captcha-audio {

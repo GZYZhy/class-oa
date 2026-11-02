@@ -6034,6 +6034,14 @@ console.log('\n▶ 人机验证：字符图 / 拼图 / Turnstile 三选一')
     '默认字符图，具体用哪种由后端下发')
   check(loginSrc.includes('<SliderCaptcha') && loginSrc.includes('<TurnstileWidget'),
     '三种方式各有一个分支（字符图 / 拼图 / Turnstile）')
+  check(loginSrc.includes('class="captcha-row"') && loginSrc.includes('class="captcha-right"'),
+    '验证码图在左、输入框在右')
+  check(loginSrc.includes('@click="audioMode ? playAudio() : refreshCaptcha()"') &&
+    !loginSrc.includes('>换一张</el-button>') && !loginSrc.includes('看不清图片'),
+  '点击图片换图，不再单独放「换一张」按钮和长说明')
+  check(loginSrc.includes('先随便看看 →') && !loginSrc.includes('先随便看看首页'),
+    '首页入口文案改成「先随便看看」')
+
   check(loginSrc.includes('听语音') && loginSrc.includes('改用图像'),
     '字符图分支提供语音（无障碍）')
   check(loginSrc.includes('@failed="onTurnstileFailed"') &&
