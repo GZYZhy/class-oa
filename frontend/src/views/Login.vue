@@ -104,32 +104,81 @@
         </el-form-item>
 
         <!-- 人机验证：登录失败一次后才显示，默认隐藏。
-             配了 Turnstile 就用它，加载不出来自动退回下面的算术题 -->
+             用哪种由后台 / 环境变量决定（captcha 字符图 / slider 拼图 / turnstile）；
+             选了 Turnstile 就不退回另外两种，加载失败只提示重试 -->
         <el-form-item v-if="showCaptcha">
-          <TurnstileWidget
-            v-if="captchaMode === 'turnstile'"
-            ref="turnstileRef"
-            :site-key="turnstileSiteKey"
-            @success="onTurnstileToken"
-            @unavailable="fallbackToMath"
+          <div v-if="captchaMode === 'turnstile' && !captchaReady" class="captcha-error">
+            人机验证配置不完整，请联系管理员
+          </div>
+
+          <template v-else-if="captchaMode === 'turnstile'">
+            <TurnstileWidget
+              ref="turnstileRef"
+              :site-key="turnstileSiteKey"
+              @success="onTurnstileToken"
+              @failed="onTurnstileFailed"
+            />
+            <div v-if="turnstileError" class="captcha-error">
+              <span>{{ turnstileError }}</span>
+              <el-button text type="primary" @click="retryTurnstile">重试</el-button>
+            </div>
+          </template>
+
+          <SliderCaptcha
+            v-else-if="captchaMode === 'slider'"
+            ref="sliderRef"
+            v-model="form.captcha"
           />
-          <div v-else class="captcha-row">
-            <el-input
-              v-model="form.captcha"
-              size="large"
-              placeholder="请输入计算结果"
-              :prefix-icon="Key"
-              @keyup.enter="handleLogin"
-              style="flex: 1;"
-            />
-            <!-- 点图片换一张 -->
-            <img
-              :src="captchaSrc"
-              class="captcha-img"
-              alt="验证码"
-              title="点击刷新"
-              @click="refreshCaptcha"
-            />
+
+          <!-- 默认：字符图 + 语音（无障碍） -->
+          <div v-else class="captcha-char">
+            <div class="captcha-media">
+              <img
+                v-if="!audioMode && captchaSrc"
+                :src="captchaSrc"
+                class="captcha-img"
+                alt="验证码图片：4 位数字"
+                title="点击换一张"
+                @click="refreshCaptcha"
+              />
+              <div v-else-if="audioMode" class="captcha-audio-note">
+                语音验证已启用，请听写 4 位数字
+              </div>
+              <span v-else class="captcha-loading">验证码加载中…</span>
+            </div>
+
+            <div class="captcha-line">
+              <el-input
+                v-model="form.captcha"
+                size="large"
+                inputmode="numeric"
+                maxlength="4"
+                placeholder="输入图中的 4 位数字"
+                aria-label="验证码，4 位数字"
+                @keyup.enter="handleLogin"
+              />
+              <el-button text type="primary" @click="refreshCaptcha">换一张</el-button>
+              <el-button
+                v-if="captchaAudioEnabled"
+                text
+                type="primary"
+                @click="toggleAudio"
+              >
+                {{ audioMode ? '改用图像' : '听语音' }}
+              </el-button>
+            </div>
+
+            <div class="captcha-a11y-tip">
+              看不清图片？点「听语音」用播放器听这 4 位数字。
+            </div>
+
+            <audio
+              v-if="audioUrl"
+              :src="audioUrl"
+              class="captcha-audio"
+              controls
+              autoplay
+            ></audio>
           </div>
         </el-form-item>
 
@@ -176,7 +225,13 @@ import { ElMessage } from 'element-plus'
 import { User, Lock, Key } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
-import { getCaptcha, getCaptchaRequired, resendTwoFactorCode } from '@/api/auth'
+import {
+  getCaptchaAudio,
+  getCaptchaImage,
+  getCaptchaRequired,
+  resendTwoFactorCode
+} from '@/api/auth'
+import SliderCaptcha from '@/components/SliderCaptcha.vue'
 import { isPasskeySupported, isConditionalPasskeyAvailable } from '@/utils/passkey'
 import { SITE } from '@/utils/site'
 
@@ -205,12 +260,23 @@ let conditionalAbort = null
 let conditionalStopped = false
 
 const showCaptcha = ref(false)
-const captchaSrc = ref('')
-// 'math' = 自带的算术题；'turnstile' = Cloudflare 人机验证（由后端 .env 决定）
-const captchaMode = ref('math')
+const sliderRef = ref(null)
+// 'captcha'（字符图 + 语音，默认）/ 'slider'（拖动拼图）/ 'turnstile'
+// 由后台「运维」或 CAPTCHA_MODE 决定；选了 turnstile 就不会退回另外两种
+const captchaMode = ref('captcha')
+// 后端说这一种方式提不提供语音（只有字符图有）
+const captchaAudioEnabled = ref(false)
+// Turnstile 的 Key 是否齐全。不齐时不渲染控件，直接提示联系管理员
+const captchaReady = ref(true)
 const turnstileSiteKey = ref('')
 const turnstileToken = ref('')
 const turnstileRef = ref(null)
+const turnstileError = ref('')
+
+// 字符图 / 语音
+const captchaSrc = ref('')
+const audioUrl = ref('')
+const audioMode = ref(false)
 
 // 非空表示本机 IP 正被封禁：整个表单换成这段提示
 const banMessage = ref('')
@@ -224,29 +290,65 @@ const resending = ref(false)
 const resendLeft = ref(0)
 let resendTimer = null
 
+function releaseImage() {
+  if (captchaSrc.value) URL.revokeObjectURL(captchaSrc.value)
+  captchaSrc.value = ''
+}
+
+function releaseAudio() {
+  if (audioUrl.value) URL.revokeObjectURL(audioUrl.value)
+  audioUrl.value = ''
+}
+
+/** 换一张字符图（也会从语音切回图像） */
 async function refreshCaptcha() {
+  if (captchaMode.value !== 'captcha') return
+  audioMode.value = false
+  releaseAudio()
+  form.captcha = ''
   try {
-    captchaSrc.value = await getCaptcha()
+    const url = await getCaptchaImage()
+    releaseImage()
+    captchaSrc.value = url
   } catch (e) {
-    // 验证码加载失败不影响主流程，提示一下
+    // 加载失败不影响主流程：用户可以再点「换一张」
     console.warn('验证码加载失败', e)
+    captchaSrc.value = ''
   }
 }
 
-/** Turnstile 控件起不来（内地网络下会），退回算术题
- *
- * 单向降级：同一个页面里不再回头试 Turnstile，免得两种界面来回跳
- * （每次 mount 失败都会重新走一遍脚本加载 + 8 秒超时）。
- */
-function fallbackToMath() {
-  if (captchaMode.value === 'math') return
-  captchaMode.value = 'math'
-  turnstileToken.value = ''
-  refreshCaptcha()
+/** 听语音：会换一组新数字，所以把图藏起来，以语音这组为准 */
+async function playAudio() {
+  try {
+    const url = await getCaptchaAudio()
+    releaseAudio()
+    audioUrl.value = url
+    audioMode.value = true
+    form.captcha = ''
+  } catch (e) {
+    ElMessage.error('语音验证码加载失败，请稍后重试')
+  }
+}
+
+function toggleAudio() {
+  if (audioMode.value) refreshCaptcha()
+  else playAudio()
 }
 
 function onTurnstileToken(token) {
   turnstileToken.value = token || ''
+  if (token) turnstileError.value = ''
+}
+
+/** Turnstile 加载/渲染失败：只报错 + 让用户重试，**不切换到别的方式** */
+function onTurnstileFailed(message) {
+  turnstileToken.value = ''
+  turnstileError.value = message || '人机验证加载失败，请重试'
+}
+
+function retryTurnstile() {
+  turnstileError.value = ''
+  turnstileRef.value?.retry()
 }
 
 // 进入页面时先问一下后端：这个 IP 现在要不要人机验证、用哪一种
@@ -256,8 +358,12 @@ onMounted(async () => {
   try {
     const res = await getCaptchaRequired()
     // mode / site_key 即使这次不用也得记下来：
-    // 等会儿万一输错了要显示验证码框，得知道该加载 Turnstile 还是拉算术题
-    captchaMode.value = res.mode === 'turnstile' ? 'turnstile' : 'math'
+    // 等会儿万一输错了要显示验证码框，得知道渲染哪一种
+    captchaMode.value = ['captcha', 'slider', 'turnstile'].includes(res.mode)
+      ? res.mode
+      : 'captcha'
+    captchaAudioEnabled.value = !!res.audio
+    captchaReady.value = res.ready !== false
     turnstileSiteKey.value = res.site_key || ''
     // 已被封禁就不用显示表单和验证码了 —— 反正提交上去也是 403
     if (res.banned) {
@@ -266,8 +372,8 @@ onMounted(async () => {
     }
     if (res.required) {
       showCaptcha.value = true
-      // Turnstile 的控件由组件自己挂载时加载；算术题这里就得去拉 SVG
-      if (captchaMode.value === 'math') await refreshCaptcha()
+      // 字符图要主动拉一张；拼图和 Turnstile 的组件挂载时自己加载
+      if (captchaMode.value === 'captcha') await refreshCaptcha()
     }
   } catch (e) {
     // 问不到就算了，默认不显示，输错一次后端会提示要验证码
@@ -288,7 +394,9 @@ async function handleLogin() {
       student_no: form.student_no.trim(),
       password: form.password,
       remember: form.remember,
-      captcha: showCaptcha.value && !useTurnstile ? form.captcha : undefined,
+      // 字符图交文本、拼图交拖动位置（原图坐标）；空的就原样交上去，
+      // 后端按当前模式给出「请输入验证码 / 请拖动滑块」的提示
+      captcha: showCaptcha.value && !useTurnstile ? String(form.captcha ?? '') : undefined,
       turnstile_token: useTurnstile ? turnstileToken.value : undefined
     })
     // 密码对了但还要第二因素：不跳转，切到验证码输入框
@@ -311,18 +419,23 @@ async function handleLogin() {
       return
     }
 
-    // 登录失败后，显示人机验证并换一张
-    // （后端已经开始计数了，下次登录必须带验证码）
+    // 登录失败后，显示人机验证并换一份新的
+    // （后端已经开始计数了，下次登录必须带验证码；答案都是一次性的）
     if (!showCaptcha.value) {
       showCaptcha.value = true
-    }
-    if (captchaMode.value === 'turnstile') {
-      // token 是一次性的，刚才那个已经被后端用掉了，必须换一个新的
+      if (captchaMode.value === 'captcha') await refreshCaptcha()
+    } else if (captchaMode.value === 'turnstile') {
       turnstileRef.value?.reset()
       turnstileToken.value = ''
+      turnstileError.value = ''
+    } else if (captchaMode.value === 'slider') {
+      sliderRef.value?.reset()
+      form.captcha = ''
+    } else if (audioMode.value) {
+      // 刚才听的那组数字也作废了，重新念一组
+      await playAudio()
     } else {
       await refreshCaptcha()
-      form.captcha = ''
     }
   } finally {
     loading.value = false
@@ -483,6 +596,9 @@ async function cancelTwoFactor() {
 onBeforeUnmount(() => {
   stopResendCooldown()
   stopConditionalPasskey()
+  // blob URL 不会自己回收，离开页面时手动放掉
+  releaseImage()
+  releaseAudio()
 })
 
 function goHome() {
@@ -573,20 +689,68 @@ function goHome() {
   color: var(--el-text-color-secondary);
 }
 
-.captcha-row {
+/* ---------- 字符图 + 语音验证码 ---------- */
+.captcha-char {
+  width: 100%;
+}
+
+.captcha-media {
   display: flex;
-  gap: 10px;
   align-items: center;
+  justify-content: center;
+  min-height: 60px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color);
 }
 
 .captcha-img {
-  width: 120px;
-  height: 40px;
-  border-radius: 4px;
-  border: 1px solid var(--el-border-color);
+  height: 60px;
+  width: auto;
+  max-width: 100%;
+  border-radius: 5px;
   cursor: pointer;
-  flex-shrink: 0;
-  background: var(--el-fill-color-light);
+}
+
+.captcha-loading,
+.captcha-audio-note {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.captcha-audio-note {
+  padding: 18px 12px;
+  text-align: center;
+}
+
+.captcha-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.captcha-a11y-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+}
+
+.captcha-audio {
+  width: 100%;
+  height: 36px;
+  margin-top: 6px;
+}
+
+.captcha-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--el-color-danger);
 }
 
 .login-options {

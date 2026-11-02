@@ -9,6 +9,12 @@ python-multipart==0.0.31
 itsdangerous==2.2.0
 # 浏览器推送（Web Push）。必须锁定 2.5.0
 pywebpush==2.5.0
+# 登录页的拖动拼图验证码：只用来生成/裁剪/调暗图片（utils/captcha.py）。
+# 选 manylinux wheel，slim 镜像里不用装编译工具链
+Pillow==11.0.0
+# 字符图 / 语音验证码（默认的人机验证方式）。依赖只有 Pillow，
+# 自带字体与语音数据，镜像里不用再装 ttf
+captcha==0.7.1
 pymupdf==1.28.2
 reportlab==4.2.2
 # 通行密钥（WebAuthn）签名校验。只做验证，不生成钥匙 —— 私钥永远在用户设备上

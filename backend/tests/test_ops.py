@@ -74,9 +74,9 @@ def test_snapshot_lists_every_field_and_env_only_items(b):
 
 
 def test_saving_takes_effect_without_restart(b):
-    """保存 SMTP 与 Turnstile 之后，登录页 / 我的信息立刻反映出来"""
+    """保存 SMTP 与验证方式之后，登录页 / 我的信息立刻反映出来"""
     before = b.client.get("/api/auth/captcha-required").json()
-    assert before["mode"] == "math"
+    assert before["mode"] == "captcha", "默认是字符图"
 
     r = _save(b, {
         "smtp_host": "smtp.example.com",
@@ -85,11 +85,15 @@ def test_saving_takes_effect_without_restart(b):
         "smtp_user": "oa@example.com",
         "smtp_password": "auth-code",
         "smtp_from": "oa@example.com",
+        # 验证方式要显式切到 turnstile：配了 Key 不再自动启用
+        "captcha_mode": "turnstile",
         "turnstile_site_key": "site-key-1",
         "turnstile_secret_key": "secret-key-1",
     })
     assert r.status_code == 200, r.text
-    assert set(r.json()["changed"]) >= {"smtp_host", "smtp_port", "smtp_password"}
+    assert set(r.json()["changed"]) >= {
+        "smtp_host", "smtp_port", "smtp_password", "captcha_mode"
+    }
 
     # 密文项在接口里打码，其它项原样回显，来源标记为 database
     assert _field(b, "smtp_password")["value"] == "********"
@@ -101,10 +105,11 @@ def test_saving_takes_effect_without_restart(b):
     assert me.status_code == 200, me.text
     assert me.json()["smtp_enabled"] is True
 
-    # 生效：Turnstile 两个 key 都配了 → 登录页改用 Turnstile
+    # 生效：验证方式切到 turnstile 且 Key 齐全 → 登录页改用 Turnstile
     after = b.client.get("/api/auth/captcha-required").json()
     assert after["mode"] == "turnstile"
     assert after["site_key"] == "site-key-1"
+    assert after["audio"] is False, "Turnstile 没有语音版本"
 
 
 def test_bad_values_are_rejected_and_nothing_is_saved(b):

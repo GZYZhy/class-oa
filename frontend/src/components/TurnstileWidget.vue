@@ -9,8 +9,10 @@
  * Cloudflare Turnstile 人机验证控件
  *
  * 只做三件事：按需把 Cloudflare 的脚本拉进来、渲染控件、把 token 交给父组件。
- * 加载不出来（内地网络下真会发生）就 emit('unavailable')，由父组件退回算术验证码 ——
- * 这里不自己决定降级，也不自己画备用界面。
+ *
+ * **加载/渲染失败只上报，不切换验证方式**：后台可能把验证方式定成了 turnstile，
+ * 悄悄退回字符图或拼图会让「Turnstile 在生效」这件事变成谎话。
+ * 失败时由父组件提示，用户点「重试」再试一次同一种方式。
  *
  * 打开本站**不会有任何**对 challenges.cloudflare.com 的请求：
  * 脚本要等这个组件第一次挂载（也就是登录输错一次之后）才开始加载。
@@ -20,7 +22,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 const props = defineProps({
   siteKey: { type: String, required: true }
 })
-const emit = defineEmits(['success', 'unavailable'])
+const emit = defineEmits(['success', 'failed'])
 
 const SCRIPT_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
 // 内地网络下请求更可能是「挂住」而不是干脆报错。没有这条超时，
@@ -66,12 +68,12 @@ function loadScript() {
 const box = ref(null)
 let widgetId = null
 
-onMounted(async () => {
+async function mount() {
   try {
     await loadScript()
   } catch (e) {
-    console.warn('Turnstile 脚本加载失败，退回算术验证码：', e.message)
-    emit('unavailable')
+    console.warn('Turnstile 脚本加载失败：', e.message)
+    emit('failed', '人机验证加载失败，请检查网络后重试')
     return
   }
 
@@ -81,20 +83,21 @@ onMounted(async () => {
       // 登录卡片内容区只有 312px，默认的 300px 控件几乎顶满，flexible 自适应更稳
       size: 'flexible',
       language: 'zh-cn',
-      // 默认的 auto 会自己反复重试，我们要的是「不行就立刻退回算术题」，
-      // 否则用户会盯着一个一直在转的控件，而算术题那条路明明能用
+      // 默认的 auto 会自己反复重试；我们的重试交给用户点按钮，失败时界面才说得清
       retry: 'never',
       callback: (token) => emit('success', token),
-      'error-callback': () => emit('unavailable'),
+      'error-callback': () => emit('failed', '人机验证没有通过，请重试'),
       // token 5 分钟就过期。先清掉手里的旧值，免得拿一个过期 token 去登录；
       // 刷新出新 token 时上面的 callback 会再调一次
       'expired-callback': () => emit('success', '')
     })
   } catch (e) {
-    console.warn('Turnstile 控件渲染失败，退回算术验证码：', e.message)
-    emit('unavailable')
+    console.warn('Turnstile 控件渲染失败：', e.message)
+    emit('failed', '人机验证加载失败，请重试')
   }
-})
+}
+
+onMounted(mount)
 
 onBeforeUnmount(() => {
   if (widgetId && window.turnstile) {
@@ -108,13 +111,23 @@ function reset() {
   if (widgetId && window.turnstile) window.turnstile.reset(widgetId)
 }
 
-defineExpose({ reset })
+/** 加载失败后用户点「重试」：重新拉脚本/重新渲染，仍然只用 Turnstile */
+function retry() {
+  scriptPromise = null
+  if (widgetId && window.turnstile) {
+    window.turnstile.remove(widgetId)
+    widgetId = null
+  }
+  if (box.value) box.value.innerHTML = ''
+  mount()
+}
+
+defineExpose({ reset, retry })
 </script>
 
 <style scoped>
-/* 占住高度，脚本还在路上时表单不会先塌下去再弹开 */
 .turnstile-box {
   width: 100%;
-  min-height: 65px;
+  min-height: 64px;
 }
 </style>

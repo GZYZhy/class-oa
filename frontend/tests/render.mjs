@@ -1176,10 +1176,12 @@ const goDate = ref('${date}')${call}`
   check(dec.includes('12月21日 - 27日'), '换成 12-25 就停到 12/21–12/27 那一周（真在按日期跳）')
   check(!dec.includes('11月2日 - 8日'), '不留下上一次跳的那一周')
 
-  // 负对照：没点「前往」时那两周一个都不该出现（今天在 10 月）
+  // 负对照：没点「前往」时不会停在目标那一周。
+  // 不能写死「今天在 10 月」—— 用例跑在什么日子就得怎么算：
+  // 11-05 那周可能正好是本周（比如今天是 11-02），所以拿两次渲染的周标签直接比
   const { html: plain } = await render('/src/views/Schedule.vue', { ElDialog: ElDialogStub })
-  check(!plain.includes('11月2日 - 8日') && !plain.includes('12月21日 - 27日'),
-    '负对照：不点就不换周')
+  const weekLabel = (html) => (html.match(/(\d+月\d+日 - \d+日)/) || [])[1] || ''
+  check(weekLabel(plain) !== weekLabel(dec), '负对照：不点就不换周')
 
   // 弹窗正文：默认填眼前的周一，正文里说清跳的是「那一天所在的那一周」
   const { html: dialog } = await renderPatched('/src/views/Schedule.vue', MARKER,
@@ -6018,6 +6020,71 @@ console.log('\n▶ 资料分享外链：任何人可下载，管理员可吊销'
     '管理列表展示创建人、有效期、下载次数、最近下载时间')
   check(adminSrc.includes(":disabled=\"row.status !== 'valid'\""),
     '已失效的链接不再给吊销按钮')
+}
+
+console.log('\n▶ 人机验证：字符图 / 拼图 / Turnstile 三选一')
+{
+  // SSR 下 onMounted 不跑：拼图组件看到的是「还没拿到图」的占位
+  const { html } = await render('/src/components/SliderCaptcha.vue')
+  check(stripComments(html).includes('正在生成拼图'), '拼图组件未加载时显示占位，不闪空白')
+  check(!stripComments(html).includes('算术'), '不再是算术题')
+
+  const loginSrc = readFileSync(`${ROOT}src/views/Login.vue`, 'utf8')
+  check(loginSrc.includes('captchaMode') && loginSrc.includes("ref('captcha')"),
+    '默认字符图，具体用哪种由后端下发')
+  check(loginSrc.includes('<SliderCaptcha') && loginSrc.includes('<TurnstileWidget'),
+    '三种方式各有一个分支（字符图 / 拼图 / Turnstile）')
+  check(loginSrc.includes('听语音') && loginSrc.includes('改用图像'),
+    '字符图分支提供语音（无障碍）')
+  check(loginSrc.includes('@failed="onTurnstileFailed"') &&
+    !loginSrc.includes('fallbackToMath'),
+  'Turnstile 失败只提示重试，不切换到别的方式')
+  check(loginSrc.includes('getCaptchaImage') && loginSrc.includes('getCaptchaAudio') &&
+    loginSrc.includes("String(form.captcha ?? '')"),
+  '三种答案走同一个字段，交给后端按模式校验')
+  check(loginSrc.includes('人机验证配置不完整'), 'Turnstile Key 不齐时直接说明原因')
+
+  const comp = readFileSync(`${ROOT}src/components/SliderCaptcha.vue`, 'utf8')
+  check(comp.includes("emit('update:modelValue'") && comp.includes('scale.value'),
+    '拼图把显示位移换算成原图坐标再上报')
+  check(comp.includes('setPointerCapture'), '拖动时锁住指针，移出轨道也不断')
+
+  const apiSrc = readFileSync(`${ROOT}src/api/auth.js`, 'utf8')
+  check(apiSrc.includes('/auth/captcha/audio'), '语音接口独立（只有字符图有此能力）')
+  check(apiSrc.includes('getCaptchaSlide') && apiSrc.includes('getCaptchaImage'),
+    '字符图与拼图各自取图')
+
+  const turnstileVue = readFileSync(`${ROOT}src/components/TurnstileWidget.vue`, 'utf8')
+  check(!turnstileVue.includes('unavailable'), 'Turnstile 控件不再有「降级」事件')
+
+  const capPy = readFileSync(`${ROOT}../backend/app/utils/captcha.py`, 'utf8')
+  check(capPy.includes('from captcha.image import ImageCaptcha') &&
+    capPy.includes('from captcha.audio import AudioCaptcha'),
+  '字符图与语音用 captcha 库（成熟实现）')
+  check(capPy.includes('def generate_slide') && capPy.includes('def verify_chars') &&
+    capPy.includes('def verify_slide'),
+  '字符图与拼图各走各的生成/校验')
+  const payloadBlock = capPy.slice(
+    capPy.indexOf('payload = {'), capPy.indexOf('return payload, x')
+  )
+  check(!payloadBlock.includes('"x"'), '拼图响应里不含答案坐标')
+
+  const authPy = readFileSync(`${ROOT}../backend/app/api/auth.py`, 'utf8')
+  check(authPy.includes('captcha_mode()') && authPy.includes('/captcha/audio'),
+    '后端按当前模式出题，并提供语音接口')
+  check(authPy.includes('turnstile_ready') && authPy.includes('配置不完整'),
+    'Turnstile 模式 Key 不齐时拒绝登录，不回退')
+  check(authPy.includes('verify_chars') && authPy.includes('verify_slide'),
+    '登录时按模式分别校验')
+
+  const runtimePy = readFileSync(`${ROOT}../backend/app/services/runtime_config.py`, 'utf8')
+  check(runtimePy.includes('"captcha_mode"'), '运维页能选验证方式')
+  check(runtimePy.includes('不会回退到字符图或拼图'),
+    '保存时就拦住「选了 Turnstile 但 Key 不齐」')
+
+  const reqs = readFileSync(`${ROOT}../backend/requirements.txt`, 'utf8')
+  check(/captcha==/.test(reqs) && /Pillow==/.test(reqs),
+    'captcha 与 Pillow 都写进依赖并锁定版本')
 }
 
 console.log('\n▶ 数据体检：签字图、文件丢失与孤儿文件清理')

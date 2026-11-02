@@ -88,8 +88,18 @@ FIELDS: tuple[Field, ...] = (
     Field("smtp_from", "发件人地址", "邮件通知（SMTP）", help="留空则用发信账号"),
     # ---------- 人机验证 ----------
     Field(
+        "captcha_mode", "验证方式", "人机验证", kind="choice",
+        choices=("captcha", "slider", "turnstile"),
+        help=(
+            "captcha = 字符图 + 语音（默认，支持无障碍）；"
+            "slider = 拖动拼图；"
+            "turnstile = Cloudflare，需要下面两个 Key。"
+            "选了 Turnstile 不会回退到其它方式"
+        ),
+    ),
+    Field(
         "turnstile_site_key", "Turnstile Site Key", "人机验证",
-        help="两个都配才启用；都留空继续用内置算术验证码",
+        help="只有验证方式选了 turnstile 才用；两个 Key 必须都填，否则保存会被拒绝",
     ),
     Field("turnstile_secret_key", "Turnstile Secret Key", "人机验证", kind="secret"),
     # ---------- 登录安全 ----------
@@ -317,6 +327,26 @@ def save(
     unknown = [key for key in values if key not in FIELD_BY_KEY]
     if unknown:
         raise ValueError(f"不认识的配置项：{'、'.join(unknown)}")
+
+    # 选了 Turnstile 就不回退：Key 不齐直接拒绝保存，
+    # 而不是让登录页悄悄换成字符图或拼图（那会让人以为 Turnstile 在生效）
+    merged = {field.key: getattr(settings, field.key, "") for field in FIELDS}
+    for key, raw in values.items():
+        if key not in FIELD_BY_KEY:
+            continue
+        text = "" if raw is None else str(raw)
+        if FIELD_BY_KEY[key].kind == "secret" and text == MASK:
+            continue  # 打码值代表「不修改」
+        merged[key] = "" if text == CLEAR else text
+    if str(merged.get("captcha_mode") or "").strip().lower() == "turnstile":
+        if not (
+            str(merged.get("turnstile_site_key") or "").strip()
+            and str(merged.get("turnstile_secret_key") or "").strip()
+        ):
+            raise ValueError(
+                "选了 Turnstile 就必须把 Site Key 和 Secret Key 都填上"
+                "（这个模式不会回退到字符图或拼图）"
+            )
 
     changed: list[str] = []
     for key, raw in values.items():

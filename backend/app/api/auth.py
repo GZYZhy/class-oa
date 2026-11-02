@@ -4,17 +4,18 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..config import (
     BASE_DIR,
+    captcha_mode,
     login_ban_values,
     master_password_allowed_from,
     settings,
     smtp_enabled,
-    turnstile_enabled,
+    turnstile_ready,
 )
 from ..database import get_db
 from ..models import AccessToken, AccountEvent, IpBan, Student, User
@@ -75,7 +76,15 @@ from ..utils.security import (
     verify_password,
 )
 from ..utils.url_guard import is_allowed_webhook_url
-from ..utils.captcha import generate_captcha
+from ..utils.captcha import (
+    answer_is_fresh,
+    generate_chars_audio,
+    generate_chars_image,
+    generate_slide,
+    session_answer,
+    verify_chars,
+    verify_slide,
+)
 from ..utils.turnstile import verify as turnstile_verify
 from .deps import get_current_user, get_client_ip, require_cookie_auth
 
@@ -136,7 +145,8 @@ def _ban_detail(ban: IpBan) -> str:
 def _reject(db: Session, ip: str, detail: str) -> None:
     """记一次登录失败；够阈值就地封禁，然后抛错。
 
-    只覆盖**真的校验失败**的三处：Turnstile 校验不过、算术验证码答错、学号或密码错。
+    只覆盖**真的校验失败**的几处：Turnstile 校验不过、字符验证码填错、拼图没对上、
+    学号或密码错。
     两个地方**不能**并进来：
     - 「请输入验证码」（漏填）—— 那是操作失误，不是爆破信号，现在就没计数
     - 「账号已被冻结」—— 密码是对的；而且失败是按 IP 记的，
@@ -250,19 +260,52 @@ def complete_login(
         request.session["_remember"] = True
 
 
-@router.get("/captcha", summary="获取验证码（SVG 图片）")
+@router.get("/captcha", summary="获取人机验证码（按当前验证方式）")
 def get_captcha(request: Request):
-    """生成一道算术题，答案存会话里，下一次登录时校验。
+    """按 `captcha_mode()` 发一种验证码
 
-    验证码 SVG 直接返回，不需要额外 id —— 未登录用户也有会话 Cookie，
-    答案就存在 session["captcha_answer"] 里。
-    每次调用都会刷新答案。
+    * captcha（默认）→ 字符图（PNG 字节）。另有 `/captcha/audio` 提供语音版；
+    * slider → 拖动拼图（JSON：背景图 + 拼图块 + 尺寸）；
+    * turnstile → 不需要后端出题，调这个接口说明前端用错了（404）。
+
+    答案一律只存在服务端会话（session["captcha_answer"]），响应里不带。
+    每次调用都换一张并刷新答案；未登录用户也有会话 Cookie，不需要额外 id。
     """
-    svg, answer = generate_captcha()
-    request.session["captcha_answer"] = answer
+    mode = captcha_mode()
+
+    if mode == "turnstile":
+        raise HTTPException(status_code=404, detail="当前使用 Turnstile，不需要图片验证码")
+
+    if mode == "slider":
+        payload, answer = generate_slide()
+        request.session["captcha_answer"] = session_answer(answer, "slide")
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+    png, text = generate_chars_image()
+    request.session["captcha_answer"] = session_answer(text, "chars")
     return Response(
-        content=svg,
-        media_type="image/svg+xml",
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/captcha/audio", summary="获取语音验证码（无障碍，仅字符图方式）")
+def get_captcha_audio(request: Request):
+    """把 4 位数字念出来，给看不清图片的人用
+
+    只有字符图方式提供语音（拼图和 Turnstile 没有）。每次请求换一组数字，
+    与图片共用 session 槽位 —— 前端切到语音后以语音这组为准，并把图片隐藏掉，
+    否则两张图上的数字对不上。
+    """
+    if captcha_mode() != "captcha":
+        raise HTTPException(status_code=404, detail="当前验证方式没有语音版本")
+
+    wav, text = generate_chars_audio()
+    request.session["captcha_answer"] = session_answer(text, "chars")
+    return Response(
+        content=wav,
+        media_type="audio/wav",
         headers={"Cache-Control": "no-store"},
     )
 
@@ -274,18 +317,23 @@ def captcha_required(
     """登录页先问一下要不要显示验证码框，免得每次都加载 SVG。
 
     required 为 False 时也要带上 mode / site_key：前端要靠它知道
-    「等会儿万一输错了，该去加载 Turnstile 控件还是拉算术题」。
+    「等会儿万一输错了，该去加载 Turnstile 控件还是拉拖动拼图」。
     site key 本来就是公开的（它要发给浏览器），secret key 永远不出后端。
 
     顺带带上 banned / banned_until：让登录页能**直接**显示「本机 IP 已被封禁，
     X 解除」，而不是等用户填完表单吃了 403，还先看到一张永远用不上的验证码。
     """
-    enabled = turnstile_enabled()
+    mode = captcha_mode()
     ban = get_active_ban(db, ip)
     return {
         "required": needs_captcha(ip),
-        "mode": "turnstile" if enabled else "math",
-        "site_key": settings.turnstile_site_key if enabled else "",
+        # captcha（字符图，默认）/ slider（拖动拼图）/ turnstile
+        "mode": mode,
+        # 语音只对字符图方式开放（无障碍）；拼图和 Turnstile 没有
+        "audio": mode == "captcha",
+        # Turnstile 的 key 不齐时前端要能直接说清楚，而不是显示一个空控件
+        "ready": mode != "turnstile" or turnstile_ready(),
+        "site_key": settings.turnstile_site_key if mode == "turnstile" else "",
         "banned": bool(ban),
         "banned_until": (
             ban.expires_at.isoformat() if ban and ban.expires_at else None
@@ -316,23 +364,47 @@ def login(
 
     # 再先看是否需要人机验证
     if needs_captcha(ip):
-        # 配了 Turnstile、且前端把 token 交回来了 → 问 Cloudflare。
-        # 没配 Turnstile 的部署，以及配了但浏览器加载不出控件而退回算术题的，
-        # 都走下面 else 那条老路 —— 两条路都留着，谁都不会被挡在门外
-        if turnstile_enabled() and (data.turnstile_token or "").strip():
-            if not turnstile_verify(data.turnstile_token, ip):
+        mode = captcha_mode()
+
+        if mode == "turnstile":
+            # 选了 Turnstile 就只认 token，**不回退**到字符图或拼图
+            token = (data.turnstile_token or "").strip()
+            if not token:
+                raise HTTPException(status_code=400, detail="请完成人机验证")
+            if not turnstile_ready():
+                # Key 不齐时无法校验。明确拒绝，而不是放行或悄悄换成别的方式
+                print(
+                    "[Turnstile] 验证方式为 turnstile，但 SITE_KEY / SECRET_KEY 不完整，"
+                    "本次登录被拒绝",
+                    flush=True,
+                )
+                raise HTTPException(
+                    status_code=400, detail="人机验证配置不完整，请联系管理员"
+                )
+            if not turnstile_verify(token, ip):
                 # 和验证码答错一样记一次失败，会延长窗口时间，防暴力破解
                 _reject(db, ip, "人机验证未通过，请重试")
         else:
+            # 字符图 / 拖动拼图：答案在会话里，用完立刻清（一张只能试一次）
             if not data.captcha:
                 # 漏填不算失败：那是操作失误，不是爆破信号
-                raise HTTPException(status_code=400, detail="请输入验证码")
+                raise HTTPException(
+                    status_code=400,
+                    detail="请输入验证码" if mode == "captcha" else "请拖动滑块完成拼图",
+                )
             expected = request.session.get("captcha_answer")
-            # 用完就清，防止重复使用同一个答案试密码
             request.session.pop("captcha_answer", None)
-            if expected is None or str(data.captcha).strip() != str(expected):
-                # 验证码答错也算一次失败，会延长窗口时间，防暴力破解
-                _reject(db, ip, "验证码错误")
+            kind = (expected or {}).get("kind")
+            value = (expected or {}).get("value")
+            fresh = answer_is_fresh(expected)
+            if mode == "captcha":
+                ok = fresh and kind == "chars" and verify_chars(value, data.captcha)
+                failure = "验证码错误，请重试"
+            else:
+                ok = fresh and kind == "slide" and verify_slide(value, data.captcha)
+                failure = "拼图验证未通过，请重新拖动"
+            if not ok:
+                _reject(db, ip, failure)
 
     user = (
         db.query(User).filter(User.student_no == data.student_no.strip()).first()
