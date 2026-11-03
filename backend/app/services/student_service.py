@@ -10,18 +10,33 @@ from ..schemas import StudentCreate, StudentUpdate
 from .about_service import get_settings as get_about_settings, parse_order as parse_about_order
 
 # 关键词搜索覆盖的字段：学生表里所有承载信息的列，包括备注。
-# 只排除 id（自增主键，没有检索意义）和两个照片路径列（存的是文件名，不是学生信息）。
-# 以后新增字段想让它可被搜到，加进这个元组即可。
-KEYWORD_SEARCH_COLUMNS = (
+# 只排除 id（自增主键，没有检索意义）和三个照片路径列（存的是文件名，不是学生信息）。
+# 以后新增字段想让它可被搜到，加进这两个元组之一即可。
+#
+# 分成两份是为了班委：字段在详情里被隐藏了，却还能靠搜索命中，
+# 等于留了一个反查的后门（搜身份证后六位、家庭电话、分数段都能把人对上号）。
+PUBLIC_KEYWORD_SEARCH_COLUMNS = (
     Student.student_no,
     Student.name,
     Student.gender,
     Student.major,
     Student.class_name,
-    Student.birth_date,
     Student.ethnicity,
     Student.political_status,
     Student.hometown,
+    Student.school_status,
+    Student.phone,
+    Student.dormitory,
+    Student.class_position,
+    Student.league_position,
+    Student.remark,
+    # 备注附件：存的是 JSON 串（含原始文件名），LIKE 能命中文件名
+    Student.remark_attachments,
+)
+
+# 只给管理员搜的敏感字段
+SENSITIVE_KEYWORD_SEARCH_COLUMNS = (
+    Student.birth_date,
     Student.id_card,
     Student.exam_no,
     Student.exam_category,
@@ -32,22 +47,19 @@ KEYWORD_SEARCH_COLUMNS = (
     Student.high_school,
     Student.registration_status,
     Student.registration_time,
-    Student.school_status,
-    Student.phone,
     Student.family_phone,
     Student.qq,
     Student.email,
     Student.family_address,
     Student.postal_code,
-    Student.dormitory,
     Student.bed,
-    Student.class_position,
-    Student.league_position,
     Student.is_poor,
-    Student.remark,
-    # 备注附件：存的是 JSON 串（含原始文件名），LIKE 能命中文件名
-    Student.remark_attachments,
 )
+
+KEYWORD_SEARCH_COLUMNS = PUBLIC_KEYWORD_SEARCH_COLUMNS + SENSITIVE_KEYWORD_SEARCH_COLUMNS
+
+# 这些排序字段本身也是敏感信息：就算字段被隐藏，按分数排序也能把全班排名反推出来
+SENSITIVE_SORT_FIELDS = frozenset({"birth_date", "gaokao_score", "registration_time"})
 
 
 def get_student(db: Session, student_id: int) -> Optional[Student]:
@@ -77,9 +89,15 @@ def get_students(
     birthday_days: Optional[int] = None,
     sort_by: Optional[str] = None,
     sort_order: str = "asc",
+    include_sensitive: bool = True,
 ) -> tuple[list[Student], int]:
     """
     分页查询学生列表，支持多条件筛选和排序
+
+    include_sensitive=False（班委）时：
+    - 关键词只搜公开字段，不能靠搜身份证号、家庭电话、分数把隐藏字段反查出来
+    - 敏感排序字段直接忽略，退回默认学号排序
+    - 生日、贫困生这类只有管理员能用的筛选由接口层先拦住，这里不重复判
 
     返回：(学生列表, 总数)
     """
@@ -91,8 +109,11 @@ def get_students(
     # 不依赖这种隐式转文本的宽容度 —— 换数据库时类型不匹配会直接报错
     if keyword:
         keyword_pattern = f"%{keyword}%"
+        search_columns = (
+            KEYWORD_SEARCH_COLUMNS if include_sensitive else PUBLIC_KEYWORD_SEARCH_COLUMNS
+        )
         query = query.filter(
-            or_(*(cast(col, String).like(keyword_pattern) for col in KEYWORD_SEARCH_COLUMNS))
+            or_(*(cast(col, String).like(keyword_pattern) for col in search_columns))
         )
 
     # 分类筛选
@@ -132,6 +153,8 @@ def get_students(
     total = query.count()
 
     # 排序
+    if sort_by and not include_sensitive and sort_by in SENSITIVE_SORT_FIELDS:
+        sort_by = None
     if sort_by:
         # 允许排序的字段映射，防止注入
         sort_columns = {
@@ -156,8 +179,14 @@ def get_students(
     return items, total
 
 
-def get_statistics(db: Session) -> dict:
-    """获取各类统计数据"""
+def get_statistics(db: Session, include_sensitive: bool = True) -> dict:
+    """获取各类统计数据
+
+    include_sensitive=False（班委）时不返回贫困生、高考分数、年龄/出生月份、
+    考生类别/科类/批次/考试类型、毕业中学这些分布 —— 它们单独看是聚合数字，
+    但和名单一对就能把被隐藏的字段推出来。性别、民族、政治面貌、宿舍、职务、
+    生源地、在校状态仍照常给，这些本来就在班委可见范围内。
+    """
     total = db.query(func.count(Student.id)).scalar()
 
     # 性别统计
@@ -377,35 +406,38 @@ def get_statistics(db: Session) -> dict:
         "min": score_query[2] or 0,
     }
 
-    return {
+    data = {
         "total": total,
         "gender": gender_stats,
         "ethnicity": ethnicity_stats,
         "political_status": political_stats,
         "dormitory": dormitory_stats,
-        "poor_student": poor_stats,
         "class_committee_count": class_committee_count,
         "league_count": league_count,
-        "score_ranges": score_stats,
         "school_status": status_stats,
-        # 新增统计
-        "exam_category": exam_category_stats,
-        "subject_type": subject_type_stats,
-        "admission_batch": admission_stats,
-        "exam_type": exam_type_stats,
         "class_positions": class_position_stats,
         "league_positions": league_position_stats,
         "provinces": province_stats,
-        "ages": age_stats,
-        "birth_months": birth_month_stats,
-        "high_schools": high_school_stats,
         "buildings": building_stats,
-        "score_summary": score_summary,
         # 班委任职表的显示顺序（学号数组，管理员在系统管理里排的）。
         # 统计页那张「班委任职表」的弹窗照着它排，和「关于班级」页保持同一次序 ——
         # 两处各排一套的话，同一个人在两个页面的位置会不一样
         "committee_order": parse_about_order(get_about_settings(db).roster_order),
     }
+    if include_sensitive:
+        data.update({
+            "poor_student": poor_stats,
+            "score_ranges": score_stats,
+            "exam_category": exam_category_stats,
+            "subject_type": subject_type_stats,
+            "admission_batch": admission_stats,
+            "exam_type": exam_type_stats,
+            "ages": age_stats,
+            "birth_months": birth_month_stats,
+            "high_schools": high_school_stats,
+            "score_summary": score_summary,
+        })
+    return data
 
 
 def get_filter_options(db: Session) -> dict:

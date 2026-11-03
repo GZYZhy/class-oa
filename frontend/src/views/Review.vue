@@ -75,7 +75,14 @@
                   <span class="diff-new">{{ next || '（清空）' }}</span>
                 </template>
               </div>
-              <span v-if="!Object.keys(row.changes || {}).length" style="color: var(--el-text-color-disabled);">-</span>
+              <div
+                v-if="row.sensitive_hidden"
+                class="diff-line"
+                style="color: var(--el-text-color-secondary);"
+              >
+                该申请还包含仅管理员可见的敏感字段，需由管理员处理
+              </div>
+              <span v-if="!Object.keys(row.changes || {}).length && !row.sensitive_hidden" style="color: var(--el-text-color-disabled);">-</span>
             </template>
           </el-table-column>
 
@@ -99,7 +106,13 @@
               <!-- 与后端一致：修改申请班委就能批（change_requests.py 用的是
                    committee_required）。能进这个页面的人本来就都是班委及以上 -->
               <template v-if="row.status === 'pending'">
-                <el-button type="success" link @click="handleApproveChange(row)">通过</el-button>
+                <!-- 含敏感字段的申请只有管理员能通过；班委仍可驳回 -->
+                <el-button
+                  v-if="userStore.isAdmin || !row.sensitive_hidden"
+                  type="success"
+                  link
+                  @click="handleApproveChange(row)"
+                >通过</el-button>
                 <el-button type="danger" link @click="handleRejectChange(row)">驳回</el-button>
               </template>
               <span v-else style="color: var(--el-text-color-disabled);">已处理</span>
@@ -564,6 +577,64 @@
         <el-empty v-if="!loading && !signList.length" description="暂无申请" style="margin-top: 20px;" />
       </el-tab-pane>
 
+      <!-- ============ 完整档案查看申请（仅管理员）============ -->
+      <el-tab-pane v-if="userStore.isAdmin" name="archive">
+        <template #label>档案查看申请<span v-if="tabBadge('archive')" class="tab-badge">{{ tabBadge('archive') }}</span></template>
+        <div class="tab-toolbar">
+          <ReviewSearch
+            v-model:keyword="archiveKeyword"
+            v-model:range="archiveRange"
+            @search="fetchArchiveList"
+          />
+          <el-radio-group v-model="archiveStatus" size="small" @change="fetchArchiveList">
+            <el-radio-button value="pending">待审核</el-radio-button>
+            <el-radio-button value="approved">已通过</el-radio-button>
+            <el-radio-button value="rejected">已驳回</el-radio-button>
+            <el-radio-button value="">全部</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <el-table :data="archiveList" stripe border style="width: 100%; margin-top: 12px;">
+          <el-table-column label="申请人" width="140" align="center">
+            <template #default="{ row }">
+              {{ row.applicant_name }}
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.applicant_no }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="被查看学生" width="140" align="center">
+            <template #default="{ row }">
+              {{ row.student_name }}
+              <div style="font-size: 12px; color: var(--el-text-color-secondary);">{{ row.student_no }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="申请时间" width="160" align="center">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.status === 'pending'" type="warning" size="small">待审核</el-tag>
+              <el-tag v-else-if="row.status === 'approved'" type="success" size="small">已通过</el-tag>
+              <el-tag v-else-if="row.status === 'rejected'" type="danger" size="small">已驳回</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="审批人 / 驳回理由" min-width="160" show-overflow-tooltip align="left">
+            <template #default="{ row }">
+              {{ row.status === 'rejected' ? (row.reason || '') : (row.reviewer_name || '-') }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="140" align="center">
+            <template #default="{ row }">
+              <template v-if="row.status === 'pending'">
+                <el-button size="small" link type="success" @click="handleApproveArchive(row)">通过</el-button>
+                <el-button size="small" link type="danger" @click="handleRejectArchive(row)">驳回</el-button>
+              </template>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-empty v-if="!loading && !archiveList.length" description="暂无申请" style="margin-top: 20px;" />
+      </el-tab-pane>
+
       <!-- ============ 导出申请 ============ -->
       <el-tab-pane name="export">
         <template #label>导出申请<span v-if="tabBadge('export')" class="tab-badge">{{ tabBadge('export') }}</span></template>
@@ -1007,6 +1078,11 @@ import {
   approveSignRequest,
   rejectSignRequest
 } from '@/api/signPhoto'
+import {
+  getArchiveRequests,
+  approveArchiveRequest,
+  rejectArchiveRequest
+} from '@/api/archiveView'
 
 const userStore = useUserStore()
 // 办件里各下载入口的进度：key 里带材料类型和行 id，同一时间只跑一个
@@ -1019,7 +1095,7 @@ const route = useRoute()
 const loading = ref(false)
 // 从推送点进来时带着 ?tab=leave 之类的参数，直接落到对应分类；
 // 不带参数（正常从菜单进）就还是老样子，停在信息修改申请
-const TABS = ['change', 'leave', 'evpass', 'certificate', 'signphoto', 'export', 'feedback']
+const TABS = ['change', 'leave', 'evpass', 'certificate', 'signphoto', 'archive', 'export', 'feedback']
 const activeTab = ref(TABS.includes(route.query.tab) ? route.query.tab : 'change')
 
 /**
@@ -1675,6 +1751,61 @@ function handleRejectSign(row) {
   }).catch(() => {})
 }
 
+// —— 完整档案查看申请（仅管理员审批）——
+const archiveList = ref([])
+const archiveStatus = ref('pending')
+const archiveKeyword = ref('')
+const archiveRange = ref(null)
+
+async function fetchArchiveList() {
+  loading.value = true
+  try {
+    const res = await getArchiveRequests(
+      reviewParams(archiveStatus.value, archiveKeyword.value, archiveRange.value)
+    )
+    archiveList.value = res.items || []
+  } catch (e) {
+    ElMessage.error('档案申请列表加载失败')
+  } finally {
+    loading.value = false
+    badgeStore.refresh()
+  }
+}
+
+function handleApproveArchive(row) {
+  ElMessageBox.confirm(
+    `确定通过「${row.applicant_name}」查看「${row.student_name}」完整档案的申请吗？\n` +
+    '通过后他可以在 1 小时内查看，过期要重新申请。',
+    '审批确认',
+    { type: 'warning', confirmButtonText: '通过', cancelButtonText: '取消' }
+  ).then(async () => {
+    try {
+      await approveArchiveRequest(row.id)
+      ElMessage.success('已通过')
+      fetchArchiveList()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
+function handleRejectArchive(row) {
+  ElMessageBox.prompt('请填写驳回理由，会展示给申请人', '驳回申请', {
+    inputPlaceholder: '如：用途不明确',
+    inputValidator: (v) => (v && v.trim() ? true : '请填写驳回理由'),
+    confirmButtonText: '驳回',
+    cancelButtonText: '取消'
+  }).then(async ({ value }) => {
+    try {
+      await rejectArchiveRequest(row.id, value.trim())
+      ElMessage.success('已驳回')
+      fetchArchiveList()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.detail || '操作失败')
+    }
+  }).catch(() => {})
+}
+
 // 上传成品 PDF
 const certResultUploadVisible = ref(false)
 const certResultUploadRow = ref(null)
@@ -1930,6 +2061,8 @@ function handleTabChange() {
   } else if (activeTab.value === 'signphoto' && userStore.isAdmin) {
     // 带上 isAdmin：通知里的 ?tab=signphoto 谁都可能点进来，班委拉这个列表是 403
     fetchSignList()
+  } else if (activeTab.value === 'archive' && userStore.isAdmin) {
+    fetchArchiveList()
   } else if (activeTab.value === 'export') {
     fetchExportList()
   } else if (activeTab.value === 'feedback') {

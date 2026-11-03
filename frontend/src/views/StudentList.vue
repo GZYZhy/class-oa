@@ -56,7 +56,8 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item label="贫困生">
+        <!-- 贫困生也是被隐藏的敏感字段之一，连「谁符合条件」都不该让班委筛 -->
+        <el-form-item v-if="userStore.isAdmin" label="贫困生">
           <el-select v-model="filterForm.is_poor" placeholder="全部" clearable style="width: 100px">
             <el-option label="是" value="是" />
             <el-option label="否" value="否" />
@@ -89,12 +90,16 @@
                 <el-dropdown-item command="student_no_asc">按学号 ↑</el-dropdown-item>
                 <el-dropdown-item command="student_no_desc">按学号 ↓</el-dropdown-item>
                 <el-dropdown-item command="name_asc">按姓名 ↑</el-dropdown-item>
-                <!-- 排的是 birth_date 这个**生日**，方向和年龄正好相反：生日升序（早的在前）
-                     才是年龄大的在前。所以这两行看着别扭是应该的，别顺手对调回来 -->
-                <el-dropdown-item command="birth_date_asc">按年龄从大到小</el-dropdown-item>
-                <el-dropdown-item command="birth_date_desc">按年龄从小到大</el-dropdown-item>
-                <el-dropdown-item command="gaokao_score_desc">按高考分数 ↓</el-dropdown-item>
-                <el-dropdown-item command="gaokao_score_asc">按高考分数 ↑</el-dropdown-item>
+                <!-- 出生日期、高考分数都是班委看不到的敏感字段。排序会把顺序暴露出来，
+                     跟字段本身一样只给管理员用 -->
+                <template v-if="userStore.isAdmin">
+                  <!-- 排的是 birth_date 这个**生日**，方向和年龄正好相反：生日升序（早的在前）
+                       才是年龄大的在前。所以这两行看着别扭是应该的，别顺手对调回来 -->
+                  <el-dropdown-item command="birth_date_asc">按年龄从大到小</el-dropdown-item>
+                  <el-dropdown-item command="birth_date_desc">按年龄从小到大</el-dropdown-item>
+                  <el-dropdown-item command="gaokao_score_desc">按高考分数 ↓</el-dropdown-item>
+                  <el-dropdown-item command="gaokao_score_asc">按高考分数 ↑</el-dropdown-item>
+                </template>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -117,7 +122,8 @@
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="birthday">
+                <!-- 生日筛选会暴露出生日期，只给管理员用 -->
+                <el-dropdown-item v-if="userStore.isAdmin" command="birthday">
                   <!-- Element Plus 没有 Cake 这个图标，写了会渲染成未知元素、什么都不显示。
                        最贴近「生日」的是 Present（礼物盒） -->
                   <el-icon><Present /></el-icon>近期生日
@@ -150,8 +156,8 @@
             </template>
           </el-dropdown>
 
-          <!-- 生日筛选生效时显示的标签 -->
-          <el-tag v-if="birthdayFilter" type="warning" closable @close="clearBirthday">
+          <!-- 生日筛选生效时显示的标签（入口只给管理员，标签也同样） -->
+          <el-tag v-if="userStore.isAdmin && birthdayFilter" type="warning" closable @close="clearBirthday">
             未来 {{ birthdayDays }} 天生日 · {{ total }} 人
           </el-tag>
 
@@ -236,7 +242,14 @@
           </template>
         </el-table-column>
         <el-table-column prop="dormitory" label="宿舍" width="90" align="center" />
-        <el-table-column prop="gaokao_score" label="高考分数" width="90" align="center" sortable />
+        <el-table-column
+          v-if="userStore.isAdmin"
+          prop="gaokao_score"
+          label="高考分数"
+          width="90"
+          align="center"
+          sortable
+        />
         <el-table-column prop="class_position" label="班委" width="120" align="center" show-overflow-tooltip>
           <template #default="{ row }">
             <el-tag v-if="row.class_position && row.class_position !== '无'" type="warning" size="small">
@@ -339,8 +352,23 @@
           </div>
         </div>
 
+        <!-- 班委看到的敏感字段被后端裁剪了，这里说清楚为什么，以及能怎么申请 -->
+        <el-alert
+          v-if="currentStudent.sensitive_hidden"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-top: 16px;"
+        >
+          身份证号、出生日期、家庭联系方式、高考信息和实地采集照片等敏感内容已隐藏。
+          如确需查看，可点击下方「申请查看完整档案」，经管理员同意后一小时内可见。
+        </el-alert>
+
         <el-descriptions :column="detailColumns" border size="default" style="margin-top: 16px;">
-          <el-descriptions-item label="出生日期">{{ formatDate(currentStudent.birth_date) }}</el-descriptions-item>
+          <el-descriptions-item
+            v-if="!currentStudent.sensitive_hidden"
+            label="出生日期"
+          >{{ formatDate(currentStudent.birth_date) }}</el-descriptions-item>
           <el-descriptions-item label="在校状态">
             <el-tag :type="currentStudent.school_status === '正常' ? 'success' : 'warning'">
               {{ currentStudent.school_status }}
@@ -358,52 +386,56 @@
               <el-icon><CopyDocument /></el-icon>
             </el-button>
           </el-descriptions-item>
-          <el-descriptions-item label="家庭电话">
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="家庭电话">
             {{ currentStudent.family_phone }}
             <el-button link type="primary" @click="copyText(currentStudent.family_phone)">
               <el-icon><CopyDocument /></el-icon>
             </el-button>
           </el-descriptions-item>
-          <el-descriptions-item label="电子邮箱">
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="电子邮箱">
             {{ currentStudent.email }}
             <el-button link type="primary" @click="copyText(currentStudent.email)">
               <el-icon><CopyDocument /></el-icon>
             </el-button>
           </el-descriptions-item>
-          <el-descriptions-item label="QQ号码">
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="QQ号码">
             {{ currentStudent.qq }}
             <el-button link type="primary" @click="copyText(currentStudent.qq)">
               <el-icon><CopyDocument /></el-icon>
             </el-button>
           </el-descriptions-item>
-          <el-descriptions-item label="家庭地址" :span="detailColumns">
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="家庭地址" :span="detailColumns">
             {{ currentStudent.family_address }}
             <el-button link type="primary" @click="copyText(currentStudent.family_address)">
               <el-icon><CopyDocument /></el-icon>复制
             </el-button>
           </el-descriptions-item>
-          <el-descriptions-item label="邮政编码">{{ currentStudent.postal_code }}</el-descriptions-item>
-          <el-descriptions-item label="宿舍/床位">{{ currentStudent.dormitory }} / {{ currentStudent.bed }}床</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="邮政编码">{{ currentStudent.postal_code }}</el-descriptions-item>
+          <!-- 宿舍本身可以看，床位属于隐藏字段 -->
+          <el-descriptions-item :label="currentStudent.sensitive_hidden ? '宿舍' : '宿舍/床位'">
+            <template v-if="currentStudent.sensitive_hidden">{{ currentStudent.dormitory }}</template>
+            <template v-else>{{ currentStudent.dormitory }} / {{ currentStudent.bed }}床</template>
+          </el-descriptions-item>
           <el-descriptions-item label="班委职务">{{ currentStudent.class_position || '无' }}</el-descriptions-item>
           <el-descriptions-item label="团学会职务">{{ currentStudent.league_position || '无' }}</el-descriptions-item>
-          <el-descriptions-item label="考生号">{{ currentStudent.exam_no }}</el-descriptions-item>
-          <el-descriptions-item label="身份证号">
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="考生号">{{ currentStudent.exam_no }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="身份证号">
             {{ currentStudent.id_card }}
             <el-button link type="primary" @click="copyText(currentStudent.id_card)">
               <el-icon><CopyDocument /></el-icon>
             </el-button>
           </el-descriptions-item>
-          <el-descriptions-item label="考生类别">{{ currentStudent.exam_category }}</el-descriptions-item>
-          <el-descriptions-item label="科类">{{ currentStudent.subject_type }}</el-descriptions-item>
-          <el-descriptions-item label="考试类型">{{ currentStudent.exam_type }}</el-descriptions-item>
-          <el-descriptions-item label="录取批次">{{ currentStudent.admission_batch }}</el-descriptions-item>
-          <el-descriptions-item label="高考总分" style="font-weight: bold; color: #409EFF;">
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="考生类别">{{ currentStudent.exam_category }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="科类">{{ currentStudent.subject_type }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="考试类型">{{ currentStudent.exam_type }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="录取批次">{{ currentStudent.admission_batch }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="高考总分" style="font-weight: bold; color: #409EFF;">
             {{ currentStudent.gaokao_score }}分
           </el-descriptions-item>
-          <el-descriptions-item label="毕业中学">{{ currentStudent.high_school }}</el-descriptions-item>
-          <el-descriptions-item label="报到状态">{{ currentStudent.registration_status }}</el-descriptions-item>
-          <el-descriptions-item label="报到时间">{{ formatDateTime(currentStudent.registration_time) }}</el-descriptions-item>
-          <el-descriptions-item label="是否贫困生">
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="毕业中学">{{ currentStudent.high_school }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="报到状态">{{ currentStudent.registration_status }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="报到时间">{{ formatDateTime(currentStudent.registration_time) }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="是否贫困生">
             <el-tag :type="currentStudent.is_poor === '是' ? 'warning' : 'info'">
               {{ currentStudent.is_poor }}
             </el-tag>
@@ -583,6 +615,17 @@
       </template>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
+        <!-- 完整档案申请：班委看别人、且敏感字段被隐藏时才出现。
+             管理员和本人不需要申请；状态由 /archive-views/status 给出 -->
+        <el-button
+          v-if="archiveButton"
+          :type="archiveButton.primary ? 'primary' : 'default'"
+          :loading="archiveSubmitting"
+          :disabled="archiveButton.disabled"
+          @click="handleArchiveClick"
+        >
+          {{ archiveButton.text }}
+        </el-button>
         <!-- 签字图按钮：只有这学生**有**签字图时才出现（后端用 download_name 是否为空
              告诉我们）。学生角色拉不到状态，自然什么都不渲染 —— 连「签字」两个字
              都不出现在他眼前，这是用户明确要求的 -->
@@ -1319,6 +1362,10 @@ import {
   uploadSignImage,
   deleteSignImage
 } from '@/api/signPhoto'
+import {
+  getArchiveStatus,
+  requestArchiveView
+} from '@/api/archiveView'
 import { useUserStore } from '@/store/user'
 import Watermark from '@/components/Watermark.vue'
 import FileViewer from '@/components/FileViewer.vue'
@@ -1455,6 +1502,29 @@ const signEdit = ref({ has: false, uploading: false, fileName: '' })
 // 预览框还开着的话标题和图会串到下一个学生身上
 const signViewer = ref({
   visible: false, url: '', fileName: '', studentName: ''
+})
+
+// ---------- 完整档案申请 ----------
+// 敏感字段被后端裁剪之后，班委可以在详情页申请完整档案；批准后一小时内有效。
+// 状态接口和签字那条一样单独问，管理员 / 本人不渲染按钮。
+const archiveStatus = ref({ status: 'none', expires_at: null })
+const archiveSubmitting = ref(false)
+
+/** 详情页「申请查看完整档案」按钮的四态；不该出现的角色返回 null */
+const archiveButton = computed(() => {
+  if (!userStore.isCommittee || userStore.isAdmin) return null
+  const selfNo = userStore.info?.student_no
+  if (selfNo && currentStudent.value?.student_no === selfNo) return null
+  switch (archiveStatus.value.status) {
+    case 'pending':
+      return { text: '档案申请待审核', disabled: true, primary: false }
+    case 'approved':
+      return { text: '完整档案已开放', disabled: true, primary: false }
+    case 'expired':
+      return { text: '重新申请完整档案', disabled: false, primary: false }
+    default:
+      return { text: '申请查看完整档案', disabled: false, primary: false }
+  }
 })
 
 /**
@@ -1759,6 +1829,7 @@ async function handleView(row) {
   caseList.value = []
   casePage.value = 1
   loadSignStatus(row.id) // 不 await：签字那个按钮晚一步出现，不该拖住弹窗
+  loadArchiveStatus(row.id) // 同上：完整档案按钮也晚一步出现
   try {
     currentStudent.value = await getStudent(row.id)
   } catch (e) {
@@ -2052,6 +2123,32 @@ async function loadSignStatus(studentId) {
     signStatus.value = await getSignStatus(studentId)
   } catch (e) {
     // 拉不到就当没有：按钮不渲染，总好过给一个点开必然失败的按钮
+  }
+}
+
+/** 拉某学生的完整档案状态（详情页按钮用）。学生角色不请求，避免白发一个 403 */
+async function loadArchiveStatus(studentId) {
+  archiveStatus.value = { status: 'none', expires_at: null }
+  if (!userStore.isCommittee || userStore.isAdmin || !studentId) return
+  try {
+    archiveStatus.value = await getArchiveStatus(studentId)
+  } catch (e) {
+    // 拉不到就当没申请过：按钮最差是让用户点一下再看到错误
+  }
+}
+
+/** 详情页「申请查看完整档案」：提交后直接置为待审核，省一次往返 */
+async function handleArchiveClick() {
+  if (archiveStatus.value.status === 'approved') return
+  archiveSubmitting.value = true
+  try {
+    await requestArchiveView(currentStudent.value.id)
+    archiveStatus.value = { ...archiveStatus.value, status: 'pending' }
+    ElMessage.success('申请已提交，管理员同意后就能查看完整档案')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '申请失败')
+  } finally {
+    archiveSubmitting.value = false
   }
 }
 

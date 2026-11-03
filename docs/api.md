@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 2.4.1，共 298 个接口。
+> 版本 2.4.1，共 303 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -42,6 +42,7 @@
 - 成绩（12）
 - 日程（14）
 - 签字（9）
+- 档案查看（5）
 - 通行密钥（6）
 - 二次验证（9）
 - 系统管理（37）
@@ -773,7 +774,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `StudentResponse` — 成功
-  - 字段：`student_no`、`name`、`gender`、`major`、`class_name`、`birth_date`、`ethnicity`、`political_status`、`hometown`、`id_card`、`exam_no`、`exam_category`、`subject_type`、`exam_type`、`admission_batch`、`gaokao_score`、`high_school`、`registration_status`、`registration_time`、`school_status`、`phone`、`family_phone`、`qq`、`email`、`family_address`、`postal_code`、`dormitory`、`bed`、`class_position`、`league_position`、`is_poor`、`remark`、`gaokao_photo`、`on_site_photo`、`id_photo`、`id`、`remark_attachments`
+  - 字段：`student_no`、`name`、`gender`、`major`、`class_name`、`birth_date`、`ethnicity`、`political_status`、`hometown`、`id_card`、`exam_no`、`exam_category`、`subject_type`、`exam_type`、`admission_batch`、`gaokao_score`、`high_school`、`registration_status`、`registration_time`、`school_status`、`phone`、`family_phone`、`qq`、`email`、`family_address`、`postal_code`、`dormitory`、`bed`、`class_position`、`league_position`、`is_poor`、`remark`、`gaokao_photo`、`on_site_photo`、`id_photo`、`id`、`remark_attachments`、`sensitive_hidden`
 
 ### 指定学生照片
 
@@ -842,7 +843,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `StudentResponse` — 成功
-  - 字段：`student_no`、`name`、`gender`、`major`、`class_name`、`birth_date`、`ethnicity`、`political_status`、`hometown`、`id_card`、`exam_no`、`exam_category`、`subject_type`、`exam_type`、`admission_batch`、`gaokao_score`、`high_school`、`registration_status`、`registration_time`、`school_status`、`phone`、`family_phone`、`qq`、`email`、`family_address`、`postal_code`、`dormitory`、`bed`、`class_position`、`league_position`、`is_poor`、`remark`、`gaokao_photo`、`on_site_photo`、`id_photo`、`id`、`remark_attachments`
+  - 字段：`student_no`、`name`、`gender`、`major`、`class_name`、`birth_date`、`ethnicity`、`political_status`、`hometown`、`id_card`、`exam_no`、`exam_category`、`subject_type`、`exam_type`、`admission_batch`、`gaokao_score`、`high_school`、`registration_status`、`registration_time`、`school_status`、`phone`、`family_phone`、`qq`、`email`、`family_address`、`postal_code`、`dormitory`、`bed`、`class_position`、`league_position`、`is_poor`、`remark`、`gaokao_photo`、`on_site_photo`、`id_photo`、`id`、`remark_attachments`、`sensitive_hidden`
 
 ### 更新学生信息
 
@@ -867,7 +868,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `StudentResponse` — 成功
-  - 字段：`student_no`、`name`、`gender`、`major`、`class_name`、`birth_date`、`ethnicity`、`political_status`、`hometown`、`id_card`、`exam_no`、`exam_category`、`subject_type`、`exam_type`、`admission_batch`、`gaokao_score`、`high_school`、`registration_status`、`registration_time`、`school_status`、`phone`、`family_phone`、`qq`、`email`、`family_address`、`postal_code`、`dormitory`、`bed`、`class_position`、`league_position`、`is_poor`、`remark`、`gaokao_photo`、`on_site_photo`、`id_photo`、`id`、`remark_attachments`
+  - 字段：`student_no`、`name`、`gender`、`major`、`class_name`、`birth_date`、`ethnicity`、`political_status`、`hometown`、`id_card`、`exam_no`、`exam_category`、`subject_type`、`exam_type`、`admission_batch`、`gaokao_score`、`high_school`、`registration_status`、`registration_time`、`school_status`、`phone`、`family_phone`、`qq`、`email`、`family_address`、`postal_code`、`dormitory`、`bed`、`class_position`、`league_position`、`is_poor`、`remark`、`gaokao_photo`、`on_site_photo`、`id_photo`、`id`、`remark_attachments`、`sensitive_hidden`
 
 ### 删除学生（仅管理员）
 
@@ -1195,7 +1196,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `ChangeRequestResponse` — 成功
-  - 字段：`id`、`student_no`、`student_name`、`changes`、`status`、`reason`、`created_at`、`reviewed_at`、`reviewer_name`、`current`
+  - 字段：`id`、`student_no`、`student_name`、`changes`、`status`、`reason`、`created_at`、`reviewed_at`、`reviewer_name`、`current`、`sensitive_hidden`
 
 ### 我的申请记录
 
@@ -1236,7 +1237,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `ChangeRequestResponse` — 成功
-  - 字段：`id`、`student_no`、`student_name`、`changes`、`status`、`reason`、`created_at`、`reviewed_at`、`reviewer_name`、`current`
+  - 字段：`id`、`student_no`、`student_name`、`changes`、`status`、`reason`、`created_at`、`reviewed_at`、`reviewer_name`、`current`、`sensitive_hidden`
 
 ### 驳回申请
 
@@ -1257,7 +1258,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `ChangeRequestResponse` — 成功
-  - 字段：`id`、`student_no`、`student_name`、`changes`、`status`、`reason`、`created_at`、`reviewed_at`、`reviewer_name`、`current`
+  - 字段：`id`、`student_no`、`student_name`、`changes`、`status`、`reason`、`created_at`、`reviewed_at`、`reviewer_name`、`current`、`sensitive_hidden`
 
 ## 请假申请
 
@@ -4410,6 +4411,102 @@ iCal 订阅端点（公开接口，通过 URL 中的 token 鉴权） 返回标�
 **响应**
 
 - `200` — 成功
+
+## 档案查看
+
+### 完整档案查看申请列表（仅管理员）
+
+`GET /api/archive-views/requests`
+
+审批用的列表。待审的排前面，其余按时间倒序
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `status` | query | 否 | string，可空 | 按状态筛选：pending / approved / rejected |
+| `keyword` | query | 否 | string，可空 | 按提交人姓名或学号模糊搜索 |
+| `start` | query | 否 | string，可空 | 提交日期起始，含当天 |
+| `end` | query | 否 | string，可空 | 提交日期结束，含当天 |
+| `page` | query | 否 | integer（≥1，默认 1） | 默认 `1` |
+| `page_size` | query | 否 | integer（≥1，≤100，默认 20） | 默认 `20` |
+
+**响应**
+
+- `200` `ArchiveViewRequestListResponse` — 成功
+  - 字段：`total`、`items`
+
+### 申请查看完整档案（班委及以上）
+
+`POST /api/archive-views/requests`
+
+班委申请看某个学生的完整档案，等管理员批。同一个学生对同一个申请人只留一条有效的：待审的不许重复提交，批下来还没过期的也不必再申请（否则自己反复申请就能把有效期无限往后滚）。管理员和学生本人无需申请。
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `student_id` | integer | 是 | 被查看档案的学生 ID |
+
+**响应**
+
+- `200` `ArchiveViewRequestResponse` — 成功
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`applicant_no`、`applicant_name`、`status`、`reason`、`created_at`、`reviewed_at`、`reviewer_name`
+
+### 我对某学生完整档案的状态（班委及以上）
+
+`GET /api/archive-views/status/{student_id}`
+
+详情页「申请查看完整档案」按钮的状态。管理员和学生本人直接是 approved。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `student_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `ArchiveViewStatusResponse` — 成功
+  - 字段：`status`、`expires_at`
+
+### 通过完整档案查看申请（仅管理员）
+
+`POST /api/archive-views/requests/{request_id}/approve`
+
+通过后申请人一小时内可查看完整档案。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `request_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `ArchiveViewRequestResponse` — 成功
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`applicant_no`、`applicant_name`、`status`、`reason`、`created_at`、`reviewed_at`、`reviewer_name`
+
+### 驳回完整档案查看申请（仅管理员）
+
+`POST /api/archive-views/requests/{request_id}/reject`
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `request_id` | path | 是 | integer |  |
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `reason` | string | 是 | 驳回理由 |
+
+**响应**
+
+- `200` `ArchiveViewRequestResponse` — 成功
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`applicant_no`、`applicant_name`、`status`、`reason`、`created_at`、`reviewed_at`、`reviewer_name`
 
 ## 通行密钥
 

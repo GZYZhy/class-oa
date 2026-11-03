@@ -1601,7 +1601,8 @@ const currentStudent = ref({ id: 7, student_no: '2024000004', name: '丁' })`
      ["const signStatus = ref({ status: 'none', expires_at: null, download_name: '' })",
       signState('none', '')]],
     { ElDialog: ElDialogStub })
-  check(!buttonTexts(noPhoto).some((t) => t.includes('签字') || t.includes('申请')),
+  // 「申请查看完整档案」是另一条链路，这里只断言签字按钮没出现
+  check(!buttonTexts(noPhoto).some((t) => t.includes('签字')),
     '该生没有签字图时按钮不渲染（判据是 download_name 空不空，不是状态字符串）')
 
   // 4. 编辑弹窗那一格：管理员看得见图（用户后来放宽的），班委看不到
@@ -1639,6 +1640,87 @@ const editForm = reactive({ id: 7 })`
   check(/signImageUrl\(row\.student_id/.test(
     readFileSync(`${ROOT}/src/views/Review.vue`, 'utf8')),
     '审核页取图同样只带学生 id')
+}
+
+console.log('\n▶ 学生名单：班委只能看允许的字段，完整档案要申请')
+{
+  const LIST = '/src/views/StudentList.vue'
+  const src = readFileSync(`${ROOT}${LIST}`, 'utf8')
+
+  // 页面只是第二道锁，真正裁剪在后端；但页面也不能把入口摆出来让人点了才 403
+  check(/<el-form-item v-if="userStore\.isAdmin" label="贫困生">/.test(src),
+    '贫困生筛选只给管理员')
+  check(/<el-dropdown-item v-if="userStore\.isAdmin" command="birthday">/.test(src),
+    '「近期生日」入口只给管理员')
+  check(/v-if="userStore\.isAdmin"[\s\S]{0,160}prop="gaokao_score"/.test(src),
+    '高考分数列只给管理员')
+  check(/<template v-if="userStore\.isAdmin">[\s\S]{0,600}command="birth_date_asc"[\s\S]{0,400}command="gaokao_score_desc"/.test(src),
+    '年龄 / 分数排序只给管理员')
+  check((src.match(/v-if="!currentStudent\.sensitive_hidden"/g) || []).length >= 10,
+    '详情页的敏感字段按 sensitive_hidden 隐藏')
+  check(src.includes('身份证号、出生日期、家庭联系方式、高考信息和实地采集照片等敏感内容已隐藏'),
+    '被裁剪时说清楚哪些内容看不到')
+
+  const who = (role, name) => `const userStore = useUserStore()
+  userStore.info = { student_no: '2024000009', name: '${name}', role: '${role}', is_external: false }`
+  const DETAIL_OPEN = `const detailVisible = ref(true)
+const currentStudent = ref({ id: 7, student_no: '2024000004', name: '丁', sensitive_hidden: true })`
+  const archiveState = (status) =>
+    `const archiveStatus = ref({ status: '${status}', expires_at: null })`
+  const buttonTexts = (html) =>
+    [...stripComments(html).matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)]
+      .map((m) => m[1].replace(/<[^>]+>/g, '').trim())
+
+  const STATES = [
+    ['none', '申请查看完整档案'],
+    ['pending', '档案申请待审核'],
+    ['approved', '完整档案已开放'],
+    ['expired', '重新申请完整档案']
+  ]
+  for (const [status, text] of STATES) {
+    const { html } = await renderPatchedMany(
+      LIST,
+      [['const userStore = useUserStore()', who('committee', '乙')],
+       ['const detailVisible = ref(false)\nconst currentStudent = ref(null)', DETAIL_OPEN],
+       ["const archiveStatus = ref({ status: 'none', expires_at: null })", archiveState(status)]],
+      { ElDialog: ElDialogStub })
+    check(buttonTexts(html).includes(text), `班委在档案 ${status} 状态下看到「${text}」`)
+  }
+
+  const { html: adminHtml } = await renderPatchedMany(
+    LIST,
+    [['const userStore = useUserStore()', who('admin', '甲')],
+     ['const detailVisible = ref(false)\nconst currentStudent = ref(null)', DETAIL_OPEN]],
+    { ElDialog: ElDialogStub })
+  check(!buttonTexts(adminHtml).some((t) => t.includes('完整档案')),
+    '管理员不需要申请完整档案')
+
+  const api = readFileSync(`${ROOT}/src/api/archiveView.js`, 'utf8')
+  check(api.includes('url: `/archive-views/status/${studentId}`') &&
+    api.includes("url: '/archive-views/requests'"),
+    '申请与状态接口路径和后端一致')
+}
+
+console.log('\n▶ 审核页：档案查看申请 tab')
+{
+  const src = readFileSync(`${ROOT}/src/views/Review.vue`, 'utf8')
+  check(src.includes("'archive'"), "TABS 里有 archive（?tab=archive 才认得出来）")
+  check(/<el-tab-pane v-if="userStore\.isAdmin" name="archive">/.test(src),
+    '档案申请 tab 只给管理员')
+  check(/<template #label>档案查看申请<span v-if="tabBadge\('archive'\)"/.test(src),
+    'tab 上写着「档案查看申请」，并挂上待办红点')
+  check(src.includes("activeTab.value === 'archive' && userStore.isAdmin"),
+    '切到这个 tab 拉列表前先判管理员')
+  const fetchArchive = src.slice(src.indexOf('async function fetchArchiveList'),
+    src.indexOf('function handleApproveArchive'))
+  check(fetchArchive.includes('reviewParams(') && fetchArchive.includes('badgeStore.refresh()'),
+    '档案申请列表带上提交人 / 日期筛选，拉完刷红点')
+
+  // 信息修改申请里也可能夹着班委看不到的字段：提示出来，且不让班委点通过
+  check(src.includes('该申请还包含仅管理员可见的敏感字段'),
+    '班委看到含敏感字段的修改申请时有明确提示')
+  check(/v-if="userStore\.isAdmin \|\| !row\.sensitive_hidden"/.test(src),
+    '含敏感字段的修改申请只给管理员「通过」按钮')
 }
 
 console.log('\n▶ 审核页：签字查看申请这个 tab')
@@ -5132,19 +5214,19 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
     '后端成绩列表收 keyword')
   check(/keyword_like\(keyword, GradeTest\.name\)/.test(gradesPy), '成绩按 GradeTest.name 过滤')
 
-  // ---------- 审核审批：七个 tab 都能按提交人 / 提交时间搜 ----------
-  // 懒加载的 tab 在 SSR 下只渲第一个，所以「七处都在」从源码断言，渲染只验证
+  // ---------- 审核审批：八个 tab 都能按提交人 / 提交时间搜 ----------
+  // 懒加载的 tab 在 SSR 下只渲第一个，所以「八处都在」从源码断言，渲染只验证
   // 当前这个 tab 的搜索栏真的长出来了
   const reviewHtml = stripComments((await render('/src/views/Review.vue')).html)
   check(reviewHtml.includes('提交人姓名或学号'), '审核页渲染出了提交人搜索框')
   check(reviewHtml.includes('提交开始'), '审核页渲染出了提交日期范围')
 
   const reviewSrc = src('/src/views/Review.vue')
-  check((reviewSrc.match(/<ReviewSearch/g) || []).length === 7,
-    '七个 tab 各挂一个搜索栏')
+  check((reviewSrc.match(/<ReviewSearch/g) || []).length === 8,
+    '八个 tab 各挂一个搜索栏')
   const fetchFns = [
     'fetchChangeList', 'fetchLeaveList', 'fetchEvPassList', 'fetchCertificateList',
-    'fetchSignList', 'fetchExportList', 'fetchFeedbackList'
+    'fetchSignList', 'fetchArchiveList', 'fetchExportList', 'fetchFeedbackList'
   ]
   for (const fn of fetchFns) {
     const at = reviewSrc.indexOf(`async function ${fn}`)
