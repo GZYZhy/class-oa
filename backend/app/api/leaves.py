@@ -41,6 +41,7 @@ from ..services import (
     make_watermark_token,
     notify,
     recipients,
+    settle_topic,
 )
 from ..services.list_filters import created_between, keyword_like
 from ..services.review_flow import (
@@ -234,6 +235,7 @@ async def submit_leave(
         f"{student.name} 提交了{leave_type}，等待你审核",
         level="timeSensitive",
         page="/review?tab=leave",
+        topic=f"leave:{leave.id}",
     )
     return _to_response(leave)
 
@@ -292,6 +294,10 @@ async def update_leave(
     leave.travel_detail = travel_detail.strip()
     leave.destination = destination.strip()
     leave.destination_phone = destination_phone.strip()
+    # 只有「补正后重交」才算办件推进：学生那条「需要补交材料」随之了结。
+    # 单纯改一改还在待受理的单子不算 —— 那条待办提醒仍然有效，标掉等于把
+    # 还没审的事从红点里抹了
+    was_correcting = leave.status == STATUS_CORRECTING
     resubmit(leave)
 
     log_operation(
@@ -306,6 +312,8 @@ async def update_leave(
     if proof is not None and old_proof and old_proof != leave.proof_file:
         (LEAVE_DIR / old_proof).unlink(missing_ok=True)
     db.refresh(leave)
+    if was_correcting:
+        settle_topic(db, f"leave:{leave.id}")
     return _to_response(leave)
 
 
@@ -340,6 +348,9 @@ def delete_leave(
     db.commit()
     if proof:
         (LEAVE_DIR / proof).unlink(missing_ok=True)
+    # 单子撤了，管理员收件箱里那条待办也就作废了。记录已经删掉，
+    # 但消息里的 topic 是字符串，照样能对上
+    settle_topic(db, f"leave:{leave.id}")
     return {"ok": True}
 
 
@@ -458,6 +469,9 @@ def download_pdf(
         print(f"[请假表] 下水印失败（不影响下载）：{exc}", flush=True)
 
     filename = f"{leave.student_name}_请假审批表_{leave.start_at:%Y%m%d}.pdf"
+    # 申请人把表下走了，这件对他就算办完了 —— 「已通过」那条自动算已读。
+    # 只清下载者自己的（管理员代下不代表学生看过），所以传 student_no
+    settle_topic(db, f"leave:{leave.id}", student_no=user.student_no)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -585,10 +599,13 @@ def correcting_leave(
     db.commit()
     db.refresh(leave)
 
+    # 退补正这一下就把管理员的待办了结了，先清再发：新消息（需要补交材料）得保持未读
+    settle_topic(db, f"leave:{leave.id}")
     notify(
         db, background, targets, "请假申请需要补交材料",
         f"理由：{clip(leave.correction_reason)}", level="timeSensitive",
         page="/leave?tab=record",
+        topic=f"leave:{leave.id}",
     )
     return _to_response(leave)
 
@@ -653,11 +670,14 @@ def approve_leave(
     db.refresh(leave)
 
     # 批完通知学生。有意见就带上一句，学生不用点开表也能看到班导师说了什么
+    # 批准也把待办了结了 —— 包括其他管理员收件箱里没来得及看的那条（先清再发）
+    settle_topic(db, f"leave:{leave.id}")
     notify(
         db, background, targets, "请假申请已通过",
         f"你的{leave.leave_type}（{leave.start_at:%m-%d %H时} 起）已通过审核",
         level="timeSensitive",
         page="/leave?tab=record",
+        topic=f"leave:{leave.id}",
     )
     return _to_response(leave)
 
@@ -694,11 +714,13 @@ def revoke_leave(
     db.commit()
     db.refresh(leave)
 
+    settle_topic(db, f"leave:{leave.id}")
     notify(
         db, background, targets, "请假申请已撤销",
         f"你的{leave.leave_type}（{leave.start_at:%m-%d %H时} 起）已被管理员撤销",
         level="timeSensitive",
         page="/leave?tab=record",
+        topic=f"leave:{leave.id}",
     )
     return _to_response(leave)
 
@@ -778,9 +800,11 @@ def reject_leave(
     db.commit()
     db.refresh(leave)
 
+    settle_topic(db, f"leave:{leave.id}")
     notify(
         db, background, targets, "请假申请被驳回",
         f"理由：{clip(leave.reject_reason)}", level="timeSensitive",
         page="/leave?tab=record",
+        topic=f"leave:{leave.id}",
     )
     return _to_response(leave)

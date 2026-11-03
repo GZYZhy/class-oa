@@ -90,6 +90,7 @@ from .email_service import push as email_push
 from .webhook_service import DEFAULT_TEMPLATE_TEXT, check_template, parse_template
 from .webhook_service import push as webhook_push
 from .webhook_service import webhook_targets
+from .inbox_service import settle_topic
 from .notify_service import Recipients, notify, recipients
 from .pdf_watermark_service import (
     TOKEN_SOURCE_ANNOUNCEMENT,
@@ -189,6 +190,7 @@ __all__ = [
     "Recipients",
     "notify",
     "recipients",
+    "settle_topic",
     "TOKEN_SOURCE_ANNOUNCEMENT",
     "TOKEN_SOURCE_EV_APPLY",
     "TOKEN_SOURCE_EV_PROMISE",

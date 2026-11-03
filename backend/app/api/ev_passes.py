@@ -38,6 +38,7 @@ from ..services import (
     make_watermark_token,
     notify,
     recipients,
+    settle_topic,
 )
 from ..services.list_filters import created_between, keyword_like
 from ..services.review_flow import (
@@ -238,6 +239,7 @@ async def submit_application(
         f"{student.name} 提交了电动车通行证补办申请，等待你审核",
         level="timeSensitive",
         page="/review?tab=evpass",
+        topic=f"evpass:{req.id}",
     )
     return _to_response(db, req)
 
@@ -310,6 +312,8 @@ async def update_application(
 
     req.brand = brand.strip()
     req.plate_number = plate_number.strip()
+    # 只有「补正后重交」才算办件推进（与 leaves.update 同口径，见那边说明）
+    was_correcting = req.status == STATUS_CORRECTING
     resubmit(req)
 
     log_operation(
@@ -324,6 +328,8 @@ async def update_application(
     if license_file is not None and old_license and old_license != req.license_file:
         (EV_PASS_DIR / Path(old_license).name).unlink(missing_ok=True)
     db.refresh(req)
+    if was_correcting:
+        settle_topic(db, f"evpass:{req.id}")
     return _to_response(db, req)
 
 
@@ -360,6 +366,8 @@ def delete_application(
     db.commit()
     if license_name:
         (EV_PASS_DIR / Path(license_name).name).unlink(missing_ok=True)
+    # 单子撤了，管理员收件箱里那条待办也就作废了（topic 是字符串，记录删了照样对得上）
+    settle_topic(db, f"evpass:{req.id}")
     return {"ok": True}
 
 
@@ -439,6 +447,8 @@ def download_pass_pdf(
     req, student = _pdf_target(db, req_id, user)
     committee_sign = EV_PASS_DIR / Path(req.sign_file).name if req.sign_file else None
     pdf = generate_pass_pdf(student, req, committee_sign=committee_sign)
+    # 表到手，这件对下载者就算办完了（只清他自己的，见 leaves.download_pdf）
+    settle_topic(db, f"evpass:{req.id}", student_no=user.student_no)
     return _pdf_response(
         _stamp(pdf, req, user, TOKEN_SOURCE_EV_APPLY),
         _file_name(req, student, "通行证申请表"),
@@ -457,6 +467,8 @@ def download_promise_pdf(
     """
     req, student = _pdf_target(db, req_id, user)
     pdf = generate_promise_pdf(student, req, applicant_sign=sign_photo_path(student))
+    # 同申请表下载的口径：只清下载者自己的
+    settle_topic(db, f"evpass:{req.id}", student_no=user.student_no)
     return _pdf_response(
         _stamp(pdf, req, user, TOKEN_SOURCE_EV_PROMISE),
         _file_name(req, student, "承诺书"),
@@ -605,10 +617,13 @@ def correcting_application(
     db.refresh(req)
 
     if targets:
+        # 退补正这一下就把待办了结了，先清再发（新消息得保持未读）
+        settle_topic(db, f"evpass:{req.id}")
         notify(
             db, background, targets, "电动车通行证申请需要补交材料",
             f"车牌 {req.plate_number}，理由：{clip(req.correction_reason)}",
             level="timeSensitive", page="/ev-pass?tab=record",
+            topic=f"evpass:{req.id}",
         )
     return _to_response(db, req)
 
@@ -665,10 +680,12 @@ def approve_application(
     db.refresh(req)
 
     if targets:
+        settle_topic(db, f"evpass:{req.id}")
         notify(
             db, background, targets, "电动车通行证申请已通过",
             f"你的电动车通行证申请（{req.plate_number}）已通过，现在可以下载申请表和承诺书",
             level="timeSensitive", page="/ev-pass?tab=record",
+            topic=f"evpass:{req.id}",
         )
     return _to_response(db, req)
 
@@ -705,10 +722,12 @@ def revoke_application(
     db.refresh(req)
 
     if targets:
+        settle_topic(db, f"evpass:{req.id}")
         notify(
             db, background, targets, "电动车通行证申请已撤销",
             f"你的电动车通行证申请（{req.plate_number}）已被管理员撤销",
             level="timeSensitive", page="/ev-pass?tab=record",
+            topic=f"evpass:{req.id}",
         )
     return _to_response(db, req)
 
@@ -803,10 +822,12 @@ def reject_application(
     db.commit()
 
     if targets:
+        settle_topic(db, f"evpass:{req.id}")
         notify(
             db, background, targets, "电动车通行证申请被驳回",
             f"牌照号 {req.plate_number}，理由：{clip(req.reject_reason)}",
             level="timeSensitive", page="/ev-pass?tab=record",
+            topic=f"evpass:{req.id}",
         )
     return {"message": "已驳回"}
 

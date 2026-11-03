@@ -37,6 +37,7 @@ from ..services import (
     notify,
     recipients,
     scope_label,
+    settle_topic,
 )
 from ..services.list_filters import created_between, keyword_like
 from ..services.export_service import (
@@ -267,6 +268,7 @@ def create_request(
         f"{req.student_name} 申请导出{_display_name_for_type(body.export_type)}",
         level="timeSensitive",
         page="/review?tab=export",
+        topic=f"export:{req.id}",
     )
 
     db.commit()
@@ -317,6 +319,9 @@ def download_file(
         raise HTTPException(status_code=404, detail="文件已被清理")
 
     content = fpath.read_bytes()
+    # 文件到手，这件对下载者就算办完了 —— 「已通过可下载」那条自动算已读
+    # （只清下载者自己的，管理员代下不代表申请人看过）
+    settle_topic(db, f"export:{req.id}", student_no=user.student_no)
     display_name = req.file_original_name or fpath.name
 
     if req.export_type == TYPE_EXCEL:
@@ -412,7 +417,8 @@ def approve_request(
     # 请求结束时 session 直接关掉，日志会被回滚掉（通过/驳回两处的日志曾经就这么丢的）
     db.commit()
 
-    # 通知申请人
+    # 通知申请人。批这一下就把待办了结了，先清再发（新消息得保持未读）
+    settle_topic(db, f"export:{req.id}")
     notify(
         db,
         background,
@@ -421,6 +427,7 @@ def approve_request(
         f"你申请的{_display_name_for_type(req.export_type)}已通过审核，可前往学生信息页下载",
         level="timeSensitive",
         page="/my-info?tab=workspace&sub=submitted",
+        topic=f"export:{req.id}",
     )
 
     db.refresh(req)
@@ -465,6 +472,7 @@ def reject_request(
     # 状态改动和日志一起提交（log_operation 只 add 不 commit，见 approve 里的说明）
     db.commit()
 
+    settle_topic(db, f"export:{req.id}")
     notify(
         db,
         background,
@@ -473,6 +481,7 @@ def reject_request(
         f"你申请的{_display_name_for_type(req.export_type)}被驳回：{body.reason}",
         level="timeSensitive",
         page="/my-info?tab=workspace&sub=submitted",
+        topic=f"export:{req.id}",
     )
 
     return _to_response(req)

@@ -174,6 +174,11 @@ NEW_COLUMNS = [
     # 直接采用「22:00–06:00 不计入」的新口径，仍可在设置里关掉
     ("weather_notify_settings", "ignore_night", "BOOLEAN NOT NULL DEFAULT 1"),
     ("weather_banner_settings", "ignore_night", "BOOLEAN NOT NULL DEFAULT 1"),
+    # ---------- 站内信关联的办件 ----------
+    # 可空 = 普通消息，不参与「办件推进自动已读」。老消息补成 NULL 正合适：
+    # 它们关联的办件多半早已办结，此时再翻旧账把人没看过的标成已读，
+    # 等于替他做了主；升级后新发的办件消息才走这套判定
+    ("inbox_messages", "topic", "VARCHAR(64)"),
 ]
 
 def _existing_columns(conn, table: str) -> set:
