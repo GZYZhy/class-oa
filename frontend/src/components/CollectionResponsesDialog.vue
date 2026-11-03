@@ -179,6 +179,19 @@
                 <el-tag v-else type="warning" size="small">未填满</el-tag>
               </template>
             </el-table-column>
+            <el-table-column v-if="canDelete" label="操作" width="90" align="center">
+              <template #default="{ row }">
+                <el-button
+                  link
+                  type="primary"
+                  size="small"
+                  :disabled="!canProxyRow(row)"
+                  @click="openProxy(row)"
+                >
+                  代填
+                </el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -259,12 +272,41 @@
       <el-button @click="visible = false">关闭</el-button>
     </template>
   </el-dialog>
+
+  <!-- 管理员代填：以指定同学身份填写一份，答卷计入该同学 -->
+  <el-dialog
+    v-model="proxyVisible"
+    append-to-body
+    :title="`代 ${proxyTarget?.name || '同学'} 填写`"
+    width="720px"
+    top="5vh"
+    :close-on-click-modal="false"
+  >
+    <el-alert
+      type="info"
+      :closable="false"
+      show-icon
+      class="cr-proxy-tip"
+      :title="`正在以 ${proxyTarget?.name || ''}（${proxyTarget?.student_no || ''}）的身份填写`"
+      description="提交后答卷计入该同学；代填动作会写入操作日志。"
+    />
+    <CollectBallot
+      v-if="proxyVisible"
+      :key="proxyKey"
+      :collection="proxyCollection"
+      :submitting="proxySubmitting"
+      :student-no="proxyTarget?.student_no || ''"
+      :proxy-name="proxyTarget?.name || ''"
+      @submit="handleProxySubmit"
+    />
+  </el-dialog>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CollectionAnswers from '@/components/CollectionAnswers.vue'
+import CollectBallot from '@/components/CollectBallot.vue'
 import Watermark from '@/components/Watermark.vue'
 import {
   batchDeleteCollectionResponses,
@@ -274,7 +316,8 @@ import {
   getCollectionPending,
   getCollectionResponses,
   getCollectionStatistics,
-  remindCollection
+  remindCollection,
+  submitCollectionResponse
 } from '@/api/collection'
 import { useWatermark } from '@/composables/useWatermark'
 import { CHOICE_TYPES, QUESTION_TYPE_LABEL, statusLabel, statusTag } from '@/utils/collection'
@@ -301,6 +344,53 @@ const visible = computed({
   set: (value) => emit('update:modelValue', value)
 })
 const canDelete = computed(() => userStore.isAdmin)
+
+// 管理员代填：待填名单里选一个人，以他的身份提交一份
+const proxyVisible = ref(false)
+const proxySubmitting = ref(false)
+const proxyTarget = ref(null)
+const proxyKey = ref(0)
+const proxyCollection = computed(() => ({
+  ...detail.value,
+  // 用于表单里的「第几份」确认文案
+  my_submitted_count: proxyTarget.value?.submitted_count || 0,
+  allow_withdraw: false
+}))
+
+function canProxyRow(row) {
+  return (
+    canDelete.value &&
+    detail.value.status === 'open' &&
+    !detail.value.cap_reached &&
+    !row.frozen
+  )
+}
+
+function openProxy(row) {
+  proxyTarget.value = row
+  proxyKey.value += 1
+  proxyVisible.value = true
+}
+
+async function handleProxySubmit(answers) {
+  if (!proxyTarget.value) return
+  proxySubmitting.value = true
+  try {
+    await submitCollectionResponse(
+      detail.value.id,
+      answers,
+      null,
+      proxyTarget.value.student_no
+    )
+    ElMessage.success(`已代 ${proxyTarget.value.name || '该同学'} 提交`)
+    proxyVisible.value = false
+    await refreshAll()
+  } catch (e) {
+    ElMessage.error(errText(e, '代填失败'))
+  } finally {
+    proxySubmitting.value = false
+  }
+}
 
 const loading = ref(false)
 const tab = ref('responses')
@@ -605,6 +695,10 @@ onBeforeUnmount(stopPolling)
 
 .cr-hint {
   margin: 0 0 10px;
+}
+
+.cr-proxy-tip {
+  margin-bottom: 14px;
 }
 
 .cr-stats {

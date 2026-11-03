@@ -29,6 +29,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     UploadFile,
@@ -839,8 +840,34 @@ def submit_response(
     data: CollectionSubmitIn,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
 ):
-    """一次提交 = 一份答卷；每人最多 submit_quota 份，全局最多 max_responses 份"""
+    """一次提交 = 一份答卷；每人最多 submit_quota 份，全局最多 max_responses 份
+
+    管理员可以带 on_behalf_of 代某位范围内同学提交；其余账号传这个字段直接 403。
+    """
+    on_behalf_of = (data.on_behalf_of or "").strip()
+    if on_behalf_of and not is_admin(user):
+        raise HTTPException(status_code=403, detail="只有管理员可以代填答卷")
+    target_no = on_behalf_of or user.student_no
+    target_name = target_no
+    if on_behalf_of:
+        target = (
+            db.query(CollectionTarget)
+            .filter(
+                CollectionTarget.collection_id == collection_id,
+                CollectionTarget.student_no == target_no,
+            )
+            .first()
+        )
+        if target and target.student_name:
+            target_name = target.student_name
+        target_user = (
+            db.query(User).filter(User.student_no == target_no).first()
+        )
+        if target_user is not None and target_user.is_frozen:
+            raise HTTPException(status_code=400, detail="该同学账号已冻结，不能代填")
+
     collection = _load_visible(db, collection_id, user, is_admin(user))
     status = collection_status(collection)
     if status == STATUS_CLOSED:
@@ -849,14 +876,21 @@ def submit_response(
         raise HTTPException(status_code=400, detail="收集还没开始")
     if status == STATUS_PAUSED:
         raise HTTPException(status_code=400, detail="收集已暂停，等发起人恢复后才能填写")
-    if not is_target(db, collection.id, user.student_no):
-        raise HTTPException(status_code=400, detail="你不在本次收集的范围内")
+    if not is_target(db, collection.id, target_no):
+        raise HTTPException(
+            status_code=400,
+            detail="该同学不在本次收集的范围内" if on_behalf_of else "你不在本次收集的范围内",
+        )
 
-    count = my_submission_count(db, collection.id, user.student_no)
+    count = my_submission_count(db, collection.id, target_no)
     if count >= collection.submit_quota:
         raise HTTPException(
             status_code=400,
-            detail=f"每人最多填写 {collection.submit_quota} 份，你已经填满了",
+            detail=(
+                f"{target_name} 已经填满 {collection.submit_quota} 份了"
+                if on_behalf_of
+                else f"每人最多填写 {collection.submit_quota} 份，你已经填满了"
+            ),
         )
     if cap_reached(collection):
         raise HTTPException(status_code=400, detail="名额已满，这场收集不再接收答卷")
@@ -934,7 +968,7 @@ def submit_response(
                 )
             payloads = []
             for token in answer.files:
-                payload = _parse_file_token(token, collection.id, user.student_no)
+                payload = _parse_file_token(token, collection.id, target_no)
                 if not payload:
                     raise HTTPException(
                         status_code=400, detail=f"第 {index} 题有图片已失效，请重新上传"
@@ -979,14 +1013,14 @@ def submit_response(
             db.query(func.max(CollectionSubmission.seq_no))
             .filter(
                 CollectionSubmission.collection_id == collection.id,
-                CollectionSubmission.student_no == user.student_no,
+                CollectionSubmission.student_no == target_no,
             )
             .scalar()
             or 0
         )
         submission = CollectionSubmission(
             collection_id=collection.id,
-            student_no=user.student_no,
+            student_no=target_no,
             seq_no=last_seq + 1,
             submitted_at=datetime.now(),
             duration_seconds=data.duration_seconds,
@@ -1020,6 +1054,13 @@ def submit_response(
                     rating=item["rating"],
                     files=json.dumps(file_meta, ensure_ascii=False),
                 )
+            )
+        if on_behalf_of:
+            log_operation(
+                db, user, "代填答卷",
+                target=f"{collection.title} / {target_name}",
+                detail=f"{target_no} 的第 {submission.seq_no} 份",
+                ip=ip,
             )
         db.commit()
     except IntegrityError:
@@ -1069,15 +1110,24 @@ def submit_response(
 def upload_file(
     collection_id: int,
     file: UploadFile = File(...),
+    student_no: str | None = Form(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    on_behalf_of = (student_no or "").strip()
+    if on_behalf_of and not is_admin(user):
+        raise HTTPException(status_code=403, detail="只有管理员可以代填答卷")
+    target_no = on_behalf_of or user.student_no
+
     collection = _load_visible(db, collection_id, user, is_admin(user))
     if collection_status(collection) != STATUS_OPEN:
         raise HTTPException(status_code=400, detail="现在不能上传图片")
-    if not is_target(db, collection.id, user.student_no):
-        raise HTTPException(status_code=400, detail="你不在本次收集的范围内")
-    count = my_submission_count(db, collection.id, user.student_no)
+    if not is_target(db, collection.id, target_no):
+        raise HTTPException(
+            status_code=400,
+            detail="该同学不在本次收集的范围内" if on_behalf_of else "你不在本次收集的范围内",
+        )
+    count = my_submission_count(db, collection.id, target_no)
     if count >= collection.submit_quota:
         raise HTTPException(status_code=400, detail="你已经填满了")
     if cap_reached(collection):
@@ -1096,7 +1146,7 @@ def upload_file(
     (_file_dir(collection.id) / stored).write_bytes(data)
     original = Path(file.filename or stored).name
     return {
-        "token": _file_token(collection.id, user.student_no, stored, original, len(data)),
+        "token": _file_token(collection.id, target_no, stored, original, len(data)),
         "name": original,
         "size": len(data),
     }

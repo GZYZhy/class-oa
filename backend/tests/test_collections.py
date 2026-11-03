@@ -187,6 +187,104 @@ def test_answer_duration_is_recorded_and_summarized(cb):
     }
 
 
+def test_admin_can_submit_on_behalf_of_a_target(cb):
+    """管理员代填：答卷归目标同学，配额按目标同学算，并写操作日志"""
+    collection = _create(cb)
+    cid = collection["id"]
+    qid = collection["questions"][0]["id"]
+
+    _login(cb, ADMIN, ADMIN_PW)
+    r = cb.client.post(
+        f"/api/collections/{cid}/responses",
+        json={
+            "answers": [{"question_id": qid, "text": "管理员代填"}],
+            "on_behalf_of": VOTER,
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    rows = cb.rows(
+        "SELECT student_no FROM collection_submissions WHERE collection_id = ?", cid
+    )
+    assert rows == [(VOTER,)]
+
+    responses = cb.client.get(f"/api/collections/{cid}/responses").json()
+    assert responses["total"] == 1
+    assert responses["items"][0]["student_no"] == VOTER
+    assert responses["items"][0]["student_name"] == "学生03"
+
+    action, target, detail = cb.rows(
+        "SELECT action, target, detail FROM operation_logs ORDER BY id DESC LIMIT 1"
+    )[0]
+    assert action == "代填答卷"
+    assert "委托" not in target  # 标题是「收集测试」
+    assert VOTER in detail
+
+    # 目标同学的配额已满，不能再代填第二份
+    r = cb.client.post(
+        f"/api/collections/{cid}/responses",
+        json={
+            "answers": [{"question_id": qid, "text": "第二份"}],
+            "on_behalf_of": VOTER,
+        },
+    )
+    assert r.status_code == 400
+    assert "填满" in r.json()["detail"]
+
+    # 不在范围内的同学不能代填
+    r = cb.client.post(
+        f"/api/collections/{cid}/responses",
+        json={
+            "answers": [{"question_id": qid, "text": "越界"}],
+            "on_behalf_of": OTHER,
+        },
+    )
+    assert r.status_code == 400
+    assert "不在本次收集" in r.json()["detail"]
+
+    # 普通学生不能使用代填字段
+    _login(cb, VOTER, VOTER_PW)
+    r = cb.client.post(
+        f"/api/collections/{cid}/responses",
+        json={
+            "answers": [{"question_id": qid, "text": "冒充"}],
+            "on_behalf_of": OTHER,
+        },
+    )
+    assert r.status_code == 403
+
+
+def test_admin_uploading_image_for_target_uses_target_token(cb):
+    """代填含图片的收集：图片凭证必须绑目标学生，提交时才认"""
+    collection = _create(
+        cb,
+        questions=[_q("image", "上传证明")],
+    )
+    cid = collection["id"]
+    qid = collection["questions"][0]["id"]
+    _login(cb, ADMIN, ADMIN_PW)
+
+    upload = cb.client.post(
+        f"/api/collections/{cid}/files",
+        files={"file": ("代填.png", PNG, "image/png")},
+        data={"student_no": VOTER},
+    )
+    assert upload.status_code == 200, upload.text
+    token = upload.json()["token"]
+
+    r = cb.client.post(
+        f"/api/collections/{cid}/responses",
+        json={
+            "answers": [{"question_id": qid, "files": [token]}],
+            "on_behalf_of": VOTER,
+        },
+    )
+    assert r.status_code == 200, r.text
+    item = cb.client.get(f"/api/collections/{cid}/responses").json()["items"][0]
+    assert item["student_no"] == VOTER
+    assert item["answers"][0]["files"][0]["original"] == "代填.png"
+
+
 # ---------- 六种题型 ----------
 
 def test_create_submit_all_question_types_and_export(cb):

@@ -4849,6 +4849,16 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   check(/label="提交人" min-width="170"/.test(respSrc) &&
     /label="提交时间" min-width="175"/.test(respSrc),
   '答卷表格的弹性列会铺满弹窗')
+  check(respSrc.includes('canProxyRow(row)') && respSrc.includes('openProxy(row)') &&
+    respSrc.includes('submitCollectionResponse(') &&
+    respSrc.includes('proxyTarget.value.student_no'),
+  '管理员可以在未填名单里以某位同学身份代填')
+  check(respSrc.includes('代填动作会写入操作日志'), '代填前说明答卷归属和日志留痕')
+  const collectBallotSrc = readFileSync(`${ROOT}src/components/CollectBallot.vue`, 'utf8')
+  check(collectBallotSrc.includes('props.studentNo') && collectBallotSrc.includes('props.proxyName') &&
+    collectBallotSrc.includes('uploadCollectionFile('),
+  '代填时图片凭证绑目标同学，确认文案区分本人/他人')
+
   check(/row\.is_self/.test(respSrc) &&
     /pending\.unfilled_count/.test(respSrc) && /pending\.partial_count/.test(respSrc),
   '未填名单包含本人并标出来；两个催填入口分别用后端的可催人数')

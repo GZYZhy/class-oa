@@ -146,7 +146,11 @@ import { errText } from '@/utils/request'
 
 const props = defineProps({
   collection: { type: Object, required: true },
-  submitting: { type: Boolean, default: false }
+  submitting: { type: Boolean, default: false },
+  /** 管理员代填时的目标学号；图片凭证要绑到这个人 */
+  studentNo: { type: String, default: '' },
+  /** 管理员代填时的目标姓名，用于确认文案 */
+  proxyName: { type: String, default: '' }
 })
 const emit = defineEmits(['submit'])
 
@@ -254,7 +258,8 @@ async function uploadEntry(question, entry) {
       compressed,
       (loaded, total) => {
         entry.percent = total ? Math.min(100, Math.round((loaded / total) * 100)) : null
-      }
+      },
+      props.studentNo
     )
     entry.token = res.token
     entry.name = res.name || entry.name
@@ -352,13 +357,14 @@ async function handleSubmit() {
 
   const quota = props.collection.submit_quota || 1
   const nth = (props.collection.my_submitted_count || 0) + 1
+  const owner = props.proxyName ? `${props.proxyName}的` : '你的'
   const withdrawTip = props.collection.allow_withdraw
     ? '发起人允许撤回，提交后可以在本页撤回。'
     : '提交后不能修改。'
   try {
     await ElMessageBox.confirm(
       quota > 1
-        ? `这是你的第 ${nth} 份答卷，每人最多 ${quota} 份。${withdrawTip}确定提交吗？`
+        ? `这是${owner}第 ${nth} 份答卷，每人最多 ${quota} 份。${withdrawTip}确定提交吗？`
         : `每人只能填 1 份。${withdrawTip}确定提交吗？`,
       '提交确认',
       { type: 'warning', confirmButtonText: '确定提交', cancelButtonText: '再检查一下' }

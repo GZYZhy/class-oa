@@ -207,6 +207,10 @@ class CollectionSubmitIn(BaseModel):
     answers: list[CollectionAnswerIn] = Field(..., min_length=1)
     # 前端从打开填写页到提交的秒数；上限 24 小时，避免异常值把统计带偏
     duration_seconds: int | None = Field(None, ge=0, le=86400)
+    # 管理员代填时填目标学号；普通用户传了会被拒绝
+    on_behalf_of: str | None = Field(
+        None, max_length=20, description="管理员代填的目标学号；空=本人提交"
+    )
 
 
 class CollectionSubmitResponse(BaseModel):

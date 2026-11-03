@@ -51,9 +51,10 @@ export function extendCollection(id) {
 }
 
 /** 提交一份答卷；durationSeconds = 从打开填写页到提交的秒数 */
-export function submitCollectionResponse(id, answers, durationSeconds) {
+export function submitCollectionResponse(id, answers, durationSeconds, onBehalfOf) {
   const data = { answers }
   if (durationSeconds != null) data.duration_seconds = Math.max(0, Math.round(durationSeconds))
+  if (onBehalfOf) data.on_behalf_of = onBehalfOf
   return request({ url: `/collections/${id}/responses`, method: 'post', data })
 }
 
@@ -115,9 +116,11 @@ export function getCollectionShareInfo(token) {
 }
 
 /** 上传答卷图片，返回 { token, name, size } */
-export function uploadCollectionFile(id, file, onProgress) {
+export function uploadCollectionFile(id, file, onProgress, studentNo) {
   const form = new FormData()
   form.append('file', file)
+  // 管理员代填时，图片凭证要绑到目标学生身上，而不是当前管理员
+  if (studentNo) form.append('student_no', studentNo)
   return request({
     url: `/collections/${id}/files`,
     method: 'post',
