@@ -1396,7 +1396,7 @@ async function handleRoleChange(row, role) {
   if (role === row.role) return
   try {
     await ElMessageBox.confirm(
-      `确定把「${row.name}」的角色改为「${ROLE_LABELS[role]}」吗？`,
+      `确定把「${row.name}」的角色改为「${ROLE_LABELS[role]}」吗？改完后该账号所有已登录设备会立即下线。`,
       '修改角色',
       { type: 'warning' }
     )
@@ -1405,7 +1405,7 @@ async function handleRoleChange(row, role) {
   }
   try {
     await setUserRole(row.student_no, role)
-    ElMessage.success('角色已更新')
+    ElMessage.success('角色已更新，该账号已下线')
     fetchUsers()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '修改失败')
@@ -1500,7 +1500,7 @@ async function handleToggleFreeze(row) {
 
   try {
     await (freezing ? freezeUser(row.student_no) : unfreezeUser(row.student_no))
-    ElMessage.success(freezing ? '已冻结' : '已解冻')
+    ElMessage.success(freezing ? '已冻结，该账号已下线' : '已解冻')
     fetchUsers()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || (freezing ? '冻结失败' : '解冻失败'))

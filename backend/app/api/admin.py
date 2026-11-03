@@ -279,15 +279,22 @@ def set_role(
 
     old_label = ROLE_LABELS.get(target.role or "student", target.role)
     target.role = payload.role
+    # 权限变了，旧会话不能继续带着旧角色用下去：代次 +1 让所有 cookie 当场失效，
+    # 访问令牌也一并吊销（令牌是长期凭据，session_epoch 管不到）。
+    target.session_epoch = (target.session_epoch or 0) + 1
+    revoked_tokens = _revoke_all_tokens(db, target)
     # target 写全「学号 姓名」，与其它 20 来处保持一致 —— 账号日志的「被操作记录」
     # 就是按这个格式反查的（见 user_logs）。只写学号的话新记录得靠那条兜底条件才查得到
     log_operation(
         db, user, "修改角色", target=f"{student_no} {account_name(db, target)}",
-        detail=f"{old_label} → {ROLE_LABELS[payload.role]}",
+        detail=(
+            f"{old_label} → {ROLE_LABELS[payload.role]}；已下线所有会话"
+            + (f"，吊销 {revoked_tokens} 个访问令牌" if revoked_tokens else "")
+        ),
         ip=ip,
     )
     db.commit()
-    return {"message": "角色已更新"}
+    return {"message": "角色已更新，该账号的所有会话已下线"}
 
 
 @router.post(
@@ -401,11 +408,20 @@ def freeze_user(
         return {"message": "该账号已是冻结状态"}
 
     target.is_frozen = True
+    # 冻结是「立刻停用」：旧 cookie 下次请求会被 is_frozen 挡住，但如果不加代次，
+    # 解冻后那张旧 cookie 又会活过来。所以和吊销会话一样代次 +1、令牌一并作废。
+    target.session_epoch = (target.session_epoch or 0) + 1
+    revoked_tokens = _revoke_all_tokens(db, target)
     log_operation(
-        db, user, "冻结账号", target=f"{student_no} {account_name(db, target)}", ip=ip,
+        db, user, "冻结账号", target=f"{student_no} {account_name(db, target)}",
+        detail=(
+            "已下线所有会话"
+            + (f"，吊销 {revoked_tokens} 个访问令牌" if revoked_tokens else "")
+        ),
+        ip=ip,
     )
     db.commit()
-    return {"message": "已冻结"}
+    return {"message": "已冻结，该账号的所有会话已下线"}
 
 
 @router.post("/users/{student_no}/unfreeze", summary="解冻账号")

@@ -254,6 +254,27 @@ def test_admin_can_submit_on_behalf_of_a_target(cb):
     assert r.status_code == 403
 
 
+def test_admin_can_proxy_for_frozen_student(cb):
+    """冻结只拦学生本人登录，不拦管理员代填"""
+    collection = _create(cb)
+    cid = collection["id"]
+    qid = collection["questions"][0]["id"]
+    cb.run("UPDATE users SET is_frozen = 1 WHERE student_no = ?", VOTER)
+
+    _login(cb, ADMIN, ADMIN_PW)
+    r = cb.client.post(
+        f"/api/collections/{cid}/responses",
+        json={
+            "answers": [{"question_id": qid, "text": "冻结同学由管理员代填"}],
+            "on_behalf_of": VOTER,
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert cb.rows(
+        "SELECT student_no FROM collection_submissions WHERE collection_id = ?", cid
+    ) == [(VOTER,)]
+
+
 def test_admin_uploading_image_for_target_uses_target_token(cb):
     """代填含图片的收集：图片凭证必须绑目标学生，提交时才认"""
     collection = _create(
