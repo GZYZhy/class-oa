@@ -43,13 +43,14 @@
 
     <!-- 第二行：两组有长尾的分布 -->
     <el-row :gutter="20" class="row">
-      <el-col :xs="24" :md="12">
+      <el-col :xs="24" :md="userStore.isAdmin ? 12 : 24">
         <div class="page-card">
           <h3 class="page-title">民族构成</h3>
           <div class="stat-chart" data-chart="ethnicity"></div>
         </div>
       </el-col>
-      <el-col :xs="24" :md="12">
+      <!-- 年龄来自出生日期，属于班委看不到的字段，分布同样不展示 -->
+      <el-col v-if="userStore.isAdmin" :xs="24" :md="12">
         <div class="page-card">
           <h3 class="page-title">年龄分布</h3>
           <div class="stat-chart" data-chart="age"></div>
@@ -57,8 +58,8 @@
       </el-col>
     </el-row>
 
-    <!-- 第三行：分数段 + 出生月份 -->
-    <el-row :gutter="20" class="row">
+    <!-- 第三行：分数段 + 出生月份（都基于隐藏字段，只给管理员） -->
+    <el-row v-if="userStore.isAdmin" :gutter="20" class="row">
       <el-col :xs="24" :md="12">
         <div class="page-card">
           <h3 class="page-title">
@@ -135,8 +136,9 @@
     <!-- 第六行：考生与资助信息。
          考生类别 / 科类 / 录取批次 这三项全班通常只有一种写法，
          画成饼图就是「一整块 100%」；贫困生也只有是/否两瓣。
-         统一压成一排键值，信息照样在，版面立刻清爽 -->
-    <el-row :gutter="20" class="row">
+         统一压成一排键值，信息照样在，版面立刻清爽。
+         这些都属于班委看不到的敏感字段，整块只给管理员 -->
+    <el-row v-if="userStore.isAdmin" :gutter="20" class="row">
       <el-col :span="24">
         <div class="page-card">
           <h3 class="page-title">考生与资助信息</h3>
@@ -175,6 +177,7 @@ import { useRouter } from 'vue-router'
 import { CHART_PALETTE, renderDonut, renderBar } from '@/utils/chart'
 import { ElMessage } from 'element-plus'
 import { useStudentStore } from '@/store/student'
+import { useUserStore } from '@/store/user'
 import { errText } from '@/utils/request'
 import { buildRoster, countMinority } from '@/utils/statGroups'
 import Watermark from '@/components/Watermark.vue'
@@ -183,6 +186,7 @@ import { useWatermark } from '@/composables/useWatermark'
 const watermarkText = useWatermark()
 const router = useRouter()
 const studentStore = useStudentStore()
+const userStore = useUserStore()
 const stats = ref(null)
 const total = ref(0)
 const scoreSummary = ref({ avg: 0, max: 0, min: 0 })
@@ -247,7 +251,7 @@ const infoRows = computed(() => [
   { label: '贫困生', value: fmtDist(stats.value?.poor_student) }
 ])
 
-const overviewCards = computed(() => [
+const overviewCards = computed(() => ([
   { label: '总人数', value: total.value, color: CHART_PALETTE[0] },
   { label: '男生', value: stats.value?.gender?.['男'] || 0, color: CHART_PALETTE[2], key: 'male' },
   { label: '女生', value: stats.value?.gender?.['女'] || 0, color: CHART_PALETTE[1], key: 'female' },
@@ -258,7 +262,7 @@ const overviewCards = computed(() => [
   // 不数「有几种民族」而是数人：种类数只在每个少数民族恰好一个人时才等于名单行数，
   // 那样卡上的数字点开就会和弹窗里的条数对不上（见 utils/statGroups.js 的 countMinority）
   { label: '少数民族人数', value: countMinority(stats.value?.ethnicity), color: CHART_PALETTE[7], key: 'minority' }
-])
+]).filter((card) => userStore.isAdmin || card.label !== '贫困生'))
 
 // 名单弹窗：点概览卡打开，看这份名单具体是谁
 const roster = ref(null)

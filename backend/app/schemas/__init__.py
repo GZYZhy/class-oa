@@ -9,6 +9,7 @@ from .student import (
     BatchDeleteRequest,
     RemarkAttachment,
     student_response,
+    student_list_item,
 )
 from .announcement import AnnouncementResponse
 from .notice import NoticeCreate, NoticeResponse, NoticeReadRow, NoticeReadStatus, NoticeAttachment
@@ -91,6 +92,12 @@ from .sign_photo import (
     SignPhotoRequestListResponse,
     SignPhotoRequestResponse,
     SignPhotoStatusResponse,
+)
+from .archive_view import (
+    ArchiveViewRequestCreate,
+    ArchiveViewRequestListResponse,
+    ArchiveViewRequestResponse,
+    ArchiveViewStatusResponse,
 )
 from .attendance import (
     AttendanceBatchDelete,

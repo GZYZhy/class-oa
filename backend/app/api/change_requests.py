@@ -20,12 +20,13 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import ChangeRequest, Student, User
 from ..schemas import ChangeRequestCreate, ChangeRequestResponse, RejectRequest
+from ..schemas.student import COMMITTEE_VISIBLE_FIELDS
 from ..services import clip, display_name, log_operation, notify, recipients
 from ..services.list_filters import created_between, keyword_like
 # 照片的落盘 / 删除 / 取文件三件事与 api/students.py 共用同一份实现
 from ..services.student_photo_service import photo_path, photo_response, remove_photo, save_photo
 from ..utils.student_fields import describe_changes
-from .deps import committee_required, get_current_student, get_current_user, get_client_ip
+from .deps import committee_required, get_current_student, get_current_user, get_client_ip, is_admin
 
 router = APIRouter(prefix="/api/change-requests", tags=["修改申请"])
 
@@ -60,11 +61,29 @@ PHOTO_EDITABLE_FIELDS = ("id_photo",)
 ALL_EDITABLE_FIELDS = EDITABLE_FIELDS + PHOTO_EDITABLE_FIELDS
 
 
-def _to_response(req: ChangeRequest, student: Student | None) -> ChangeRequestResponse:
-    """组装出参，并带上学生当前值供前端做「原值 → 新值」对照"""
+def _to_response(
+    req: ChangeRequest,
+    student: Student | None,
+    *,
+    mask_sensitive: bool = False,
+) -> ChangeRequestResponse:
+    """组装出参，并带上学生当前值供前端做「原值 → 新值」对照
+
+    mask_sensitive=True（班委审核列表）时，把申请里那些班委看不到的字段连同当前值
+    一起裁掉。否则「信息修改」就成了绕过档案权限的第二条路：班委打开一条把家庭电话
+    从 A 改成 B 的申请，原值新值全看见了。是否允许班委通过这类申请，见 approve。
+    """
     data = ChangeRequestResponse.model_validate(req)
     if student:
         data.current = {f: getattr(student, f, None) for f in ALL_EDITABLE_FIELDS}
+    if mask_sensitive:
+        hidden = set(data.changes) - COMMITTEE_VISIBLE_FIELDS
+        data.sensitive_hidden = bool(hidden)
+        data.changes = {k: v for k, v in data.changes.items() if k in COMMITTEE_VISIBLE_FIELDS}
+        if student:
+            data.current = {
+                k: v for k, v in data.current.items() if k in COMMITTEE_VISIBLE_FIELDS
+            }
     return data
 
 
@@ -222,7 +241,7 @@ def my_requests(
 
 @router.get("", response_model=list[ChangeRequestResponse], summary="申请列表（班委及以上）")
 def list_requests(
-    _: User = Depends(committee_required),
+    user: User = Depends(committee_required),
     status: str | None = Query(None, description="pending|approved|rejected，不传为全部"),
     keyword: str | None = Query(None, description="按提交人姓名或学号模糊搜索"),
     start: date | None = Query(None, description="提交日期起始，含当天"),
@@ -244,7 +263,11 @@ def list_requests(
         {s.id: s for s in db.query(Student).filter(Student.id.in_(student_ids)).all()}
         if student_ids else {}
     )
-    return [_to_response(r, students.get(r.student_id)) for r in rows]
+    mask = not is_admin(user)
+    return [
+        _to_response(r, students.get(r.student_id), mask_sensitive=mask)
+        for r in rows
+    ]
 
 
 @router.get("/{request_id}/photo", summary="审核时对照用的照片（班委及以上）")
@@ -296,6 +319,7 @@ def _get_pending(db: Session, request_id: int) -> ChangeRequest:
 def _finish(
     db: Session, req: ChangeRequest, user: User, status: str, action: str,
     reason: str | None = None, detail: str = "", ip: str | None = None,
+    mask_sensitive: bool = False,
 ) -> ChangeRequestResponse:
     """记录审核人与审核时间，写日志，一起提交"""
     req.status = status
@@ -306,7 +330,11 @@ def _finish(
     log_operation(db, user, action, target=f"{req.student_no} {req.student_name}", detail=detail, ip=ip)
     db.commit()
     db.refresh(req)
-    return _to_response(req, db.query(Student).filter(Student.id == req.student_id).first())
+    return _to_response(
+        req,
+        db.query(Student).filter(Student.id == req.student_id).first(),
+        mask_sensitive=mask_sensitive,
+    )
 
 
 # 允许班委审自己的申请（不拦截），但每次都会写进操作日志
@@ -330,6 +358,15 @@ def approve(
         for key, value in json.loads(req.changes or "{}").items()
         if key in ALL_EDITABLE_FIELDS
     }
+
+    # 班委不能处理涉及敏感字段的申请：列表里这些字段已经被裁掉了，再让他点通过
+    # 等于闭着眼睛改档案。要改请管理员来（档案授权只放开「看」，不放开「批」）
+    hidden = set(changes) - COMMITTEE_VISIBLE_FIELDS
+    if hidden and not is_admin(user):
+        raise HTTPException(
+            status_code=403,
+            detail="这条申请包含班委无权查看的敏感字段，需由管理员处理",
+        )
 
     # 身份证号只能补空。提交之后管理员可能已经手填了，通过前必须再核一次，
     # 否则这条申请会把管理员刚录的值覆盖掉
@@ -355,7 +392,10 @@ def approve(
 
     # 先取收件人再收尾：_finish 只负责数据库，通知不该混进它里面
     targets = recipients(db, only_no=req.student_no)
-    result = _finish(db, req, user, "approved", "通过修改申请", detail=detail, ip=ip)
+    result = _finish(
+        db, req, user, "approved", "通过修改申请",
+        detail=detail, ip=ip, mask_sensitive=not is_admin(user),
+    )
     # 提交成功之后才删旧照片（与 api/students.py 换照片同一顺序：失败时旧数据完好）
     if new_photo and old_photo and old_photo != new_photo:
         remove_photo(old_photo)
@@ -377,7 +417,10 @@ def reject(
 ):
     req = _get_pending(db, request_id)
     targets = recipients(db, only_no=req.student_no)
-    result = _finish(db, req, user, "rejected", "驳回修改申请", reason=payload.reason, ip=ip)
+    result = _finish(
+        db, req, user, "rejected", "驳回修改申请",
+        reason=payload.reason, ip=ip, mask_sensitive=not is_admin(user),
+    )
     # 驳回之后这张照片再没人会引用，不删就是永久孤儿（req.changes 收尾时不会被改动）
     remove_photo(json.loads(req.changes or "{}").get("id_photo"))
     notify(

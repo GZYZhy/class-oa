@@ -67,6 +67,9 @@ class StudentResponse(StudentBase):
     """学生信息响应 schema"""
     id: int
     remark_attachments: list[RemarkAttachment] = []
+    # 敏感字段是否被隐藏了。前端据此决定要不要显示「申请完整档案」入口，
+    # 不要靠某个字段是不是 null 来判断 —— 档案本来就可能没填
+    sensitive_hidden: bool = False
 
     @field_validator("remark_attachments", mode="before")
     @classmethod
@@ -132,14 +135,66 @@ class BatchDeleteRequest(BaseModel):
     ids: list[int] = Field(..., description="要删除的学生 id 列表")
 
 
-def student_response(student: Any, viewer_role: str = "student") -> StudentResponse:
+# 班委查看**别人**时能看到的字段。不在这个集合里的一律置空 ——
+# 用「白名单」而不是「黑名单」，以后再加敏感字段时默认就是隐藏的，不会漏。
+# 管理员、本人、以及拿到完整档案授权的人不受这份清单限制。
+COMMITTEE_VISIBLE_FIELDS = frozenset({
+    "id",
+    "student_no", "name", "gender", "major", "class_name",
+    "ethnicity", "political_status", "hometown",
+    "school_status", "phone", "dormitory",
+    "class_position", "league_position",
+    "remark", "remark_attachments",
+    # 三张照片里给班委看高考照和自备证件照；实地采集照片也在排除之列
+    "gaokao_photo", "id_photo",
+})
+
+
+def student_response(
+    student: Any,
+    viewer_role: str = "student",
+    *,
+    is_self: bool = False,
+    archive_access: bool = False,
+) -> StudentResponse:
     """按查看者角色裁剪字段后再输出
 
-    备注属于班委内部记录，普通学生看不到任何人的备注（连自己那条也看不到），
-    连带备注附件也一起清掉。
+    - 管理员：完整档案
+    - 本人：完整档案（普通学生的备注仍然隐藏，备注是班委内部记录）
+    - 班委看别人：只保留 COMMITTEE_VISIBLE_FIELDS，其余字段置空；
+      拿到管理员批准的完整档案授权（archive_access=True）时恢复完整档案
+    - 普通学生：只能看自己（调用方已拦截看别人），备注隐藏
+
+    `sensitive_hidden` 告诉前端这次是不是裁剪过的，详情页据此提示「申请完整档案」。
     """
     data = StudentResponse.model_validate(student)
     if viewer_role == "student":
         data.remark = None
         data.remark_attachments = []
+    elif viewer_role == "committee" and not is_self and not archive_access:
+        for field in StudentResponse.model_fields:
+            # 这个标记本身不是档案字段，不在白名单里，别被一起清成 None
+            if field == "sensitive_hidden":
+                continue
+            if field not in COMMITTEE_VISIBLE_FIELDS:
+                setattr(data, field, None)
+        data.sensitive_hidden = True
     return data
+
+
+def student_list_item(
+    student: Any,
+    viewer_role: str,
+    *,
+    is_self: bool = False,
+) -> "StudentListItem":
+    """列表项：先按角色裁剪字段，再补上「有没有签字图」
+
+    列表不套用完整档案授权 —— 授权是按单个学生、限时开放的，用于详情页；
+    不能让一次批准把整个名单页的敏感列都放开。
+    """
+    data = student_response(student, viewer_role, is_self=is_self)
+    return StudentListItem(
+        **data.model_dump(),
+        has_sign_photo=bool(getattr(student, "sign_photo", None)),
+    )

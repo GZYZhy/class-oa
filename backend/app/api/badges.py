@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import (
+    ArchiveViewRequest,
     CertificateRequest,
     ChangeRequest,
     EvPassRequest,
@@ -65,6 +66,7 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
         "export": 0,
         "certificate": 0,
         "signphoto": 0,
+        "archive": 0,
     }
     if user.role == "admin":
         # 三个办件都走管理员审批，且都有受理环节（口径见上面的 ADMIN_TODO）
@@ -77,6 +79,8 @@ def get_badges(user: User = Depends(get_current_user), db: Session = Depends(get
         review_tabs["certificate"] = _count(db, CertificateRequest, ADMIN_TODO)
         # 签字查看申请：管理员审批
         review_tabs["signphoto"] = _count(db, SignPhotoRequest, "pending")
+        # 完整档案查看申请：管理员审批
+        review_tabs["archive"] = _count(db, ArchiveViewRequest, "pending")
 
     return {
         "notice_unread": unread_count(db, user.student_no),

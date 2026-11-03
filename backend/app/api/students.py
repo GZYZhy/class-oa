@@ -11,6 +11,7 @@ from ..config import BASE_DIR
 
 from ..database import get_db
 from ..models import (
+    ArchiveViewRequest,
     CertificateRequest,
     ChangeRequest,
     EvPassRequest,
@@ -29,6 +30,7 @@ from ..schemas import (
     DrawLogRequest,
     BatchDeleteRequest,
     student_response,
+    student_list_item,
 )
 from ..services import (
     get_student,
@@ -41,6 +43,11 @@ from ..services import (
     update_student,
     delete_student,
     log_operation,
+)
+from ..services.student_service import SENSITIVE_SORT_FIELDS
+from ..services.archive_access_service import (
+    has_full_archive_access,
+    is_own_record,
 )
 # 三个办件的「没办结」口径（含受理、待补正两档），与红点、列表 open 档同源
 from ..services.review_flow import STATUS_PENDING, UNFINISHED
@@ -84,6 +91,7 @@ from .deps import (
     committee_required,
     admin_required,
     is_committee,
+    is_admin,
     get_client_ip,
 )
 from .ev_passes import student_files as ev_pass_files
@@ -212,6 +220,8 @@ def _pending_blockers(db: Session, student: Student) -> list[str]:
          "待处理的电动车通行证", UNFINISHED),
         (SignPhotoRequest, SignPhotoRequest.student_id == student.id,
          "待审核的签字查看申请", (STATUS_PENDING,)),
+        (ArchiveViewRequest, ArchiveViewRequest.student_id == student.id,
+         "待审核的档案查看申请", (STATUS_PENDING,)),
     )
     for model, belongs, label, statuses in checks:
         n = db.query(model).filter(belongs, model.status.in_(statuses)).count()
@@ -228,7 +238,7 @@ def _ensure_can_view(user: User, student: Student) -> None:
 
 @router.get("", response_model=StudentListResponse, summary="学生列表（支持筛选、搜索、排序）")
 def list_students(
-    _: User = Depends(committee_required),
+    user: User = Depends(committee_required),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=500),
     keyword: str | None = None,
@@ -246,6 +256,21 @@ def list_students(
     sort_order: str = Query("asc"),
     db: Session = Depends(get_db),
 ):
+    """学生列表。班委只能看到允许的字段，也不能用敏感条件反查
+
+    「近期生日」「贫困生」筛选和按出生日期 / 高考分数 / 报到时间排序，都会把被隐藏
+    的字段重新暴露出来（哪怕只暴露顺序或是否命中），所以只给管理员用。关键词搜索
+    同理：见 services/student_service.py 里的 PUBLIC_KEYWORD_SEARCH_COLUMNS。
+    """
+    include_sensitive = is_admin(user)
+    if not include_sensitive:
+        if birthday_days is not None:
+            raise HTTPException(status_code=403, detail="近期生日筛选仅管理员可用")
+        if is_poor:
+            raise HTTPException(status_code=403, detail="贫困生筛选仅管理员可用")
+        if sort_by in SENSITIVE_SORT_FIELDS:
+            raise HTTPException(status_code=403, detail="该排序仅管理员可用")
+
     items, total = get_students(
         db,
         skip=(page - 1) * page_size,
@@ -263,13 +288,22 @@ def list_students(
         birthday_days=birthday_days,
         sort_by=sort_by,
         sort_order=sort_order,
+        include_sensitive=include_sensitive,
     )
-    return {"total": total, "items": items}
+    role = user.role or "student"
+    return {
+        "total": total,
+        "items": [
+            student_list_item(student, role, is_self=is_own_record(user, student))
+            for student in items
+        ],
+    }
 
 
 @router.get("/statistics", summary="统计数据")
-def statistics(_: User = Depends(committee_required), db: Session = Depends(get_db)):
-    return get_statistics(db)
+def statistics(user: User = Depends(committee_required), db: Session = Depends(get_db)):
+    """班委只拿公开范围内的分布；敏感分布（贫困、分数、年龄、考生信息）只给管理员"""
+    return get_statistics(db, include_sensitive=is_admin(user))
 
 
 @router.get("/filter-options", summary="筛选下拉选项")
@@ -343,6 +377,13 @@ def student_photo(
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
     _ensure_can_view(user, student)
+    # 实地采集照片不在班委的常规权限里。管理员、本人，以及拿到完整档案授权的人除外
+    if type == "on_site" and not (
+        is_admin(user)
+        or is_own_record(user, student)
+        or has_full_archive_access(db, user, student)
+    ):
+        raise HTTPException(status_code=403, detail="需先申请查看完整档案，并经管理员同意")
     return _serve_photo(student, type)
 
 
@@ -373,7 +414,12 @@ def read_student(
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
     _ensure_can_view(user, student)
-    return student_response(student, user.role or "student")
+    return student_response(
+        student,
+        user.role or "student",
+        is_self=is_own_record(user, student),
+        archive_access=has_full_archive_access(db, user, student),
+    )
 
 
 @router.post("", response_model=StudentCreateResponse, summary="新增学生（仅管理员）")
@@ -612,7 +658,14 @@ async def update_student_api(
         except OSError:
             pass
 
-    return updated
+    # 不能直接返回 ORM 对象：response_model 会把它整条序列化出去，
+    # 班委改备注时就能顺带拿到身份证号等被隐藏的字段
+    return student_response(
+        updated,
+        user.role or "student",
+        is_self=is_own_record(user, updated),
+        archive_access=has_full_archive_access(db, user, updated),
+    )
 
 
 # ---------- 备注附件下载 ----------

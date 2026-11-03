@@ -88,6 +88,8 @@ class ChangeRequestResponse(BaseModel):
     reviewer_name: Optional[str] = None
     # 该学生这些字段当前的真实值，供前端并排展示「原值 → 新值」
     current: dict[str, Any] = {}
+    # 班委看时，涉及敏感字段的申请会被裁剪掉那几行；前端据此提示「需管理员处理」
+    sensitive_hidden: bool = False
 
     class Config:
         from_attributes = True
