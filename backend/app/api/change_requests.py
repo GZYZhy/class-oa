@@ -21,7 +21,7 @@ from ..database import get_db
 from ..models import ChangeRequest, Student, User
 from ..schemas import ChangeRequestCreate, ChangeRequestResponse, RejectRequest
 from ..schemas.student import COMMITTEE_VISIBLE_FIELDS
-from ..services import clip, display_name, log_operation, notify, recipients
+from ..services import clip, display_name, log_operation, notify, recipients, settle_topic
 from ..services.list_filters import created_between, keyword_like
 # 照片的落盘 / 删除 / 取文件三件事与 api/students.py 共用同一份实现
 from ..services.student_photo_service import photo_path, photo_response, remove_photo, save_photo
@@ -221,6 +221,7 @@ async def submit(
         f"{student.name} 提交了 {len(changes)} 项修改，等待你审核",
         level="timeSensitive",
         page="/review",
+        topic=f"change:{req.id}",
     )
     return _to_response(req, student)
 
@@ -399,9 +400,12 @@ def approve(
     # 提交成功之后才删旧照片（与 api/students.py 换照片同一顺序：失败时旧数据完好）
     if new_photo and old_photo and old_photo != new_photo:
         remove_photo(old_photo)
+    # 审这一下就把待办了结了，先清再发（新消息得保持未读）
+    settle_topic(db, f"change:{req.id}")
     notify(
         db, background, targets, "信息修改申请已通过",
         f"你提交的 {len(changes)} 项修改已生效", level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+        topic=f"change:{req.id}",
     )
     return result
 
@@ -423,8 +427,10 @@ def reject(
     )
     # 驳回之后这张照片再没人会引用，不删就是永久孤儿（req.changes 收尾时不会被改动）
     remove_photo(json.loads(req.changes or "{}").get("id_photo"))
+    settle_topic(db, f"change:{req.id}")
     notify(
         db, background, targets, "信息修改申请被驳回",
         f"理由：{clip(payload.reason)}", level="timeSensitive", page="/my-info?tab=workspace&sub=submitted",
+        topic=f"change:{req.id}",
     )
     return result

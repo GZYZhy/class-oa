@@ -48,6 +48,7 @@ def save_messages(
     body: str,
     level: str = "active",
     page: str | None = None,
+    topic: str | None = None,
 ) -> int:
     """给这批人各存一条，返回写入条数
 
@@ -57,6 +58,9 @@ def save_messages(
 
     就地 commit 安全：19 处 notify 调用点都是「先改状态、commit、再通知」这个写法，
     所以这里不会替谁提交半截事务。
+
+    topic 是这批消息关联的办件（"leave:12" 这种），只由 notify() 透传，
+    业务代码不直接调这里。
     """
     if not student_nos:
         return 0
@@ -68,6 +72,7 @@ def save_messages(
             body=body or "",
             level=level,
             page=page,
+            topic=topic,
             created_at=now,
         )
         for no in student_nos
@@ -121,6 +126,33 @@ def mark_read(db: Session, student_no: str, message_id: int) -> bool:
         message.read_at = datetime.now()
         db.commit()
     return True
+
+
+def settle_topic(db: Session, topic: str, student_no: str | None = None) -> int:
+    """把关联某个办件的未读消息自动标为已读，返回标了几条（别人的、已读的不动）
+
+    办件推进（批准 / 驳回 / 退回补正 / 撤销、申请人重交或撤回）之后，之前那条
+    「有新的请假申请待审核」之类的消息就过时了 —— 这件已经有人处理了，不该再
+    挂在谁的红点里。**对这单的所有收件人生效**：管理员 A 批了，管理员 B 收件箱里
+    那条待办同样作废，审核中心页能看到，红点不必再提醒。
+
+    student_no 传入时只标这一个人（下载类接口用）：管理员代下了学生的成品证明，
+    不代表学生本人看过「已开好」那条。
+
+    **必须在 notify() 之前调**：本次推进产生的新消息（如「已通过」）是同一 topic，
+    先落库再清的话会把刚发的通知一并标掉。settle 自带 commit，各接口照
+    「先改状态、commit、再 settle、再 notify」的次序写就行。
+
+    只认 read_at 是否为空，自动已读写的是判定时刻，不是「打开」时刻 —— 见模型注释。
+    """
+    query = db.query(InboxMessage).filter(
+        InboxMessage.topic == topic, InboxMessage.read_at.is_(None)
+    )
+    if student_no:
+        query = query.filter(InboxMessage.student_no == student_no)
+    updated = query.update({InboxMessage.read_at: datetime.now()})
+    db.commit()
+    return updated
 
 
 def mark_all_read(db: Session, student_no: str) -> int:

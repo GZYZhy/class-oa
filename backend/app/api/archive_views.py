@@ -23,7 +23,15 @@ from ..schemas import (
     ArchiveViewStatusResponse,
     RejectRequest,
 )
-from ..services import clip, display_name, get_student, log_operation, notify, recipients
+from ..services import (
+    clip,
+    display_name,
+    get_student,
+    log_operation,
+    notify,
+    recipients,
+    settle_topic,
+)
 from ..services.archive_access_service import (
     ST_APPROVED,
     ST_PENDING,
@@ -139,6 +147,7 @@ def create_request(
         "有新的完整档案查看申请",
         f"{new.applicant_name} 申请查看 {new.student_name} 的完整档案",
         level="timeSensitive", page="/review?tab=archive",
+        topic=f"archive:{new.id}",
     )
     return new
 
@@ -221,10 +230,13 @@ def approve_request(
         db, req, user, "approved", "通过完整档案查看申请",
         detail=_applicant_text(req), ip=ip,
     )
+    # 审这一下就把待办了结了，先清再发（新消息得保持未读）
+    settle_topic(db, f"archive:{req.id}")
     notify(
         db, background, targets, "完整档案查看申请已通过",
         f"你可以在 1 小时内查看 {req.student_name} 的完整档案",
         level="timeSensitive", page=f"/students?open={req.student_id}",
+        topic=f"archive:{req.id}",
     )
     return result
 
@@ -245,9 +257,11 @@ def reject_request(
         db, req, user, "rejected", "驳回完整档案查看申请",
         reason=payload.reason, detail=_applicant_text(req), ip=ip,
     )
+    settle_topic(db, f"archive:{req.id}")
     notify(
         db, background, targets, "完整档案查看申请被驳回",
         f"理由：{clip(payload.reason)}",
         level="timeSensitive", page=f"/students?open={req.student_id}",
+        topic=f"archive:{req.id}",
     )
     return result

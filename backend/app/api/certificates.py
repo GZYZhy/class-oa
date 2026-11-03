@@ -28,7 +28,7 @@ from ..schemas import (
     CertificateRejectRequest,
     CertificateRequestResponse,
 )
-from ..services import account_name, clip, log_operation, notify, recipients
+from ..services import account_name, clip, log_operation, notify, recipients, settle_topic
 from ..services.list_filters import created_between, keyword_like
 from ..services.review_flow import (
     ADMIN_TODO,
@@ -265,6 +265,7 @@ async def submit_application(
         f"{student.name} 提交了证明开具申请（{req.title}），等待你审核",
         level="timeSensitive",
         page="/review?tab=certificate",
+        topic=f"certificate:{req.id}",
     )
     return _to_response(db, req)
 
@@ -344,6 +345,8 @@ async def update_application(
     req.recipient = recipient.strip()
     req.content = content.strip()
     req.extra_request = extra_request.strip()
+    # 只有「补正后重交」才算办件推进（与 leaves.update 同口径，见那边说明）
+    was_correcting = req.status == STATUS_CORRECTING
     resubmit(req)
 
     log_operation(
@@ -358,6 +361,8 @@ async def update_application(
     if replaced:
         _drop_attachments(old_items)
     db.refresh(req)
+    if was_correcting:
+        settle_topic(db, f"certificate:{req.id}")
     return _to_response(db, req)
 
 
@@ -393,6 +398,8 @@ def delete_application(
     db.delete(req)
     db.commit()
     _drop_attachments(items)
+    # 单子撤了，管理员收件箱里那条待办也就作废了（topic 是字符串，记录删了照样对得上）
+    settle_topic(db, f"certificate:{req.id}")
     return {"ok": True}
 
 
@@ -418,6 +425,8 @@ def download_result(
     file_path = RESULT_DIR / req.result_file
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="成品文件不存在")
+    # 证明到手，这件对他就算办完了 —— 「已开好」那条自动算已读
+    settle_topic(db, f"certificate:{req.id}", student_no=user.student_no)
     return FileResponse(
         str(file_path),
         media_type=guess_media_type(req.result_original_name, req.result_file),
@@ -592,10 +601,13 @@ def correcting_application(
     db.refresh(req)
 
     if targets:
+        # 退补正这一下就把待办了结了，先清再发（新消息得保持未读）
+        settle_topic(db, f"certificate:{req.id}")
         notify(
             db, background, targets, "证明开具申请需要补交材料",
             f"标题：{req.title}，理由：{clip(req.correction_reason)}",
             level="timeSensitive", page="/certificate?tab=record",
+            topic=f"certificate:{req.id}",
         )
     return _to_response(db, req)
 
@@ -633,10 +645,12 @@ def approve_application(
     db.commit()
 
     if targets:
+        settle_topic(db, f"certificate:{req.id}")
         notify(
             db, background, targets, "证明开具申请已通过",
             f"你的证明申请（{req.title}）已通过，请在成品上传后下载",
             level="timeSensitive", page="/certificate?tab=record",
+            topic=f"certificate:{req.id}",
         )
     return {"message": "已通过"}
 
@@ -672,10 +686,12 @@ def reject_application(
     db.commit()
 
     if targets:
+        settle_topic(db, f"certificate:{req.id}")
         notify(
             db, background, targets, "证明开具申请被驳回",
             f"标题：{req.title}，理由：{clip(req.reject_reason)}",
             level="timeSensitive", page="/certificate?tab=record",
+            topic=f"certificate:{req.id}",
         )
     return {"message": "已驳回"}
 
@@ -711,10 +727,12 @@ def revoke_application(
     db.commit()
 
     if targets:
+        settle_topic(db, f"certificate:{req.id}")
         notify(
             db, background, targets, "证明开具申请已撤销",
             f"你的证明申请（{req.title}）已被管理员撤销",
             level="timeSensitive", page="/certificate?tab=record",
+            topic=f"certificate:{req.id}",
         )
     return {"message": "已撤销"}
 
@@ -773,10 +791,13 @@ async def upload_result(
             old_path.unlink()
 
     if targets:
+        # 成品一上传，之前那句「请在成品上传后下载」就过时了，先清再发
+        settle_topic(db, f"certificate:{req.id}")
         notify(
             db, background, targets, "证明已开好",
             f"你的证明（{req.title}）已开好，现在可以下载",
             level="timeSensitive", page="/certificate?tab=record",
+            topic=f"certificate:{req.id}",
         )
     return {"message": "上传成功", "result_original_name": file.filename}
 
@@ -798,6 +819,8 @@ def admin_download_result(
     file_path = RESULT_DIR / req.result_file
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="成品文件不存在")
+    # 同学生的下载口径：只清下载者自己的（管理员代下不代表学生看过）
+    settle_topic(db, f"certificate:{req.id}", student_no=user.student_no)
     return FileResponse(
         str(file_path),
         media_type=guess_media_type(req.result_original_name, req.result_file),

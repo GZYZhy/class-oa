@@ -116,7 +116,7 @@ def recipients(
 
 def notify(
     db: Session, background, targets: Recipients, title: str, body: str,
-    level: str = "active", page: str | None = None,
+    level: str = "active", page: str | None = None, topic: str | None = None,
 ) -> None:
     """把这次通知存档（站内信）并挂推送任务（在请求里用这个）
 
@@ -134,7 +134,7 @@ def notify(
     """
     if not targets:
         return
-    _save_inbox(db, targets, title, body, level, page)
+    _save_inbox(db, targets, title, body, level, page, topic)
     for attr, send in _CHANNELS:
         target = getattr(targets, attr)
         if target:
@@ -143,7 +143,7 @@ def notify(
 
 def _save_inbox(
     db: Session, targets: Recipients, title: str, body: str,
-    level: str, page: str | None,
+    level: str, page: str | None, topic: str | None,
 ) -> None:
     """写站内信存档。**异常必须在这里吞掉**
 
@@ -152,14 +152,14 @@ def _save_inbox(
     所以打印一行日志就够，不往外抛。
     """
     try:
-        save_messages(db, targets.inbox, title, body, level=level, page=page)
+        save_messages(db, targets.inbox, title, body, level=level, page=page, topic=topic)
     except Exception as exc:
         print(f"[站内信] 保存失败：{exc!r}", flush=True)
 
 
 def deliver_now(
     db: Session, targets: Recipients, title: str, body: str,
-    level: str = "active", page: str | None = None,
+    level: str = "active", page: str | None = None, topic: str | None = None,
 ) -> bool:
     """同步把各渠道发完；返回「有人的渠道是不是都发成功了」
 
@@ -180,7 +180,7 @@ def deliver_now(
     """
     if not targets:
         return True
-    _save_inbox(db, targets, title, body, level, page)
+    _save_inbox(db, targets, title, body, level, page, topic)
     ok = True
     for attr, send in _CHANNELS:
         target = getattr(targets, attr)
