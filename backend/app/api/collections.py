@@ -862,11 +862,8 @@ def submit_response(
         )
         if target and target.student_name:
             target_name = target.student_name
-        target_user = (
-            db.query(User).filter(User.student_no == target_no).first()
-        )
-        if target_user is not None and target_user.is_frozen:
-            raise HTTPException(status_code=400, detail="该同学账号已冻结，不能代填")
+        # 冻结只拦学生本人登录，不拦管理员代填：被冻结的人往往正是需要班长
+        # 代为提交材料的那一类。
 
     collection = _load_visible(db, collection_id, user, is_admin(user))
     status = collection_status(collection)

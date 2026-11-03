@@ -361,8 +361,7 @@ function canProxyRow(row) {
   return (
     canDelete.value &&
     detail.value.status === 'open' &&
-    !detail.value.cap_reached &&
-    !row.frozen
+    !detail.value.cap_reached
   )
 }
 
