@@ -5058,9 +5058,11 @@ console.log('\n▶ 投票收集：双 Tab、七种题型、本人答卷与撤回
     /function openMainAction/.test(voteListSrc),
   '投票：管理员/发起人主按钮打开旧的实时结果弹窗')
   check(/command="openSharePage"/.test(voteListSrc), '管理下拉仍保留去投票页的入口')
-  check(/row\.can_manage \? '实时预览' : collectionActionText\(row\)/.test(panelSrc) &&
+  check(/row\.can_manage \? '答卷详情' : collectionActionText\(row\)/.test(panelSrc) &&
     /function openMainAction/.test(panelSrc),
-  '收集：管理员/发起人主按钮打开实时答卷弹窗')
+  '收集：管理员/发起人主按钮打开答卷详情（弹窗本身实时轮询）')
+  check(!/command="responses"/.test(panelSrc),
+    '下拉里不再重复放「答卷详情」：同一个入口只留一块牌子')
   check(/command="openFillPage"/.test(panelSrc), '管理下拉仍保留去填写页的入口')
 
   // 列表可读性：标题与说明靠左；操作列两个入口用 flex 居中对齐
@@ -5071,7 +5073,7 @@ console.log('\n▶ 投票收集：双 Tab、七种题型、本人答卷与撤回
   '投票的「实时预览 / 管理」纵向对齐')
   check(panelSrc.includes('class="cp-actions"') &&
     /\.cp-actions \{[^}]*align-items: center/.test(panelSrc),
-  '收集的「实时预览 / 管理」纵向对齐')
+  '收集的「答卷详情 / 管理」纵向对齐')
   // 不记名投票没有「选择」列，其余列全是固定宽度时表格会缩在左边
   check(voteListSrc.includes('label="投票时间" min-width="170"'),
     '投票名单的时间列可随弹窗宽度伸展')
@@ -5483,8 +5485,9 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
   check(pageSrc.includes('导出明细') && pageSrc.includes('attendanceDetailExportUrl'),
     '点名明细弹窗能单独导出这一场（带抬头摘要）')
   check(checkinDialogSrc.includes('导出明细') &&
-    checkinDialogSrc.includes('checkinDetailExportUrl'),
-  '签到明细弹窗同样能单独导出这一场')
+    checkinDialogSrc.includes('checkinDetailExportUrl') &&
+    checkinDialogSrc.includes('isZip') && checkinDialogSrc.includes('含照片'),
+  '签到明细弹窗能单独导出，有照片时按 zip 下载并提前说明')
   check(!pageSrc.includes('handleCheckinRemark'),
     '签到的改备注挪进明细，列表上少一个按钮')
 

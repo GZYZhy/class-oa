@@ -13,10 +13,13 @@
 """
 from datetime import datetime, timedelta
 from io import BytesIO
+from zipfile import ZipFile
 
 import httpx
 import pytest
 from openpyxl import load_workbook
+
+from conftest import png_bytes
 
 PW = "initpass123"
 ADMIN = "2024000001"
@@ -122,6 +125,57 @@ def test_checkin_detail_export_has_distance_and_status(dx):
     line = next(row for row in rows if row[0] == STUDENT)
     assert line[2] == "已签到"
     assert line[3], "签到时间要写进表里"
+
+
+def test_checkin_detail_export_packs_photos(dx):
+    """有人交照片时导出 zip：表里的「照片」列写包内相对路径，解开就能对上
+
+    和收集「导出含文件」同一套做法；没照片时仍是裸 xlsx（上一个用例覆盖）。
+    """
+    png = png_bytes()
+    r = dx.client.post("/api/checkins", json={
+        "title": "带照片的签到",
+        "targets": [STUDENT],
+        "start_at": (datetime.now() - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S"),
+        "end_at": (datetime.now() + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%S"),
+        "notify_on_start": False,
+        "require_photo": True,
+    })
+    assert r.status_code == 200, r.text
+    checkin = r.json()
+
+    student = _as_student(dx)
+    try:
+        up = student.post(
+            f"/api/checkins/public/{checkin['code']}/photo",
+            files={"photo": ("签到.png", png, "image/png")},
+        )
+        assert up.status_code == 200, up.text
+        signed = student.post(
+            f"/api/checkins/public/{checkin['code']}/sign",
+            data={"source": "test", "photo_token": up.json()["token"]},
+        )
+        assert signed.status_code == 200, signed.text
+    finally:
+        student.close()
+
+    r = dx.client.get(f"/api/attendance/checkin/{checkin['id']}/export")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "application/zip"
+
+    bundle = ZipFile(BytesIO(r.content))
+    names = bundle.namelist()
+    assert "签到明细.xlsx" in names
+    photo_names = [name for name in names if name.startswith("照片/")]
+    assert len(photo_names) == 1, names
+    assert bundle.read(photo_names[0]) == png, "包里的照片要和上传的字节一致"
+
+    rows = [
+        [cell.value for cell in row]
+        for row in load_workbook(BytesIO(bundle.read("签到明细.xlsx")))["签到明细"].iter_rows()
+    ]
+    line = next(row for row in rows if row[0] == STUDENT)
+    assert line[-1] == photo_names[0], "照片列写的是包内相对路径"
 
 
 def test_students_cannot_export_details(dx):

@@ -98,10 +98,12 @@
       </el-table-column>
       <el-table-column label="操作" width="150" fixed="right">
         <template #default="{ row }">
-          <!-- 普通参与者去统一填写页；发起人/管理员看实时答卷仍用弹窗 -->
+          <!-- 普通参与者去统一填写页；发起人/管理员打开答卷详情弹窗。
+               这个弹窗本身就是实时轮询的，原先「实时预览」和下拉里的
+               「答卷详情」是同一个入口的两块牌子，已合并成一个 -->
           <div class="cp-actions">
             <el-button link type="primary" @click="openMainAction(row)">
-              {{ row.can_manage ? '实时预览' : collectionActionText(row) }}
+              {{ row.can_manage ? '答卷详情' : collectionActionText(row) }}
             </el-button>
             <el-dropdown
               v-if="row.can_manage"
@@ -114,7 +116,6 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="edit">编辑</el-dropdown-item>
-                  <el-dropdown-item command="responses">答卷详情</el-dropdown-item>
                   <!-- 管理入口走弹窗后，仍从这里去统一填写页（自己也要填的时候用） -->
                   <el-dropdown-item command="openFillPage">
                     {{ row.can_submit ? '去填写' : '打开填写页' }}
@@ -270,7 +271,6 @@ function openSharePage(row) {
 
 function handleCommand(command, row) {
   if (command === 'edit') return createRef.value?.openForEdit(row)
-  if (command === 'responses') return openResponses(row)
   if (command === 'openFillPage') return openSharePage(row)
   if (command === 'share') return openShare(row)
   if (command === 'remind') return handleRemind(row)
