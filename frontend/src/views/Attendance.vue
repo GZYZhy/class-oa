@@ -144,11 +144,13 @@
           </template>
         </el-table-column>
         <!-- 操作列固定在右边。窄屏上 300px 的固定列会盖住大半个表格，
-             所以只保留一个主操作，其余收进「更多」下拉，宽度也跟着收窄 -->
-        <el-table-column label="操作" :width="isMobile ? 132 : 300" fixed="right">
+             所以只保留一个主操作，其余收进「更多」下拉，宽度也跟着收窄。
+             这档取 1100 而不是 768：iPad 竖屏是 810/820/834，按桌面宽度摆
+             三个按钮的话，固定列会横在右下角挡掉大半个表 -->
+        <el-table-column label="操作" :width="compactOps ? 132 : 300" fixed="right">
           <template #default="{ row }">
             <div class="at-ops">
-              <template v-if="isMobile">
+              <template v-if="compactOps">
                 <el-button link type="primary" size="small" @click="primaryAction(row).run()">
                   {{ primaryAction(row).label }}
                 </el-button>
@@ -289,9 +291,10 @@ import { blobErrorDetail, downloadFile } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'
 
-// 窄屏下操作列固定在右边，宽度一大就把日期、类型这些关键列压在遮罩下面，
-// 所以只直显一个主操作，其余收进「更多」下拉（和账号管理页同一套做法）
-const isMobile = useIsMobile()
+// 窄屏 + 平板竖屏下操作列固定在右边，宽度一大就把日期、类型这些关键列压在
+// 遮罩下面，所以只直显一个主操作，其余收进「更多」下拉。
+// 阈值用 1100：iPad 竖屏（810/820/834）也算「摆不下三个按钮」的那档
+const compactOps = useIsMobile(1100)
 const MOBILE_PRIMARY = '明细'
 
 /** 时间列只保留时刻：2026-10-19 19:25 → 19:25（日期已经在左边那一列） */

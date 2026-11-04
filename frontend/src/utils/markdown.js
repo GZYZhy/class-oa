@@ -16,7 +16,11 @@ import DOMPurify from 'dompurify'
  * javascript: 这类能执行的东西。
  */
 export function renderMarkdown(text) {
-  const html = marked.parse(text || '')
+  // 通知里的外链图片可能很大：加上原生懒加载与异步解码，
+  // 弱网下不会为了文章底部的一张图把整篇正文堵在加载上（不支持的浏览器会忽略）
+  const html = marked
+    .parse(text || '')
+    .replace(/<img\s/gi, '<img loading="lazy" decoding="async" ')
   // 浏览器里 DOMPurify 一定有 sanitize；SSR / 渲染回归测试没有 DOM，
   // dompurify 只导出未初始化的工厂函数。那种环境没有真实的 XSS 面，
   // 原样返回供测试断言；万一有 DOM 却没初始化成功，宁可不出内容

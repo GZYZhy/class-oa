@@ -629,8 +629,9 @@ function goHome() {
   border: 1px solid var(--app-border);
   border-radius: 24px;
   box-shadow: var(--app-shadow-hover), var(--app-card-inset);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  /* 登录卡是整页唯一的浮层，用最厚的一档磨砂（同弹窗） */
+  backdrop-filter: blur(var(--app-glass-blur-float)) saturate(var(--app-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--app-glass-blur-float)) saturate(var(--app-glass-saturate));
   /* 校徽纹样是 fixed + z-index:0 的底层装饰，卡片抬到它上面
      （登录页不在 .layout-main 里，拿不到那条统一的 z-index 规则） */
   position: relative;

@@ -54,7 +54,10 @@
         <div class="stat-card card-blue">
           <div class="stat-icon"><el-icon><User /></el-icon></div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats?.total || 0 }}<span class="stat-unit">人</span></div>
+            <div v-if="statsLoading" class="stat-value stat-skeleton" aria-label="加载中" />
+            <div v-else class="stat-value">
+              {{ stats?.total ?? '—' }}<span v-if="stats?.total != null" class="stat-unit">人</span>
+            </div>
             <div class="stat-label">总人数</div>
           </div>
         </div>
@@ -63,7 +66,10 @@
         <div class="stat-card card-pink">
           <div class="stat-icon"><el-icon><Female /></el-icon></div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats?.gender?.['女'] || 0 }}<span class="stat-unit">人</span></div>
+            <div v-if="statsLoading" class="stat-value stat-skeleton" aria-label="加载中" />
+            <div v-else class="stat-value">
+              {{ stats?.gender?.['女'] ?? '—' }}<span v-if="stats?.gender?.['女'] != null" class="stat-unit">人</span>
+            </div>
             <div class="stat-label">女生</div>
           </div>
         </div>
@@ -72,7 +78,10 @@
         <div class="stat-card card-cyan">
           <div class="stat-icon"><el-icon><Male /></el-icon></div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats?.gender?.['男'] || 0 }}<span class="stat-unit">人</span></div>
+            <div v-if="statsLoading" class="stat-value stat-skeleton" aria-label="加载中" />
+            <div v-else class="stat-value">
+              {{ stats?.gender?.['男'] ?? '—' }}<span v-if="stats?.gender?.['男'] != null" class="stat-unit">人</span>
+            </div>
             <div class="stat-label">男生</div>
           </div>
         </div>
@@ -81,12 +90,24 @@
         <div class="stat-card card-green">
           <div class="stat-icon"><el-icon><Medal /></el-icon></div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats?.class_committee_count || 0 }}<span class="stat-unit">人</span></div>
+            <div v-if="statsLoading" class="stat-value stat-skeleton" aria-label="加载中" />
+            <div v-else class="stat-value">
+              {{ stats?.class_committee_count ?? '—' }}<span v-if="stats?.class_committee_count != null" class="stat-unit">人</span>
+            </div>
             <div class="stat-label">班委</div>
           </div>
         </div>
       </el-col>
     </el-row>
+
+    <!-- 统计没拿到时不说「0 人」：那是假数据。给一句实话 + 重试 -->
+    <div v-if="statsError" class="stats-error">
+      <el-icon><Warning /></el-icon>
+      <span>首页数据没加载出来，可能是网络不稳</span>
+      <el-button link type="primary" size="small" :loading="statsLoading" @click="loadStats">
+        重试
+      </el-button>
+    </div>
 
     <!-- 快捷入口：登录后才有（游客点进去也是被弹回来，不如不摆）。
          判据和侧边菜单同一份（utils/roles.js 的 canSee），所以这里的 role / studentOnly
@@ -110,8 +131,18 @@
 
     <!-- 最新通知：接口本来就公开，游客也看得见。
          未读圆点必须绑在登录态上 —— 后端对游客恒返回 is_read=false，
-         不判断的话游客页会整列都是红点 -->
-    <div v-if="notices.length" class="page-card notice-card">
+         不判断的话游客页会整列都是红点。
+         加载中先占住三行骨架：弱网下「先空一块、再突然长出来」比慢更晃眼 -->
+    <div v-if="noticesLoading" class="page-card notice-card" aria-busy="true">
+      <div class="card-head">
+        <h3 class="page-title">最新通知</h3>
+      </div>
+      <ul class="notice-list">
+        <li v-for="n in 3" :key="n" class="notice-skeleton-row" />
+      </ul>
+    </div>
+
+    <div v-else-if="notices.length" class="page-card notice-card">
       <div class="card-head">
         <h3 class="page-title">最新通知</h3>
         <router-link to="/notices" class="more-link">
@@ -246,10 +277,15 @@ function goLogin() {
 }
 
 const stats = ref(null)
+// 首页统计的加载/失败：弱网下「0 人」是假数据，宁可显示骨架或一句实话
+const statsLoading = ref(true)
+const statsError = ref(false)
 // 今日生日条幅数据；null 表示还没取到或今天没人过生日（两种情况都不显示）
 const birthday = ref(null)
 // 首页只放最新几条；空数组时整块不渲染
 const notices = ref([])
+// 通知在等接口时先撑出三行骨架，避免列表区先塌下去再弹出来
+const noticesLoading = ref(true)
 
 /** 首页「最新通知」要几条。
  *
@@ -379,13 +415,34 @@ function watchChart() {
   chartObserver.observe(genderChartRef.value)
 }
 
+/**
+ * 首页统计
+ *
+ * 单独拆出来是为了「失败后重试」只重拉这一路：天气、通知、图表都不用跟着重跑。
+ * 失败时保留 stats=null，模板显示「—」而不是 0 —— 弱网下「0 人」是假数据，
+ * 会让人以为班里真没人。
+ */
+async function loadStats() {
+  statsLoading.value = true
+  statsError.value = false
+  try {
+    // 首页走公开摘要接口：无需登录，且不含任何敏感字段
+    stats.value = await getPublicSummary()
+    // 图表已经加载过的话，重试成功后要跟着换数据（否则环图停在旧的）
+    renderCharts()
+  } catch (e) {
+    statsError.value = true
+  } finally {
+    statsLoading.value = false
+  }
+}
+
 async function loadData() {
   // 天气先发出去，**不等它**：它最坏要等后端 3 秒超时，
   // 串进下面的 await 链会把人数、通知、图表一起拖住
   loadWeather()
 
-  // 首页走公开摘要接口：无需登录，且不含任何敏感字段
-  stats.value = await getPublicSummary()
+  await loadStats()
 
   // 生日条幅和最新通知都属于锦上添花：各自兜各自的异常，谁挂了都不连累首页统计
   // （后端没升级到有生日接口时也走这条）。两路一起发，别串着等
@@ -395,6 +452,8 @@ async function loadData() {
   ])
   if (today.status === 'fulfilled') birthday.value = today.value
   if (list.status === 'fulfilled') notices.value = list.value
+  // 通知先撤骨架再渲染；失败时也是空数组，整块不出现（不发假空状态）
+  noticesLoading.value = false
 
   await nextTick()
 
@@ -607,6 +666,82 @@ onBeforeUnmount(() => {
   box-shadow: var(--app-shadow-hover), var(--app-card-inset);
 }
 
+/* 统计数字的骨架：宽 64、高 22，和真实数字（28px 高）几乎等高，
+   数据回来时卡片不跳。动画只动背景位置，走合成层 */
+.stat-skeleton {
+  display: flex;
+  align-items: center;
+  /* 跟着字号走：桌面 28px、手机 20px 两档下都正好和真实数字等高，数据回来不跳 */
+  height: 1.2em;
+}
+
+.stat-skeleton::before {
+  content: '';
+  width: 2.2em;
+  height: 0.78em;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    rgba(120, 125, 160, 0.10),
+    rgba(120, 125, 160, 0.22),
+    rgba(120, 125, 160, 0.10)
+  );
+  background-size: 200% 100%;
+  animation: stat-shimmer 1.2s linear infinite;
+}
+
+@keyframes stat-shimmer {
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-skeleton::before {
+    animation: none;
+  }
+}
+
+/* 统计失败：一行实话 + 重试，不占卡片、也不打断页面其它部分 */
+.stats-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--app-outline);
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+/* 通知骨架：三行同高占位，行宽递减一点，看起来像真列表在加载 */
+.notice-skeleton-row {
+  height: 22px;
+  margin: 10px 0;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(120, 125, 160, 0.08),
+    rgba(120, 125, 160, 0.16),
+    rgba(120, 125, 160, 0.08)
+  );
+  background-size: 200% 100%;
+  animation: stat-shimmer 1.2s linear infinite;
+}
+
+.notice-skeleton-row:nth-child(2) {
+  width: 78%;
+}
+
+.notice-skeleton-row:nth-child(3) {
+  width: 56%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notice-skeleton-row {
+    animation: none;
+  }
+}
+
 .stat-icon {
   width: 60px;
   height: 60px;
@@ -676,7 +811,8 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 16px 8px;
   border-radius: 16px;
-  background: var(--el-fill-color-lighter);
+  /* 卡片里的磁贴：跟着卡片玻璃走的浅色涂层，不再是一块实色 */
+  background: var(--app-inset-bg);
   border: 1px solid var(--app-outline);
   color: var(--el-text-color-primary);
   text-decoration: none;
