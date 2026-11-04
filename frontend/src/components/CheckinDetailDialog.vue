@@ -130,6 +130,8 @@
       </p>
     </div>
     <template #footer>
+      <!-- 只导这一次签到：谁签了、几点签的、离多远、最终出勤状态 -->
+      <el-button :loading="exportingDetail" @click="exportDetail">导出明细</el-button>
       <el-button @click="visible = false">关闭</el-button>
     </template>
   </el-dialog>
@@ -155,7 +157,7 @@ import {
   remindCheckin,
   updateCheckinTitle
 } from '@/api/checkin'
-import { updateAttendanceItem } from '@/api/attendance'
+import { checkinDetailExportUrl, updateAttendanceItem } from '@/api/attendance'
 import { downloadFile } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
 import { renderMarkdown } from '@/utils/markdown'
@@ -172,6 +174,7 @@ const detail = ref({ targets: [] })
 // 照片预览框的状态。只是交给 FileViewer 用，不改签到数据
 const photoViewer = ref({ visible: false, url: '', fileName: '', studentName: '' })
 const downloadingPhotos = ref(false)
+const exportingDetail = ref(false)
 
 /** 有人交了照片才显示整包下载；照片可能已被清理，后端会再判一次 */
 const photoCount = computed(
@@ -188,6 +191,24 @@ async function downloadPhotos() {
     ElMessage.error(errText(e, '下载失败'))
   } finally {
     downloadingPhotos.value = false
+  }
+}
+
+/** 导出这一次签到的逐人明细（Excel，单页签、带抬头摘要） */
+async function exportDetail() {
+  if (!detail.value.id) return
+  exportingDetail.value = true
+  try {
+    const title = (detail.value.title || '签到').replace(/[\\/:*?"<>|]/g, '_')
+    const day = String(detail.value.closed_at || detail.value.end_at || '').slice(0, 10)
+    await downloadFile(
+      checkinDetailExportUrl(detail.value.id),
+      `签到明细_${day || '未记录'}_${title}.xlsx`
+    )
+  } catch (e) {
+    ElMessage.error(errText(e, '导出失败'))
+  } finally {
+    exportingDetail.value = false
   }
 }
 

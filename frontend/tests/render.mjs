@@ -5477,6 +5477,14 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
     '操作列固定右侧，手机与平板竖屏都收窄并收进「更多」下拉')
   check(pageSrc.includes('const compactOps = useIsMobile(1100)'),
     '操作列单独用 1100 这一档：iPad 竖屏（810/820/834）摆不下三个按钮')
+  // 明细弹窗里的「导出明细」：只导当前这一场，不是列表页那一批
+  const checkinDialogSrc = readFileSync(
+    `${ROOT}src/components/CheckinDetailDialog.vue`, 'utf8')
+  check(pageSrc.includes('导出明细') && pageSrc.includes('attendanceDetailExportUrl'),
+    '点名明细弹窗能单独导出这一场（带抬头摘要）')
+  check(checkinDialogSrc.includes('导出明细') &&
+    checkinDialogSrc.includes('checkinDetailExportUrl'),
+  '签到明细弹窗同样能单独导出这一场')
   check(!pageSrc.includes('handleCheckinRemark'),
     '签到的改备注挪进明细，列表上少一个按钮')
 

@@ -233,6 +233,8 @@
         </el-table-column>
       </el-table>
       <template #footer>
+        <!-- 只导这一次点名：抬头有日期/范围/应到实到，下面逐人状态 -->
+        <el-button :loading="detailExporting" @click="exportDetail">导出明细</el-button>
         <el-button @click="detailVisible = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -272,6 +274,7 @@ import CheckinCreateDialog from '@/components/CheckinCreateDialog.vue'
 import CheckinDetailDialog from '@/components/CheckinDetailDialog.vue'
 import RollCallDialog from '@/components/RollCallDialog.vue'
 import {
+  attendanceDetailExportUrl,
   attendanceExportUrl,
   batchDeleteAttendance,
   deleteAttendance,
@@ -325,6 +328,7 @@ const exportMode = ref('filtered')
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detailSaving = ref(false)
+const detailExporting = ref(false)
 const detail = ref({ items: [], call_date: '', scope: '' })
 
 const detailTitle = computed(() =>
@@ -443,6 +447,23 @@ async function openDetail(row) {
 
 function openCheckinDetail(row) {
   checkinDetailRef.value?.open(row)
+}
+
+/** 导出当前这一场点名的明细（后端按人汇总成一张带抬头的表） */
+async function exportDetail() {
+  if (!detail.value.id) return
+  detailExporting.value = true
+  try {
+    const day = detail.value.call_date || '点名'
+    const scope = detail.value.scope_label || detail.value.scope || ''
+    const name = `点名明细_${day}${scope ? `_${scope}` : ''}.xlsx`
+      .replace(/[\\/:*?"<>|]/g, '_')
+    await downloadFile(attendanceDetailExportUrl(detail.value.id), name)
+  } catch (e) {
+    ElMessage.error(await blobErrorDetail(e, '导出失败'))
+  } finally {
+    detailExporting.value = false
+  }
 }
 
 /** 改一个人的状态。改完列表上的计数也要跟着变，所以两边都刷一次 */

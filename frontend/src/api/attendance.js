@@ -77,6 +77,21 @@ export function getStudentAttendance(studentId) {
 }
 
 /**
+ * 单次点名明细的导出地址（明细弹窗里的「导出明细」）
+ *
+ * 和列表页的 `/attendance/export` 不同：那个一次导很多条、两个页签；
+ * 这个只导当前这一场，抬头带摘要，打开就能直接发出去。
+ */
+export function attendanceDetailExportUrl(id) {
+  return `/api/attendance/${id}/export`
+}
+
+/** 单次签到明细的导出地址（同一个弹窗体系，路由挂在考勤模块下） */
+export function checkinDetailExportUrl(id) {
+  return `/api/attendance/checkin/${id}/export`
+}
+
+/**
  * 导出考勤记录（班委及以上）的下载地址
  *
  * 两种模式二选一：

@@ -36,7 +36,7 @@ from ..schemas import (
     PollUpdate,
     PollVoteIn,
 )
-from ..services import account_name, log_operation, notify, recipients
+from ..services import account_name, log_operation, notify, recipients, settle_topic
 from ..services.list_filters import keyword_like
 from ..services.poll_service import (
     STATUS_CLOSED,
@@ -686,6 +686,9 @@ def vote(
         db.rollback()
         raise HTTPException(status_code=400, detail="你已经投过票了，不能重复投票")
 
+    # 投完这一票，这场投票的「开始 / 催票」对他就自动算已读（只清他自己的）
+    settle_topic(db, f"poll:{poll.id}", student_no=user.student_no)
+
     # 投票本身**不写操作日志**：一次投票一人一条，几十条会把日志淹掉。
     # 「谁投了什么」由 ballots 接口负责（记名时），那里才是该看的地方
     return detail(db, poll, user.student_no, admin)
@@ -758,6 +761,7 @@ def remind(
             f"还没投票，{poll.end_at:%m-%d %H:%M} 截止",
             level="timeSensitive",
             page=share_path("vote", poll_share_token(poll.id)),
+            topic=f"poll:{poll.id}",
         )
 
     log_operation(
@@ -925,4 +929,6 @@ def remove_poll(
     db.delete(poll)
     log_operation(db, user, action="删除投票", target=title, detail=f"已投 {votes} 人", ip=ip)
     db.commit()
+    # 投票没了，收件箱里那条「开始投票 / 催票」也就作废了
+    settle_topic(db, f"poll:{poll_id}")
     return {"message": "删除成功"}
