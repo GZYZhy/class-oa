@@ -1025,7 +1025,9 @@
                 :closable="false"
                 show-icon
                 :title="`有新版本 ${updateResult.latest_tag}`"
-                :description="`发布于 ${formatDate(updateResult.published_at)}`"
+                :description="updateResult.published_at
+                  ? `发布于 ${formatDate(updateResult.published_at)}`
+                  : '该版本是补丁更新，未单独发布 Release 说明'"
               />
               <el-alert
                 v-else
@@ -1048,6 +1050,7 @@
                   target="_blank"
                   rel="noopener noreferrer"
                 >更新说明</a>
+                <p v-else class="tip">补丁版本只打 tag，没有单独的 Release 说明。</p>
                 <p class="tip">
                   升级前先备份 <code>data/</code> 目录。只执行 up -d 不会去 registry 拉新镜像，必须带 pull。
                 </p>
@@ -1055,11 +1058,12 @@
 
               <div class="ops-checked">
                 检查于 {{ formatDateTime(updateResult.checked_at) }}
-                <span v-if="updateResult.cached">（缓存结果，6 小时内不再请求）</span>
+                <span v-if="updateResult.cached">（刚刚查询失败，10 分钟内不再重试）</span>
               </div>
             </template>
             <p v-else class="tip">
-              点「检查更新」才会去问一次发布页；结果缓存 6 小时。查不到时静默处理，不影响任何页面。
+              点「检查更新」会实时查询 GitHub 的 Git tag（包括未发 Release 的补丁版本）；
+              只有查询失败时才会在 10 分钟内复用错误结果。查不到时静默处理，不影响任何页面。
             </p>
           </section>
 

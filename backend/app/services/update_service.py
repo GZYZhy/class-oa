@@ -1,13 +1,16 @@
 """检查有没有新版本
 
-只做一件事：问一次 GitHub Releases，把「当前版本 / 最新版本」摆给管理员看。
+只做一件事：问一次 GitHub 的 **Git tag**，把「当前版本 / 最新版本」摆给管理员看。
 **不下载、不重启、不推送** —— 升级动作仍然是人手动执行
 `docker compose pull && docker compose up -d`（见 docs/serve.md「升级与回滚」）。
 
 几条刻意为之的取舍：
   * 只有管理员点「检查更新」才会外呼，普通页面永远不会碰它；
-  * 结果缓存成功 6 小时、失败 10 分钟：成功的结果没必要反复问，失败也别让管理员
-    连点几次就打出几次超时；
+  * **成功结果不缓存**：点一次就真查一次。补丁版本只打 tag、不发 Release，
+    以前查 `/releases/latest` 会漏掉它们，还会被 6 小时缓存挡住；
+  * 失败缓存 10 分钟，避免管理员连点几次就打出几次超时；
+  * Release 只是补充信息：最新 tag 没有对应 Release（补丁版本）时，
+    `release_url` / `published_at` 留空，页面显示「小版本无 Release 说明」；
   * 外呼失败**静默**：返回 `error=unreachable`，页面说一句「暂时查不到」，不弹错误、
     不影响任何其它功能（GitHub 在部分校园网下确实连不上）；
   * 版本号解析不出来（本地 dev 构建、或 tag 不是 x.y.z）时 `current_parsed=False`，
@@ -30,10 +33,12 @@ from ..config import settings
 REPO = os.environ.get("UPDATE_CHECK_REPO", "gzyzhy/class-oa").strip() or "gzyzhy/class-oa"
 # 测试用：整条 URL 换成指向本地假服务；平时留空走 GitHub API
 _CUSTOM_URL = os.environ.get("UPDATE_CHECK_URL", "").strip()
-API_URL = _CUSTOM_URL or f"https://api.github.com/repos/{REPO}/releases/latest"
+# 查 tag 而不是 releases/latest：补丁版本只打 tag、不发 Release
+TAGS_URL = _CUSTOM_URL or f"https://api.github.com/repos/{REPO}/git/matching-refs/tags/v"
+RELEASE_URL = f"https://api.github.com/repos/{REPO}/releases/tags/{{tag}}"
 
 TIMEOUT = 5
-SUCCESS_TTL = 6 * 3600
+# 成功结果不缓存；失败仍缓存 10 分钟，避免连点几次打几次超时
 FAIL_TTL = 10 * 60
 
 # 语义化版本：v2.3.0 / 2.3.0 / 2.3.0-beta.1 都认；2.3 这种缺一段的不认
@@ -105,18 +110,59 @@ def _fail(reason: str) -> dict:
     }
 
 
-def _fetch() -> dict:
-    # GitHub API 要求带 User-Agent，不带直接 403；Accept 固定住 v3 的响应形状
+def _get_json(url: str) -> object:
+    """GitHub API 要求带 User-Agent，不带直接 403；Accept 固定住 v3 的响应形状"""
     request = urllib.request.Request(
-        API_URL,
+        url,
         headers={
             "Accept": "application/vnd.github+json",
             "User-Agent": f"class-oa/{settings.app_version}",
         },
     )
+    with urllib.request.urlopen(request, timeout=TIMEOUT, context=_SSL_CONTEXT) as response:
+        return json.loads(response.read().decode("utf-8", errors="replace"))
+
+
+def _release_of(tag: str) -> dict:
+    """这个 tag 对应的 Release，没有就返回空 dict
+
+    补丁版本按约定不发 Release，404 是正常情况，不该当成「查不到新版本」。
+    其它错误也不影响 tag 本身的结果，只在日志里留一句。
+    """
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT, context=_SSL_CONTEXT) as response:
-            body = json.loads(response.read().decode("utf-8", errors="replace"))
+        body = _get_json(RELEASE_URL.format(tag=tag))
+        return body if isinstance(body, dict) else {}
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            detail = exc.read().decode("utf-8", errors="replace")[:120]
+            print(f"[更新检查] Release 查询 HTTP {exc.code}：{detail}", flush=True)
+    except Exception as exc:  # noqa: BLE001 - Release 只是补充信息
+        print(f"[更新检查] Release 查询失败：{exc!r}", flush=True)
+    return {}
+
+
+def _latest_tag(body: object) -> str:
+    """从 GitHub tag 列表里挑最新的语义化版本 tag
+
+    兼容测试用自定义 URL 返回的旧 Release 形状：那样直接取 tag_name。
+    """
+    if isinstance(body, dict):
+        return str(body.get("tag_name") or "").strip()
+
+    tags = []
+    for item in body if isinstance(body, list) else []:
+        ref = str(item.get("ref") or "")
+        tag = ref.rsplit("/", 1)[-1]
+        if parse_version(tag):
+            tags.append(tag)
+    if not tags:
+        return ""
+    return max(tags, key=lambda tag: parse_version(tag) or (0, 0, 0))
+
+
+def _fetch() -> dict:
+    try:
+        body = _get_json(TAGS_URL)
     except urllib.error.HTTPError as exc:
         # 私有仓库/被限流（403）与「网络不通」在看页面上是两回事，但都不该报错弹窗
         detail = exc.read().decode("utf-8", errors="replace")[:120]
@@ -126,7 +172,14 @@ def _fetch() -> dict:
         print(f"[更新检查] 请求失败：{exc!r}", flush=True)
         return _fail("unreachable")
 
-    tag = str(body.get("tag_name") or "").strip()
+    tag = _latest_tag(body)
+    if not tag:
+        return _fail("unreachable")
+    # 自定义 URL 是测试替身：它若直接返回 Release 形状，就用它自己；
+    # 真实 GitHub 的 tag 列表则再查一次 Release（可能 404 = 补丁版本）
+    release = body if isinstance(body, dict) else (
+        {} if _CUSTOM_URL else _release_of(tag)
+    )
     latest = tag[1:] if tag.startswith("v") else tag
     current = settings.app_version
     return {
@@ -134,8 +187,8 @@ def _fetch() -> dict:
         "current_parsed": parse_version(current) is not None,
         "latest_version": latest,
         "latest_tag": tag,
-        "published_at": str(body.get("published_at") or ""),
-        "release_url": str(body.get("html_url") or ""),
+        "published_at": str(release.get("published_at") or ""),
+        "release_url": str(release.get("html_url") or ""),
         "update_available": is_newer(latest, current),
         "checked_at": datetime.now().isoformat(timespec="seconds"),
         "cached": False,
@@ -144,13 +197,15 @@ def _fetch() -> dict:
 
 
 def check(force: bool = False) -> dict:
-    """返回检查结果；force=True 时忽略缓存（页面上的按钮不传，避免连点打 GitHub）"""
+    """返回检查结果；force=True 时忽略缓存
+
+    成功结果**不缓存**：每次点都真查 tag。只有失败结果缓存 10 分钟。
+    """
     now = time.time()
     with _lock:
         payload = _cache["payload"]
-        if payload is not None and not force:
-            ttl = FAIL_TTL if payload.get("error") else SUCCESS_TTL
-            if now - _cache["at"] < ttl:
+        if payload is not None and not force and payload.get("error"):
+            if now - _cache["at"] < FAIL_TTL:
                 return {**payload, "cached": True}
 
     result = _fetch()
