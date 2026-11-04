@@ -5392,7 +5392,7 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 
 `GET /api/admin/update-check`
 
-问一次 GitHub Releases（`UPDATE_CHECK_REPO` 可改，`UPDATE_CHECK_URL` 供测试替换）。结果缓存：成功 6 小时、失败 10 分钟。**连不上时也返回 200**，`error=unreachable`，由页面显示「暂时查不到」。只读操作，不记操作日志。
+查 GitHub 的 Git tag（`UPDATE_CHECK_REPO` 可改，`UPDATE_CHECK_URL` 供测试替换），能覆盖只打 tag、未发 Release 的补丁版本；成功结果不缓存，失败结果缓存 10 分钟。若无对应 Release，`release_url` / `published_at` 为空。**连不上时也返回 200**，`error=unreachable`，由页面显示「暂时查不到」。只读操作，不记操作日志。
 
 **响应**
 

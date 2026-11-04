@@ -217,7 +217,7 @@ def _admin(backend, db, **env):
     return inst
 
 
-def test_update_check_reports_newer_release_and_caches(backend, release_url):
+def test_update_check_reports_newer_release_and_rechecks(backend, release_url):
     b = _admin(backend, "ops-update.db", UPDATE_CHECK_URL=release_url)
 
     first = b.client.get("/api/admin/update-check")
@@ -231,10 +231,10 @@ def test_update_check_reports_newer_release_and_caches(backend, release_url):
     assert data["published_at"]
     assert data["cached"] is False
 
-    # 再点一次：吃缓存，不再打外部接口
+    # 再点一次：成功结果不缓存，必须重新查（否则补丁 tag 会被旧结果挡住）
     second = b.client.get("/api/admin/update-check").json()
-    assert second["cached"] is True
-    assert _ReleaseHandler.hits == 1
+    assert second["cached"] is False
+    assert _ReleaseHandler.hits == 2
 
 
 def test_update_check_is_silent_when_unreachable(backend):

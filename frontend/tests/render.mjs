@@ -6395,8 +6395,9 @@ console.log('\n▶ 运维页：运行时配置与检查更新')
     '应急口令在只读清单里写明为什么不能在线改')
 
   const updatePy = readFileSync(`${ROOT}../backend/app/services/update_service.py`, 'utf8')
-  check(updatePy.includes('SUCCESS_TTL = 6 * 3600') && updatePy.includes('FAIL_TTL = 10 * 60'),
-    '成功结果缓存 6 小时，失败 10 分钟')
+  check(!updatePy.includes('SUCCESS_TTL') && updatePy.includes('matching-refs/tags') &&
+    updatePy.includes('FAIL_TTL = 10 * 60'),
+    '查 Git tag 而不是 Release；成功结果不缓存，失败缓存 10 分钟')
   check(updatePy.includes('parse_version') && updatePy.includes('USER_AGENT') === false &&
     updatePy.includes('User-Agent'), '按语义化版本比较，并带 GitHub 要求的 User-Agent')
 }
