@@ -369,54 +369,65 @@ def _qweather_icon(icon) -> tuple[str, str, int]:
     return "Cloudy", 3, "阴"
 
 
-def _qweather_get(host: str, path: str, key: str, lat: float, lon: float) -> dict:
-    """一次和风 GET。code 不是 "200" 一律当失败抛出去 —— 和风把业务错误
-    （Key 错、额度用尽、参数不对）也放在 HTTP 200 的响应体里，
-    只看 HTTP 状态码会把「Key 无效」当成「今天没预警」"""
+def _qweather_get(host: str, path: str, key: str, params: dict | None = None) -> dict:
+    """一次和风 GET。
+
+    Key 走 `X-QW-Api-Key` 请求头，不再拼进 query：旧写法一旦请求失败，
+    requests 的异常信息会把整个 URL 打进日志，等于把 Key 明文写进日志。
+
+    v7 预报把业务错误（Key 错、额度用尽、参数不对）放在 HTTP 200 的
+    响应体里，看 `code` 判定；新版 v1 预警没有这个字段，有就判、没有就
+    交给 HTTP 状态码 —— 两种都兼容，只用一个入口。
+    """
     resp = requests.get(
         f"https://{host}{path}",
-        params={
-            "location": f"{lon:.4f},{lat:.4f}",
-            "key": key,
-            "lang": "zh",
-            "unit": "m",
-        },
+        headers={"X-QW-Api-Key": key},
+        params=params or {},
         timeout=TIMEOUT,
     )
     resp.raise_for_status()
     data = resp.json()
-    code = str(data.get("code") or "")
-    if code != "200":
-        raise ValueError(f"和风返回 code={code}")
+    if data.get("code") is not None and str(data.get("code")) != "200":
+        raise ValueError(f"和风返回 code={data.get('code')}")
     return data
 
 
 def _fetch_qweather_alerts(host: str, key: str, lat: float, lon: float) -> list[dict]:
     """官方气象预警（没有就空表）。
 
+    `/v7/warning/now` 已于 2026 年被和风下线（实测返回 403 deprecated），
+    新版是 `/weatheralert/v1/current/{lat}/{lon}`，返回 `{metadata, alerts}`。
+    新版每项字段也不同：title/typeName/text 变成 headline/eventType.name/description。
+
     **单独兜异常**：预警接口挂了不该让整个预报变成「取不到」——
     预报本身还在，用户至少能看到天气。
     """
     try:
-        data = _qweather_get(host, "/v7/warning/now", key, lat, lon)
+        data = _qweather_get(
+            host, f"/weatheralert/v1/current/{lat:.4f}/{lon:.4f}", key,
+            params={"lang": "zh"},
+        )
     except Exception as exc:  # noqa: BLE001 —— 预警是附加信息，失败就当作没有
         print(f"[天气] 和风预警取数失败（不影响预报）：{exc}", flush=True)
         return []
     alerts = []
-    for item in data.get("warning") or []:
-        # status: active / update / cancel；取消掉的不该再提醒
-        if str(item.get("status") or "").lower() == "cancel":
+    for item in data.get("alerts") or []:
+        # messageType.code: alert / update / cancel；取消掉的不该再提醒
+        message_type = item.get("messageType") or {}
+        if str(message_type.get("code") or "").lower() == "cancel":
             continue
+        event_type = item.get("eventType") or {}
+        color = item.get("color") or {}
         alerts.append({
             "id": str(item.get("id") or ""),
-            "title": item.get("title") or "",
-            "type": item.get("typeName") or "",
+            "title": item.get("headline") or "",
+            "type": event_type.get("name") or "",
             "severity": item.get("severity") or "",
-            "severity_color": item.get("severityColor") or "",
-            "text": item.get("text") or "",
-            "pub_time": item.get("pubTime") or "",
-            "start": item.get("startTime") or "",
-            "end": item.get("endTime") or "",
+            "severity_color": color.get("code") or "",
+            "text": item.get("description") or "",
+            "pub_time": item.get("issuedTime") or "",
+            "start": item.get("effectiveTime") or "",
+            "end": item.get("expireTime") or "",
         })
     return alerts
 
@@ -428,9 +439,11 @@ def _fetch_qweather(lat: float, lon: float, key: str, host: str) -> dict:
     时间字段是带时区的 ISO 串（`2026-11-05T08:00+08:00`），截前 16 位就是
     `2026-11-05T08:00` —— 和 Open-Meteo 的格式一致，下游不用判断来源。
     """
-    now_raw = _qweather_get(host, "/v7/weather/now", key, lat, lon).get("now") or {}
-    hourly_raw = _qweather_get(host, "/v7/weather/24h", key, lat, lon).get("hourly") or []
-    daily_raw = _qweather_get(host, "/v7/weather/3d", key, lat, lon).get("daily") or []
+    location = f"{lon:.4f},{lat:.4f}"
+    query = {"location": location, "lang": "zh", "unit": "m"}
+    now_raw = _qweather_get(host, "/v7/weather/now", key, query).get("now") or {}
+    hourly_raw = _qweather_get(host, "/v7/weather/24h", key, query).get("hourly") or []
+    daily_raw = _qweather_get(host, "/v7/weather/3d", key, query).get("daily") or []
 
     def _num(value, default=0):
         try:
