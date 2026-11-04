@@ -73,26 +73,59 @@ CHECKIN_EXPORT_COLUMNS = [
 ]
 
 
-def _write_header(ws, columns: list[str]) -> None:
-    """两个页签共用一套表头样式，导出文件看起来是同一套东西"""
+def _write_header(ws, columns: list[str], row: int = 1) -> None:
+    """两个页签共用一套表头样式，导出文件看起来是同一套东西
+
+    row 可传：单次明细导出上面还有一段抬头摘要，表头要落在它下面
+    """
     font = Font(bold=True)
     fill = PatternFill(start_color="E8F0FE", end_color="E8F0FE", fill_type="solid")
     for col_idx, label in enumerate(columns, 1):
-        cell = ws.cell(row=1, column=col_idx, value=label)
+        cell = ws.cell(row=row, column=col_idx, value=label)
         cell.font = font
         cell.fill = fill
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
 
-def _fit_columns(ws, columns: list[str]) -> None:
+def _fit_columns(ws, columns: list[str], last_wide: bool = True) -> None:
     """列宽按表头估就够了：内容是学号/姓名/日期这类定长。
 
-    除了最后一列 —— 它总是标题 / 说明这类长文本，按表头估只够显示两三个字。
+    除了最后一列 —— 列表导出里它总是标题 / 说明这类长文本，按表头估只够显示
+    两三个字；单次明细导出没有这一列，last_wide=False 别把「状态」撑成 30。
     """
     for col_idx, label in enumerate(columns, 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = min(len(label) * 2 + 6, 24)
-    ws.column_dimensions[get_column_letter(len(columns))].width = 30
+    if last_wide:
+        ws.column_dimensions[get_column_letter(len(columns))].width = 30
     ws.freeze_panes = "A2"
+
+
+def _write_detail_block(ws, title: str, meta: list[str], columns: list[str]) -> int:
+    """单次明细的抬头：大字标题 + 几行摘要 + 空一行 + 表头
+
+    返回第一行数据的行号。抬头整段合并到列宽，长标题不会被截在 A 列里。
+    """
+    span = f"A1:{get_column_letter(len(columns))}1"
+    ws.merge_cells(span)
+    cell = ws.cell(row=1, column=1, value=title)
+    cell.font = Font(bold=True, size=14)
+    cell.alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[1].height = 24
+
+    row = 2
+    for line in meta:
+        if not line:
+            continue
+        ws.merge_cells(f"A{row}:{get_column_letter(len(columns))}{row}")
+        meta_cell = ws.cell(row=row, column=1, value=line)
+        meta_cell.alignment = Alignment(horizontal="left", vertical="center")
+        row += 1
+
+    row += 1  # 摘要和表之间留一行空白
+    _write_header(ws, columns, row=row)
+    _fit_columns(ws, columns, last_wide=False)
+    ws.freeze_panes = f"A{row + 1}"
+    return row + 1
 
 
 def _counts(items: list[AttendanceItem]) -> dict[str, int]:
@@ -337,6 +370,178 @@ def export_attendance(
             "Content-Disposition": "attachment; filename*=utf-8''" + quote(filename),
             "Cache-Control": "no-store",
         },
+    )
+
+
+def _file_part(text: str, limit: int = 40) -> str:
+    """文件名里的一段：去掉路径分隔符等非法字符
+
+    点名范围、签到标题都是人写的，可能带斜杠或冒号，原样进 Content-Disposition
+    会被解成路径，下载下来文件名也乱
+    """
+    cleaned = "".join(
+        "_" if char in '/\\:*?"<>|\r\n\t' else char for char in (text or "")
+    ).strip("._ ")
+    return cleaned[:limit] or "明细"
+
+
+def _xlsx_response(content: bytes, filename: str) -> Response:
+    """单次明细导出共用的响应：中文文件名按 RFC 5987 编码，禁止缓存"""
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": "attachment; filename*=utf-8''" + quote(filename),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get("/{record_id}/export", summary="导出单次点名明细（班委及以上）")
+def export_attendance_detail(
+    record_id: int,
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """只导这一次点名：抬头说明这场是谁点的、应到多少、各状态几人，下面是逐人明细
+
+    列表页那个 `/export` 是「一次导出很多条、两个页签」；核对单场时用这个，
+    打开就是一张能直接发出去的表。
+    """
+    record = db.query(AttendanceRecord).filter(AttendanceRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="考勤记录不存在")
+    items = (
+        db.query(AttendanceItem)
+        .filter(AttendanceItem.record_id == record.id)
+        .order_by(AttendanceItem.student_no)
+        .all()
+    )
+    counts = _counts(items)
+    scope = _manual_scope_label(record.scope, len(items))
+    day = record.call_date.strftime("%Y-%m-%d") if record.call_date else ""
+    meta = [
+        f"点名时刻：{record.called_at:%Y-%m-%d %H:%M}　发起人：{record.operator_name or '—'}"
+        if record.called_at
+        else f"发起人：{record.operator_name or '—'}",
+        f"应到 {counts['total']} 人 · 实到 {counts['present'] + counts['late']} 人"
+        f"（含迟到 {counts['late']} 人）· 请假 {counts['leave']} 人"
+        f" · 无应答 {counts['absent']} 人",
+    ]
+    if record.remark:
+        meta.append(f"标题：{record.remark}")
+
+    columns = ["学号", "姓名", "状态"]
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "点名明细"
+    row = _write_detail_block(ws, f"{day} {scope} 点名明细", meta, columns)
+    for item in items:
+        values = [
+            item.student_no,
+            item.student_name or "",
+            STATUS_LABELS.get(item.status, item.status or ""),
+        ]
+        for col_idx, value in enumerate(values, 1):
+            ws.cell(row=row, column=col_idx, value=value).alignment = Alignment(vertical="center")
+        row += 1
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return _xlsx_response(
+        buf.getvalue(),
+        f"点名明细_{day or '未记录'}_{_file_part(scope)}.xlsx",
+    )
+
+
+@router.get("/checkin/{checkin_id}/export", summary="导出单次签到明细（班委及以上）")
+def export_checkin_detail(
+    checkin_id: int,
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """只导这一次签到：谁签了、几点签的、离地点多远、最终算出什么出勤状态
+
+    照片不打包进来（那是另一个按钮的事）；这里只标「有 / 空」，核对时知道
+    该去点谁的照片。
+    """
+    finalize_due(db)
+    checkin = db.query(Checkin).filter(Checkin.id == checkin_id).first()
+    if not checkin:
+        raise HTTPException(status_code=404, detail="签到不存在")
+    targets = (
+        db.query(CheckinTarget)
+        .filter(CheckinTarget.checkin_id == checkin.id)
+        .order_by(CheckinTarget.student_no)
+        .all()
+    )
+    reference = checkin.closed_at or checkin.end_at
+    leave_nos = approved_leave_nos(db, [t.student_no for t in targets], reference)
+    status_by_no = (
+        dict(
+            db.query(AttendanceItem.student_no, AttendanceItem.status)
+            .filter(AttendanceItem.record_id == checkin.attendance_record_id)
+            .all()
+        )
+        if checkin.attendance_record_id
+        else {}
+    )
+    signed = sum(1 for target in targets if target.signed_at)
+    status_counts = {"present": 0, "late": 0, "leave": 0, "absent": 0}
+    for target in targets:
+        status = status_by_no.get(target.student_no, "")
+        if status in status_counts:
+            status_counts[status] += 1
+
+    day = reference.strftime("%Y-%m-%d") if reference else ""
+    meta = [
+        f"截止：{reference:%Y-%m-%d %H:%M}　发起人：{checkin.created_by_name or '—'}"
+        if reference
+        else f"发起人：{checkin.created_by_name or '—'}",
+        f"应到 {len(targets)} 人 · 已签 {signed} 人 · 未签 {len(targets) - signed} 人",
+    ]
+    if checkin.finalized_at:
+        meta.append(
+            f"出勤：到 {status_counts['present']} 人 · 迟到 {status_counts['late']} 人"
+            f" · 请假 {status_counts['leave']} 人 · 无应答 {status_counts['absent']} 人"
+        )
+    if checkin.remark:
+        meta.append(f"说明：{checkin.remark}")
+
+    columns = ["学号", "姓名", "签到状态", "签到时间", "距离(米)", "出勤状态", "照片"]
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "签到明细"
+    row = _write_detail_block(
+        ws, f"{day} {checkin.title or '签到'} 签到明细", meta, columns
+    )
+    for target in targets:
+        status = status_by_no.get(target.student_no, "")
+        values = [
+            target.student_no,
+            target.student_name or "",
+            "已签到" if target.signed_at else "未签到",
+            target.signed_at.strftime("%Y-%m-%d %H:%M") if target.signed_at else "",
+            target.distance_m if target.distance_m is not None else "",
+            STATUS_LABELS.get(status, status or ""),
+            "有" if target.photo_file else "",
+        ]
+        for col_idx, value in enumerate(values, 1):
+            ws.cell(row=row, column=col_idx, value=value).alignment = Alignment(vertical="center")
+        row += 1
+    # 请假的人补一句：未签不等于无故缺席，导出的人不用再回去翻请假表
+    if leave_nos and targets:
+        row += 1
+        ws.cell(row=row, column=1, value="注：未签到但已批准请假的同学，出勤状态会是「请假」")
+        ws.merge_cells(
+            start_row=row, start_column=1, end_row=row, end_column=len(columns)
+        )
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return _xlsx_response(
+        buf.getvalue(),
+        f"签到明细_{day or '未记录'}_{_file_part(checkin.title or '签到')}.xlsx",
     )
 
 

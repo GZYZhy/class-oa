@@ -73,7 +73,7 @@ from ..schemas import (
     CollectionUpdate,
     CollectionWithdrawResponse,
 )
-from ..services import account_name, log_operation, notify, recipients
+from ..services import account_name, log_operation, notify, recipients, settle_topic
 from ..services.collection_service import (
     CHOICE_TYPES,
     duration_stats,
@@ -816,6 +816,8 @@ def remove_collection(
     log_operation(db, user, action="删除收集", target=collection.title, ip=ip)
     db.delete(collection)
     db.commit()
+    # 收集没了，收件箱里那条「开始收集 / 提醒填写」也就作废了
+    settle_topic(db, f"collection:{collection_id}")
     shutil.rmtree(COLLECTION_FILE_DIR / str(collection.id), ignore_errors=True)
     return {"ok": True}
 
@@ -1103,6 +1105,10 @@ def submit_response(
             except OSError:
                 pass
         raise
+
+    # 交完这一份，这场收集的「开始 / 提醒填写」对 target_no 就不再是待办。
+    # 代填时清的是被代填同学的（target_no），当前管理员自己的消息不动
+    settle_topic(db, f"collection:{collection.id}", student_no=target_no)
 
     db.refresh(collection)
     my_count = count + 1
@@ -1608,6 +1614,8 @@ def remind_collection(
             body,
             level="timeSensitive",
             page=page,
+            # 填完这一份，这条催填信就自动算已读（只清被催的那个人）
+            topic=f"collection:{collection.id}",
         )
 
     action = {"unfilled": "提醒未填", "partial": "提醒未填满"}.get(scope, "提醒填写")

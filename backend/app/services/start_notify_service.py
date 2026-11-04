@@ -78,7 +78,8 @@ def _notify_poll(db, poll: Poll) -> None:
             db, only_no=student_no, exclude_no=poll.creator_no
         )
         ns.deliver_now(
-            db, targets, title, body, level="timeSensitive", page=page
+            db, targets, title, body, level="timeSensitive", page=page,
+            topic=f"poll:{poll.id}",
         )
 
 
@@ -110,7 +111,8 @@ def _notify_collection(db, collection: Collection) -> None:
             db, only_no=student_no, exclude_no=collection.creator_no
         )
         ns.deliver_now(
-            db, targets, title, body, level="timeSensitive", page=page
+            db, targets, title, body, level="timeSensitive", page=page,
+            topic=f"collection:{collection.id}",
         )
 
 
@@ -128,14 +130,20 @@ def _notify_checkin(db, checkin: Checkin) -> None:
     title = f"签到开始：{checkin.title}"
     page = share_path("checkin", checkin.code)
 
+    # 只提醒还没签的人：巡检周期 60 秒，开场那一分钟内就签完的同学
+    # 不该再收到一条「开始签到」；已经签了的话它还会立刻被自动已读，纯属噪音
     for (student_no,) in (
         db.query(CheckinTarget.student_no)
-        .filter(CheckinTarget.checkin_id == checkin.id)
+        .filter(
+            CheckinTarget.checkin_id == checkin.id,
+            CheckinTarget.signed_at.is_(None),
+        )
         .all()
     ):
         targets = ns.recipients(db, only_no=student_no)
         ns.deliver_now(
-            db, targets, title, body, level="timeSensitive", page=page
+            db, targets, title, body, level="timeSensitive", page=page,
+            topic=f"checkin:{checkin.id}",
         )
 
 

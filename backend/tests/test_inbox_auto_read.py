@@ -14,6 +14,7 @@
 只走真接口推进办件，再用直连库的 read_at 断言结果；每条用例里都埋一条
 无 topic 的普通消息，证明 settle 只清同一单的，不误伤别的。
 """
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import httpx
@@ -290,3 +291,116 @@ def test_change_request_review_reads_the_todo(sp):
     assert sp.b.client.post(f"/api/change-requests/{rid}/approve").status_code == 200
     assert read_at_of(sp.b, ADMIN, "有新的信息修改申请待审核") is not None
     assert unread_titles(sp.b, APPLICANT) == ["信息修改申请已通过"]
+
+
+# ---------- 签到 / 投票 / 收集：完成动作后提醒自动已读 ----------
+
+def _stamp(hours: int) -> str:
+    return (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M")
+
+
+def test_signin_reads_the_checkin_reminder(sp):
+    """签到了：那条「新签到」对本人自动已读，且只清本人"""
+    title = "晚点名"
+    r = sp.b.client.post("/api/checkins", json={
+        "title": title,
+        "remark": "",
+        "targets": [APPLICANT],
+        "start_at": (datetime.now() - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S"),
+        "end_at": (datetime.now() + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%S"),
+        "notify_on_start": True,
+        "require_photo": False,
+    })
+    assert r.status_code == 200, r.text
+    code = r.json().get("code") or sp.b.rows(
+        "SELECT code FROM checkins WHERE title = ?", title
+    )[0][0]
+
+    msg = f"新签到：{title}"
+    assert read_at_of(sp.b, APPLICANT, msg) is None
+    assert sp.b.rows(
+        "SELECT topic FROM inbox_messages WHERE student_no = ? AND title = ?",
+        APPLICANT, msg,
+    )[0][0].startswith("checkin:")
+
+    r = sp.applicant.post(
+        f"/api/checkins/public/{code}/sign", data={"source": "test"}
+    )
+    assert r.status_code == 200, r.text
+
+    assert read_at_of(sp.b, APPLICANT, msg) is not None, "签完到，提醒就该自动已读"
+    assert read_at_of(sp.b, APPLICANT, "普通消息") is None, "无 topic 的消息不该被牵连"
+
+
+def test_voting_reads_the_poll_reminder(sp):
+    """投完票：这场投票的催票消息自动已读"""
+    r = sp.b.client.post("/api/polls", json={
+        "title": "投票测试",
+        "description": "",
+        "anonymous": False,
+        "start_at": _stamp(-1),
+        "end_at": _stamp(2),
+        "notify_on_start": False,
+        "targets": [APPLICANT],
+        "questions": [{
+            "title": "选一个", "multiple": False, "max_choices": 1,
+            "options": ["甲", "乙"],
+        }],
+    })
+    assert r.status_code < 300, r.text
+    poll = r.json()
+    pid = poll["id"]
+    qid = poll["questions"][0]["id"]
+
+    assert sp.b.client.post(f"/api/polls/{pid}/remind").status_code == 200
+    msg = "提醒：投票测试"
+    assert read_at_of(sp.b, APPLICANT, msg) is None
+    assert sp.b.rows(
+        "SELECT topic FROM inbox_messages WHERE student_no = ? AND title = ?",
+        APPLICANT, msg,
+    )[0][0] == f"poll:{pid}"
+
+    r = sp.applicant.post(f"/api/polls/{pid}/vote", json={
+        "answers": [{"question_id": qid, "choices": [0]}],
+    })
+    assert r.status_code < 300, r.text
+    assert read_at_of(sp.b, APPLICANT, msg) is not None, "投完票，催票消息该自动已读"
+    assert read_at_of(sp.b, APPLICANT, "普通消息") is None
+
+
+def test_submitting_reads_the_collection_reminder(sp):
+    """交完答卷：这场收集的催填消息自动已读"""
+    r = sp.b.client.post("/api/collections", json={
+        "title": "收集测试",
+        "description": "",
+        "anonymous": False,
+        "start_at": _stamp(-1),
+        "end_at": _stamp(2),
+        "notify_on_start": False,
+        "submit_quota": 1,
+        "max_responses": 0,
+        "targets": [APPLICANT],
+        "questions": [{
+            "title": "姓名", "qtype": "short_text", "required": True,
+            "options": [], "max_choices": None,
+        }],
+    })
+    assert r.status_code < 300, r.text
+    collection = r.json()
+    cid = collection["id"]
+    qid = collection["questions"][0]["id"]
+
+    assert sp.b.client.post(f"/api/collections/{cid}/remind").status_code == 200
+    msg = "提醒填写：收集测试"
+    assert read_at_of(sp.b, APPLICANT, msg) is None
+    assert sp.b.rows(
+        "SELECT topic FROM inbox_messages WHERE student_no = ? AND title = ?",
+        APPLICANT, msg,
+    )[0][0] == f"collection:{cid}"
+
+    r = sp.applicant.post(f"/api/collections/{cid}/responses", json={
+        "answers": [{"question_id": qid, "text": "张三"}],
+    })
+    assert r.status_code == 200, r.text
+    assert read_at_of(sp.b, APPLICANT, msg) is not None, "交完卷，催填消息该自动已读"
+    assert read_at_of(sp.b, APPLICANT, "普通消息") is None

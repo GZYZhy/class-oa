@@ -49,7 +49,7 @@ from ..schemas import (
     CheckinTitleUpdate,
     CheckinTargetResponse,
 )
-from ..services import display_name, log_operation, notify, recipients
+from ..services import display_name, log_operation, notify, recipients, settle_topic
 from ..services.checkin_service import (
     CHECKIN_DIR,
     CHECKIN_ENDED,
@@ -543,6 +543,8 @@ def create_checkin(
                 level="timeSensitive",
                 # 站内信直接落到分享落地页：和列表、外链是同一张整页
                 page=share_path("checkin", checkin.code),
+                # 打上这场签到的标记：谁签完了，这条提醒就自动算已读
+                topic=f"checkin:{checkin.id}",
             )
         checkin.start_notified_at = now
         db.commit()
@@ -822,6 +824,7 @@ def remind_checkin(
             body,
             level="timeSensitive",
             page=share_path("checkin", checkin.code),
+            topic=f"checkin:{checkin.id}",
         )
     return {"ok": True, "reminded": len(unsigned)}
 
@@ -909,6 +912,8 @@ def delete_checkin(
     )
     photo_files = remove_checkin(db, checkin)
     db.commit()
+    # 签到没了，谁收件箱里那条「开始签到」也就作废了（topic 是字符串，记录删了照样对得上）
+    settle_topic(db, f"checkin:{checkin_id}")
     # 事务成功后再删照片文件；回滚时照片还留着
     remove_photos(photo_files)
     return {"ok": True}
@@ -1152,6 +1157,10 @@ def sign_checkin(
 
     db.commit()
     db.refresh(checkin)
+
+    # 已经签到了：这条签到的「开始 / 提醒签到」对他就不再是待办，
+    # 自动算已读（只清他自己的 —— 别人还没签，红点得留着）
+    settle_topic(db, f"checkin:{checkin.id}", student_no=student.student_no)
 
     # 过了点才签上：结算可能已经跑过，把考勤明细里这个人从「无应答/请假」
     # 改回「到」，否则签到记录和考勤明细会对不上
