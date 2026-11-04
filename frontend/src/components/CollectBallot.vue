@@ -1,8 +1,9 @@
 <!--
   收集答卷（整卷）
 
-  六种题型：单选、多选、短文本、长文本、图片（最多 3 张）、评分（1–5）。
-  图片选中即压缩上传，拿到签名 token 后随整卷提交；上传没完成不能交卷。
+  七种题型：单选、多选、短文本、长文本、图片（最多 3 张）、附件（最多 3 个）、
+  评分（1–5）。上传题选中即传（图片先压缩），拿到签名 token 后随整卷提交；
+  上传没完成不能交卷。
   提交后不能改（发起人允许时可撤回），所以确认框会写清楚这是第几份。
 -->
 <template>
@@ -65,10 +66,17 @@
         </el-radio-button>
       </el-radio-group>
 
-      <!-- 图片 -->
-      <div v-else-if="q.qtype === 'image'" class="cb-images">
+      <!-- 图片 / 附件 -->
+      <div v-else-if="UPLOAD_TYPES.has(q.qtype)" class="cb-images">
         <div v-for="(entry, fi) in draft[q.id]" :key="entry.key" class="cb-image">
-          <img :src="entry.previewUrl" class="cb-thumb" alt="待上传图片" />
+          <!-- 图片给缩略图；附件给一个后缀角标（pdf/zip 之类没法当图看） -->
+          <img
+            v-if="entry.previewUrl"
+            :src="entry.previewUrl"
+            class="cb-thumb"
+            alt="待上传图片"
+          />
+          <div v-else class="cb-thumb cb-file-badge">{{ entry.badge }}</div>
           <div class="cb-image-info">
             <div class="cb-image-name">{{ entry.name }}</div>
             <el-progress
@@ -89,24 +97,24 @@
             link
             type="danger"
             :disabled="entry.uploading"
-            @click="removeImage(q, fi)"
+            @click="removeFile(q, fi)"
           >
             移除
           </el-button>
         </div>
         <el-button
-          v-if="draft[q.id].length < (q.max_files || IMAGE_MAX_FILES)"
+          v-if="draft[q.id].length < maxFilesOf(q)"
           size="small"
           :disabled="submitting"
           @click="pickFiles(q)"
         >
-          添加图片（{{ draft[q.id].length }}/{{ q.max_files || IMAGE_MAX_FILES }}）
+          {{ q.qtype === 'image' ? '添加图片' : '添加附件' }}（{{ draft[q.id].length }}/{{ maxFilesOf(q) }}）
         </el-button>
-        <div class="cb-sub">JPG / PNG / WebP，单张 ≤10MB，自动压缩</div>
+        <div class="cb-sub">{{ uploadHint(q) }}</div>
       </div>
     </div>
 
-    <!-- 所有图片题的选图入口共用一个原生 input：手机上点一下就能调起相册 -->
+    <!-- 所有上传题的选文件入口共用一个原生 input：手机上点一下就能调起相册/文件管理 -->
     <input
       ref="fileInput"
       type="file"
@@ -135,11 +143,17 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { uploadCollectionFile } from '@/api/collection'
 import { compressImage } from '@/utils/imageCompress'
 import {
+  ATTACH_ACCEPT,
+  ATTACH_SUFFIXES,
+  FILE_MAX_FILES,
+  FILE_MAX_MB,
   IMAGE_MAX_FILES,
+  IMAGE_MAX_MB,
   QUESTION_TYPE_LABEL,
   RATING_MAX,
   RATING_MIN,
-  TEXT_LIMITS
+  TEXT_LIMITS,
+  UPLOAD_TYPES
 } from '@/utils/collection'
 import { POLL_LETTERS as letters } from '@/utils/poll'
 import { errText } from '@/utils/request'
@@ -163,9 +177,22 @@ let entrySeq = 0
 function blankValue(question) {
   if (question.qtype === 'single') return null
   if (question.qtype === 'multiple') return []
-  if (question.qtype === 'image') return []
+  if (UPLOAD_TYPES.has(question.qtype)) return []
   if (question.qtype === 'rating') return null
   return ''
+}
+
+function maxFilesOf(question) {
+  if (question.qtype === 'image') return question.max_files || IMAGE_MAX_FILES
+  return question.max_files || FILE_MAX_FILES
+}
+
+/** 上传区下面那行小字：说清能传什么、多大、会不会被压缩 */
+function uploadHint(question) {
+  if (question.qtype === 'image') {
+    return `JPG / PNG / WebP，单张 ≤${IMAGE_MAX_MB}MB，自动压缩`
+  }
+  return `图片 / 视频 / 音频 / 文档 / 压缩包，单个 ≤${FILE_MAX_MB}MB`
 }
 
 function resetDraft() {
@@ -196,15 +223,26 @@ function ratingValues(question) {
   return Array.from({ length: max - min + 1 }, (_, index) => min + index)
 }
 
-// ---------- 图片上传 ----------
+// ---------- 图片 / 附件上传 ----------
 
 function pickFiles(question) {
   activeQuestion = question
   if (fileInput.value) {
-    // 清空上一次的选择，否则同一张图再选一次不会触发 change
+    // 图片题只让选图片；附件题放开到整份白名单
+    fileInput.value.accept = question.qtype === 'image'
+      ? 'image/jpeg,image/png,image/webp'
+      : ATTACH_ACCEPT
+    // 清空上一次的选择，否则同一个文件再选一次不会触发 change
     fileInput.value.value = ''
     fileInput.value.click()
   }
+}
+
+/** 小写后缀（含点） */
+function fileExt(name) {
+  const text = String(name || '')
+  const index = text.lastIndexOf('.')
+  return index >= 0 ? text.slice(index).toLowerCase() : ''
 }
 
 async function onFilesChange(event) {
@@ -213,23 +251,39 @@ async function onFilesChange(event) {
   event.target.value = ''
   if (!question || !picked.length) return
 
-  const maxFiles = question.max_files || IMAGE_MAX_FILES
+  const isImage = question.qtype === 'image'
+  const maxFiles = maxFilesOf(question)
+  const unit = isImage ? '张图片' : '个附件'
   const slots = maxFiles - draft[question.id].length
-  if (slots <= 0) return ElMessage.warning(`这题最多 ${maxFiles} 张图片`)
+  if (slots <= 0) return ElMessage.warning(`这题最多 ${maxFiles} ${unit}`)
   const files = picked.slice(0, slots)
   if (picked.length > slots) {
-    ElMessage.warning(`这题最多 ${maxFiles} 张图片，已选择前 ${slots} 张`)
+    ElMessage.warning(`这题最多 ${maxFiles} ${unit}，已选择前 ${slots} 个`)
   }
 
   for (const file of files) {
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      ElMessage.warning(`${file.name} 不是 JPG/PNG/WebP 图片`)
-      continue
+    if (isImage) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+        ElMessage.warning(`${file.name} 不是 JPG/PNG/WebP 图片`)
+        continue
+      }
+    } else {
+      // 前端先拦一道，后端还会按白名单再验一次（真正算数的在后端）
+      if (!ATTACH_SUFFIXES.includes(fileExt(file.name))) {
+        ElMessage.warning(`${file.name} 的类型不支持`)
+        continue
+      }
+      if (file.size > FILE_MAX_MB * 1024 * 1024) {
+        ElMessage.warning(`${file.name} 超过 ${FILE_MAX_MB}MB`)
+        continue
+      }
     }
     const entry = reactive({
-      key: `img-${entrySeq++}`,
+      key: `up-${entrySeq++}`,
       file,
-      previewUrl: URL.createObjectURL(file),
+      previewUrl: isImage ? URL.createObjectURL(file) : '',
+      // 附件没有缩略图，用后缀当角标（PDF / ZIP / DOCX）
+      badge: (fileExt(file.name).replace('.', '') || '文件').toUpperCase().slice(0, 5),
       name: file.name,
       token: '',
       uploading: true,
@@ -245,21 +299,30 @@ async function uploadEntry(question, entry) {
   entry.uploading = true
   entry.percent = null
   entry.error = ''
+  const isImage = question.qtype === 'image'
   try {
-    // 压缩是优化：失败会退回原文件（见 imageCompress.js）
-    const compressed = await compressImage(entry.file)
-    if (compressed.size > 10 * 1024 * 1024) {
-      entry.error = '图片超过 10MB，请换一张'
+    let file = entry.file
+    if (isImage) {
+      // 压缩是优化：失败会退回原文件（见 imageCompress.js）
+      file = await compressImage(entry.file)
+      if (file.size > IMAGE_MAX_MB * 1024 * 1024) {
+        entry.error = `图片超过 ${IMAGE_MAX_MB}MB，请换一张`
+        return
+      }
+      entry.file = file
+    } else if (file.size > FILE_MAX_MB * 1024 * 1024) {
+      entry.error = `附件超过 ${FILE_MAX_MB}MB，请换一个`
       return
     }
-    entry.file = compressed
+    // kind 交给后端选白名单和大小上限：图片题和附件题的限制不一样
     const res = await uploadCollectionFile(
       props.collection.id,
-      compressed,
+      file,
       (loaded, total) => {
         entry.percent = total ? Math.min(100, Math.round((loaded / total) * 100)) : null
       },
-      props.studentNo
+      props.studentNo,
+      question.qtype
     )
     entry.token = res.token
     entry.name = res.name || entry.name
@@ -275,7 +338,7 @@ function retryUpload(question, entry) {
   uploadEntry(question, entry)
 }
 
-function removeImage(question, index) {
+function removeFile(question, index) {
   const [entry] = draft[question.id].splice(index, 1)
   if (entry?.previewUrl) URL.revokeObjectURL(entry.previewUrl)
 }
@@ -284,7 +347,7 @@ function removeImage(question, index) {
 
 function isEmpty(question, value) {
   if (question.qtype === 'multiple') return !value.length
-  if (question.qtype === 'image') return !value.length
+  if (UPLOAD_TYPES.has(question.qtype)) return !value.length
   if (question.qtype === 'rating' || question.qtype === 'single') return value == null || value === ''
   return !String(value || '').trim()
 }
@@ -299,7 +362,7 @@ function buildAnswers() {
         question_id: question.id,
         choices: (Array.isArray(value) ? [...value] : [value]).sort((a, b) => a - b)
       })
-    } else if (question.qtype === 'image') {
+    } else if (UPLOAD_TYPES.has(question.qtype)) {
       answers.push({
         question_id: question.id,
         files: value.map((entry) => entry.token)
@@ -326,16 +389,17 @@ async function handleSubmit() {
     }
   }
 
-  // 图片必须先传出 token；有还在传或失败的，整卷先别交
+  // 图片/附件必须先传出 token；有还在传或失败的，整卷先别交
   for (let index = 0; index < questions.length; index += 1) {
     const question = questions[index]
-    if (question.qtype !== 'image') continue
+    if (!UPLOAD_TYPES.has(question.qtype)) continue
     const entries = draft[question.id]
+    const thing = question.qtype === 'image' ? '图片' : '附件'
     if (entries.some((entry) => entry.uploading)) {
-      return ElMessage.warning(`第 ${index + 1} 题的图片还在上传，请稍候`)
+      return ElMessage.warning(`第 ${index + 1} 题的${thing}还在上传，请稍候`)
     }
     if (entries.some((entry) => !entry.token)) {
-      return ElMessage.warning(`第 ${index + 1} 题有图片没上传成功，请重试或移除`)
+      return ElMessage.warning(`第 ${index + 1} 题有${thing}没上传成功，请重试或移除`)
     }
   }
 
@@ -450,6 +514,17 @@ async function handleSubmit() {
   object-fit: cover;
   border-radius: 4px;
   background: var(--el-fill-color-light);
+}
+
+/* 附件没有缩略图：同一个 54×54 的方块里写后缀，和图片列表对齐 */
+.cb-file-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  letter-spacing: 0.5px;
 }
 
 .cb-image-info {

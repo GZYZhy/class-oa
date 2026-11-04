@@ -32,7 +32,9 @@
           </span>
         </div>
         <div class="cr-actions">
-          <el-button size="small" :loading="exporting" @click="handleExport">导出 Excel</el-button>
+          <el-button size="small" :loading="exporting" @click="handleExport">
+            {{ exportLabel }}
+          </el-button>
           <el-button
             size="small"
             :loading="reminding === 'unfilled'"
@@ -258,6 +260,10 @@
                 <div class="cr-sub">共收到 {{ item.file_count || 0 }} 张图片</div>
               </template>
 
+              <template v-else-if="item.qtype === 'file'">
+                <div class="cr-sub">共收到 {{ item.file_count || 0 }} 个附件</div>
+              </template>
+
               <template v-else>
                 <div class="cr-sub">共收到 {{ item.answered_count }} 份文本，内容请在「答卷」里查看</div>
               </template>
@@ -320,10 +326,16 @@ import {
   submitCollectionResponse
 } from '@/api/collection'
 import { useWatermark } from '@/composables/useWatermark'
-import { CHOICE_TYPES, QUESTION_TYPE_LABEL, statusLabel, statusTag } from '@/utils/collection'
+import {
+  CHOICE_TYPES,
+  QUESTION_TYPE_LABEL,
+  UPLOAD_TYPES,
+  statusLabel,
+  statusTag
+} from '@/utils/collection'
 import { formatDateTime, formatDuration } from '@/utils/format'
 import { POLL_LETTERS as letters } from '@/utils/poll'
-import { blobErrorDetail, downloadFile } from '@/utils/download'
+import { blobErrorDetail, fetchBlob, saveBlob } from '@/utils/download'
 import { errText } from '@/utils/request'
 import { useUserStore } from '@/store/user'
 
@@ -581,13 +593,21 @@ async function handleBatchDelete() {
   }
 }
 
+/** 有图片/附件题时后端会打成 zip（答卷.xlsx + 文件），按钮文案跟着说清楚 */
+const hasUploadQuestions = computed(
+  () => (detail.value.questions || []).some((q) => UPLOAD_TYPES.has(q.qtype))
+)
+const exportLabel = computed(() => (hasUploadQuestions.value ? '导出（含文件）' : '导出 Excel'))
+
 async function handleExport() {
   exporting.value = true
   try {
-    await downloadFile(
-      collectionExportUrl(detail.value.id, order.value),
-      `${(detail.value.title || '收集').replace(/[\\/:*?"<>|]/g, '_')}.xlsx`
-    )
+    const base = (detail.value.title || '收集').replace(/[\\/:*?"<>|]/g, '_')
+    const blob = await fetchBlob(collectionExportUrl(detail.value.id, order.value))
+    // 扩展名跟内容走：有文件的是 zip，纯文本答卷仍是 xlsx。
+    // 不能用固定名 —— 把 zip 存成 .xlsx 的话双击打不开，用户只会以为导出坏了
+    const isZip = (blob.type || '').includes('zip')
+    saveBlob(blob, `${base}.${isZip ? 'zip' : 'xlsx'}`)
   } catch (e) {
     ElMessage.error(await blobErrorDetail(e, '导出失败'))
   } finally {

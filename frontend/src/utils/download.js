@@ -59,12 +59,8 @@ export async function blobErrorDetail(e, fallback = '下载失败') {
   return data?.detail || fallback
 }
 
-/** 下载：拉成 blob 再用隐藏 a 标签存盘，保留原文件名
- *
- * onProgress 透传给 fetchBlob，按钮上显示百分比用（大文件下得慢，得让人看见在动）
- */
-export async function downloadFile(url, filename, onProgress) {
-  const blob = await fetchBlob(url, onProgress)
+/** 把已经拿到的 blob 存成文件（下载和「自己决定扩展名」的场景共用） */
+export function saveBlob(blob, filename) {
   const objectUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = objectUrl
@@ -75,6 +71,14 @@ export async function downloadFile(url, filename, onProgress) {
   document.body.removeChild(a)
   // 延后释放：刚点完就 revoke 有概率把还没读完的下载掐断
   setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
+}
+
+/** 下载：拉成 blob 再用隐藏 a 标签存盘，保留原文件名
+ *
+ * onProgress 透传给 fetchBlob，按钮上显示百分比用（大文件下得慢，得让人看见在动）
+ */
+export async function downloadFile(url, filename, onProgress) {
+  saveBlob(await fetchBlob(url, onProgress), filename)
 }
 
 /** 预览：拉成 blob 后在新标签页打开（PDF、图片等） */

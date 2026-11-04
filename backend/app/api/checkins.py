@@ -17,7 +17,10 @@ import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta
+from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import (
     APIRouter,
@@ -293,6 +296,18 @@ def _public_response(
         on_leave=on_leave,
         grace_until=open_until,
     )
+
+
+def _zip_part(text: str, limit: int = 30) -> str:
+    """压缩包里文件名的一段：去掉斜杠、控制字符和空白
+
+    签到标题是发布人随手写的（「周六晚点名」），姓名来自学生表；
+    原样拼进 zip 路径会出现嵌套目录或解压失败
+    """
+    cleaned = "".join(
+        "_" if char in '/\\:*?"<>|\r\n\t' or char.isspace() else char for char in (text or "")
+    ).strip("._")
+    return cleaned[:limit] or "未命名"
 
 
 def _save_photo(file: UploadFile) -> str:
@@ -897,6 +912,54 @@ def delete_checkin(
     # 事务成功后再删照片文件；回滚时照片还留着
     remove_photos(photo_files)
     return {"ok": True}
+
+
+@router.get(
+    "/{checkin_id}/photos/export",
+    summary="打包下载签到照片（班委及以上）",
+)
+def export_checkin_photos(
+    checkin_id: int,
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """把这次签到的照片打成一个 zip：学号_姓名.jpg
+
+    为什么要整包下：核对材料时一张张点开太慢，手机上更是十几秒一次。
+    盘上文件没了的跳过（签到照片会被清理，库里的 photo_file 可能指着旧名字）；
+    一个都没剩下就明说，别给一个空压缩包让人以为下载失败。
+    """
+    checkin = _get_checkin(db, checkin_id)
+    targets = (
+        db.query(CheckinTarget)
+        .filter(CheckinTarget.checkin_id == checkin.id, CheckinTarget.photo_file.isnot(None))
+        .order_by(CheckinTarget.student_no)
+        .all()
+    )
+    entries: list[tuple[str, Path]] = []
+    for target in targets:
+        stored = Path(str(target.photo_file or "")).name
+        path = CHECKIN_DIR / stored
+        if stored and path.is_file():
+            name = f"{target.student_no}_{_zip_part(target.student_name or '')}{path.suffix or '.jpg'}"
+            entries.append((name, path))
+    if not entries:
+        raise HTTPException(status_code=404, detail="这次签到没有可下载的照片")
+
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", ZIP_DEFLATED) as bundle:
+        for name, path in entries:
+            bundle.write(path, name)
+    day = f"{(checkin.closed_at or checkin.end_at or datetime.now()):%Y%m%d}"
+    filename = f"签到_{_zip_part(checkin.title or '照片')}_{day}_照片.zip"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=utf-8''{quote(filename, safe='')}",
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get(

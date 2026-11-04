@@ -1,6 +1,6 @@
 """投票收集的出入参
 
-和 schemas/poll.py 分开：收集允许每人多份、六种题型，字段形状和投票差别很大
+和 schemas/poll.py 分开：收集允许每人多份、七种题型，字段形状和投票差别很大
 （投票是 choices-only 的一人一卷）。这里只放形状，业务校验在 api/collections.py。
 """
 
@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field
 
 class CollectionQuestionIn(BaseModel):
     title: str = Field(..., max_length=500, description="题干")
-    qtype: str = Field(..., description="single/multiple/short_text/long_text/image/rating")
+    qtype: str = Field(
+        ..., description="single/multiple/short_text/long_text/image/file/rating"
+    )
     required: bool = Field(True, description="是否必答")
     options: list[str] = Field(default_factory=list, description="选择题选项")
     max_choices: int | None = Field(None, ge=1, description="多选题最多选几项")

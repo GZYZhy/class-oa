@@ -4769,7 +4769,7 @@ unread.value = 0
   check(src.includes('page.value = 1'), '删完回到第一页（已读散在各页）')
 }
 
-console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回、Markdown')
+console.log('\n▶ 投票收集：双 Tab、七种题型、本人答卷与撤回、Markdown')
 {
   const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
 
@@ -4819,11 +4819,13 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   check(/shareUrl\('collect'/.test(panelSrc), '分享链接是 /share/collect/{token}')
   check(/CollectionResponsesDialog/.test(panelSrc), '管理里有答卷详情入口')
 
-  // ---------- 六种题型与出卷表单 ----------
+  // ---------- 七种题型与出卷表单 ----------
   const collectionUtil = src('/src/utils/collection.js')
-  for (const qtype of ['single', 'multiple', 'short_text', 'long_text', 'image', 'rating']) {
+  for (const qtype of ['single', 'multiple', 'short_text', 'long_text', 'image', 'file', 'rating']) {
     check(collectionUtil.includes(`value: '${qtype}'`), `题型里有 ${qtype}`)
   }
+  check(collectionUtil.includes('FILE_MAX_FILES') && collectionUtil.includes('ATTACH_SUFFIXES'),
+    '附件题的数量上限和后缀白名单都在前端有一份（和后端同一口径）')
   check(/allow_withdraw: false/.test(collectionUtil), '新建默认不允许撤回，由出卷人显式打开')
 
   const { html: dlgHtml } = await renderPatched(
@@ -4842,6 +4844,8 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
     '编辑时把撤回设置一起提交')
   check(/question\.qtype === 'multiple'/.test(dlgSrc) && /typeHint\('image'\)|qtype === 'image'/.test(dlgSrc),
     '多选上限和图片提示都在出卷里')
+  check(dlgSrc.includes("qtype === 'file'") && dlgSrc.includes('每题最多 3 个，单个 20MB'),
+    '附件题在出卷里有提示，并写清上限')
 
   // ---------- 复用旧卷：收集也要能复制题目和范围 ----------
   const { questionsFromCollection } = await server.ssrLoadModule('/src/utils/collection.js')
@@ -4871,7 +4875,7 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   check(!/form\.(title|description|start_at|end_at|anonymous|submit_quota|max_responses)\s*=/
     .test(collectionReuseFn), '复用不动标题、时间、份数、记名方式')
 
-  // ---------- 答卷表单：六种控件 ----------
+  // ---------- 答卷表单：七种控件 ----------
   const sample = {
     id: 1,
     submit_quota: 2,
@@ -4883,7 +4887,8 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
       { id: 3, title: '短文本题', qtype: 'short_text', required: true, text_limit: 200 },
       { id: 4, title: '长文本题', qtype: 'long_text', required: false, text_limit: 2000 },
       { id: 5, title: '图片题', qtype: 'image', required: false, max_files: 3 },
-      { id: 6, title: '评分题', qtype: 'rating', required: true, rating_min: 1, rating_max: 5 }
+      { id: 6, title: '附件题', qtype: 'file', required: false, max_files: 3 },
+      { id: 7, title: '评分题', qtype: 'rating', required: true, rating_min: 1, rating_max: 5 }
     ]
   }
   const { html: ballotHtml } = await render('/src/components/CollectBallot.vue', {}, { collection: sample })
@@ -4891,6 +4896,10 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   check(ballotText.includes('单选题') && ballotText.includes('甲'), '单选渲染选项')
   check(ballotText.includes('最多选 2 项'), '多选写出最多选几项')
   check(ballotText.includes('图片题') && ballotText.includes('添加图片（0/3）'), '图片题最多三张')
+  check(ballotText.includes('附件题') && ballotText.includes('添加附件（0/3）'),
+    '附件题也能传三个')
+  check(ballotText.includes('单个 ≤20MB') && ballotText.includes('压缩包'),
+    '附件题写清大小和允许的类型')
   check(['1 分', '2 分', '3 分', '4 分', '5 分'].every((t) => ballotText.includes(t)),
     '评分固定 1–5')
   check(ballotText.includes('提交这份答卷'), '整卷一个提交按钮')
@@ -4910,6 +4919,9 @@ console.log('\n▶ 投票收集：双 Tab、六种题型、本人答卷与撤回
   check(respText.includes('答卷（0）') && respText.includes('未填满（0）') &&
     respText.includes('统计'), '三个页签都在')
   const respSrc = src('/src/components/CollectionResponsesDialog.vue')
+  check(/hasUploadQuestions/.test(respSrc) && /isZip/.test(respSrc) &&
+    /saveBlob\(blob/.test(respSrc),
+  '导出有图片/附件时是 zip、纯文本仍是 xlsx，扩展名跟内容走')
   const shareCollectSrc = src('/src/views/share/ShareCollect.vue')
   check(/const fillStartedAt = ref\(null\)/.test(shareCollectSrc) &&
     /submitCollectionResponse\(info\.value\.id, answers, duration\)/.test(shareCollectSrc),
@@ -5606,6 +5618,11 @@ console.log('\n▶ 签到：公开链接页（不登录也能看，登录后才�
   check(/export function uploadCheckinPhoto\(code, photo, \{ onProgress \}/.test(apiSrc),
     '照片上传接口带进度回调')
   check(apiSrc.includes("form.append('photo_token', photoToken)"), '签到只回传照片凭证，不再带文件')
+  check(apiSrc.includes('/checkins/${id}/photos/export'), '签到照片有整包下载地址')
+  const checkinDialogSrc = readFileSync(`${ROOT}/src/components/CheckinDetailDialog.vue`, 'utf8')
+  check(checkinDialogSrc.includes('downloadPhotos') &&
+    checkinDialogSrc.includes('下载全部照片'),
+  '签到详情能一次下载全部照片')
 
   // 选中就上传：大照片传得慢，等到点「签到」再传容易正好错过截止
   const checkinVueSrc = readFileSync(`${ROOT}/src/views/share/ShareCheckin.vue`, 'utf8')

@@ -54,6 +54,17 @@
         <span class="cd-label">签到情况</span>
         <span>{{ detail.signed_count }} / {{ detail.target_count }} 人已签</span>
         <span v-if="detail.require_photo" class="cd-sub">（需上传照片）</span>
+        <!-- 一张张点开核对太慢，有照片就给一个整包下载 -->
+        <el-button
+          v-if="photoCount"
+          link
+          type="primary"
+          size="small"
+          :loading="downloadingPhotos"
+          @click="downloadPhotos"
+        >
+          下载全部照片（{{ photoCount }}）
+        </el-button>
       </div>
 
       <!-- 地图只读展示：班委核对一下当时要求的位置和半径 -->
@@ -133,17 +144,19 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MapPicker from '@/components/MapPicker.vue'
 import FileViewer from '@/components/FileViewer.vue'
 import {
+  checkinPhotosExportUrl,
   extendCheckin,
   getCheckin,
   remindCheckin,
   updateCheckinTitle
 } from '@/api/checkin'
 import { updateAttendanceItem } from '@/api/attendance'
+import { downloadFile } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
 import { renderMarkdown } from '@/utils/markdown'
 import { errText } from '@/utils/request'
@@ -158,6 +171,25 @@ const detail = ref({ targets: [] })
 
 // 照片预览框的状态。只是交给 FileViewer 用，不改签到数据
 const photoViewer = ref({ visible: false, url: '', fileName: '', studentName: '' })
+const downloadingPhotos = ref(false)
+
+/** 有人交了照片才显示整包下载；照片可能已被清理，后端会再判一次 */
+const photoCount = computed(
+  () => (detail.value.targets || []).filter((row) => row.photo_url).length
+)
+
+/** 打包下载全部签到照片（zip，文件名用签到标题） */
+async function downloadPhotos() {
+  downloadingPhotos.value = true
+  try {
+    const title = (detail.value.title || '签到').replace(/[\\/:*?"<>|]/g, '_')
+    await downloadFile(checkinPhotosExportUrl(detail.value.id), `${title}_签到照片.zip`)
+  } catch (e) {
+    ElMessage.error(errText(e, '下载失败'))
+  } finally {
+    downloadingPhotos.value = false
+  }
+}
 
 /** 打开详情。参数是列表行也行，只用到 id */
 async function open(row) {

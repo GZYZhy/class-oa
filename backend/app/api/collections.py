@@ -1,7 +1,7 @@
 """投票收集：班委发起，范围内的人按题型填写
 
-和「投票表决」的区别：收集允许每人多份、六种题型（单选/多选/短文本/长文本/
-图片/评分）、竞争名额、管理员删除答卷、按提交时间排序和导出 Excel。
+和「投票表决」的区别：收集允许每人多份、七种题型（单选/多选/短文本/长文本/
+图片/附件/评分）、竞争名额、管理员删除答卷、按提交时间排序和导出。
 数据从 Collection 开始另起一套，poll_answers 一行不动。
 
 几个贯穿全模块的口径：
@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import (
     APIRouter,
@@ -76,8 +77,12 @@ from ..services import account_name, log_operation, notify, recipients
 from ..services.collection_service import (
     CHOICE_TYPES,
     duration_stats,
+    FILE_MAX_BYTES,
+    FILE_MAX_FILES,
+    FILE_SUFFIXES,
     IMAGE_MAX_FILES,
     IMAGE_SUFFIXES,
+    QTYPE_FILE,
     QTYPE_IMAGE,
     QTYPE_MULTIPLE,
     QTYPE_RATING,
@@ -90,6 +95,7 @@ from ..services.collection_service import (
     STATUS_PAUSED,
     STATUS_PENDING,
     TEXT_LIMITS,
+    UPLOAD_TYPES,
     TEXT_TYPES,
     can_manage,
     can_submit,
@@ -823,7 +829,7 @@ def _answer_is_empty(qtype: str, answer: CollectionAnswerIn | None) -> bool:
         return not answer.choices
     if qtype in TEXT_TYPES:
         return not (answer.text or "").strip()
-    if qtype == QTYPE_IMAGE:
+    if qtype in UPLOAD_TYPES:
         return not answer.files
     if qtype == QTYPE_RATING:
         return answer.rating is None
@@ -958,22 +964,35 @@ def submit_response(
             prepared.append(
                 {"question": question, "choices": [], "text": "", "rating": rating, "files": []}
             )
-        elif qtype == QTYPE_IMAGE:
-            if len(answer.files) > IMAGE_MAX_FILES:
+        elif qtype in UPLOAD_TYPES:
+            # 图片题和附件题走同一条路，只有白名单、上限和文案不同。
+            # **白名单必须在这里再判一次**：上传接口只按前端说的 kind 收，
+            # 拿一张 pdf 的凭证来交图片题的话，upload 那步是不会拦的
+            is_image = qtype == QTYPE_IMAGE
+            max_files = IMAGE_MAX_FILES if is_image else FILE_MAX_FILES
+            allowed = IMAGE_SUFFIXES if is_image else FILE_SUFFIXES
+            unit = "张图片" if is_image else "个附件"
+            thing = "图片" if is_image else "附件"
+            if len(answer.files) > max_files:
                 raise HTTPException(
-                    status_code=400, detail=f"第 {index} 题最多 {IMAGE_MAX_FILES} 张图片"
+                    status_code=400, detail=f"第 {index} 题最多 {max_files} {unit}"
                 )
             payloads = []
             for token in answer.files:
                 payload = _parse_file_token(token, collection.id, target_no)
                 if not payload:
                     raise HTTPException(
-                        status_code=400, detail=f"第 {index} 题有图片已失效，请重新上传"
+                        status_code=400, detail=f"第 {index} 题有{thing}已失效，请重新上传"
                     )
                 source = _file_dir(collection.id) / Path(payload["stored"]).name
                 if not source.is_file():
                     raise HTTPException(
-                        status_code=400, detail=f"第 {index} 题有图片已失效，请重新上传"
+                        status_code=400, detail=f"第 {index} 题有{thing}已失效，请重新上传"
+                    )
+                if source.suffix.lower() not in allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"第 {index} 题不支持这种{thing}类型，请重新上传",
                     )
                 payloads.append(payload)
             prepared.append(
@@ -1102,12 +1121,15 @@ def submit_response(
 @router.post(
     "/{collection_id}/files",
     response_model=CollectionFileResponse,
-    summary="上传答卷图片（返回提交凭证）",
+    summary="上传答卷图片/附件（返回提交凭证）",
 )
 def upload_file(
     collection_id: int,
     file: UploadFile = File(...),
     student_no: str | None = Form(None),
+    # 题目类型：image=图片题（JPG/PNG/WEBP，10MB），file=附件题（20MB，见白名单）。
+    # 不传按 image 处理，老前端一行不用改
+    kind: str = Form("image"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1130,14 +1152,29 @@ def upload_file(
     if cap_reached(collection):
         raise HTTPException(status_code=400, detail="名额已满，这场收集不再接收答卷")
 
+    if kind not in ("image", "file"):
+        raise HTTPException(status_code=400, detail="kind 只能是 image 或 file")
+    is_image = kind == "image"
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in IMAGE_SUFFIXES:
-        raise HTTPException(status_code=400, detail="只支持 JPG / PNG / WEBP 图片")
-    data = file.file.read(MAX_FILE_BYTES + 1)
+    if is_image:
+        if suffix not in IMAGE_SUFFIXES:
+            raise HTTPException(status_code=400, detail="只支持 JPG / PNG / WEBP 图片")
+        max_bytes, thing = MAX_FILE_BYTES, "图片"
+    else:
+        if suffix not in FILE_SUFFIXES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"不支持的附件类型：{suffix or '（无后缀）'}，"
+                       "仅支持图片 / 视频 / 音频 / 文档 / 压缩包",
+            )
+        max_bytes, thing = FILE_MAX_BYTES, "附件"
+    data = file.file.read(max_bytes + 1)
     if not data:
-        raise HTTPException(status_code=400, detail="图片是空文件")
-    if len(data) > MAX_FILE_BYTES:
-        raise HTTPException(status_code=400, detail="图片不能超过 10MB")
+        raise HTTPException(status_code=400, detail=f"{thing}是空文件")
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=400, detail=f"{thing}不能超过 {max_bytes // 1024 // 1024}MB"
+        )
 
     stored = f"tmp-{uuid.uuid4().hex}{suffix}"
     (_file_dir(collection.id) / stored).write_bytes(data)
@@ -1601,7 +1638,11 @@ def _excel_text(value) -> str:
 
 
 def _answer_text(question, answer: dict | None) -> str:
-    """把一份答案格式化成单元格文本；没答的选答题返回空串"""
+    """把一份答案格式化成单元格文本；没答的选答题返回空串
+
+    图片题 / 附件题**不走这里**：它们的答案是文件本身，导出要连文件一起打包，
+    单元格里写的是压缩包内的相对路径，见 _export_upload_answer。
+    """
     if answer is None:
         return ""
     qtype = question.qtype or QTYPE_SINGLE
@@ -1617,9 +1658,77 @@ def _answer_text(question, answer: dict | None) -> str:
         return answer.get("text") or ""
     if qtype == QTYPE_RATING:
         return answer.get("rating") if answer.get("rating") is not None else ""
-    if qtype == QTYPE_IMAGE:
-        return "、".join(meta.get("original") or meta.get("name") for meta in answer.get("files") or [])
     return ""
+
+
+def _duration_text(seconds) -> str:
+    """答题用时 → 「3分24秒」，和页面上的读法一致
+
+    旧答卷没有这一项（duration_seconds 是后加的列），写空串而不是 0 ——
+    「没记录」和「0 秒交卷」是两回事。
+    """
+    if seconds is None:
+        return ""
+    total = max(0, int(seconds))
+    if total < 60:
+        return f"{total}秒"
+    minutes, rest = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}分{rest}秒" if rest else f"{minutes}分"
+    hours, left = divmod(minutes, 60)
+    return f"{hours}小时{left}分" if left else f"{hours}小时"
+
+
+def _zip_part(text: str, limit: int = 30) -> str:
+    """压缩包内路径的一段：题干里可能有斜杠、冒号、换行，原样进去会拼出奇怪的目录"""
+    cleaned = "".join(
+        "_" if char in '/\\:*?"<>|\r\n\t' or char.isspace() else char for char in (text or "")
+    ).strip("._")
+    return cleaned[:limit] or "未命名"
+
+
+def _export_upload_answer(
+    collection: Collection,
+    question,
+    question_index: int,
+    row_index: int,
+    response: dict,
+    answer: dict | None,
+    *,
+    is_image: bool,
+) -> tuple[str, list[tuple[str, Path]]]:
+    """把一个图片题 / 附件题的答案落成（单元格文本, [(包内路径, 盘上文件)])
+
+    单元格写的是**包内相对路径**（`图片/第3题_上传截图/2_张三_1.jpg`）：
+    导出是一份 zip，解开之后按这个路径就能直接找到文件，不用再按姓名猜。
+    匿名收集不含姓名，用「序号 + 第几张」命名，不泄露是谁交的。
+    """
+    files = (answer or {}).get("files") or []
+    if not files:
+        return "", []
+    folder = (
+        f"图片/第{question_index}题_{_zip_part(question.title or '')}"
+        if is_image
+        else f"附件/第{question_index}题_{_zip_part(question.title or '')}"
+    )
+    if collection.anonymous:
+        owner = f"{row_index}"
+    else:
+        owner = f"{row_index}_{_zip_part(response.get('student_name') or '')}"
+    texts: list[str] = []
+    entries: list[tuple[str, Path]] = []
+    for file_index, meta in enumerate(files, start=1):
+        stored = Path(str(meta.get("name") or "")).name
+        original = str(meta.get("original") or stored)
+        suffix = Path(stored).suffix or Path(original).suffix
+        arcname = f"{folder}/{owner}_{file_index}{suffix}"
+        path = COLLECTION_FILE_DIR / str(collection.id) / stored
+        if stored and path.is_file():
+            entries.append((arcname, path))
+            texts.append(arcname)
+        else:
+            texts.append(f"（文件丢失：{original}）")
+    return "；".join(texts), entries
 
 
 def _safe_filename(title: str) -> str:
@@ -1647,7 +1756,7 @@ def export_responses(
     sheet = workbook.active
     sheet.title = "答卷"
 
-    header = ["序号", "提交时间"]
+    header = ["序号", "提交时间", "答题用时"]
     if not collection.anonymous:
         header += ["姓名", "学号"]
     header += [question.title or "" for question in questions]
@@ -1658,20 +1767,37 @@ def export_responses(
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
+    # 图片 / 附件题的原始文件不在表里，只放「包内路径」。收集时就把要打包的文件
+    # 攒起来，最后和 xlsx 一起塞进 zip（不嵌图：一张 10MB 的原图塞进 xlsx，
+    # 几十份答卷的表能到几百 MB，Excel 会直接打不开）
+    upload_entries: list[tuple[str, Path]] = []
     for row_index, response in enumerate(responses, start=1):
         answers = {answer["question_id"]: answer for answer in response["answers"]}
-        values = [row_index, response["submitted_at"].strftime("%Y-%m-%d %H:%M:%S")]
+        values = [
+            row_index,
+            response["submitted_at"].strftime("%Y-%m-%d %H:%M:%S"),
+            _duration_text(response.get("duration_seconds")),
+        ]
         if not collection.anonymous:
             values += [
                 _excel_text(response.get("student_name") or ""),
                 _excel_text(response.get("student_no") or ""),
             ]
-        for question in questions:
+        for question_index, question in enumerate(questions, start=1):
+            if (question.qtype or QTYPE_SINGLE) in UPLOAD_TYPES:
+                cell_text, entries = _export_upload_answer(
+                    collection, question, question_index, row_index, response,
+                    answers.get(question.id),
+                    is_image=question.qtype == QTYPE_IMAGE,
+                )
+                upload_entries.extend(entries)
+                values.append(_excel_text(cell_text))
+                continue
             value = _answer_text(question, answers.get(question.id))
             values.append(value if isinstance(value, int) else _excel_text(value))
         sheet.append(values)
 
-    widths = [8, 20] + ([] if collection.anonymous else [12, 16]) + [
+    widths = [8, 20, 12] + ([] if collection.anonymous else [12, 16]) + [
         min(40, max(12, len(question.title or "") * 2 + 4)) for question in questions
     ]
     for index, width in enumerate(widths, start=1):
@@ -1696,7 +1822,27 @@ def export_responses(
 
     buffer = BytesIO()
     workbook.save(buffer)
-    filename = f"收集_{_safe_filename(collection.title)}_{datetime.now():%Y%m%d}.xlsx"
+    day = f"{datetime.now():%Y%m%d}"
+
+    # 有图片/附件就出 zip（答卷.xlsx + 图片/ + 附件/），一个包把表和材料一起带走；
+    # 没有的话仍是裸 xlsx —— 只是填个文本的收集，不该逼人去解压
+    if upload_entries:
+        archive = BytesIO()
+        with ZipFile(archive, "w", ZIP_DEFLATED) as bundle:
+            bundle.writestr("答卷.xlsx", buffer.getvalue())
+            for arcname, path in upload_entries:
+                bundle.write(path, arcname)
+        filename = f"收集_{_safe_filename(collection.title)}_{day}.zip"
+        return Response(
+            content=archive.getvalue(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename*=utf-8''{quote(filename, safe='')}",
+                "Cache-Control": "no-store",
+            },
+        )
+
+    filename = f"收集_{_safe_filename(collection.title)}_{day}.xlsx"
     return Response(
         content=buffer.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
