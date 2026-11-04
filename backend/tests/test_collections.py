@@ -1,4 +1,4 @@
-"""投票收集的回归：六种题型、每人多份、竞争名额、匿名、删除、导出、开始提醒
+"""投票收集的回归：七种题型、每人多份、竞争名额、匿名、删除、导出、开始提醒
 
     cd backend && python -m pytest tests/test_collections.py -q
 
@@ -12,6 +12,7 @@
 
 from datetime import datetime, timedelta
 from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 from openpyxl import load_workbook
@@ -39,6 +40,8 @@ PEOPLE = [
     (THIRD, "学生05", THIRD_PW),
 ]
 PNG = png_bytes()
+# 附件题用：后端只看后缀和大小，不解析内容
+PDF = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< >>\n%%EOF\n"
 
 
 def _world(backend, db_name):
@@ -306,7 +309,7 @@ def test_admin_uploading_image_for_target_uses_target_token(cb):
     assert item["answers"][0]["files"][0]["original"] == "代填.png"
 
 
-# ---------- 六种题型 ----------
+# ---------- 七种题型 ----------
 
 def test_create_submit_all_question_types_and_export(cb):
     collection = _create(
@@ -317,6 +320,7 @@ def test_create_submit_all_question_types_and_export(cb):
             _q("short_text", "短文本"),
             _q("long_text", "长文本", required=False),
             _q("image", "图片", required=False),
+            _q("file", "附件", required=False),
             _q("rating", "评分"),
         ],
     )
@@ -335,7 +339,7 @@ def test_create_submit_all_question_types_and_export(cb):
     assert data["submit_quota"] == 1
     assert data["start_at"] and data["end_at"]
 
-    # 范围内的人上传图片、提交六种答案
+    # 范围内的人上传图片与附件、提交七种答案
     _login(cb, VOTER, VOTER_PW)
     upload = cb.client.post(
         f"/api/collections/{cid}/files",
@@ -343,6 +347,13 @@ def test_create_submit_all_question_types_and_export(cb):
     )
     assert upload.status_code == 200, upload.text
     token = upload.json()["token"]
+    attach = cb.client.post(
+        f"/api/collections/{cid}/files",
+        data={"kind": "file"},
+        files={"file": ("材料.pdf", PDF, "application/pdf")},
+    )
+    assert attach.status_code == 200, attach.text
+    attach_token = attach.json()["token"]
 
     r = _submit(cb, cid, [
         {"question_id": collection["questions"][0]["id"], "choices": [1]},
@@ -350,8 +361,9 @@ def test_create_submit_all_question_types_and_export(cb):
         {"question_id": collection["questions"][2]["id"], "text": "张三"},
         {"question_id": collection["questions"][3]["id"], "text": "一段长文本"},
         {"question_id": collection["questions"][4]["id"], "files": [token]},
-        {"question_id": collection["questions"][5]["id"], "rating": 4},
-    ])
+        {"question_id": collection["questions"][5]["id"], "files": [attach_token]},
+        {"question_id": collection["questions"][6]["id"], "rating": 4},
+    ], duration=95)
     assert r.status_code == 200, r.text
     assert r.json()["my_submitted_count"] == 1
     assert r.json()["can_submit"] is False
@@ -359,7 +371,7 @@ def test_create_submit_all_question_types_and_export(cb):
     # 提交后公开信息里我的进度正确，题目仍只在范围内下发
     data = cb.client.get(f"/api/collections/share/{collection['share_token']}/info").json()
     assert data["my_submitted_count"] == 1 and data["quota_reached"] is True
-    assert len(data["questions"]) == 6
+    assert len(data["questions"]) == 7
 
     # 发起人看答卷：按提交时间排序、姓名可读、答案齐全
     _login(cb, CREATOR, CREATOR_PW)
@@ -367,7 +379,7 @@ def test_create_submit_all_question_types_and_export(cb):
     assert responses["total"] == 1
     item = responses["items"][0]
     assert item["student_no"] == VOTER
-    assert len(item["answers"]) == 6
+    assert len(item["answers"]) == 7
     image_answer = next(a for a in item["answers"] if a["qtype"] == "image")
     assert image_answer["files"][0]["original"] == "证明.png"
     file = cb.client.get(
@@ -376,19 +388,94 @@ def test_create_submit_all_question_types_and_export(cb):
     assert file.status_code == 200
     assert file.headers["content-type"].startswith("image/")
 
-    # 导出：一份答卷一行，表头有姓名/学号和各题
+    # 导出：有图片/附件 → zip（答卷.xlsx + 图片/ + 附件/），表和文件一起带走
     exported = cb.client.get(f"/api/collections/{cid}/responses/export")
     assert exported.status_code == 200, exported.text
-    workbook = load_workbook(BytesIO(exported.content))
-    sheet = workbook["答卷"]
+    assert exported.headers["content-type"] == "application/zip"
+    bundle = ZipFile(BytesIO(exported.content))
+    names = bundle.namelist()
+    assert "答卷.xlsx" in names
+    image_names = [name for name in names if name.startswith("图片/")]
+    file_names = [name for name in names if name.startswith("附件/")]
+    assert len(image_names) == 1 and len(file_names) == 1, names
+    assert bundle.read(image_names[0]) == PNG, "包里的图片要和上传的字节一致"
+
+    sheet = load_workbook(BytesIO(bundle.read("答卷.xlsx")))["答卷"]
     headers = [cell.value for cell in sheet[1]]
     assert "姓名" in headers and "学号" in headers
-    assert headers[4:] == ["单选", "多选", "短文本", "长文本", "图片", "评分"]
+    assert "答题用时" in headers, "作答时间要能导出"
+    assert headers[5:] == ["单选", "多选", "短文本", "长文本", "图片", "附件", "评分"]
     values = [cell.value for cell in sheet[2]]
-    assert values[4] == "B. 乙"
-    assert values[5] == "A. 甲；C. 丙"
-    assert values[6] == "张三" and values[7] == "一段长文本"
-    assert values[9] == 4
+    assert values[2] == "1分35秒", "95 秒要写成 1分35秒"
+    assert values[5] == "B. 乙"
+    assert values[6] == "A. 甲；C. 丙"
+    assert values[7] == "张三" and values[8] == "一段长文本"
+    # 单元格写的是压缩包内相对路径，解开就找得到文件
+    assert values[9] == image_names[0] and values[10] == file_names[0]
+    assert values[11] == 4
+
+
+def test_file_question_limits(cb):
+    """附件题：白名单外的类型不收；图片题的凭证交到附件题可以，反过来不行
+
+    上传接口只按 kind 收，真正决定能不能交的是**提交时按题型再判一次** ——
+    少了这一步，拿一张 pdf 的凭证就能交上图片题。
+    """
+    # quota 给够：下面要连交几次，别先撞在「已经填满」上
+    # 图片题设成选答：后面要单独交附件题来验「最多 3 个」，别被必答挡在前面
+    collection = _create(
+        cb, submit_quota=5,
+        questions=[_q("image", "图片", required=False), _q("file", "附件", required=False)],
+    )
+    cid = collection["id"]
+    image_qid = collection["questions"][0]["id"]
+    file_qid = collection["questions"][1]["id"]
+
+    _login(cb, VOTER, VOTER_PW)
+    # 附件题收 pdf，不收 exe
+    r = cb.client.post(
+        f"/api/collections/{cid}/files",
+        data={"kind": "file"},
+        files={"file": ("坏东西.exe", b"MZ", "application/octet-stream")},
+    )
+    assert r.status_code == 400
+    pdf = cb.client.post(
+        f"/api/collections/{cid}/files",
+        data={"kind": "file"},
+        files={"file": ("材料.pdf", PDF, "application/pdf")},
+    )
+    assert pdf.status_code == 200, pdf.text
+    pdf_token = pdf.json()["token"]
+
+    # pdf 的凭证交到图片题：拒
+    r = _submit(cb, cid, [{"question_id": image_qid, "files": [pdf_token]}])
+    assert r.status_code == 400
+    assert "不支持" in r.json()["detail"]
+
+    # 换成真正的图片交图片题，再把同一张图挂到附件题（图属于附件白名单）：过
+    pic = cb.client.post(
+        f"/api/collections/{cid}/files",
+        files={"file": ("照片.png", PNG, "image/png")},
+    )
+    assert pic.status_code == 200, pic.text
+    r = _submit(cb, cid, [
+        {"question_id": image_qid, "files": [pic.json()["token"]]},
+        {"question_id": file_qid, "files": [pdf_token]},
+    ])
+    assert r.status_code == 200, r.text
+
+    # 超过 3 个：拒
+    tokens = [
+        cb.client.post(
+            f"/api/collections/{cid}/files",
+            data={"kind": "file"},
+            files={"file": (f"材料{i}.pdf", PDF, "application/pdf")},
+        ).json()["token"]
+        for i in range(4)
+    ]
+    r = _submit(cb, cid, [{"question_id": file_qid, "files": tokens}])
+    assert r.status_code == 400
+    assert "最多 3 个附件" in r.json()["detail"]
 
 
 # ---------- 配额 / 竞争 / 删除权限 ----------

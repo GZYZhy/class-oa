@@ -115,11 +115,17 @@ export function getCollectionShareInfo(token) {
   })
 }
 
-/** 上传答卷图片，返回 { token, name, size } */
-export function uploadCollectionFile(id, file, onProgress, studentNo) {
+/**
+ * 上传答卷图片 / 附件，返回 { token, name, size }
+ *
+ * kind：'image' = 图片题（JPG/PNG/WEBP，10MB），'file' = 附件题（20MB，
+ * 图片 / 视频 / 音频 / 文档 / 压缩包）。后端按它选白名单和大小上限。
+ */
+export function uploadCollectionFile(id, file, onProgress, studentNo, kind = 'image') {
   const form = new FormData()
   form.append('file', file)
-  // 管理员代填时，图片凭证要绑到目标学生身上，而不是当前管理员
+  form.append('kind', kind)
+  // 管理员代填时，凭证要绑到目标学生身上，而不是当前管理员
   if (studentNo) form.append('student_no', studentNo)
   return request({
     url: `/collections/${id}/files`,

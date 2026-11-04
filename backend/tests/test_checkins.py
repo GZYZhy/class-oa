@@ -21,6 +21,7 @@ import hmac
 import time
 from datetime import datetime, timedelta
 from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 from openpyxl import load_workbook
@@ -704,9 +705,29 @@ def test_photo_required_and_photo_access(cb):
     assert r.content == PNG
     assert r.headers.get("cache-control") == "no-store"
 
+    # 打包下载：一张一份，文件名是「学号_姓名 + 原后缀」
+    packed = cb.client.get(f"/api/checkins/{checkin['id']}/photos/export")
+    assert packed.status_code == 200, packed.text
+    assert packed.headers["content-type"] == "application/zip"
+    bundle = ZipFile(BytesIO(packed.content))
+    names = bundle.namelist()
+    assert names == [f"{PEOPLE[0][0]}_学生02.png"], names
+    assert bundle.read(names[0]) == PNG
+
     _login(cb, PEOPLE[1][0])
     r = cb.client.get(f"/api/checkins/{checkin['id']}/targets/{PEOPLE[0][0]}/photo")
     assert r.status_code == 403
+    # 整包下载同样只给班委及以上
+    assert cb.client.get(f"/api/checkins/{checkin['id']}/photos/export").status_code == 403
+
+
+def test_photo_export_without_photos_is_404(cb):
+    """没人传照片时明说「没有可下载的照片」，不给一个空 zip"""
+    checkin = _create(cb, [PEOPLE[0][0]])
+    _as_admin(cb)
+    r = cb.client.get(f"/api/checkins/{checkin['id']}/photos/export")
+    assert r.status_code == 404
+    assert "没有可下载的照片" in r.json()["detail"]
 
 
 def test_photo_uploaded_before_deadline_still_signs_after(cb):

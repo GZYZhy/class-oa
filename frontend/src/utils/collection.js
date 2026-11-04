@@ -13,6 +13,7 @@ export const QUESTION_TYPES = [
   { value: 'short_text', label: '短文本' },
   { value: 'long_text', label: '长文本' },
   { value: 'image', label: '图片' },
+  { value: 'file', label: '附件' },
   { value: 'rating', label: '评分（1–5）' }
 ]
 
@@ -22,10 +23,32 @@ export const QUESTION_TYPE_LABEL = Object.fromEntries(
 
 export const CHOICE_TYPES = new Set(['single', 'multiple'])
 export const TEXT_TYPES = new Set(['short_text', 'long_text'])
+/** 两种上传题：流程一样，校验规则和提示不同 */
+export const UPLOAD_TYPES = new Set(['image', 'file'])
 export const TEXT_LIMITS = { short_text: 200, long_text: 2000 }
 export const RATING_MIN = 1
 export const RATING_MAX = 5
 export const IMAGE_MAX_FILES = 3
+export const IMAGE_MAX_MB = 10
+
+/**
+ * 附件题允许的后缀
+ *
+ * **和后端 utils/attachments.py 的白名单是同一份**（图片 / 视频 / 音频 /
+ * 文档 / 压缩包）。前端这份只用来提前拦一下、并拼 accept，真正算数的是后端；
+ * 改的时候两边一起改，否则会出现「文件选得进来、提交才报错」。
+ */
+export const ATTACH_SUFFIXES = [
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif',
+  '.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm',
+  '.mp3', '.m4a', '.wav',
+  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.pdf', '.txt', '.md', '.wps', '.et', '.dps',
+  '.zip', '.rar', '.7z'
+]
+export const ATTACH_ACCEPT = ATTACH_SUFFIXES.join(',')
+export const FILE_MAX_FILES = 3
+export const FILE_MAX_MB = 20
 
 /** 出卷时的一道空题 */
 export function blankQuestion(type = 'single') {
@@ -109,7 +132,7 @@ export function blankAnswer(question) {
   if (CHOICE_TYPES.has(question.qtype)) return []
   if (TEXT_TYPES.has(question.qtype)) return ''
   if (question.qtype === 'rating') return null
-  if (question.qtype === 'image') return []
+  if (UPLOAD_TYPES.has(question.qtype)) return []
   return ''
 }
 

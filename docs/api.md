@@ -1954,6 +1954,16 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 - `200` — 成功
 
+### 打包下载签到照片（班委及以上）
+
+`GET /api/checkins/{checkin_id}/photos/export`
+
+返回一个 zip，每张照片命名为 `学号_姓名.后缀`；盘上文件已丢失的跳过。一张都没有时返回 404（不给空压缩包）。
+
+**响应**
+
+- `200` — 成功（`application/zip`）
+
 ### 查看签到照片（班委及以上）
 
 `GET /api/checkins/{checkin_id}/targets/{student_no}/photo`
@@ -3368,7 +3378,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 `questions` 的字段：
 
   - `title`：string（必填）
-  - `qtype`：string（必填）
+  - `qtype`：string（必填）—— `single` / `multiple` / `short_text` / `long_text` / `image` / `file` / `rating`
   - `required`：boolean
   - `options`：string[]
   - `max_choices`：integer（≥1），可空
@@ -3573,7 +3583,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 - `200` `CollectionSubmitResponse` — 成功
   - 字段：`id`、`seq_no`、`submitted_at`、`duration_seconds`、`my_submitted_count`、`my_remaining`、`can_submit`
 
-### 上传答卷图片（返回提交凭证）
+### 上传答卷图片 / 附件（返回提交凭证）
 
 `POST /api/collections/{collection_id}/files`
 
@@ -3588,7 +3598,10 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `file` | string | 是 |  |
-| `student_no` | string，可空 | 否 | 管理员代填时目标学号；图片凭证绑到这个人 |
+| `student_no` | string，可空 | 否 | 管理员代填时目标学号；凭证绑到这个人 |
+| `kind` | string | 否 | `image`（默认）= 图片题，JPG/PNG/WEBP、10MB；`file` = 附件题，白名单见下、20MB |
+
+附件题白名单与通知公告附件一致：图片（含 heic/heif）/ 视频 / 音频 / 文档 / 压缩包，不收 svg/html/js 和带宏的 Office 文件。上传接口只按 `kind` 收，提交答卷时还会**按题型再验一次**后缀（pdf 的凭证交不进图片题）。
 
 **响应**
 
@@ -3736,6 +3749,10 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `GET /api/collections/{collection_id}/responses/export`
 
+表里有「序号 / 提交时间 / 答题用时」、身份列（匿名收集没有）和各题答案。
+
+**有图片题或附件题时返回 zip**（`application/zip`）：里面是 `答卷.xlsx` + `图片/第N题_题干/序号_姓名_张数` + `附件/第N题_题干/...`，表格对应单元格写的就是包内相对路径。没有文件时仍返回裸 xlsx。选择 zip 而不是把图片嵌进表格，是因为一张原图可达 10–20MB，几十份答卷的 xlsx 会大到打不开。
+
 **参数**
 
 | 名称 | 位置 | 必填 | 类型 | 说明 |
@@ -3745,7 +3762,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 **响应**
 
-- `200` — 成功
+- `200` — 成功（`application/zip` 或 xlsx）
 
 ## 成绩
 

@@ -26,6 +26,15 @@ export function getCheckin(id) {
   return request({ url: `/checkins/${id}`, method: 'get' })
 }
 
+/**
+ * 打包下载这次签到的全部照片（班委及以上，返回 zip）
+ *
+ * 只给地址：下载走 utils/download 的 fetchBlob，带登录态才拿得到
+ */
+export function checkinPhotosExportUrl(id) {
+  return `/checkins/${id}/photos/export`
+}
+
 /** 提前结束并立即结算（班委及以上） */
 export function closeCheckin(id) {
   return request({ url: `/checkins/${id}/close`, method: 'post' })

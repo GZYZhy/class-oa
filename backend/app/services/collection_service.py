@@ -23,6 +23,7 @@ from ..models import (
     Student,
     User,
 )
+from ..utils.attachments import ALLOWED_ATTACHMENT_EXTENSIONS, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS
 from .scope_service import target_scope_label, target_scope_labels
 
 # ---------- 状态 ----------
@@ -58,6 +59,7 @@ QTYPE_MULTIPLE = "multiple"
 QTYPE_SHORT_TEXT = "short_text"
 QTYPE_LONG_TEXT = "long_text"
 QTYPE_IMAGE = "image"
+QTYPE_FILE = "file"
 QTYPE_RATING = "rating"
 
 QUESTION_TYPES = (
@@ -66,10 +68,13 @@ QUESTION_TYPES = (
     QTYPE_SHORT_TEXT,
     QTYPE_LONG_TEXT,
     QTYPE_IMAGE,
+    QTYPE_FILE,
     QTYPE_RATING,
 )
 CHOICE_TYPES = {QTYPE_SINGLE, QTYPE_MULTIPLE}
 TEXT_TYPES = {QTYPE_SHORT_TEXT, QTYPE_LONG_TEXT}
+# 两种「上传文件」的题：流程一样，白名单、大小和说明文案不同
+UPLOAD_TYPES = {QTYPE_IMAGE, QTYPE_FILE}
 
 # 这些是产品定的常量，不落库：改的时候前后端一起改
 TEXT_LIMITS = {QTYPE_SHORT_TEXT: 200, QTYPE_LONG_TEXT: 2000}
@@ -79,6 +84,13 @@ IMAGE_MAX_FILES = 3
 
 # 图片上传的后缀白名单（和签到照片一致）
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+
+# 附件题：**直接复用通知公告附件的那套限制**（见 utils/attachments.py）——
+# 白名单、单件 20MB、每题最多 3 个。收集只是换个地方收材料，没理由另立一套，
+# 而且前端提示和后端校验必须说的是同一件事
+FILE_MAX_FILES = MAX_ATTACHMENTS
+FILE_MAX_BYTES = MAX_ATTACHMENT_BYTES
+FILE_SUFFIXES = set(ALLOWED_ATTACHMENT_EXTENSIONS)
 
 
 # ---------- 分享签名 ----------
@@ -244,7 +256,11 @@ def question_payload(question: CollectionQuestion) -> dict:
         "text_limit": TEXT_LIMITS.get(qtype),
         "rating_min": RATING_MIN if qtype == QTYPE_RATING else None,
         "rating_max": RATING_MAX if qtype == QTYPE_RATING else None,
-        "max_files": IMAGE_MAX_FILES if qtype == QTYPE_IMAGE else None,
+        "max_files": (
+            IMAGE_MAX_FILES
+            if qtype == QTYPE_IMAGE
+            else FILE_MAX_FILES if qtype == QTYPE_FILE else None
+        ),
     }
 
 
@@ -686,7 +702,8 @@ def statistics(db: Session, collection: Collection) -> list[dict]:
                     total += answer.rating
             entry["distribution"] = distribution
             entry["average"] = round(total / len(items), 2) if items else 0
-        elif qtype == QTYPE_IMAGE:
+        elif qtype in UPLOAD_TYPES:
+            # 图片和附件都只说「一共交了几份文件」，不按题型分两套口径
             entry["file_count"] = sum(len(read_files(answer)) for answer in items)
         result.append(entry)
     return result

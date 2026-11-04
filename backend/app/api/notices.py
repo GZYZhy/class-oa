@@ -42,6 +42,11 @@ from ..services import (
     notice_attachments,
     recipients,
 )
+from ..utils.attachments import (
+    ALLOWED_ATTACHMENT_EXTENSIONS as ATTACHMENT_EXTENSIONS,
+    MAX_ATTACHMENT_BYTES as ATTACHMENT_MAX_BYTES,
+    MAX_ATTACHMENTS as ATTACHMENT_MAX_COUNT,
+)
 from ..services import notice_rss_service as nrs
 from ..services import schedule_service as ss
 from ..utils.links import full_url
@@ -64,19 +69,12 @@ NOTICE_ATTACH_DIR = Path(
 )
 NOTICE_ATTACH_DIR.mkdir(parents=True, exist_ok=True)
 
-# 允许的附件类型：复用反馈附件的白名单（图片 / 视频 / 音频 / 文档）+ 压缩包
-# 不收 svg/html/js、不收带宏的 docm/xlsm/pptm。
-ALLOWED_ATTACHMENT_EXTENSIONS = {
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".heif",
-    ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm",
-    ".mp3", ".m4a", ".wav",
-    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".pdf", ".txt", ".md", ".wps", ".et", ".dps",
-    ".zip", ".rar", ".7z",
-}
-
-MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024  # 单文件 20MB
-MAX_ATTACHMENTS = 3  # 一条通知最多带几个附件
+# 附件白名单与大小上限收到 utils/attachments.py 一份，收集的附件题也用同一套
+# （不收 svg/html/js、不收带宏的 docm/xlsm/pptm）。
+# 名字保留本地别名：这个模块里到处在用 MAX_ATTACHMENT_SIZE 这个拼法
+ALLOWED_ATTACHMENT_EXTENSIONS = ATTACHMENT_EXTENSIONS
+MAX_ATTACHMENT_SIZE = ATTACHMENT_MAX_BYTES
+MAX_ATTACHMENTS = ATTACHMENT_MAX_COUNT
 
 
 def _safe_attach_name(original: str) -> str:

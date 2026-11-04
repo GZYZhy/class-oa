@@ -29,7 +29,7 @@
         <div v-if="!choiceTexts(question).length" class="ca-empty">未填写</div>
       </template>
 
-      <template v-else-if="question.qtype === 'image'">
+      <template v-else-if="UPLOAD_TYPES.has(question.qtype)">
         <div v-if="filesOf(question).length" class="ca-files">
           <el-button
             v-for="(file, fileIndex) in filesOf(question)"
@@ -63,7 +63,7 @@
       v-model="viewer.visible"
       :file-url="viewer.url"
       :file-name="viewer.name"
-      title="答卷图片"
+      title="答卷文件"
     />
   </div>
 </template>
@@ -71,7 +71,7 @@
 <script setup>
 import { computed, reactive } from 'vue'
 import FileViewer from '@/components/FileViewer.vue'
-import { CHOICE_TYPES, QUESTION_TYPE_LABEL } from '@/utils/collection'
+import { CHOICE_TYPES, QUESTION_TYPE_LABEL, UPLOAD_TYPES } from '@/utils/collection'
 import { POLL_LETTERS as letters } from '@/utils/poll'
 
 const props = defineProps({
