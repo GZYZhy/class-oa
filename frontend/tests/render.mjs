@@ -255,6 +255,44 @@ console.log('\n▶ 初始化浮层必须整屏换掉外壳（不是盖一层弹�
   check(src.includes('if (userStore.isBootstrap) return'), '登录态变化时的红点/推送刷新有守卫')
 }
 
+console.log('\n▶ 多端布局与弱网反馈')
+{
+  const layout = readFileSync(`${ROOT}/src/components/AppLayout.vue`, 'utf8')
+  check(layout.includes("matchMedia('(min-width: 768px) and (max-width: 1100px)')"),
+    '平板单独一档：iPad 竖屏/横屏用图标栏，不再被迫用手机抽屉')
+  check(layout.includes(':collapse="compact"') && layout.includes(':width="compact ?'),
+    '图标栏由 el-menu 的 collapse 驱动，侧栏宽度一起收')
+  check(layout.includes("window.addEventListener('offline'") &&
+    layout.includes("window.addEventListener('online'"),
+  '断网有提示、恢复后自动消失（弱网下先告诉用户网断了）')
+  check(layout.includes('env(safe-area-inset-top)'),
+    '刘海屏顶栏让进安全区，标题不和状态栏叠在一起')
+
+  const app = readFileSync(`${ROOT}/src/App.vue`, 'utf8')
+  check(app.includes('class="route-progress"') && app.includes('useRouteProgress'),
+    '路由切换有顶部进度条：懒加载 chunk 的那几秒看得见在动')
+  const progress = readFileSync(`${ROOT}/src/composables/useRouteProgress.js`, 'utf8')
+  check(progress.includes('router.beforeEach') && progress.includes('router.afterEach'),
+    '进度条跟着真实路由钩子走，不是定时假动画')
+
+  const css = readFileSync(`${ROOT}/src/styles/main.css`, 'utf8')
+  check(css.includes('@media (max-width: 640px)') &&
+    /\.el-overlay-dialog\s*\{[^}]*align-items:\s*flex-end/.test(css),
+  '手机上弹窗变成贴底大卡片，键盘弹起时正文也有地方站')
+  check(css.includes('focus-visible') && css.includes('::selection'),
+    '键盘焦点环与文字选中色都有，键盘和鼠标用户都不吃亏')
+
+  const dash = readFileSync(`${ROOT}/src/views/Dashboard.vue`, 'utf8')
+  check(dash.includes('statsLoading') && dash.includes('stat-skeleton'),
+    '统计加载中显示骨架，而不是先报「0 人」这种假数据')
+  check(dash.includes('noticesLoading') && dash.includes('notice-skeleton-row'),
+    '通知加载中占住三行骨架，避免先塌一块再弹出来')
+  check(dash.includes('statsError') && dash.includes('loadStats'),
+    '统计失败给一句实话，并且能只重试这一路')
+  check(readFileSync(`${ROOT}/src/utils/markdown.js`, 'utf8').includes('loading="lazy"'),
+    '正文图片懒加载，不为了下面一张图堵住整篇')
+}
+
 console.log('\n▶ 签到页首屏不下载整站布局（弱网也要快）')
 {
   const app = readFileSync(`${ROOT}/src/App.vue`, 'utf8')
@@ -2612,7 +2650,9 @@ console.log('\n▶ 首页：品牌标签、快捷入口、最新通知')
   // 最新通知
   check(/getNotices\(\{ limit: NOTICE_COUNT \}\)/.test(src),
     '通知按条数取，不是取回来再切片（每条都带整篇 Markdown 正文）')
-  check(/v-if="notices\.length"/.test(src), '没有通知就整块不显示')
+  check(/v-else-if="notices\.length"/.test(src), '没有通知就整块不显示')
+  check(/v-if="noticesLoading"/.test(src) && src.includes('notice-skeleton-row'),
+    '通知还在路上时先占三行骨架，不显示假空状态')
   check(/v-if="userStore\.isLogin && !item\.is_read"/.test(src),
     '未读圆点只在登录时渲染 —— 后端对游客恒返回未读，不判断就是整列红点')
   check(src.includes('/notices?id=${item.id}'),
@@ -4297,6 +4337,27 @@ console.log('\n▶ 首屏瘦身：Element Plus 改按需，弹窗文案还得是
   check(/element-plus\/theme-chalk\/dark\/css-vars\.css/.test(mainSrc),
     '深色主题的 css-vars 还留着（按需插件不管它）')
 
+  // ---------- 毛玻璃：三档浓度 + 两套降级 ----------
+  // 全站一个 blur 值会让「浮层和内容面」看起来一样厚，也容易在手机上拖慢滚动；
+  // 这两条钉住分档与降级，删掉其中任何一段都不会报错、只会悄悄退化成白底
+  const styleCss = readFileSync(`${ROOT}src/styles/main.css`, 'utf8')
+  check(styleCss.includes('--app-glass-blur:') &&
+    styleCss.includes('--app-glass-blur-float:'),
+  '磨砂分档：内容面 / 浮层用不同的 blur 与透明度')
+  check(/\.page-card\s*\{[^}]*backdrop-filter:\s*blur\(var\(--app-glass-blur\)\)/.test(styleCss),
+    '内容卡片真的开了磨砂，不再只是半透明白底')
+  check(styleCss.includes('prefers-reduced-transparency: reduce') &&
+    styleCss.includes('@supports not'),
+  '磨砂有两套降级：不支持 backdrop-filter、系统开了「降低透明度」')
+  check(styleCss.includes('手机上关掉内容面的磨砂') &&
+    /\.page-card[\s\S]{0,200}?backdrop-filter: none/.test(styleCss),
+  '手机上关掉内容面磨砂，滚动不掉帧')
+  const loginSrc = readFileSync(`${ROOT}src/views/Login.vue`, 'utf8')
+  const shareSrc = readFileSync(`${ROOT}src/components/share/ShareLayout.vue`, 'utf8')
+  check(loginSrc.includes('var(--app-glass-blur-float)') &&
+    shareSrc.includes('var(--app-glass-blur-float)'),
+  '登录卡与分享卡用同一档浮层磨砂，不再各写一个 18px')
+
   // 这三样按需插件看不见：ElMessage / ElMessageBox 是当函数调出来的（模板里没有
   // 对应标签），ElLoading 是全局指令 v-loading 的本体（全站 49 处在用）。
   // 装它们不只是「能用」—— install 里那句 fn._context = app._context 是这些
@@ -5412,8 +5473,10 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
   // 操作列固定在右边：桌面端 300px 放得下所有按钮，窄屏收到 132px 只留
   // 「主操作 + 更多」下拉 —— 否则这块固定列的遮罩会盖住大半个表格
   check(pageSrc.includes('label="操作"') && pageSrc.includes('fixed="right"')
-    && pageSrc.includes(':width="isMobile ? 132 : 300"'),
-    '操作列固定右侧，窄屏收窄并收进「更多」下拉')
+    && pageSrc.includes(':width="compactOps ? 132 : 300"'),
+    '操作列固定右侧，手机与平板竖屏都收窄并收进「更多」下拉')
+  check(pageSrc.includes('const compactOps = useIsMobile(1100)'),
+    '操作列单独用 1100 这一档：iPad 竖屏（810/820/834）摆不下三个按钮')
   check(!pageSrc.includes('handleCheckinRemark'),
     '签到的改备注挪进明细，列表上少一个按钮')
 

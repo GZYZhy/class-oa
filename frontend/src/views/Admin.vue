@@ -82,11 +82,11 @@
               <el-tag v-else type="danger" size="small">缺失</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" :width="isMobile ? 175 : 265" align="center">
+          <el-table-column label="操作" :width="compactOps ? 175 : 265" align="center">
             <template #default="{ row }">
-              <!-- 手机上 5 个按钮排不下（会把这列顶得比整屏还宽），
-                   所以只直显 MOBILE_PRIMARY，其余收进「更多」下拉 -->
-              <template v-if="isMobile">
+              <!-- 5 个按钮在手机上排不下，平板竖屏（810/820/834）同样摆不开：
+                   两者都只直显 MOBILE_PRIMARY，其余收进「更多」下拉 -->
+              <template v-if="compactOps">
                 <el-button link type="primary" size="small" @click="primaryAction(row).run()">
                   {{ MOBILE_PRIMARY }}
                 </el-button>
@@ -1410,6 +1410,8 @@ const MOBILE_PRIMARY = '重置密码'
 
 const activeTab = ref('users')
 const isMobile = useIsMobile()
+// 表格操作列的收窄阈值单列一档（同考勤页）：iPad 竖屏也要收成「主操作 + 更多」
+const compactOps = useIsMobile(1100)
 const router = useRouter()
 
 // ---------- 账号管理 ----------

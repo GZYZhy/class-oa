@@ -1,38 +1,55 @@
 /* ============ 设计变量 ============
-   浅色系：清晨薄雾感的蓝紫渐变背景 + 半透明白卡片。
-   高级感来自三件事：分层的柔和阴影（贴地 1px + 远处大扩散）、
-   卡片顶部一道 1px 内高光（玻璃边缘感，比 backdrop-filter 便宜得多）、
-   收敛的发色（大面积都是近白的底，彩色只出现在点缀处）。
+   浅色系：清晨薄雾感的蓝紫渐变背景 + 毛玻璃卡片。
+   高级感来自四件事：分层的柔和阴影（贴地 1px + 远处大扩散）、
+   卡片顶部一道 1px 内高光、**真磨砂**（内容面轻、浮层重）、
+   极淡的颗粒底纹（磨砂要有东西可磨，纯渐变会糊成一片）。
    深色模式只换这里的值，组件样式一律不写死颜色。 */
 :root {
-  --app-bg: #f5f6fd;
-  /* 底色本身几乎等于白（#f5f6fd），卡片再怎么透也只会算出 #fcfcff —— 看着就是白块。
+  --app-bg: #e4e9f7;
+  /* 底色本身几乎等于白，卡片再怎么透也只会算出 #fcfcff —— 看着就是白块。
      所以先把背景做出颜色，卡片才有东西可透：四团渐变的浓度整体提一档，
-     左上靛蓝、右上薰衣草、下方天青与薄荷，撑起一个从冷到暖的场 */
+     左上靛蓝、右上薰衣草、下方天青与薄荷，撑起一个从冷到暖的场。
+     磨砂开启后又各提了一档：blur 会把颜色抹匀、提亮，太淡的底透上来等于没有。
+     最后一团是**中间那层薰衣草**：卡片多半落在中间，只有四角有色时，
+     磨砂一开中间就是一片白雾（截图里那两张空卡就是这样）。 */
   --app-bg-image:
-    radial-gradient(1200px 800px at 10% -12%, rgba(140, 152, 255, 0.38), transparent 60%),
-    radial-gradient(1000px 720px at 104% -4%, rgba(176, 150, 252, 0.30), transparent 56%),
-    radial-gradient(900px 640px at 50% 116%, rgba(126, 214, 250, 0.26), transparent 58%),
-    radial-gradient(700px 500px at 85% 108%, rgba(134, 239, 211, 0.18), transparent 62%);
-  /* 卡片透到 0.62：0.76 时叠在淡底上还是白，0.62 才能把底色的紫蓝调带进来，
-     又刚好保住正文对比度（0.62 白 + 淡紫底 ≈ #eef0fc，正文仍是深色字） */
-  --app-surface: rgba(255, 255, 255, 0.62);
+    radial-gradient(1200px 800px at 10% -12%, rgba(140, 152, 255, 0.50), transparent 58%),
+    radial-gradient(1000px 720px at 104% -4%, rgba(176, 150, 252, 0.38), transparent 54%),
+    radial-gradient(900px 640px at 50% 116%, rgba(126, 214, 250, 0.34), transparent 56%),
+    radial-gradient(700px 500px at 85% 108%, rgba(134, 239, 211, 0.24), transparent 60%),
+    radial-gradient(900px 620px at 50% 40%, rgba(198, 208, 255, 0.52), transparent 72%);
+  /* 卡片透到 0.56：磨砂会把背后的底色「抹匀」，太实就看不出是玻璃；
+     0.56 白 + 淡紫底 ≈ #f2f4fd，正文对比度仍稳（卡片里还有一层受光面兜着） */
+  --app-surface: rgba(255, 255, 255, 0.56);
   --app-surface-solid: #ffffff;
   /* 卡片自己的「受光面」：左上更白、右下更透。平涂的白永远是一块白，
      有了这道斜向渐变，卡面上才有方向感和厚度；右下透出来的正好是
      背景的薄荷/天青和那枚校徽纹样 */
   --app-surface-sheen: linear-gradient(152deg,
-    rgba(255, 255, 255, 0.90) 0%,
-    rgba(255, 255, 255, 0.60) 58%,
-    rgba(255, 255, 255, 0.46) 100%);
+    rgba(255, 255, 255, 0.86) 0%,
+    rgba(255, 255, 255, 0.52) 58%,
+    rgba(255, 255, 255, 0.40) 100%);
+
+  /* ---- 毛玻璃三档 ----
+     不是全站一个 blur 值：内容面只轻轻磨一层（大块区域，滚动时重绘最贵），
+     浮层磨得厚（面积小、停在最上面，可读性优先），顶栏/侧栏居中。
+     saturate 一起提，玻璃后面才不会灰扑扑的。 */
+  --app-glass-blur: 18px;
+  --app-glass-blur-chrome: 22px;
+  --app-glass-blur-float: 26px;
+  --app-glass-saturate: 150%;
+
+  /* 极淡颗粒：在渐变之上再叠一层 5% 的噪点。
+     没有它时磨砂只是「一片更亮的色块」，有了颗粒才像磨过的玻璃 */
+  --app-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
   /* 内部面板（输入框、下拉、表格行、折叠面板）比卡片再实一点，
      形成「卡片是薄壳、面板是内容」的内外关系；Element 默认是纯白 */
   --el-fill-color-blank: rgba(255, 255, 255, 0.70);
   /* 框线两档：border 用于卡片外框、outline 用于表格格线与分隔线。
      上一版太淡（0.13/0.09）导致「糊成一片」，这里各提一档 ——
      界面靠线条分区，比靠阴影分区更清晰、也更省性能 */
-  --app-border: rgba(103, 108, 245, 0.20);
-  --app-outline: rgba(103, 108, 245, 0.14);
+  --app-border: rgba(103, 108, 245, 0.24);
+  --app-outline: rgba(103, 108, 245, 0.16);
   /* 网格线专用：表格格线、日历格子、资源卡外框。
      0.14 那档负责「柔分隔」（表头下缘、列表行间），
      真正的网格要比它明显一档，否则在淡紫底上直接看不见 */
@@ -43,8 +60,19 @@
   --app-card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.75);
   --app-radius: 20px;
   --app-radius-sm: 12px;
-  --app-header-bg: rgba(255, 255, 255, 0.74);
-  --app-aside-bg: rgba(255, 255, 255, 0.64);
+  /* 顶栏和侧栏是「固定玻璃」：比内容面透一点，滚动时背后一直有东西经过，
+     磨砂的层次主要靠它们撑（内容面只在静止时看） */
+  --app-header-bg: rgba(255, 255, 255, 0.60);
+  --app-aside-bg: rgba(255, 255, 255, 0.48);
+  /* 浮层（弹窗、下拉、消息）必须偏实：玻璃下面是正在编辑的内容，
+     太透会让两层文字叠在一起 */
+  --app-float-bg: rgba(255, 255, 255, 0.84);
+  --el-bg-color-overlay: rgba(255, 255, 255, 0.86);
+  /* 卡片内部的两块面：通栏表头、筛选条。它们原先用不透明的
+     --el-fill-color-lighter，会在玻璃上糊出一条实色带；
+     改成「同一块玻璃上的浅色涂层」，透光度跟着卡片走 */
+  --app-card-head-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.44), rgba(255, 255, 255, 0));
+  --app-inset-bg: rgba(255, 255, 255, 0.34);
   /* 主色渐变收敛回两段式（靛蓝→薰衣草）。之前尾端那截天青虽然透气，
      但跟大量浅色元素叠在一起会显得「炫」、糊成一片 —— 冷蓝抽出来
      交给下面的副色专职承担 */
@@ -103,18 +131,23 @@
 }
 
 html.dark {
-  --app-bg: #0d0f1f;
+  --app-bg: #0a0c18;
   --app-bg-image:
-    radial-gradient(1200px 800px at 10% -12%, rgba(99, 102, 241, 0.20), transparent 60%),
-    radial-gradient(1000px 720px at 104% -4%, rgba(139, 92, 246, 0.14), transparent 56%),
-    radial-gradient(900px 640px at 50% 116%, rgba(56, 189, 248, 0.07), transparent 58%),
-    radial-gradient(700px 500px at 85% 108%, rgba(52, 211, 153, 0.05), transparent 62%);
-  --app-surface: rgba(25, 27, 45, 0.66);
+    radial-gradient(1200px 800px at 10% -12%, rgba(99, 102, 241, 0.36), transparent 58%),
+    radial-gradient(1000px 720px at 104% -4%, rgba(139, 92, 246, 0.26), transparent 54%),
+    radial-gradient(900px 640px at 50% 116%, rgba(56, 189, 248, 0.16), transparent 56%),
+    radial-gradient(700px 500px at 85% 108%, rgba(52, 211, 153, 0.10), transparent 60%);
+  --app-surface: rgba(26, 29, 48, 0.58);
   --app-surface-solid: #181a2c;
   --app-surface-sheen: linear-gradient(152deg,
-    rgba(38, 42, 70, 0.88) 0%,
-    rgba(26, 29, 48, 0.64) 58%,
-    rgba(22, 24, 40, 0.54) 100%);
+    rgba(44, 49, 82, 0.82) 0%,
+    rgba(26, 29, 50, 0.58) 58%,
+    rgba(20, 22, 38, 0.46) 100%);
+  /* 深色下浮层要更实一点，否则弹窗后面那层内容会透上来 */
+  --app-float-bg: rgba(28, 31, 50, 0.88);
+  --el-bg-color-overlay: rgba(30, 33, 52, 0.90);
+  --app-card-head-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0));
+  --app-inset-bg: rgba(255, 255, 255, 0.05);
   /* 深色下同理提一档：0.08/0.06 的线在深底上几乎看不见 */
   --app-border: rgba(255, 255, 255, 0.13);
   --app-outline: rgba(255, 255, 255, 0.10);
@@ -122,8 +155,8 @@ html.dark {
   --app-shadow: 0 1px 2px rgba(0, 0, 0, 0.20), 0 12px 34px rgba(0, 0, 0, 0.32);
   --app-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.24), 0 22px 52px rgba(0, 0, 0, 0.46);
   --app-card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  --app-header-bg: rgba(15, 17, 29, 0.74);
-  --app-aside-bg: rgba(17, 19, 32, 0.64);
+  --app-header-bg: rgba(13, 16, 28, 0.64);
+  --app-aside-bg: rgba(15, 17, 30, 0.52);
   --app-accent-glow: 0 4px 14px rgba(129, 140, 248, 0.14);
   --app-card-border: linear-gradient(170deg,
     rgba(255, 255, 255, 0.18),
@@ -189,13 +222,77 @@ html.dark {
   box-sizing: border-box;
 }
 
+/* 移动端点按高亮：系统默认那层灰蓝色和本站色调不搭，换成极淡的品牌色 */
+html {
+  -webkit-tap-highlight-color: rgba(99, 102, 241, 0.12);
+}
+
+/* 选中文字：和主色同一族，复制长通知时能看清选区 */
+::selection {
+  background: rgba(99, 102, 241, 0.22);
+}
+
+/* 键盘焦点：Element 的控件有自己的聚焦环，这里只兜住原生链接/按钮/可点区域。
+   用 :where 压到零特异性，组件想覆盖随时能盖住 */
+:where(a, button, [role='button'], [tabindex]):focus-visible {
+  outline: 2px solid var(--app-secondary);
+  outline-offset: 2px;
+}
+
+/* ============ 路由进度条 ============
+   2px、固定顶部、不占布局。慢路由先快后慢爬到 90%，结束时补满再淡出：
+   宁可「一直在动」，也不要卡在某个数字上假装完成了 */
+.route-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 4000;
+  pointer-events: none;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--el-color-primary), var(--app-secondary));
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.35);
+  opacity: 0;
+}
+
+.route-progress.active {
+  opacity: 1;
+  animation: route-crawl 12s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;
+}
+
+.route-progress.done {
+  opacity: 0;
+  transform: scaleX(1);
+  transition: transform 0.18s ease, opacity 0.25s ease 0.12s;
+}
+
+@keyframes route-crawl {
+  0% { transform: scaleX(0.06); }
+  20% { transform: scaleX(0.4); }
+  60% { transform: scaleX(0.7); }
+  100% { transform: scaleX(0.92); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 无障碍：进度条仍然出现，但不再做爬行动画 */
+  .route-progress.active {
+    animation: none;
+    transform: scaleX(0.9);
+  }
+}
+
 html, body, #app {
   width: 100%;
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
   background-color: var(--app-bg);
-  background-image: var(--app-bg-image);
+  /* 颗粒压在最上层（CSS 背景层第一层画在最上面）：磨砂要「磨」到东西才有质感，
+     纯渐变透过 blur 只会变成一块更亮的色块。5% 的噪点肉眼几乎看不见，
+     但玻璃边缘和卡片的高光会立刻有「厚度」 */
+  background-image: var(--app-noise), var(--app-bg-image);
   background-attachment: fixed;
   color: var(--el-text-color-primary);
   /* macOS/iOS 上让细字重更干净，Windows 上无副作用 */
@@ -232,9 +329,23 @@ html, body, #app {
     var(--app-card-border) border-box;
   border-radius: var(--app-radius);
   padding: 24px 26px;
-  box-shadow: var(--app-shadow);
-  /* 大块内容区不做 backdrop-filter：滚动时它要跟着重绘，手机上容易掉帧。
-     半透明底色已经足够透出背景，磨砂感留给顶栏和侧边栏 */
+  box-shadow: var(--app-shadow), var(--app-card-inset);
+  /* 这里开了 backdrop-filter，和早期版本「内容区不做磨砂」的取舍相反：
+     既然背景现在有颗粒和色场，卡片不磨就只是「半透明白」，玻璃感全靠描边撑着。
+     代价是滚动时重绘 —— 所以**手机上关掉**（见文件末尾的媒体查询），
+     不支持 backdrop-filter 的浏览器退回实色（见降级段） */
+  -webkit-backdrop-filter: blur(var(--app-glass-blur)) saturate(var(--app-glass-saturate));
+  backdrop-filter: blur(var(--app-glass-blur)) saturate(var(--app-glass-saturate));
+}
+
+/* 其它「面」：小卡、统计卡、分享卡。背景仍由各自组件定义（scoped 优先级更高），
+   这里只补磨砂，避免十来个组件各写一份 blur 值、以后改一处漏一处 */
+.stat-card,
+.mini-card,
+.share-card,
+.el-card {
+  -webkit-backdrop-filter: blur(var(--app-glass-blur)) saturate(var(--app-glass-saturate));
+  backdrop-filter: blur(var(--app-glass-blur)) saturate(var(--app-glass-saturate));
 }
 
 .page-title {
@@ -268,7 +379,8 @@ html, body, #app {
   padding: 18px 26px 16px;
   border-bottom: 1px solid var(--app-outline);
   border-radius: var(--app-radius) var(--app-radius) 0 0;
-  background: linear-gradient(180deg, var(--el-fill-color-lighter), transparent);
+  /* 表头不再是实色带：半透明涂层叠在卡片玻璃上，往下渐隐 */
+  background: var(--app-card-head-bg);
 }
 
 /* 头栏里的标题（通知、考勤、投票、消息那几个包了一层的）去掉自带下边距，
@@ -282,7 +394,7 @@ html, body, #app {
    给那里再套一层浅底盒子就成了「盒中盒」 */
 .page-card > .el-form--inline {
   padding: 14px 16px 0;
-  background: var(--el-fill-color-lighter);
+  background: var(--app-inset-bg);
   border: 1px solid var(--app-outline);
   border-radius: 12px;
 }
@@ -301,8 +413,15 @@ html, body, #app {
 .el-dialog {
   border-radius: 22px;
   overflow: hidden;
-  background: var(--app-surface-solid);
-  box-shadow: var(--app-shadow-hover), var(--app-card-inset);
+  /* 浮层是「厚玻璃」：比卡片实（下面是正在编辑的内容，太透会两层字叠在一起），
+     但比原来的纯白轻 —— 磨砂 + 一道内高光，弹窗才像浮在页面上而不是贴在页面上 */
+  background: var(--app-float-bg);
+  -webkit-backdrop-filter: blur(var(--app-glass-blur-float)) saturate(var(--app-glass-saturate));
+  backdrop-filter: blur(var(--app-glass-blur-float)) saturate(var(--app-glass-saturate));
+  box-shadow:
+    var(--app-shadow-hover),
+    var(--app-card-inset),
+    0 0 0 1px var(--app-border);
   /* 兜底：各弹窗宽是写死的 px，窄窗口（平板竖屏、半屏分屏）下别再左右顶出去。
      手机那档（≤768）另有 92% 的规则，见文件末尾的媒体查询 */
   max-width: calc(100vw - 32px);
@@ -348,6 +467,31 @@ html, body, #app {
 
 .el-message-box {
   border-radius: 16px;
+  /* 和弹窗同一档玻璃：确认框常常盖在表单上，纯白会把背后的表单压成一块死板 */
+  background: var(--app-float-bg);
+  -webkit-backdrop-filter: blur(var(--app-glass-blur-float)) saturate(var(--app-glass-saturate));
+  backdrop-filter: blur(var(--app-glass-blur-float)) saturate(var(--app-glass-saturate));
+  box-shadow: var(--app-shadow-hover), var(--app-card-inset), 0 0 0 1px var(--app-border);
+}
+
+/* 消息提示 / 通知：小面积浮层，磨砂最划算 —— 既能看清又不遮住操作 */
+.el-message,
+.el-notification {
+  -webkit-backdrop-filter: blur(var(--app-glass-blur-float)) saturate(var(--app-glass-saturate));
+  backdrop-filter: blur(var(--app-glass-blur-float)) saturate(var(--app-glass-saturate));
+}
+
+/* 页内提示条（访客提示、审核提醒这些）：Element 给的是不透明的 light-9 底色，
+   深色下几乎是纯黑的一条，横在玻璃页面中间像挖了个洞。
+   改成「用当前提示色的 9% 通明度」——每种类型（info/success/warning/error）
+   都自动得到自己的淡色玻璃，不用逐个写一遍 */
+.el-alert.is-light {
+  background-color: var(--el-fill-color-lighter); /* 不支持 color-mix 时的兜底 */
+  background-color: color-mix(in srgb, currentColor 9%, transparent);
+  border: 1px solid var(--app-outline);
+  border-radius: 14px;
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+  backdrop-filter: blur(12px) saturate(130%);
 }
 
 .el-overlay {
@@ -375,7 +519,8 @@ html.dark .el-overlay {
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
   background-image: var(--app-accent-gradient);
   border-color: transparent;
-  box-shadow: var(--app-accent-glow);
+  /* 上缘一道极细高光：和卡片的受光面同一套语言，按钮才不像一块贴纸 */
+  box-shadow: var(--app-accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.26);
 }
 
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover,
@@ -388,6 +533,17 @@ html.dark .el-overlay {
 .el-textarea__inner,
 .el-select__wrapper {
   border-radius: 10px;
+  /* 输入框是玻璃上的「凹槽」：内缘一道细线，比纯色底更容易看出边界。
+     颜色优先用 Element 自己的输入框描边色 —— 深色主题下它比 --app-outline 更实 */
+  box-shadow: 0 0 0 1px var(--el-input-border-color, var(--app-outline)) inset;
+}
+
+/* 聚焦时那圈蓝光要盖住这道暗线，否则叠成两层描边 */
+html .el-input__wrapper.is-focus,
+html .el-select__wrapper.is-focused,
+html .el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--app-secondary) inset,
+    0 0 0 3px var(--app-secondary-soft);
 }
 
 .el-tag {
@@ -477,9 +633,14 @@ html.dark .el-overlay {
 }
 
 .el-popper.is-light,
-.el-dropdown__popper.el-popper {
+.el-dropdown__popper.el-popper,
+.el-select__popper.el-popper {
   border-radius: 12px;
-  box-shadow: var(--app-shadow-hover);
+  box-shadow: var(--app-shadow-hover), var(--app-card-inset);
+  /* 下拉/筛选面板：半透明的 --el-bg-color-overlay + 磨砂。
+     这类浮层经常盖在表格上，玻璃感最能体现「悬浮」这件事 */
+  -webkit-backdrop-filter: blur(var(--app-glass-blur-chrome)) saturate(var(--app-glass-saturate));
+  backdrop-filter: blur(var(--app-glass-blur-chrome)) saturate(var(--app-glass-saturate));
 }
 
 /* ============ 输入聚焦：浅蓝光环 ============
@@ -594,6 +755,30 @@ html.dark .app-emblem {
     font-size: 16px;
   }
 
+  /* 手机上关掉内容面的磨砂：滚动时整屏重绘，掉帧比「好看」更要紧。
+     底色补实一点顶上，可读性不变；顶栏、侧栏、弹窗的磨砂保留 */
+  .page-card,
+  .stat-card,
+  .mini-card,
+  .share-card,
+  .el-card {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  :root {
+    --app-surface: rgba(255, 255, 255, 0.80);
+    --app-surface-sheen: linear-gradient(152deg,
+      rgba(255, 255, 255, 0.94) 0%,
+      rgba(255, 255, 255, 0.80) 58%,
+      rgba(255, 255, 255, 0.72) 100%);
+  }
+
+  .layout-header {
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+
   /* 手机上纹样缩小，别顶到内容区 */
   .app-emblem {
     width: 280px;
@@ -673,6 +858,8 @@ body {
 /* 表格里的内容也兜一下，特别长的内容（比如身份证号、文件名）不撑爆列 */
 .el-table .cell {
   word-break: break-all;
+  /* 表格里全是数字（人数、分数、距离）：等宽数字让列对齐，扫一眼就能比大小 */
+  font-variant-numeric: tabular-nums;
 }
 
 /* ============ Markdown 正文 ============
@@ -828,5 +1015,127 @@ body {
   html .el-input__inner,
   html .el-textarea__inner {
     font-size: 16px;
+  }
+}
+
+/* ============ 手机上的弹窗：贴底的大卡片 ============
+   屏幕窄、键盘占掉半屏时，居中弹窗上下都只剩一条缝，正文更没地方站。
+   改成从底部升起的整宽卡片：
+     · 头部、底部按钮固定，只有正文滚（和桌面同一套三段式）；
+     · 顶部两角圆、底部贴边，拇指够得着关闭和主按钮；
+     · 底部留出 iPhone 的手势条安全区。 */
+@media (max-width: 640px) {
+  .el-overlay-dialog {
+    display: flex;
+    align-items: flex-end;
+    overflow: hidden;
+  }
+
+  .el-dialog {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 22px 22px 0 0;
+    max-height: 92dvh;
+    box-shadow: 0 -12px 44px rgba(40, 42, 80, 0.22);
+  }
+
+  .el-dialog__header {
+    padding: 18px 18px 10px;
+  }
+
+  .el-dialog__body {
+    padding: 6px 18px 18px;
+  }
+
+  .el-dialog__footer {
+    padding: 10px 18px calc(16px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--app-outline);
+  }
+
+  /* 关闭按钮的触摸目标要到 44px，不然拇指经常点空 */
+  .el-dialog__headerbtn {
+    width: 44px;
+    height: 44px;
+    top: 6px;
+    right: 6px;
+  }
+
+  /* 手机上文字按钮（表格里的「编辑」「查看」）也按 32px 高，连点不误触 */
+  .el-button.is-link {
+    min-height: 32px;
+  }
+
+  /* 分页按钮在触屏上同样放大一号 */
+  .el-pager li,
+  .el-pagination button {
+    min-width: 32px;
+    height: 32px;
+  }
+}
+
+/* ============ 磨砂降级 ============
+   玻璃是「锦上添花」：拿不到 backdrop-filter 时页面必须仍然清楚可读，
+   不能变成一片半透明、字压在花纹上。两档降级：
+   ① 浏览器不支持（老 Firefox / 关掉合成的情况）→ 底色加实，仍保留半透的层次；
+   ② 系统开了「降低透明度」（无障碍设置）→ 磨砂全关，一切回到实色。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --app-surface: rgba(255, 255, 255, 0.88);
+    --app-surface-sheen: linear-gradient(152deg,
+      rgba(255, 255, 255, 0.96) 0%,
+      rgba(255, 255, 255, 0.86) 58%,
+      rgba(255, 255, 255, 0.80) 100%);
+    --app-header-bg: rgba(255, 255, 255, 0.94);
+    --app-aside-bg: rgba(255, 255, 255, 0.92);
+    --app-float-bg: rgba(255, 255, 255, 0.97);
+    --el-bg-color-overlay: #ffffff;
+  }
+
+  html.dark {
+    --app-surface: rgba(24, 26, 44, 0.90);
+    --app-surface-sheen: linear-gradient(152deg,
+      rgba(38, 42, 70, 0.94) 0%,
+      rgba(26, 29, 48, 0.90) 58%,
+      rgba(22, 24, 40, 0.88) 100%);
+    --app-header-bg: rgba(13, 16, 28, 0.96);
+    --app-aside-bg: rgba(15, 17, 30, 0.94);
+    --app-float-bg: rgba(28, 31, 50, 0.97);
+    --el-bg-color-overlay: #1e2134;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  /* 系统级无障碍开关：不看磨砂、只要清楚。用 * 一次收干净，
+     免得以后新加的浮层又漏一处（这条只在用户明确要求时生效） */
+  *,
+  *::before,
+  *::after {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  :root {
+    --app-surface: rgba(255, 255, 255, 0.94);
+    --app-surface-sheen: linear-gradient(152deg,
+      rgba(255, 255, 255, 0.99) 0%,
+      rgba(255, 255, 255, 0.94) 58%,
+      rgba(255, 255, 255, 0.92) 100%);
+    --app-header-bg: rgba(255, 255, 255, 0.98);
+    --app-aside-bg: rgba(255, 255, 255, 0.96);
+    --app-float-bg: #ffffff;
+    --el-bg-color-overlay: #ffffff;
+  }
+
+  html.dark {
+    --app-surface: rgba(24, 26, 44, 0.96);
+    --app-surface-sheen: linear-gradient(152deg,
+      rgba(38, 42, 70, 0.98) 0%,
+      rgba(26, 29, 48, 0.96) 58%,
+      rgba(22, 24, 40, 0.95) 100%);
+    --app-header-bg: rgba(13, 16, 28, 0.98);
+    --app-aside-bg: rgba(15, 17, 30, 0.98);
+    --app-float-bg: #1e2134;
+    --el-bg-color-overlay: #1e2134;
   }
 }

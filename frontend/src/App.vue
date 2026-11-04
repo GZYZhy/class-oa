@@ -1,4 +1,12 @@
 <template>
+  <!-- 路由进度条：弱网下懒加载 chunk 的那几秒，页面得让人看见「在动」。
+       固定在最上方，2px 高、不占布局、不拦点击 -->
+  <div
+    class="route-progress"
+    :class="{ active: routeProgress.active, done: routeProgress.done }"
+    aria-hidden="true"
+  />
+
   <!-- 初始化临时账号：整屏浮层，连布局都不渲染。
        必须用 v-if 把这个外壳整个换掉 —— 拿个弹窗盖在上面的做法行不通：
        底下的路由页面照样挂载、onMounted 照样发请求，然后撞一堵 403 墙 -->
@@ -18,6 +26,7 @@
 <script setup>
 import { defineAsyncComponent, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useRouteProgress } from '@/composables/useRouteProgress'
 import { useUserStore } from '@/store/user'
 import { useBadgeStore } from '@/store/badge'
 import { saveWebpushSubscription } from '@/api/webpush'
@@ -32,6 +41,8 @@ const AppLayout = defineAsyncComponent(() => import('@/components/AppLayout.vue'
 const route = useRoute()
 const userStore = useUserStore()
 const badgeStore = useBadgeStore()
+// 顶部那条 2px 进度条的状态；挂载一次，之后由 router 钩子驱动
+const routeProgress = useRouteProgress()
 
 // 浏览器订阅是**按浏览器**（endpoint 唯一）存的。班级系统会在机房、共用电脑上
 // 登录，换人时必须改绑或解除，否则 B 会收到推给 A 的隐私通知（请假驳回理由之类）。

@@ -43,10 +43,23 @@
     </el-header>
 
     <el-container>
-      <el-aside width="220px" class="layout-aside" :class="{ 'is-open': drawerOpen }">
+      <!--
+        侧栏三档：
+          宽屏（>1100）  220px 完整菜单
+          平板（769–1100）76px 图标栏，悬停出 tooltip —— iPad 竖屏/横屏都不再被迫用抽屉
+          手机（≤768）    抽屉，点汉堡打开
+        width 用绑定而不是写死，el-aside 会把宽度写成行内样式，媒体查询盖不住
+      -->
+      <el-aside
+        :width="compact ? '72px' : '220px'"
+        class="layout-aside"
+        :class="{ 'is-open': drawerOpen, 'is-compact': compact }"
+      >
         <div class="aside-inner">
           <el-menu
             :default-active="activeMenu"
+            :collapse="compact"
+            :collapse-transition="false"
             router
             class="side-menu"
             @select="drawerOpen = false"
@@ -66,11 +79,11 @@
             </el-menu-item-group>
           </el-menu>
 
-          <!-- 底部：已登录时显示退出登录 -->
+          <!-- 底部：已登录时显示退出登录。图标栏模式下只留图标，title 兜住含义 -->
           <div v-if="userStore.isLogin" class="aside-footer">
-            <div class="logout-item" @click="handleLogout">
+            <div class="logout-item" :title="compact ? '退出登录' : ''" @click="handleLogout">
               <el-icon><SwitchButton /></el-icon>
-              <span>退出登录</span>
+              <span v-if="!compact">退出登录</span>
             </div>
           </div>
         </div>
@@ -78,6 +91,16 @@
 
       <!-- 手机上菜单展开时的遮罩，点一下收起（桌面端永远不显示） -->
       <div v-if="drawerOpen" class="aside-mask" @click="drawerOpen = false"></div>
+
+      <!-- 断网提示：弱网下最常见的情况之一是网根本没通，而页面还在等接口超时。
+           提前说清楚，比让用户对着转圈猜要好；恢复后自动消失 -->
+      <transition name="offline">
+        <div v-if="offline" class="offline-bar" role="status">
+          <el-icon><Warning /></el-icon>
+          <span>网络已断开，页面可能无法更新</span>
+          <button type="button" class="offline-retry" @click="reloadPage">重新加载</button>
+        </div>
+      </transition>
 
       <el-main class="layout-main">
         <!-- 校徽纹样：固定在视口右下角的一枚极淡徽记，给空旷的页面底色添一点纹样。
@@ -114,7 +137,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import IosInstallGuide from '@/components/IosInstallGuide.vue'
@@ -243,7 +266,44 @@ async function handleLogout() {
   router.push('/dashboard')
 }
 
+// ---------- 平板图标栏 ----------
+// 768–1100 覆盖 iPad 竖屏（768）与横屏（1024）。这一档用完整侧栏会把正文挤窄，
+// 用抽屉又浪费横向空间 —— 收成图标栏最合适。
+// 768 这个边界要**归到平板**：媒体查询里手机抽屉写成 ≤767，两边才不打架
+const compact = ref(false)
+const compactQuery =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(min-width: 768px) and (max-width: 1100px)')
+    : null
+
+function syncCompact(event) {
+  compact.value = event.matches
+}
+
+// ---------- 断网提示 ----------
+const offline = ref(typeof navigator !== 'undefined' ? !navigator.onLine : false)
+
+function handleOffline() {
+  offline.value = true
+}
+
+function handleOnline() {
+  offline.value = false
+  ElMessage.success('网络已恢复')
+}
+
+function reloadPage() {
+  window.location.reload()
+}
+
 onMounted(async () => {
+  if (compactQuery) {
+    compact.value = compactQuery.matches
+    compactQuery.addEventListener?.('change', syncCompact)
+  }
+  window.addEventListener('offline', handleOffline)
+  window.addEventListener('online', handleOnline)
+
   // 「首页」「通知公告」是免登录页面，路由守卫走到它们就直接放行、
   // 不会去问后端登录状态，右上角会错显示成「登录」按钮。
   // 这里统一确认一次（未登录时后端返回 401，store 里会吞掉）
@@ -252,6 +312,12 @@ onMounted(async () => {
   // 班级人数取自公开摘要，未登录也能正常显示。
   // 增删学生之后由学生名单页再调一次 store 里的 refreshTotal()
   await userStore.refreshTotal()
+})
+
+onBeforeUnmount(() => {
+  compactQuery?.removeEventListener?.('change', syncCompact)
+  window.removeEventListener('offline', handleOffline)
+  window.removeEventListener('online', handleOnline)
 })
 </script>
 
@@ -278,17 +344,22 @@ onMounted(async () => {
 
 .layout-header {
   background: var(--app-header-bg);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  /* 和 main.css 里那三档磨砂共用变量：顶栏是「固定玻璃」，
+     滚动时背后一直有东西经过，这一层磨砂撑起整页的玻璃基调 */
+  backdrop-filter: blur(var(--app-glass-blur-chrome)) saturate(var(--app-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--app-glass-blur-chrome)) saturate(var(--app-glass-saturate));
   color: var(--el-text-color-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
+  /* 刘海/灵动岛机型：把顶栏内容压进安全区，否则状态栏会和标题叠在一起。
+     普通浏览器 env() 为 0，高度仍是 64px */
+  padding-top: env(safe-area-inset-top);
   border-bottom: 1px solid var(--app-outline);
   box-shadow: 0 6px 20px rgba(88, 84, 214, 0.04);
   z-index: 10;
-  height: 64px;
+  height: calc(64px + env(safe-area-inset-top));
 }
 
 .header-left {
@@ -415,8 +486,8 @@ html.dark .app-title {
 
 .layout-aside {
   background: var(--app-aside-bg);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(var(--app-glass-blur-chrome)) saturate(var(--app-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--app-glass-blur-chrome)) saturate(var(--app-glass-saturate));
   border-right: 1px solid var(--app-outline);
   overflow-x: hidden;
 }
@@ -496,6 +567,114 @@ html.dark .app-title {
    在组件内部，scoped 样式得写 :deep() 才生效，还得操心它套在图标上会不会
    挤压 50px 的行高。el-menu-item 本身是 display:flex，margin-left:auto
    就能把这个 span 推到最右端 */
+/* ============ 平板图标栏（769–1100）============
+   el-menu 的 collapse 已经负责「只留图标 + 悬停 tooltip」，
+   这里补三件它不管的事：分组标题、退出登录的文字、未读角标的位置。
+   aside 72px = 菜单自身 64px + 左右各 4px 内边距，正好不溢出 */
+.layout-aside.is-compact .side-menu {
+  padding: 8px 4px;
+}
+
+.layout-aside.is-compact :deep(.el-menu-item-group__title) {
+  display: none !important;
+}
+
+/* 文字标签必须自己藏：el-menu 的 collapse 只保证「图标居中 + tooltip」，
+   项目里这些 <span> 是自定义结构，不藏就会从 72px 的栏里探出去被裁成半个词。
+   角标是 span，排除掉，它缩成圆点还有用 */
+.layout-aside.is-compact :deep(.el-menu-item > span:not(.menu-item-badge)) {
+  display: none;
+}
+
+.layout-aside.is-compact :deep(.el-menu-item) {
+  justify-content: center;
+  padding: 0 !important;
+  position: relative;
+}
+
+/* 分组标题藏掉之后，用一条分隔线保留「这几项是一组」的结构，
+   否则十来个图标竖着排成一列，看不出哪几个是同一类 */
+.layout-aside.is-compact :deep(.el-menu-item-group + .el-menu-item-group) {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--app-outline);
+}
+
+.layout-aside.is-compact .logout-item {
+  justify-content: center;
+  padding: 0;
+  position: relative;
+}
+
+/* 图标栏里角标缩成一个圆点：数字挂上去会把图标挤歪，点一下展开就能看到具体数 */
+.layout-aside.is-compact .menu-item-badge {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  min-width: 8px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  font-size: 0;
+  line-height: 8px;
+  border-radius: 50%;
+  margin: 0;
+}
+
+/* ============ 断网提示 ============
+   顶栏下方居中的小药丸：只在离线时出现，恢复后自己消失。
+   不用全宽条 —— 全宽会把内容整体往下推，弱网下反而更晃眼 */
+.offline-bar {
+  position: fixed;
+  top: calc(72px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(230, 162, 60, 0.36);
+  background: rgba(255, 247, 235, 0.9);
+  color: #8a5a12;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(120, 90, 30, 0.14);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  max-width: calc(100vw - 24px);
+}
+
+html.dark .offline-bar {
+  background: rgba(52, 42, 24, 0.9);
+  border-color: rgba(230, 162, 60, 0.32);
+  color: #f0c27a;
+}
+
+.offline-retry {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 2px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.offline-enter-active,
+.offline-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.offline-enter-from,
+.offline-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -6px);
+}
+
 .menu-item-badge {
   margin-left: auto;
   flex-shrink: 0;
@@ -515,6 +694,9 @@ html.dark .app-title {
   background: transparent;
   padding: 24px 28px;
   overflow-y: auto;
+  /* iPad 上滚到底继续拖时，别把整页（含固定顶栏）一起带着弹 */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 返回带：贴在内容区左上角，做成一枚浅色药丸 —— 足够可见，
@@ -548,10 +730,12 @@ html.dark .app-title {
   font-size: 14px;
 }
 
-/* ============ 手机适配（≤768px）============
+/* ============ 手机适配（≤767px）============
    侧边栏改成从左侧滑出的抽屉，靠汉堡按钮开关；
-   头部只留必要信息，标题过长时省略号截断，不把头像挤出去。 */
-@media (max-width: 768px) {
+   头部只留必要信息，标题过长时省略号截断，不把头像挤出去。
+   **767 而不是 768**：iPad 竖屏正好 768，归平板的图标栏那档，
+   否则同一宽度会同时命中「图标栏」和「抽屉」两套规则。 */
+@media (max-width: 767px) {
   .layout-header {
     padding: 0 12px;
     gap: 8px;
@@ -593,7 +777,7 @@ html.dark .app-title {
 
   .layout-aside {
     position: fixed;
-    top: 64px;
+    top: calc(64px + env(safe-area-inset-top));
     bottom: 0;
     left: 0;
     z-index: 2001;
@@ -610,9 +794,10 @@ html.dark .app-title {
   .aside-mask {
     display: block;
     position: fixed;
-    inset: 64px 0 0 0;
+    inset: calc(64px + env(safe-area-inset-top)) 0 0 0;
     z-index: 2000;
     background: rgba(23, 25, 45, 0.32);
+    backdrop-filter: blur(2px);
   }
 
   .layout-main {
@@ -623,6 +808,24 @@ html.dark .app-title {
   .layout-footer {
     padding: 8px 6px;
     font-size: 11px;
+  }
+}
+
+/* ============ 平板（769–1100）============
+   图标栏省下的横向空间全给正文：平板竖屏上表格能多露出一列，
+   横屏时也不会因为「220px 菜单 + 表格」挤出横向滚动 */
+@media (min-width: 768px) and (max-width: 1100px) {
+  .layout-main {
+    padding: 20px 18px;
+  }
+
+  .header-right {
+    gap: 10px;
+  }
+
+  /* 顶栏在 1024 以下先收副标题，标题和头像优先 */
+  .app-subtitle {
+    display: none;
   }
 }
 

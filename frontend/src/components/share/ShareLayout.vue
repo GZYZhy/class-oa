@@ -79,9 +79,9 @@ defineProps({
   background: var(--app-surface);
   border: 1px solid var(--app-border);
   border-radius: 22px;
-  box-shadow: var(--app-shadow-hover);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--app-shadow-hover), var(--app-card-inset);
+  backdrop-filter: blur(var(--app-glass-blur-float)) saturate(var(--app-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--app-glass-blur-float)) saturate(var(--app-glass-saturate));
 }
 
 .share-head {
