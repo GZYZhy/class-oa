@@ -1,21 +1,28 @@
-"""天气提醒：按每个人的订阅条件，每 N 小时检查一次预报
+"""天气提醒：按每个人的订阅条件，每 N 分钟检查一次预报
 
 设计上的几条线：
 
-  · **只提醒，不做预警**。数据源（Open-Meteo）没有中国的官方预警接口，
-    所以这里判断的全是「预报阈值」：降雨概率、是否下雪/雷暴、高温、低温、大风。
-    文案也必须写成「可能有雨（概率 80%）」这种口径，不能写成断言。
+  · **预报是概率型，预警是权威信息**。数据源是 Open-Meteo 时只能判断预报阈值
+    （降雨概率、是否下雪/雷暴、高温、低温、大风），文案必须写成「可能有雨
+    （概率 80%）」这种口径。换成和风天气后多一类「官方预警」条件：那是气象台
+    发布的正式预警，文案直接引用，不和阈值混在一起。
 
   · **每人一份设置**（models/weather_notify.py）：开不开、盯哪几种天气、
-    阈值多少、关注今天还是明天、几点到几点别吵，都是个人偏好。
+    阈值多少、关注今天还是明天、夜间免打扰时段，都是个人偏好。
+
+  · **夜间免打扰的时段管两件事**：这段时间不推送；落在这一时段里的降水 /
+    降雪 / 雷暴也不计入判断（凌晨三点的雨不该写成白天要处理的事）。
+    原先另有一个「忽略夜间天气」开关，讲的是同一件事，已合并成时段一个口径。
 
   · **一次外呼服务所有人**：预报数据由 weather_service 统一取、统一缓存，
     这个模块只做判断和分发。
 
   · **去重**：同一个人、同一段时间、同一组条件只发一次（last_key）。
-    条件变多了（比如先报下雨、后来加上雷暴）算新事件，会再发一条。
+    条件变多了（比如先报下雨、后来加上雷暴）算新事件，会再发一条；
+    预警按预警 id 区分，一条预警只提一次。
 """
 
+import hashlib
 import json
 import os
 from datetime import datetime, time, timedelta
@@ -26,7 +33,8 @@ from ..models import WeatherNotifySettings
 from . import weather_service
 from .notify_service import deliver_now, recipients
 
-# 可订阅的天气条件。顺序即前端展示顺序
+# 可订阅的天气条件。顺序即前端展示顺序。
+# 「官方预警」只有和风天气数据源才有数据；Open-Meteo 下勾了也不会触发
 CONDITIONS = {
     "rain": "降雨",
     "snow": "降雪",
@@ -34,25 +42,22 @@ CONDITIONS = {
     "heat": "高温",
     "cold": "低温",
     "wind": "大风",
+    "alert": "官方预警",
 }
 # 新用户默认勾这几项：降雨是最高频、最有用的一条
 DEFAULT_CONDITIONS = ["rain"]
 
 WINDOWS = {"today": "今天", "tomorrow": "明天", "next24h": "未来 24 小时"}
 
-DEFAULT_INTERVAL_HOURS = 6.0
+# 巡检间隔（分钟）：默认 10，范围 1–1440。常量在 weather_service 里 ——
+# 缓存 TTL 要读同一个值，而本模块已经反过来 import 了它
+DEFAULT_INTERVAL_MINUTES = weather_service.DEFAULT_INTERVAL_MINUTES
 DEFAULT_RAIN_THRESHOLD = 60
 DEFAULT_HEAT_THRESHOLD = 35
 DEFAULT_COLD_THRESHOLD = 0
 DEFAULT_WIND_THRESHOLD = 39
 DEFAULT_QUIET_START = 22
 DEFAULT_QUIET_END = 7
-
-# 夜间天气（降水/降雪/雷暴）默认忽略的时段。这不是「几点不发消息」——
-# 那是下面个人设置的 quiet_start/quiet_end；这里过滤的是**天气本身发生的时间**，
-# 避免横幅/提醒把凌晨的雨写成一件白天要处理的事。
-NIGHT_START = 22
-NIGHT_END = 6
 
 
 # ---------------------------------------------------------------- 配置读写
@@ -100,7 +105,6 @@ def _default_notify_row(student_no: str) -> WeatherNotifySettings:
         window="tomorrow",
         quiet_start=DEFAULT_QUIET_START,
         quiet_end=DEFAULT_QUIET_END,
-        ignore_night=True,
         last_key="",
     )
 
@@ -136,7 +140,6 @@ def put_settings(db: Session, student_no: str, data) -> WeatherNotifySettings:
     row.window = window if window in WINDOWS else "tomorrow"
     row.quiet_start = _clamp(getattr(data, "quiet_start", DEFAULT_QUIET_START), 0, 23)
     row.quiet_end = _clamp(getattr(data, "quiet_end", DEFAULT_QUIET_END), 0, 23)
-    row.ignore_night = bool(getattr(data, "ignore_night", True))
 
     db.commit()
     db.refresh(row)
@@ -198,12 +201,14 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
         if moment is not None and start <= moment <= end:
             hours.append((moment, item))
 
-    # 夜间天气默认不计入：22:00–06:00 的降水/降雪/雷暴不触发横幅，也不发提醒。
-    # 日级的高温/低温/大风没有具体小时，仍按全天数据判断。
-    if getattr(row, "ignore_night", True):
+    # 夜间免打扰时段内的降水/降雪/雷暴不计入：凌晨三点的雨不该写成白天要处理的事。
+    # 时段来自设置本身（个人是免打扰；横幅是管理员配的夜间时段），起止相等 = 不过滤。
+    # 日级的高温/低温/大风没有具体小时，仍按全天数据判断；官方预警是权威信息，
+    # 也不受这个过滤影响（它没有「发生在几点」这一说）
+    if _has_quiet(row):
         hours = [
             (moment, item) for moment, item in hours
-            if NIGHT_END <= moment.hour < NIGHT_START
+            if not in_quiet_hours(row, moment)
         ]
 
     # 日级数据只覆盖今天和明天；next24h 可能跨两天，两头都看
@@ -275,11 +280,41 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
                 "detail": f"{label_prefix}阵风可达 {max(winds)} km/h，注意防风。",
             })
 
+    # 官方预警：只有和风数据源会给 alerts，Open-Meteo 下这里是空表。
+    # 不套「关注时段」——预警是「现在正生效」的信息，不是某天的预报；
+    # 也不受夜间过滤影响（见上面那段说明）
+    if "alert" in wanted:
+        for alert in data.get("alerts") or []:
+            kind = (alert.get("type") or "").strip() or "气象"
+            title = (alert.get("title") or "").strip() or f"{kind}预警"
+            level = (alert.get("severity") or "").strip()
+            excerpt = _alert_excerpt(alert.get("text"))
+            hits.append({
+                "code": "alert",
+                # 去重要用到：同一条预警只提一次，换一条（新 id）才继续提
+                "alert_id": str(alert.get("id") or title),
+                "title": f"{kind}预警",
+                "detail": f"{title}（{level}）" + (f"：{excerpt}" if excerpt else ""),
+            })
+
     return hits, date_key
 
 
+def _alert_excerpt(text, limit: int = 80) -> str:
+    """预警正文摘一句：官方原文动辄几百字，塞进通知栏只会被折叠掉"""
+    plain = " ".join(str(text or "").split())
+    return plain[:limit] + "…" if len(plain) > limit else plain
+
+
+def _has_quiet(row) -> bool:
+    """有没有设夜间时段。起止相等 = 不启用（与 in_quiet_hours 同一口径）"""
+    return getattr(row, "quiet_start", DEFAULT_QUIET_START) != getattr(
+        row, "quiet_end", DEFAULT_QUIET_END
+    )
+
+
 def in_quiet_hours(row: WeatherNotifySettings, now: datetime) -> bool:
-    """静默时段判断（支持跨零点，如 22 → 7）"""
+    """夜间免打扰判断（支持跨零点，如 22 → 7）"""
     start, end = row.quiet_start, row.quiet_end
     if start == end:
         return False
@@ -296,19 +331,36 @@ def scheduler_enabled() -> bool:
     return os.environ.get("WEATHER_NOTIFY_SCHEDULER", "1") != "0"
 
 
-def interval_hours(db=None) -> float:
-    """巡检间隔（小时）。管理员在「系统管理 → 天气」里配，db=None 只给单元测试用"""
+def interval_minutes(db=None) -> int:
+    """巡检间隔（分钟，1–1440）。管理员在「系统管理 → 天气」里配
+
+    默认 10 分钟。下限 1 分钟：再密没有意义（对方的数据也不是每分钟更新）；
+    上限 1440（24 小时）：避免手滑填成天文数字变成「再也不提醒」。
+
+    db=None 只给单元测试 / 旧部署用：先读 WEATHER_NOTIFY_INTERVAL_MINUTES，
+    没有再看老变量 WEATHER_NOTIFY_INTERVAL_HOURS（×60），都没有就用默认值。
+    """
     if db is None:
-        raw = os.environ.get("WEATHER_NOTIFY_INTERVAL_HOURS", DEFAULT_INTERVAL_HOURS)
+        raw = os.environ.get("WEATHER_NOTIFY_INTERVAL_MINUTES")
+        if not raw:
+            legacy = os.environ.get("WEATHER_NOTIFY_INTERVAL_HOURS")
+            if legacy:
+                try:
+                    raw = float(legacy) * 60
+                except (TypeError, ValueError):
+                    raw = DEFAULT_INTERVAL_MINUTES
+            else:
+                raw = DEFAULT_INTERVAL_MINUTES
     else:
-        raw = getattr(get_banner(db), "notify_interval_hours", DEFAULT_INTERVAL_HOURS)
+        raw = getattr(get_banner(db), "notify_interval_minutes", DEFAULT_INTERVAL_MINUTES)
     try:
-        value = float(raw)
+        value = int(round(float(raw)))
     except (TypeError, ValueError):
-        return DEFAULT_INTERVAL_HOURS
-    # 太小的值没有意义（预报本身也只按 10 分钟缓存），下限 1 小时；
-    # 上限一周，避免手滑填成 10000 小时变成「再也不提醒」
-    return max(1.0, min(168.0, value))
+        return DEFAULT_INTERVAL_MINUTES
+    return max(
+        weather_service.MIN_INTERVAL_MINUTES,
+        min(weather_service.MAX_INTERVAL_MINUTES, value),
+    )
 
 
 def run_once(db: Session, now: datetime | None = None) -> int:
@@ -335,12 +387,21 @@ def run_once(db: Session, now: datetime | None = None) -> int:
             hits, date_key = evaluate(data, row, now)
             if not hits:
                 continue
-            key = f"{row.window}:{date_key}:{','.join(sorted(h['code'] for h in hits))}"
+            codes = ",".join(sorted(h["code"] for h in hits))
+            alert_ids = ",".join(
+                sorted(str(h["alert_id"]) for h in hits if h.get("alert_id"))
+            )
+            key = f"{row.window}:{date_key}:{codes}"
+            if alert_ids:
+                # last_key 只有 64 个字符，几条预警的 id 串起来就超了；
+                # 这里只需要区分「是不是同一条预警」，取摘要就够
+                key += ":" + hashlib.md5(alert_ids.encode()).hexdigest()[:8]
             if key == row.last_key:
                 continue  # 同一件事已经提醒过
 
             title = "天气提醒：" + "、".join(h["title"] for h in hits)
-            body = "\n".join(h["detail"] for h in hits) + "\n（数据：Open-Meteo）"
+            source = data.get("source_label") or "Open-Meteo"
+            body = "\n".join(h["detail"] for h in hits) + f"\n（数据：{source}）"
             targets = recipients(db, only_no=row.student_no)
             if not targets:
                 continue
@@ -375,7 +436,10 @@ def get_banner(db: Session):
         lat=None,
         lng=None,
         site_url="",
-        notify_interval_hours=DEFAULT_INTERVAL_HOURS,
+        notify_interval_minutes=DEFAULT_INTERVAL_MINUTES,
+        source=weather_service.SOURCE_OPEN_METEO,
+        qweather_key="",
+        qweather_host="",
         enabled=False,
         conditions=dump_conditions(DEFAULT_CONDITIONS),
         rain_threshold=DEFAULT_RAIN_THRESHOLD,
@@ -383,7 +447,8 @@ def get_banner(db: Session):
         cold_threshold=DEFAULT_COLD_THRESHOLD,
         wind_threshold=DEFAULT_WIND_THRESHOLD,
         window="today",
-        ignore_night=True,
+        quiet_start=DEFAULT_QUIET_START,
+        quiet_end=DEFAULT_QUIET_END,
     )
 
 
@@ -399,9 +464,19 @@ def put_banner(db: Session, data):
     row.lat = getattr(data, "lat", None)
     row.lng = getattr(data, "lng", None)
     row.site_url = (getattr(data, "site_url", "") or "").strip()
-    row.notify_interval_hours = max(
-        1.0, min(168.0, float(getattr(data, "notify_interval_hours", DEFAULT_INTERVAL_HOURS)))
+    row.notify_interval_minutes = _clamp(
+        getattr(data, "notify_interval_minutes", DEFAULT_INTERVAL_MINUTES),
+        weather_service.MIN_INTERVAL_MINUTES,
+        weather_service.MAX_INTERVAL_MINUTES,
     )
+    # 数据源：不认识的值一律退回 Open-Meteo（默认那档），不要留一个谁也不认识的串
+    source = (getattr(data, "source", "") or "").strip()
+    row.source = (
+        source if source in weather_service.SOURCE_LABELS
+        else weather_service.SOURCE_OPEN_METEO
+    )
+    row.qweather_key = (getattr(data, "qweather_key", "") or "").strip()
+    row.qweather_host = (getattr(data, "qweather_host", "") or "").strip()
     row.enabled = bool(data.enabled)
     row.conditions = dump_conditions(data.conditions)
     row.rain_threshold = _clamp(getattr(data, "rain_threshold", DEFAULT_RAIN_THRESHOLD), 10, 100)
@@ -410,7 +485,8 @@ def put_banner(db: Session, data):
     row.wind_threshold = _clamp(getattr(data, "wind_threshold", DEFAULT_WIND_THRESHOLD), 10, 120)
     window = getattr(data, "window", "today")
     row.window = window if window in WINDOWS else "today"
-    row.ignore_night = bool(getattr(data, "ignore_night", True))
+    row.quiet_start = _clamp(getattr(data, "quiet_start", DEFAULT_QUIET_START), 0, 23)
+    row.quiet_end = _clamp(getattr(data, "quiet_end", DEFAULT_QUIET_END), 0, 23)
 
     db.commit()
     db.refresh(row)

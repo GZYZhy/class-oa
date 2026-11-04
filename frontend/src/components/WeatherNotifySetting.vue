@@ -29,8 +29,9 @@
           </div>
 
           <div class="desc rule-note">
-            预报来自 Open-Meteo，是概率型数据：写着「可能有雨」不代表一定下。
-            位置由管理员在站点配置里指定（当前是本班级所在地）。
+            预报来自 {{ sourceLabel }}，是概率型数据：写着「可能有雨」不代表一定下。
+            「官方预警」只在本站使用和风天气数据源时才有数据；位置由管理员在站点配置里
+            指定（当前是本班级所在地）。
           </div>
         </div>
       </el-collapse-item>
@@ -60,12 +61,13 @@ const rule = reactive({
   wind_threshold: 39,
   window: 'tomorrow',
   quiet_start: 22,
-  quiet_end: 7,
-  ignore_night: true
+  quiet_end: 7
 })
 
 // 可选条件 / 时段的中文标签由后端给，前端不另写一份
 const meta = reactive({ conditions: [], windows: [] })
+// 数据源名字也由后端给（换供应商时页面说明跟着变，不在前端写死）
+const sourceLabel = ref('Open-Meteo')
 
 async function load() {
   loading.value = true
@@ -80,9 +82,9 @@ async function load() {
     rule.window = data.window || 'tomorrow'
     rule.quiet_start = data.quiet_start
     rule.quiet_end = data.quiet_end
-    rule.ignore_night = data.ignore_night !== false
     meta.conditions = data.available_conditions || []
     meta.windows = data.windows || []
+    sourceLabel.value = data.source_label || 'Open-Meteo'
   } catch (e) {
     ElMessage.error('天气提醒设置加载失败')
   } finally {

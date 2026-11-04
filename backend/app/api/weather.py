@@ -30,7 +30,7 @@ def current_weather(db: Session = Depends(get_db)):
     return payload
 
 
-def _notify_payload(row) -> WeatherNotifySettingsResponse:
+def _notify_payload(db: Session, row) -> WeatherNotifySettingsResponse:
     return WeatherNotifySettingsResponse(
         enabled=bool(row.enabled),
         conditions=weather_notify_service.parse_conditions(row.conditions),
@@ -41,7 +41,7 @@ def _notify_payload(row) -> WeatherNotifySettingsResponse:
         window=row.window,
         quiet_start=row.quiet_start,
         quiet_end=row.quiet_end,
-        ignore_night=bool(row.ignore_night),
+        source_label=weather_service.source_label(db),
         # 标签由后端给一份，前端不另写中文 —— 加条件时只改 services/weather_notify_service.py
         available_conditions=[
             WeatherNotifyOption(code=code, label=label)
@@ -63,7 +63,7 @@ def read_notify_settings(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return _notify_payload(weather_notify_service.get_settings(db, user.student_no))
+    return _notify_payload(db, weather_notify_service.get_settings(db, user.student_no))
 
 
 @router.put("/notify", summary="保存我的天气提醒设置")

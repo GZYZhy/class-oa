@@ -4227,25 +4227,40 @@ console.log('\n▶ 弱网首屏：图表库按需且不挡首页，图标不整�
   check(body.includes('weather-card') && body.includes('weather-body'),
     '天气卡渲染出来了（数据等接口）')
 
-  // 夜间天气开关：个人提醒与管理员横幅共用同一张表单，默认打开
+  // 夜间时段：个人提醒（免打扰）与管理员横幅（夜间时段）共用同一张表单。
+  // 原先那个「忽略夜间天气」开关已经并进来，表单里不许再出现 ignore_night
   const ruleFormSrc = readFileSync(`${ROOT}/src/components/WeatherRuleForm.vue`, 'utf8')
-  check(ruleFormSrc.includes('v-model="rule.ignore_night"') &&
-    ruleFormSrc.includes('22:00–06:00'),
-  '天气规则表单里有「忽略 22:00–06:00」开关，并写明只过滤降水/降雪/雷暴')
+  check(ruleFormSrc.includes('v-model="rule.quiet_start"') &&
+    ruleFormSrc.includes('v-model="rule.quiet_end"') &&
+    ruleFormSrc.includes('官方预警不受影响'),
+  '天气规则表单里的夜间时段写清「不推送 + 降水/降雪/雷暴不算数」')
+  check(!ruleFormSrc.includes('ignore_night'),
+    '「忽略夜间天气」开关已合并进夜间时段，不再有第二个开关')
   const noticeSettingSrc = readFileSync(`${ROOT}/src/components/WeatherNotifySetting.vue`, 'utf8')
   const adminSrc = readFileSync(`${ROOT}/src/views/Admin.vue`, 'utf8')
-  check(noticeSettingSrc.includes('ignore_night: true') && adminSrc.includes('ignore_night: true'),
-    '个人提醒与管理员横幅的开关默认都是打开的')
-  // 天气卡地点已从 .env 迁到「系统管理 → 天气」：三项都得是管理员可改的
+  check(noticeSettingSrc.includes('quiet_start: 22') && noticeSettingSrc.includes('source_label'),
+    '个人提醒默认 22–7 免打扰，数据源名字由后端下发')
+  // 天气卡地点已从 .env 迁到「系统管理 → 天气」：三项都得是管理员可改的，
+  // 并且配了高德 Key 时能用地图点选（MapPicker 自己降级成手填）
   check(adminSrc.includes('天气卡地点') &&
     ['name', 'lat', 'lng'].every((k) => adminSrc.includes(`weatherBanner.${k}`)),
   '管理员能改天气卡的显示名和经纬度')
+  check(adminSrc.includes('<MapPicker') && adminSrc.includes(':auto-locate="false"') &&
+    adminSrc.includes('onWeatherPoint'),
+  '管理员配置地点时能用高德地图点选（没配 Key 时降级成填经纬度）')
   check(adminSrc.includes('经纬度要一起填'),
     '管理员只填一个坐标时会提示经纬度要成对')
-  // 网站地址和巡检间隔也归管理员，不再只靠 .env
-  check(['site_url', 'notify_interval_hours'].every(
+  // 网站地址、巡检间隔（分钟）、数据源与和风 Key 也归管理员
+  check(['site_url', 'notify_interval_minutes'].every(
     (k) => adminSrc.includes(`weatherBanner.${k}`)),
-  '天气网站和巡检间隔也能在后台改')
+  '天气网站和巡检间隔（分钟）也能在后台改')
+  check(adminSrc.includes('notify_interval_minutes: 10') && adminSrc.includes(':max="1440"'),
+    '默认 10 分钟，上限 1440 分钟（24 小时）')
+  check(adminSrc.includes("weatherBanner.source === 'qweather'") &&
+    adminSrc.includes('qweather_key') && adminSrc.includes('qweather_host'),
+  '管理员能选数据源并填和风 Key / API Host')
+  check(adminSrc.includes('选了和风天气就要填 API Key'),
+    '选了和风却没填 Key 时前端先拦住（后端同口径）')
   // 只盯图标：这个桩环境没装 vue-router，router-link 解析不到是桩的事，和图标无关
   const unresolved = warns
     .map((w) => (w.match(/Failed to resolve component: (\w+)/) || [])[1])
@@ -5659,7 +5674,8 @@ console.log('\n▶ 签到：发布端默认用发布人定位，地图上画出�
 {
   const picker = readFileSync(`${ROOT}/src/components/MapPicker.vue`, 'utf8')
   check(picker.includes('autoLocate()'), '打开地图就自动定位发布人（默认地点）')
-  check(/if \(!props\.readonly\) autoLocate\(\)/.test(picker), '只读地图不自动定位（公开页不该要访问者位置）')
+  check(/if \(!props\.readonly && props\.autoLocate\) autoLocate\(\)/.test(picker),
+    '只读地图、或显式关掉 autoLocate 时不自动定位（公开页 / 后台配置地点）')
   check(picker.includes('getCurrentLocation'), '默认位置来自浏览器定位')
   check(picker.includes('new AMapRef.Circle'), '地图上画出允许签到的范围圆')
   check(picker.includes('circle.setRadius(props.radius || 0)'), '半径改了圆跟着变')

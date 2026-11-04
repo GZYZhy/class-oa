@@ -19,12 +19,17 @@ from . import weather_notify_service
 from .birthday_service import get_settings, run_daily
 
 # 巡检间隔。不是为了掐准 8:00 —— 定点只需「到点后的第一次巡检把它捡起来」，
-# 几分钟的误差对一天一次的事完全可以接受
-TICK_SECONDS = 300
+# 几分钟的误差对一天一次的事完全可以接受。
+#
+# 但天气提醒要支持「1 分钟一次」，线程的睡眠时间就不能大于 1 分钟：**巡检的
+# 粒度决定了间隔的下限**，睡 5 分钟的时候配 1 分钟只是自欺欺人。所以统一按
+# 60 秒醒一次 —— 生日那边一天只做一次判断（run_daily 自己看 last_run_date），
+# 每分钟多查一次库对这个量级的应用是可以忽略的
+TICK_SECONDS = 60
 RUN_HOUR = 8
 
 _thread: threading.Thread | None = None
-# 天气提醒的上一轮执行时刻（只在内存里）：间隔由 WEATHER_NOTIFY_INTERVAL_HOURS 定，
+# 天气提醒的上一轮执行时刻（只在内存里）：间隔由管理员配置（分钟），
 # 进程重启就从现在重新算 —— 重启本身已经足够说明「这一轮该重新看了」
 _last_weather_run: datetime | None = None
 
@@ -76,8 +81,8 @@ def weather_tick(now: datetime | None = None) -> bool:
     """天气提醒一轮；返回这轮是否真的执行了
 
     和生日那个 tick 的区别：生日是「每天一次、到点就补」，这里按**间隔**跑
-    （默认 6 小时），所以只需要记住上一次跑的时刻。间隔由管理员配置，
-    不是每个用户的设置。
+    （默认 10 分钟，可配 1–1440），所以只需要记住上一次跑的时刻。间隔由管理员
+    配置，不是每个用户的设置。
 
     同样必须自己开会话（请求级的 get_db 在响应之后就关了），并且这一轮里
     所有用户的判断与发送都复用这一张会话。
@@ -89,8 +94,8 @@ def weather_tick(now: datetime | None = None) -> bool:
 
     db = SessionLocal()
     try:
-        # 间隔由管理员配置（原先是 WEATHER_NOTIFY_INTERVAL_HOURS），每次巡检现读
-        gap = timedelta(hours=weather_notify_service.interval_hours(db))
+        # 间隔由管理员配置（分钟），每次巡检现读；改完下一轮就按新频率走
+        gap = timedelta(minutes=weather_notify_service.interval_minutes(db))
         if _last_weather_run is not None and now - _last_weather_run < gap:
             return False
 

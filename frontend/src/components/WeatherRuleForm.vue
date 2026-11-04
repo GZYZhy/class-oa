@@ -16,13 +16,21 @@
       </el-radio-group>
     </el-form-item>
 
-    <!-- 过滤的是「天气发生在什么时间」，不是「什么时候推送」（推送另有免打扰）。
-         原来叫「夜间天气」，读起来像在问「夜间天气怎么样」，实际是「夜间不算数」 -->
-    <el-form-item label="忽略夜间天气">
-      <el-switch v-model="rule.ignore_night" />
-      <span class="rule-unit">
-        22:00–06:00 的降水 / 降雪 / 雷暴不算数；高温、低温、大风仍按全天判断
-      </span>
+    <!--
+      夜间时段：一个设置管两件事。原先这里是「忽略夜间天气」开关、下面另有一个
+      「免打扰」时段，两个开关讲的是同一件事的两半（别半夜吵我 / 凌晨的雨不算数），
+      已合并成时段一个口径：设了时段就两件事一起生效，起止相等 = 关闭。
+      官方预警不受这段影响 —— 它是「现在正生效」的权威信息。
+    -->
+    <el-form-item v-if="showQuiet" :label="quietLabel">
+      <el-select v-model="rule.quiet_start" size="small" style="width: 92px;">
+        <el-option v-for="h in hours" :key="h" :label="`${h}:00`" :value="h" />
+      </el-select>
+      <span class="rule-unit">至</span>
+      <el-select v-model="rule.quiet_end" size="small" style="width: 92px;">
+        <el-option v-for="h in hours" :key="h" :label="`${h}:00`" :value="h" />
+      </el-select>
+      <span class="rule-unit">{{ quietHint }}</span>
     </el-form-item>
 
     <!-- 阈值：可定制化主要就体现在这四个数上，默认值给的是「一般人有感的线」 -->
@@ -43,17 +51,6 @@
       <span class="rule-unit">km/h（39 约 6 级）</span>
     </el-form-item>
 
-    <!-- 只有个人提醒有「免打扰」：横幅是页面上的东西，不存在打扰 -->
-    <el-form-item v-if="showQuiet" label="免打扰">
-      <el-select v-model="rule.quiet_start" size="small" style="width: 92px;">
-        <el-option v-for="h in hours" :key="h" :label="`${h}:00`" :value="h" />
-      </el-select>
-      <span class="rule-unit">至</span>
-      <el-select v-model="rule.quiet_end" size="small" style="width: 92px;">
-        <el-option v-for="h in hours" :key="h" :label="`${h}:00`" :value="h" />
-      </el-select>
-      <span class="rule-unit">之间不推送</span>
-    </el-form-item>
   </el-form>
 </template>
 
@@ -62,7 +59,8 @@
  * 天气规则表单：个人提醒和管理员横幅共用一份
  *
  * 两边的字段与取值范围完全一致（后端也是同一套判断），各写一份必然对不上。
- * 「免打扰」只有个人提醒需要，用 showQuiet 控制。
+ * 「夜间时段」两边都有，只是叫法不同（个人叫免打扰，横幅叫夜间时段），
+ * 说明文字用 quietLabel / quietHint 传，默认那套是个人提醒的口径。
  *
  * 传进来的 rule 是父组件持有的 reactive 对象，这里**直接改它的字段**，
  * 不再往外 emit 一份副本：父组件保存时读到的就是同一份数据，少一层同步。
@@ -71,6 +69,11 @@ defineProps({
   rule: { type: Object, required: true },
   meta: { type: Object, default: () => ({ conditions: [], windows: [] }) },
   showQuiet: { type: Boolean, default: false },
+  quietLabel: { type: String, default: '夜间免打扰' },
+  quietHint: {
+    type: String,
+    default: '之间不推送；其中的降水 / 降雪 / 雷暴也不算数（官方预警不受影响）'
+  },
   disabled: { type: Boolean, default: false }
 })
 
