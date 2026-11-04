@@ -130,8 +130,9 @@
       </p>
     </div>
     <template #footer>
-      <!-- 只导这一次签到：谁签了、几点签的、离多远、最终出勤状态 -->
-      <el-button :loading="exportingDetail" @click="exportDetail">导出明细</el-button>
+      <!-- 只导这一次签到：谁签了、几点签的、离多远、最终出勤状态。
+           有照片时后端会连照片一起打包，按钮文案跟着说明 -->
+      <el-button :loading="exportingDetail" @click="exportDetail">{{ exportLabel }}</el-button>
       <el-button @click="visible = false">关闭</el-button>
     </template>
   </el-dialog>
@@ -158,7 +159,7 @@ import {
   updateCheckinTitle
 } from '@/api/checkin'
 import { checkinDetailExportUrl, updateAttendanceItem } from '@/api/attendance'
-import { downloadFile } from '@/utils/download'
+import { blobErrorDetail, downloadFile, fetchBlob, saveBlob } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
 import { renderMarkdown } from '@/utils/markdown'
 import { errText } from '@/utils/request'
@@ -194,19 +195,25 @@ async function downloadPhotos() {
   }
 }
 
-/** 导出这一次签到的逐人明细（Excel，单页签、带抬头摘要） */
+/** 有人交了照片就说明会打包，按钮提前讲清楚，免得下完才发现还带了个 zip */
+const exportLabel = computed(() => (photoCount.value ? '导出明细（含照片）' : '导出明细'))
+
+/** 导出这一次签到的逐人明细：有照片时是 zip（表 + 照片），否则是 xlsx */
 async function exportDetail() {
   if (!detail.value.id) return
   exportingDetail.value = true
   try {
     const title = (detail.value.title || '签到').replace(/[\\/:*?"<>|]/g, '_')
     const day = String(detail.value.closed_at || detail.value.end_at || '').slice(0, 10)
-    await downloadFile(
-      checkinDetailExportUrl(detail.value.id),
-      `签到明细_${day || '未记录'}_${title}.xlsx`
+    const blob = await fetchBlob(checkinDetailExportUrl(detail.value.id))
+    // 扩展名跟内容走，和收集导出一个道理：把 zip 存成 .xlsx 双击打不开
+    const isZip = (blob.type || '').includes('zip')
+    saveBlob(
+      blob,
+      `签到明细_${day || '未记录'}_${title}.${isZip ? 'zip' : 'xlsx'}`
     )
   } catch (e) {
-    ElMessage.error(errText(e, '导出失败'))
+    ElMessage.error(await blobErrorDetail(e, '导出失败'))
   } finally {
     exportingDetail.value = false
   }

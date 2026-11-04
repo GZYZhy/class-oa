@@ -8,7 +8,10 @@
 
 import io
 from datetime import date, datetime
+from io import BytesIO
+from pathlib import Path
 from urllib.parse import quote
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
@@ -41,6 +44,7 @@ from ..schemas import (
 )
 from ..services import display_name, log_operation
 from ..services.checkin_service import (
+    CHECKIN_DIR,
     CHECKIN_ENDED,
     CHECKIN_PAUSED,
     CHECKIN_PENDING,
@@ -462,8 +466,9 @@ def export_checkin_detail(
 ):
     """只导这一次签到：谁签了、几点签的、离地点多远、最终算出什么出勤状态
 
-    照片不打包进来（那是另一个按钮的事）；这里只标「有 / 空」，核对时知道
-    该去点谁的照片。
+    有照片时返回 **zip**（`签到明细.xlsx` + `照片/学号_姓名.后缀`），和收集
+    「导出含文件」是同一套做法：表格单元格写包内相对路径，解开就对得上。
+    照片一张都没有时仍是裸 xlsx，照片列退回「有 / 空」，不逼人去解压。
     """
     finalize_due(db)
     checkin = db.query(Checkin).filter(Checkin.id == checkin_id).first()
@@ -509,6 +514,21 @@ def export_checkin_detail(
         meta.append(f"说明：{checkin.remark}")
 
     columns = ["学号", "姓名", "签到状态", "签到时间", "距离(米)", "出勤状态", "照片"]
+    # 先把能打包的照片收好：表格最后列要写包内路径，所以得在建表之前知道谁有照片
+    photo_entries: list[tuple[str, Path]] = []
+    photo_arc: dict[str, str] = {}
+    for target in targets:
+        stored = Path(str(target.photo_file or "")).name
+        path = CHECKIN_DIR / stored
+        if not (stored and path.is_file()):
+            continue
+        arcname = (
+            f"照片/{target.student_no}_{_file_part(target.student_name or '学生')}"
+            f"{path.suffix or '.jpg'}"
+        )
+        photo_entries.append((arcname, path))
+        photo_arc[target.student_no] = arcname
+
     wb = Workbook()
     ws = wb.active
     ws.title = "签到明细"
@@ -524,7 +544,8 @@ def export_checkin_detail(
             target.signed_at.strftime("%Y-%m-%d %H:%M") if target.signed_at else "",
             target.distance_m if target.distance_m is not None else "",
             STATUS_LABELS.get(status, status or ""),
-            "有" if target.photo_file else "",
+            # 打包了写包内路径（解开直接点开）；没打包退回「有/空」
+            photo_arc.get(target.student_no) or ("有" if target.photo_file else ""),
         ]
         for col_idx, value in enumerate(values, 1):
             ws.cell(row=row, column=col_idx, value=value).alignment = Alignment(vertical="center")
@@ -539,10 +560,27 @@ def export_checkin_detail(
 
     buf = io.BytesIO()
     wb.save(buf)
-    return _xlsx_response(
-        buf.getvalue(),
-        f"签到明细_{day or '未记录'}_{_file_part(checkin.title or '签到')}.xlsx",
-    )
+    filename = f"签到明细_{day or '未记录'}_{_file_part(checkin.title or '签到')}"
+
+    # 有照片就打成 zip（表 + 照片），和收集导出同一套：xlsx 里的「照片」列
+    # 写的就是包内相对路径。没有照片仍然只给 xlsx，别为一张表逼人解压
+    if photo_entries:
+        archive = BytesIO()
+        with ZipFile(archive, "w", ZIP_DEFLATED) as bundle:
+            bundle.writestr("签到明细.xlsx", buf.getvalue())
+            for arcname, path in photo_entries:
+                bundle.write(path, arcname)
+        return Response(
+            content=archive.getvalue(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": "attachment; filename*=utf-8''"
+                + quote(f"{filename}_含照片.zip"),
+                "Cache-Control": "no-store",
+            },
+        )
+
+    return _xlsx_response(buf.getvalue(), f"{filename}.xlsx")
 
 
 @router.get(
