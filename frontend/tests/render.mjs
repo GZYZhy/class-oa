@@ -4226,6 +4226,9 @@ console.log('\n▶ 弱网首屏：图表库按需且不挡首页，图标不整�
   // 卡片本身必须渲染出来，否则客户端拿到数据也没地方放
   check(body.includes('weather-card') && body.includes('weather-body'),
     '天气卡渲染出来了（数据等接口）')
+  const dashboardSrc = readFileSync(`${ROOT}/src/views/Dashboard.vue`, 'utf8')
+  check(dashboardSrc.includes('weather.source_label'),
+    '天气卡上的数据源名跟接口走，不写死 Open-Meteo')
 
   // 夜间时段：个人提醒（免打扰）与管理员横幅（夜间时段）共用同一张表单。
   // 原先那个「忽略夜间天气」开关已经并进来，表单里不许再出现 ignore_night

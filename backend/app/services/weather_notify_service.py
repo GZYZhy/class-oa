@@ -284,17 +284,31 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
     # 不套「关注时段」——预警是「现在正生效」的信息，不是某天的预报；
     # 也不受夜间过滤影响（见上面那段说明）
     if "alert" in wanted:
+        # 区、市两级气象台常对同一件事各发一条，标题都是「大雾黄色预警」。
+        # 不合并的话横幅标题会变成「大雾预警、大雾预警」（线上就这么出现过），
+        # 正文也是两段几乎一样的话。按标题合并，同一件事留**最新发布**的那条
+        merged: dict[str, dict] = {}
         for alert in data.get("alerts") or []:
             kind = (alert.get("type") or "").strip() or "气象"
-            title = (alert.get("title") or "").strip() or f"{kind}预警"
-            level = (alert.get("severity") or "").strip()
-            excerpt = _alert_excerpt(alert.get("text"))
+            level = weather_service.alert_level(alert)
+            headline = f"{kind}{level}预警" if level else f"{kind}预警"
+            latest = merged.get(headline)
+            if latest is None or str(alert.get("pub_time") or "") > str(
+                latest.get("pub_time") or ""
+            ):
+                merged[headline] = alert
+
+        for headline, alert in list(merged.items())[:3]:
+            sender = (alert.get("sender") or "").strip()
+            # 正文固定以「某台某时发布某预警」开头，和标题重复，先砍掉再说
+            text = _alert_excerpt(_strip_alert_lead(alert.get("text")))
+            detail = f"{sender}：{text}" if sender and text else (text or sender or headline)
             hits.append({
                 "code": "alert",
                 # 去重要用到：同一条预警只提一次，换一条（新 id）才继续提
-                "alert_id": str(alert.get("id") or title),
-                "title": f"{kind}预警",
-                "detail": f"{title}（{level}）" + (f"：{excerpt}" if excerpt else ""),
+                "alert_id": str(alert.get("id") or headline),
+                "title": headline,
+                "detail": detail,
             })
 
     return hits, date_key
@@ -304,6 +318,26 @@ def _alert_excerpt(text, limit: int = 80) -> str:
     """预警正文摘一句：官方原文动辄几百字，塞进通知栏只会被折叠掉"""
     plain = " ".join(str(text or "").split())
     return plain[:limit] + "…" if len(plain) > limit else plain
+
+
+def _strip_alert_lead(text) -> str:
+    """砍掉预警正文开头那句「某台某时发布某预警」
+
+    和风的 description 是「石景山区气象台04日22时10分发布大雾黄色预警，
+    预计，当前至5日早晨…」。前半句和标题、发布单位完全重复，留着只是噪音；
+    砍完如果太短（整段就这么点内容），原样保留 —— 宁可重复也别只剩半句。
+    """
+    plain = " ".join(str(text or "").split())
+    index = plain[:60].find("发布")
+    if index < 0:
+        return plain
+    for mark in ("，", "。", "；", "：", ",", ":"):
+        pos = plain.find(mark, index)
+        if 0 <= pos <= index + 40:
+            rest = plain[pos + 1:].lstrip(" ：:，,")
+            if len(rest) >= 10:
+                return rest
+    return plain
 
 
 def _has_quiet(row) -> bool:

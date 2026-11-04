@@ -139,7 +139,8 @@
         </div>
       </el-col>
       <el-col :xs="24" :md="12">
-        <!-- 整卡可点：有新窗口打开天气网站。位置名/经纬度/跳转地址全在 .env 里配 -->
+        <!-- 整卡可点：有新窗口打开天气网站。位置名/经纬度/跳转地址/数据源都在
+             「系统管理 → 天气」里配，页面只读接口返回 -->
         <div
           class="page-card weather-card"
           :class="{ clickable: weather?.site_url }"
@@ -175,7 +176,9 @@
 
             <div class="weather-foot">
               <span>体感 {{ weather.feels_like }}°</span>
-              <span>数据：Open-Meteo</span>
+              <!-- 数据源由后端下发（可能是 Open-Meteo，也可能是和风；和风故障回退时
+                   这里报的是**实际**用的那个），不能写死 -->
+              <span>数据：{{ weather.source_label || 'Open-Meteo' }}</span>
             </div>
 
             <!-- 逐小时预报：和当前天气是同一个接口返回的，放在同一张卡里看，
