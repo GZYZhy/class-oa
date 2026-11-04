@@ -3018,9 +3018,13 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 ## 天气
 
+数据源由管理员在「系统管理 → 天气」里选：Open-Meteo（默认，免费无 Key，没有官方预警）或和风天气（需要 API Key，带官方气象预警）。
+
 ### 当前天气（首页卡片 + 广播横幅）
 
 `GET /api/weather`
+
+`state` 为 `unconfigured` / `invalid` / `ok` / `error`；`ok` 时带 `source` / `source_label`（实际用的数据源，和风故障回退时会是 Open-Meteo）、逐小时、明天和 `alerts`（官方预警，只有和风有数据）。
 
 **响应**
 
@@ -3033,7 +3037,9 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `WeatherNotifySettingsResponse` — 成功
-  - 字段：`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`quiet_start`、`quiet_end`、`ignore_night`、`available_conditions`、`windows`
+  - 字段：`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`quiet_start`、`quiet_end`、`source_label`、`available_conditions`、`windows`
+
+`quiet_start` / `quiet_end` 是**夜间免打扰**：这段时间不推送，落在这一时段里的降水 / 降雪 / 雷暴也不计入判断（原先独立的「忽略夜间天气」开关已并入这里）。`conditions` 里的 `alert` 是官方预警，只有和风数据源才有数据。
 
 ### 保存我的天气提醒设置
 
@@ -3044,15 +3050,14 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `enabled` | boolean | 否 |  |
-| `conditions` | string[] | 否 |  |
+| `conditions` | string[] | 否 | 取值 `rain` / `snow` / `storm` / `heat` / `cold` / `wind` / `alert` |
 | `rain_threshold` | integer（默认 60） | 否 |  |
 | `heat_threshold` | integer（默认 35） | 否 |  |
 | `cold_threshold` | integer（默认 0） | 否 |  |
 | `wind_threshold` | integer（默认 39） | 否 |  |
 | `window` | string | 否 |  |
 | `quiet_start` | integer（默认 22） | 否 |  |
-| `quiet_end` | integer（默认 7） | 否 |  |
-| `ignore_night` | boolean | 否 |  |
+| `quiet_end` | integer（默认 7） | 否 | 起止相等 = 关闭夜间免打扰 |
 
 **响应**
 
@@ -5299,7 +5304,7 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 **响应**
 
 - `200` `WeatherBannerResponse` — 成功
-  - 字段：`name`、`lat`、`lng`、`site_url`、`notify_interval_hours`、`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`ignore_night`、`available_conditions`、`windows`、`preview_active`、`preview_lines`
+  - 字段：`name`、`lat`、`lng`、`site_url`、`notify_interval_minutes`、`source`、`source_label`、`qweather_key`、`qweather_key_set`、`qweather_host`、`enabled`、`conditions`、`rain_threshold`、`heat_threshold`、`cold_threshold`、`wind_threshold`、`window`、`quiet_start`、`quiet_end`、`available_conditions`、`windows`、`preview_active`、`preview_lines`
 
 ### 保存首页天气横幅配置（仅管理员）
 
@@ -5313,15 +5318,19 @@ App 里显示的 6 位码对得上，才把密钥搬到账号上并生成恢复�
 | `lat` | number，可空 | 否 | 纬度；与 lng 同时给 |
 | `lng` | number，可空 | 否 | 经度；与 lat 同时给 |
 | `site_url` | string | 否 | 天气卡跳转的网站，空=不可点 |
-| `notify_interval_hours` | number（默认 6） | 否 | 天气提醒巡检间隔（小时） |
+| `notify_interval_minutes` | integer（默认 10） | 否 | 巡检间隔（分钟，1–1440）；越界返回 400 |
+| `source` | string（默认 `open_meteo`） | 否 | `open_meteo` / `qweather`；选了和风但 Key 为空返回 400 |
+| `qweather_key` | string | 否 | 和风天气 API Key；`source=qweather` 时必填 |
+| `qweather_host` | string | 否 | 和风 API Host，可带协议，保存时自动去掉；留空用 `devapi.qweather.com` |
 | `enabled` | boolean | 否 |  |
-| `conditions` | string[] | 否 |  |
+| `conditions` | string[] | 否 | 取值同上，另加 `alert`（官方预警，仅和风数据源有数据） |
 | `rain_threshold` | integer（默认 60） | 否 |  |
 | `heat_threshold` | integer（默认 35） | 否 |  |
 | `cold_threshold` | integer（默认 0） | 否 |  |
 | `wind_threshold` | integer（默认 39） | 否 |  |
 | `window` | string | 否 |  |
-| `ignore_night` | boolean | 否 |  |
+| `quiet_start` | integer（默认 22） | 否 | 夜间时段开始 |
+| `quiet_end` | integer（默认 7） | 否 | 夜间时段结束；这段时间的降水/降雪/雷暴不计入横幅 |
 
 **响应**
 

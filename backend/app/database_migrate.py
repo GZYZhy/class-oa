@@ -114,7 +114,6 @@ NEW_COLUMNS = [
     ("weather_banner_settings", "lat", "FLOAT"),
     ("weather_banner_settings", "lng", "FLOAT"),
     ("weather_banner_settings", "site_url", "VARCHAR(500) NOT NULL DEFAULT ''"),
-    ("weather_banner_settings", "notify_interval_hours", "FLOAT NOT NULL DEFAULT 6.0"),
     # ---------- 请假表的班导师意见与签字 ----------
     # 四列都默认空串 = 「没填、没签字」，与补列前那张空白的班导师格完全一致。
     # advisor_sign_file 存的是签字图的**副本名**（在 data/leaves/ 下），
@@ -169,11 +168,22 @@ NEW_COLUMNS = [
     ("users", "two_factor_method", "VARCHAR(10) NOT NULL DEFAULT ''"),
     ("users", "totp_secret", "VARCHAR(64) NOT NULL DEFAULT ''"),
     ("users", "totp_last_step", "INTEGER NOT NULL DEFAULT 0"),
-    # ---------- 天气：忽略夜间天气 ----------
-    # 两张表在 2.1.0 才建，给已存在的表补列。默认 1 = 老用户/老横幅升级后
-    # 直接采用「22:00–06:00 不计入」的新口径，仍可在设置里关掉
-    ("weather_notify_settings", "ignore_night", "BOOLEAN NOT NULL DEFAULT 1"),
-    ("weather_banner_settings", "ignore_night", "BOOLEAN NOT NULL DEFAULT 1"),
+    # ---------- 天气：巡检频率 / 数据源 / 夜间时段 ----------
+    # 老的 ignore_night（两张表）和 notify_interval_hours 已经从模型里删掉：
+    # 夜间过滤并进「夜间免打扰时段」，巡检单位改成分钟。老库里这几列还在
+    # （SQLite 只能加列），但不再读写；新安装不会再建它们
+    # 巡检从「小时」改成「分钟」：默认 10 分钟、范围 1–1440。补列后要把老库里
+    # 按小时存的值 ×60 回填（见 _backfill_weather_interval），否则 6 小时会被
+    # 读成 6 分钟，外呼频率直接翻 60 倍
+    ("weather_banner_settings", "notify_interval_minutes", "INTEGER NOT NULL DEFAULT 10"),
+    # 数据源与和风 Key。默认 open_meteo = 补列前的行为；Key 默认空串 = 没配
+    ("weather_banner_settings", "source", "VARCHAR(20) NOT NULL DEFAULT 'open_meteo'"),
+    ("weather_banner_settings", "qweather_key", "VARCHAR(200) NOT NULL DEFAULT ''"),
+    ("weather_banner_settings", "qweather_host", "VARCHAR(200) NOT NULL DEFAULT ''"),
+    # 夜间时段：替代原来那个 ignore_night 开关（旧列留在库里不再读写）。
+    # 默认 22–7，和补列前固定忽略的 22:00–06:00 基本一致
+    ("weather_banner_settings", "quiet_start", "INTEGER NOT NULL DEFAULT 22"),
+    ("weather_banner_settings", "quiet_end", "INTEGER NOT NULL DEFAULT 7"),
     # ---------- 站内信关联的办件 ----------
     # 可空 = 普通消息，不参与「办件推进自动已读」。老消息补成 NULL 正合适：
     # 它们关联的办件多半早已办结，此时再翻旧账把人没看过的标成已读，
@@ -356,6 +366,30 @@ def _backfill_checkin_start_notified(conn) -> None:
         )
 
 
+def _backfill_weather_interval(conn) -> None:
+    """把老库按「小时」存的天气巡检间隔换算成「分钟」
+
+    只在新列 notify_interval_minutes 刚被加上时调用。旧列 notify_interval_hours
+    在新模型里已经删了，但老库里还在（SQLite 的 ALTER 只能加列），所以直接读它。
+    6 小时 = 360 分钟，稳稳落在 1–1440 之内；脏值顺手夹紧。
+
+    不回填的话，6 会被当成 6 分钟 —— 外呼频率直接翻 60 倍，而且没人看得见。
+    """
+    columns = _existing_columns(conn, "weather_banner_settings")
+    if "notify_interval_hours" not in columns:
+        # 全新安装：没有旧列，新列默认值 10 就是想要的，无事可做
+        return
+    result = conn.execute(text(
+        "UPDATE weather_banner_settings SET notify_interval_minutes = "
+        "MIN(1440, MAX(1, CAST(ROUND(notify_interval_hours * 60) AS INTEGER)))"
+    ))
+    if result.rowcount:
+        print(
+            f"[迁移] 已把天气巡检间隔从小时换算成分钟（{result.rowcount} 行）",
+            flush=True,
+        )
+
+
 def run_migrations() -> None:
     """补齐老库缺失的列；新库上什么都不做"""
     if engine.dialect.name != "sqlite":
@@ -374,6 +408,7 @@ def run_migrations() -> None:
     webhook_enabled_added = False
     poll_start_notified_added = False
     checkin_start_notified_added = False
+    weather_interval_added = False
     with engine.begin() as conn:
         for table, column, ddl in NEW_COLUMNS:
             columns = _existing_columns(conn, table)
@@ -391,6 +426,8 @@ def run_migrations() -> None:
                 poll_start_notified_added = True
             if table == "checkins" and column == "start_notified_at":
                 checkin_start_notified_added = True
+            if table == "weather_banner_settings" and column == "notify_interval_minutes":
+                weather_interval_added = True
 
         if seed_needed:
             _seed_roles(conn)
@@ -406,5 +443,8 @@ def run_migrations() -> None:
 
         if checkin_start_notified_added:
             _backfill_checkin_start_notified(conn)
+
+        if weather_interval_added:
+            _backfill_weather_interval(conn)
 
         _rebuild_leave_table(conn)

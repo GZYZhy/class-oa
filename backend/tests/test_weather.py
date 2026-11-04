@@ -1,14 +1,18 @@
-"""天气：数据源、提醒判断、接口权限
+"""天气：数据源、提醒判断、夜间免打扰、接口权限
 
     cd backend && python -m pytest tests/test_weather.py -q
 
-天气这条线有三块最容易出问题：
+天气这条线有几块最容易出问题：
 
 1. **配置状态**：经纬度没配 / 填错 / 正常，首页要给出不同的占位，而且
-   「没配」时绝不能去外呼 Open-Meteo。
+   「没配」时绝不能去外呼。
 2. **判断口径**：降雨看概率阈值、雪和雷暴看天气代码、高温/低温/大风看日级数据；
    关注时段是今天 / 明天 / 未来 24 小时，跨零点必须算对。
-3. **隐私边界**：首页天气是公开的；个人提醒设置必须登录，改别人的设置不可能
+3. **两个数据源**：Open-Meteo 与和风要归一化成同一套结构；和风的图标代码
+   要能正确折成「雪 / 雷暴」；官方预警只由和风提供。
+4. **夜间免打扰**：一个时段管两件事 —— 不推送，且这段时间里的降水/降雪/雷暴
+   不计入判断（原先还有个独立的「忽略夜间天气」开关，已合并）。
+5. **隐私边界**：首页天气是公开的；个人提醒设置必须登录，改别人的设置不可能
    （接口按当前登录人取学号，不接受请求体里的学号）。
 """
 from datetime import datetime
@@ -175,8 +179,8 @@ def test_place_comes_from_admin_settings(tmp_path, monkeypatch):
     try:
         db.add(WeatherBannerSettings(
             id=1, name="测试地点", lat=39.9, lng=116.2,
-            site_url="https://example.com/weather", notify_interval_hours=3,
-            enabled=False, conditions="", window="today", ignore_night=True,
+            site_url="https://example.com/weather", notify_interval_minutes=180,
+            enabled=False, conditions="", window="today",
         ))
         db.commit()
         monkeypatch.setattr(ws, "_fetch", lambda lat, lon: _forecast())
@@ -185,7 +189,7 @@ def test_place_comes_from_admin_settings(tmp_path, monkeypatch):
         assert data["state"] == "ok"
         assert data["name"] == "测试地点"
         assert data["site_url"] == "https://example.com/weather"
-        assert wn.interval_hours(db) == 3
+        assert wn.interval_minutes(db) == 180
         assert (data["low"], data["high"]) == (10, 36)
 
         # 只填一个坐标：invalid；两个都清空：unconfigured
@@ -211,12 +215,12 @@ def test_put_banner_persists_place(tmp_path):
     try:
         wn.put_banner(db, WeatherBannerSettingsUpdate(
             name="示例大学", lat=39.9273, lng=116.1998,
-            site_url="https://example.com/weather", notify_interval_hours=12,
+            site_url="https://example.com/weather", notify_interval_minutes=12,
             enabled=False, window="today",
         ))
         row = db.get(WeatherBannerSettings, 1)
         assert (row.name, row.lat, row.lng) == ("示例大学", 39.9273, 116.1998)
-        assert (row.site_url, row.notify_interval_hours) == (
+        assert (row.site_url, row.notify_interval_minutes) == (
             "https://example.com/weather", 12,
         )
     finally:
@@ -262,8 +266,8 @@ def test_all_conditions_cross_the_today_and_tomorrow_windows():
     assert all(h["detail"].startswith("明天") for h in hits)
 
 
-def test_ignore_night_filters_only_hourly_conditions():
-    """默认忽略 22:00–06:00 的降水/降雪；关掉开关后照常计入"""
+def test_night_quiet_window_filters_hourly_conditions():
+    """夜间免打扰时段里的降水/降雪不计入；把时段关掉（起止相等）就照常计入"""
     data = {
         "hourly": [
             {"time": "2026-10-25T23:00", "temp": 5, "pop": 90, "code": 61,
@@ -279,11 +283,136 @@ def test_ignore_night_filters_only_hourly_conditions():
     now = datetime(2026, 10, 25, 21, 0)
     row = _rule(window="next24h", conditions=wn.dump_conditions(["rain", "snow"]))
 
+    # 默认 22–7：23:00 和 02:00 都在里头
     assert wn.evaluate(data, row, now)[0] == []
 
-    row.ignore_night = False
+    # 关掉免打扰（起止相同）= 不再过滤，两件都算
+    row.quiet_start = row.quiet_end = 0
     hits, _ = wn.evaluate(data, row, now)
     assert [h["code"] for h in hits] == ["rain", "snow"]
+
+    # 自定义时段也要按各自设置走：1–5 点不覆盖 23:00，但覆盖 02:00
+    row.quiet_start, row.quiet_end = 1, 5
+    hits, _ = wn.evaluate(data, row, now)
+    assert [h["code"] for h in hits] == ["rain"]
+
+
+def test_official_alerts_are_a_condition_of_their_own():
+    """官方预警：和风数据源才有的 alerts，不受夜间时段影响（没有「几点发生」）"""
+    data = _forecast()
+    data["alerts"] = [
+        {
+            "id": "101", "title": "示例市气象台发布暴雨橙色预警",
+            "type": "暴雨", "severity": "Severe", "text": "预计未来 3 小时降雨量将达 50 毫米以上",
+        },
+    ]
+    row = _rule(window="today", conditions=wn.dump_conditions(["alert"]))
+    row.quiet_start, row.quiet_end = 0, 23   # 全天都算夜里，预警照样要提醒
+
+    hits, _ = wn.evaluate(data, row, datetime(2026, 10, 25, 8, 0))
+    assert [h["code"] for h in hits] == ["alert"]
+    assert "暴雨" in hits[0]["title"]
+    assert "暴雨橙色预警" in hits[0]["detail"]
+    assert hits[0]["alert_id"] == "101"
+
+
+def test_interval_minutes_defaults_clamps_and_accepts_the_legacy_env(monkeypatch):
+    """巡检间隔：默认 10 分钟、范围 1–1440；老的小时变量还能读（×60）"""
+    monkeypatch.delenv("WEATHER_NOTIFY_INTERVAL_MINUTES", raising=False)
+    monkeypatch.delenv("WEATHER_NOTIFY_INTERVAL_HOURS", raising=False)
+    assert wn.interval_minutes() == 10
+
+    monkeypatch.setenv("WEATHER_NOTIFY_INTERVAL_MINUTES", "1")
+    assert wn.interval_minutes() == 1
+
+    monkeypatch.setenv("WEATHER_NOTIFY_INTERVAL_MINUTES", "99999")
+    assert wn.interval_minutes() == 1440, "上限 24 小时"
+
+    monkeypatch.setenv("WEATHER_NOTIFY_INTERVAL_MINUTES", "不是数字")
+    assert wn.interval_minutes() == 10, "脏值回默认，不能变成 1 分钟"
+
+    monkeypatch.delenv("WEATHER_NOTIFY_INTERVAL_MINUTES")
+    monkeypatch.setenv("WEATHER_NOTIFY_INTERVAL_HOURS", "0.5")
+    assert wn.interval_minutes() == 30, "老配置按小时读，换算成分钟"
+
+
+def test_cache_ttl_follows_the_interval(tmp_path):
+    """缓存时长跟着巡检间隔缩：配 1 分钟就每分钟真的外呼一次，最长仍 10 分钟"""
+    engine = create_engine(f"sqlite:///{tmp_path / 'ttl.db'}")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    try:
+        db.add(WeatherBannerSettings(id=1, notify_interval_minutes=1))
+        db.commit()
+        assert ws._ttl_seconds(db) == 60
+
+        row = db.get(WeatherBannerSettings, 1)
+        row.notify_interval_minutes = 5
+        db.commit()
+        assert ws._ttl_seconds(db) == 300
+
+        row.notify_interval_minutes = 60
+        db.commit()
+        assert ws._ttl_seconds(db) == 600, "再长也不超过 10 分钟"
+    finally:
+        db.close()
+
+
+def test_qweather_normalizes_forecast_and_alerts(monkeypatch):
+    """和风的图标代码要折算成「雪 / 雷暴」；预警接口取消掉的那条不提醒"""
+    payloads = {
+        "/v7/weather/now": {"code": "200", "now": {
+            "obsTime": "2026-11-05T09:00+08:00", "temp": "12", "feelsLike": "10",
+            "icon": "101", "text": "多云",
+        }},
+        "/v7/weather/24h": {"code": "200", "hourly": [
+            {"fxTime": "2026-11-05T10:00+08:00", "temp": "13", "icon": "305",
+             "text": "小雨", "pop": "70"},
+            {"fxTime": "2026-11-05T11:00+08:00", "temp": "13", "icon": "302",
+             "text": "雷阵雨", "pop": "80"},
+            {"fxTime": "2026-11-05T12:00+08:00", "temp": "1", "icon": "400",
+             "text": "小雪", "pop": "90"},
+        ]},
+        "/v7/weather/3d": {"code": "200", "daily": [
+            {"fxDate": "2026-11-05", "tempMax": "15", "tempMin": "5",
+             "iconDay": "305", "textDay": "小雨",
+             "windSpeedDay": "45", "precip": "3.2"},
+        ]},
+        "/v7/warning/now": {"code": "200", "warning": [
+            {"id": "101", "title": "示例市气象台发布暴雨橙色预警", "typeName": "暴雨",
+             "severity": "Severe", "severityColor": "Orange",
+             "text": "预计未来 3 小时降雨量将达 50 毫米以上", "status": "active"},
+            {"id": "102", "title": "已取消的预警", "status": "cancel"},
+        ]},
+    }
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    def fake_get(url, params=None, timeout=None):
+        # url = https://host/v7/weather/now → 取 /v7/weather/now
+        path = "/" + url.split("//", 1)[1].split("/", 1)[1]
+        return _Resp(payloads[path])
+
+    monkeypatch.setattr(ws.requests, "get", fake_get)
+    data = ws._fetch_qweather(39.9, 116.2, "key", "devapi.qweather.com")
+
+    assert data["source"] == "qweather" and data["source_label"] == "和风天气"
+    assert data["current"]["temp"] == 12
+    assert data["current"]["icon"] == "PartlyCloudy"
+    assert [item["pop"] for item in data["hourly"]] == [70, 80, 90]
+    assert data["hourly"][0]["time"] == "2026-11-05T10:00", "带时区的时间要截成内部格式"
+    assert ws.is_storm(data["hourly"][1]["code"]), "302 是雷阵雨"
+    assert ws.is_snow(data["hourly"][2]["code"]), "400 是小雪"
+    assert data["days"][0]["high"] == 15 and data["days"][0]["wind_kmh"] == 45
+    assert [alert["id"] for alert in data["alerts"]] == ["101"]
 
 
 def test_quiet_hours_handle_midnight():
@@ -349,10 +478,10 @@ def test_notify_settings_require_login_and_are_personal(wb):
     assert default["conditions"] == ["rain"]
     assert default["window"] == "tomorrow"
     assert default["quiet_start"] == 22 and default["quiet_end"] == 7
-    assert default["ignore_night"] is True, "夜间天气默认忽略"
+    assert default["source_label"] == "Open-Meteo"
     # 中文标签由后端下发，前端不另写一份
     assert {item["code"] for item in default["available_conditions"]} >= {
-        "rain", "snow", "storm", "heat", "cold", "wind",
+        "rain", "snow", "storm", "heat", "cold", "wind", "alert",
     }
 
     r = wb.client.put("/api/weather/notify", json={
@@ -365,7 +494,6 @@ def test_notify_settings_require_login_and_are_personal(wb):
         "window": "不存在的时段",
         "quiet_start": 99,
         "quiet_end": -1,
-        "ignore_night": False,
     })
     assert r.status_code == 200, r.text
     saved = wb.client.get("/api/weather/notify").json()
@@ -377,7 +505,6 @@ def test_notify_settings_require_login_and_are_personal(wb):
     assert saved["wind_threshold"] == 10       # 夹到 10–120
     assert saved["window"] == "tomorrow"       # 非法值回默认
     assert saved["quiet_start"] == 23 and saved["quiet_end"] == 0
-    assert saved["ignore_night"] is False
 
 
 def test_banner_settings_are_admin_only_and_persist(wb):
@@ -392,9 +519,11 @@ def test_banner_settings_are_admin_only_and_persist(wb):
     assert default["name"] == ""
     assert default["lat"] is None and default["lng"] is None
     assert default["site_url"] == ""
-    assert default["notify_interval_hours"] == 6
+    assert default["notify_interval_minutes"] == 10, "默认 10 分钟一次"
     assert default["window"] == "today"
-    assert default["ignore_night"] is True, "横幅也默认忽略夜间天气"
+    assert default["source"] == "open_meteo" and default["source_label"] == "Open-Meteo"
+    assert default["qweather_key_set"] is False
+    assert default["quiet_start"] == 22 and default["quiet_end"] == 7
     assert default["preview_active"] is False  # 没配坐标，取不到预报就不显示
 
     # 坐标必须成对、范围合法；校验在保存前完成，不会去外呼
@@ -406,13 +535,22 @@ def test_banner_settings_are_admin_only_and_persist(wb):
     assert r.status_code == 400
     r = wb.client.put("/api/admin/weather-banner", json={"site_url": "www.qweather.com"})
     assert r.status_code == 400
-    r = wb.client.put("/api/admin/weather-banner", json={"notify_interval_hours": 0})
+    # 间隔 1–1440 分钟
+    r = wb.client.put("/api/admin/weather-banner", json={"notify_interval_minutes": 0})
+    assert r.status_code == 400
+    r = wb.client.put("/api/admin/weather-banner", json={"notify_interval_minutes": 1441})
+    assert r.status_code == 400
+
+    # 数据源只能是这两档；选了和风却不给 Key 要当场拒，不能静默退回 Open-Meteo
+    r = wb.client.put("/api/admin/weather-banner", json={"source": "bogus"})
+    assert r.status_code == 400
+    r = wb.client.put("/api/admin/weather-banner", json={"source": "qweather"})
     assert r.status_code == 400
 
     r = wb.client.put("/api/admin/weather-banner", json={
         "name": "示例大学",
         "site_url": "https://www.qweather.com/weather/shijingshan-101011000.html",
-        "notify_interval_hours": 8,
+        "notify_interval_minutes": 1440,
         "enabled": True,
         "conditions": ["rain", "heat"],
         "rain_threshold": 75,
@@ -420,16 +558,33 @@ def test_banner_settings_are_admin_only_and_persist(wb):
         "cold_threshold": 0,
         "wind_threshold": 39,
         "window": "today",
-        "ignore_night": False,
+        "quiet_start": 23,
+        "quiet_end": 6,
     })
     assert r.status_code == 200, r.text
     saved = wb.client.get("/api/admin/weather-banner").json()
     assert saved["name"] == "示例大学"
     assert saved["site_url"] == "https://www.qweather.com/weather/shijingshan-101011000.html"
-    assert saved["notify_interval_hours"] == 8
+    assert saved["notify_interval_minutes"] == 1440
     assert saved["enabled"] is True
     assert saved["conditions"] == ["rain", "heat"]
     assert saved["rain_threshold"] == 75
     assert saved["heat_threshold"] == 33
     assert saved["window"] == "today"
-    assert saved["ignore_night"] is False
+    assert saved["quiet_start"] == 23 and saved["quiet_end"] == 6
+
+    # 切到和风：Key 存下来、Host 去掉协议和末尾斜杠
+    r = wb.client.put("/api/admin/weather-banner", json={
+        "name": "示例大学",
+        "source": "qweather",
+        "qweather_key": "test-key",
+        "qweather_host": "https://abc.re.qweatherapi.com/",
+        "notify_interval_minutes": 5,
+        "enabled": False,
+    })
+    assert r.status_code == 200, r.text
+    saved = wb.client.get("/api/admin/weather-banner").json()
+    assert saved["source"] == "qweather" and saved["source_label"] == "和风天气"
+    assert saved["qweather_key_set"] is True
+    assert saved["qweather_host"] == "abc.re.qweatherapi.com"
+    assert saved["notify_interval_minutes"] == 5

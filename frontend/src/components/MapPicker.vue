@@ -94,7 +94,13 @@ import { getCurrentLocation } from '@/utils/geolocation'
 const props = defineProps({
   modelValue: { type: Object, default: null },
   radius: { type: Number, default: 100 },
-  readonly: { type: Boolean, default: false }
+  readonly: { type: Boolean, default: false },
+  /**
+   * 没选过点时是否自动定位到「我当前位置」。
+   * 发布签到时要（省一步），后台配站点地点时不要（管理员可能正在异地配置，
+   * 而且不该在打开设置页时就弹一次定位授权）
+   */
+  autoLocate: { type: Boolean, default: true }
 })
 const emit = defineEmits(['update:modelValue', 'place'])
 
@@ -341,8 +347,9 @@ onMounted(async () => {
     }
   }
 
-  // 发布端的默认地点 = 发布人当前位置（只读页不定：那是发布人定的地点，与访问者无关）
-  if (!props.readonly) autoLocate()
+  // 发布端的默认地点 = 发布人当前位置（只读页不定：那是发布人定的地点，与访问者无关；
+  // 后台配置站点地点时也不定，见 autoLocate prop 的说明）
+  if (!props.readonly && props.autoLocate) autoLocate()
 })
 
 // 地图实例不跟着组件自动回收，卸载时主动销毁，免得反复开关弹窗越积越多

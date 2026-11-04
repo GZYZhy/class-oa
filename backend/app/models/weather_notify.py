@@ -54,20 +54,20 @@ class WeatherNotifySettings(Base):
         comment="关注哪段时间的天气",
     )
 
-    # 静默时段：这段时间内不推送（跨零点，如 22 → 7）
+    # 夜间免打扰：这段时间内**不推送**，同时落在这一时段里的降水/降雪/雷暴
+    # 也**不计入判断**（跨零点，如 22 → 7；起止相等 = 关闭）。
+    #
+    # 为什么合成一个：原先另外有个 ignore_night 开关，固定忽略 22:00–06:00 的
+    # 夜间天气。它和这里的免打扰讲的是同一件事的两半（「别半夜吵我」和
+    # 「凌晨的雨不算数」），两个开关很容易被理解成互不相干、又必须都开。
+    # 现在时段就是唯一口径：设了时段就两件事一起生效。
     quiet_start = Column(
         Integer, nullable=False, default=22, server_default=text("22"),
-        comment="静默开始时刻（0-23）",
+        comment="夜间免打扰开始时刻（0-23）；起止相等=关闭",
     )
     quiet_end = Column(
         Integer, nullable=False, default=7, server_default=text("7"),
-        comment="静默结束时刻（0-23）",
-    )
-
-    # 夜间天气：默认忽略 22:00–06:00 的降水/降雪/雷暴，避免半夜或清晨被叫醒
-    ignore_night = Column(
-        Boolean, nullable=False, default=True, server_default=text("1"),
-        comment="是否忽略 22:00–06:00 的夜间天气",
+        comment="夜间免打扰结束时刻（0-23）",
     )
 
     # 去重：上一次发出去的提醒标识（形如 tomorrow:2026-10-26:rain）。同一件事不重复推

@@ -775,38 +775,75 @@
                   placeholder="例如：示例大学"
                 />
               </el-form-item>
-              <el-form-item label="纬度">
-                <el-input-number
-                  v-model="weatherBanner.lat"
-                  :min="-90"
-                  :max="90"
-                  :precision="6"
-                  :controls="false"
-                  placeholder="例如 39.9273"
-                  class="weather-coord"
-                />
-              </el-form-item>
-              <el-form-item label="经度">
-                <el-input-number
-                  v-model="weatherBanner.lng"
-                  :min="-180"
-                  :max="180"
-                  :precision="6"
-                  :controls="false"
-                  placeholder="例如 116.1998"
-                  class="weather-coord"
-                />
+              <el-form-item label="地点">
+                <div class="weather-map">
+                  <!-- 配了高德 Key 就能直接点选/搜索；没配时组件自己降级成填经纬度 -->
+                  <MapPicker
+                    :model-value="weatherPoint"
+                    :radius="0"
+                    :auto-locate="false"
+                    @update:model-value="onWeatherPoint"
+                    @place="onWeatherPlace"
+                  />
+                  <p class="tip">
+                    <template v-if="amapReady">
+                      在地图上点选或搜索即可；坐标会记到上面那两项，选完可以顺手把显示名称
+                      改成好认的写法。
+                    </template>
+                    <template v-else>
+                      未配置高德地图 Key（.env 的 AMAP_JS_KEY），可直接填经纬度；
+                      配了之后这一块会变成地图点选。
+                    </template>
+                  </p>
+                </div>
               </el-form-item>
             </el-form>
           </section>
 
           <section class="about-admin-block">
             <div class="about-admin-head">
-              <span class="about-admin-title">天气网站与提醒</span>
+              <span class="about-admin-title">数据源</span>
+            </div>
+            <p class="tip">
+              Open-Meteo 免费、无需 Key，但没有中国的官方预警；和风天气需要 API Key，
+              能额外提供官方的气象预警（「关注天气」里多一个「官方预警」）。
+              选了和风却没填 Key 保存不了 —— 不会静默退回 Open-Meteo。
+            </p>
+            <el-form label-width="96px" class="weather-place-form">
+              <el-form-item label="数据源">
+                <el-select v-model="weatherBanner.source" style="width: 260px;">
+                  <el-option label="Open-Meteo（免费，无官方预警）" value="open_meteo" />
+                  <el-option label="和风天气（需要 Key，带官方预警）" value="qweather" />
+                </el-select>
+              </el-form-item>
+              <template v-if="weatherBanner.source === 'qweather'">
+                <el-form-item label="和风 Key">
+                  <el-input
+                    v-model="weatherBanner.qweather_key"
+                    maxlength="200"
+                    show-password
+                    placeholder="控制台里的 API Key"
+                  />
+                </el-form-item>
+                <el-form-item label="API Host">
+                  <el-input
+                    v-model="weatherBanner.qweather_host"
+                    maxlength="200"
+                    placeholder="留空用 devapi.qweather.com；新版形如 xxxx.re.qweatherapi.com"
+                  />
+                </el-form-item>
+              </template>
+            </el-form>
+          </section>
+
+          <section class="about-admin-block">
+            <div class="about-admin-head">
+              <span class="about-admin-title">天气网站与巡检</span>
             </div>
             <p class="tip">
               天气卡点开后跳转的网站，留空则卡片不可点。
-              巡检间隔决定天气提醒多久检查一次预报（1–168 小时），改小会更及时，但外呼也更频繁。
+              巡检间隔决定多久查一次预报（1–1440 分钟，默认 10 分钟）：
+              改小会更及时，但外呼次数也跟着上升，注意数据源的调用额度。
             </p>
             <el-form label-width="96px" class="weather-place-form">
               <el-form-item label="天气网站">
@@ -818,13 +855,13 @@
               </el-form-item>
               <el-form-item label="巡检间隔">
                 <el-input-number
-                  v-model="weatherBanner.notify_interval_hours"
+                  v-model="weatherBanner.notify_interval_minutes"
                   :min="1"
-                  :max="168"
+                  :max="1440"
                   :precision="0"
                   class="weather-coord"
                 />
-                <span class="weather-unit">小时</span>
+                <span class="weather-unit">分钟</span>
               </el-form-item>
             </el-form>
           </section>
@@ -843,6 +880,9 @@
               :rule="weatherBanner"
               :meta="weatherMeta"
               :disabled="!weatherBanner.enabled"
+              show-quiet
+              quiet-label="夜间时段"
+              quiet-hint="这段时间的降水 / 降雪 / 雷暴不计入横幅判断（官方预警不受影响）"
             />
 
             <div class="weather-preview" :class="{ on: bannerPreview.active }">
@@ -1361,7 +1401,9 @@ import { copyText } from '@/utils/clipboard'
 import { useIsMobile } from '@/composables/useIsMobile'
 import ScheduleBatchPanel from '@/components/ScheduleBatchPanel.vue'
 import WeatherRuleForm from '@/components/WeatherRuleForm.vue'
+import MapPicker from '@/components/MapPicker.vue'
 import AccountEventTag from '@/components/AccountEventTag.vue'
+import { hasAmap } from '@/utils/amap'
 
 // 手机上操作列只直显这一个按钮，其余收进「更多」下拉。想换直显项改这里一个词
 const MOBILE_PRIMARY = '重置密码'
@@ -2421,7 +2463,10 @@ const weatherBanner = reactive({
   lat: null,
   lng: null,
   site_url: '',
-  notify_interval_hours: 6,
+  notify_interval_minutes: 10,
+  source: 'open_meteo',
+  qweather_key: '',
+  qweather_host: '',
   enabled: false,
   conditions: ['rain'],
   rain_threshold: 60,
@@ -2429,8 +2474,33 @@ const weatherBanner = reactive({
   cold_threshold: 0,
   wind_threshold: 39,
   window: 'today',
-  ignore_night: true
+  quiet_start: 22,
+  quiet_end: 7
 })
+// 配了高德 Key 才值得去碰地图；没配时 MapPicker 自己降级成手填经纬度
+const amapReady = hasAmap()
+// 地图组件的 v-model 形状是 { lat, lng }，和表单里分开的两项互相转换
+const weatherPoint = computed(() =>
+  weatherBanner.lat == null || weatherBanner.lng == null
+    ? null
+    : { lat: weatherBanner.lat, lng: weatherBanner.lng }
+)
+
+function onWeatherPoint(point) {
+  weatherBanner.lat = point?.lat ?? null
+  weatherBanner.lng = point?.lng ?? null
+}
+
+/**
+ * 地图选点后反查到的地名
+ *
+ * **只填空白**：管理员往往已经把显示名称写成「示例大学」这种短名字，
+ * 逆地理返回的是「某省某市某区某路1号」，覆盖掉反而不好看也不好读。
+ * 第一次配置（名称还空着）时顺手填上，省得再敲一遍。
+ */
+function onWeatherPlace(name) {
+  if (!weatherBanner.name.trim() && name) weatherBanner.name = name
+}
 // 可选条件 / 时段的中文标签由后端给
 const weatherMeta = reactive({ conditions: [], windows: [] })
 // 按当前预报的即时判断，保存后立刻能看到结果
@@ -2444,7 +2514,10 @@ async function fetchWeatherBanner() {
     weatherBanner.lat = data.lat ?? null
     weatherBanner.lng = data.lng ?? null
     weatherBanner.site_url = data.site_url || ''
-    weatherBanner.notify_interval_hours = data.notify_interval_hours ?? 6
+    weatherBanner.notify_interval_minutes = data.notify_interval_minutes ?? 10
+    weatherBanner.source = data.source || 'open_meteo'
+    weatherBanner.qweather_key = data.qweather_key || ''
+    weatherBanner.qweather_host = data.qweather_host || ''
     weatherBanner.enabled = !!data.enabled
     weatherBanner.conditions = data.conditions || []
     weatherBanner.rain_threshold = data.rain_threshold
@@ -2452,7 +2525,8 @@ async function fetchWeatherBanner() {
     weatherBanner.cold_threshold = data.cold_threshold
     weatherBanner.wind_threshold = data.wind_threshold
     weatherBanner.window = data.window || 'today'
-    weatherBanner.ignore_night = data.ignore_night !== false
+    weatherBanner.quiet_start = data.quiet_start ?? 22
+    weatherBanner.quiet_end = data.quiet_end ?? 7
     weatherMeta.conditions = data.available_conditions || []
     weatherMeta.windows = data.windows || []
     bannerPreview.active = !!data.preview_active
@@ -2471,6 +2545,10 @@ async function handleSaveWeatherBanner() {
   }
   if (weatherBanner.enabled && !weatherBanner.conditions.length) {
     return ElMessage.warning('至少要选一种天气')
+  }
+  // 和后端同一条口径：选了和风就必须有 Key，别让管理员以为预警开着
+  if (weatherBanner.source === 'qweather' && !weatherBanner.qweather_key.trim()) {
+    return ElMessage.warning('选了和风天气就要填 API Key')
   }
   savingWeatherBanner.value = true
   try {
@@ -2784,6 +2862,15 @@ onMounted(() => {
 
 .weather-coord {
   width: 220px;
+}
+
+/* 地图块：撑满表单项，底下的说明贴着地图 */
+.weather-map {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .weather-unit {
