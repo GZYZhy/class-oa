@@ -298,12 +298,18 @@ def test_night_quiet_window_filters_hourly_conditions():
 
 
 def test_official_alerts_are_a_condition_of_their_own():
-    """官方预警：和风数据源才有的 alerts，不受夜间时段影响（没有「几点发生」）"""
+    """官方预警：和风数据源才有的 alerts，不受夜间时段影响（没有「几点发生」）
+
+    等级要翻成中文（颜色码/英文严重程度 → 黄色/橙色），正文里不许再出现
+    「（moderate）」这种英文码，也不许把标题重复一遍。
+    """
     data = _forecast()
     data["alerts"] = [
         {
             "id": "101", "title": "示例市气象台发布暴雨橙色预警",
-            "type": "暴雨", "severity": "Severe", "text": "预计未来 3 小时降雨量将达 50 毫米以上",
+            "type": "暴雨", "severity": "Severe", "severity_color": "orange",
+            "sender": "示例市气象台",
+            "text": "示例市气象台2026年11月04日22时00分发布暴雨橙色预警信号：预计未来 3 小时降雨量将达 50 毫米以上",
         },
     ]
     row = _rule(window="today", conditions=wn.dump_conditions(["alert"]))
@@ -311,9 +317,44 @@ def test_official_alerts_are_a_condition_of_their_own():
 
     hits, _ = wn.evaluate(data, row, datetime(2026, 10, 25, 8, 0))
     assert [h["code"] for h in hits] == ["alert"]
-    assert "暴雨" in hits[0]["title"]
-    assert "暴雨橙色预警" in hits[0]["detail"]
+    assert hits[0]["title"] == "暴雨橙色预警"
     assert hits[0]["alert_id"] == "101"
+    # 正文：发布单位 + 去掉重复开头后的内容；英文等级码不能露出来
+    assert hits[0]["detail"].startswith("示例市气象台：")
+    assert "预计未来 3 小时降雨量将达 50 毫米以上" in hits[0]["detail"]
+    assert "发布暴雨橙色预警信号" not in hits[0]["detail"]
+    assert "Severe" not in hits[0]["detail"] and "moderate" not in hits[0]["detail"]
+
+
+def test_same_alert_from_two_agencies_is_merged():
+    """区、市两级对同一件事各发一条：标题只出现一次，正文只留最新那条
+
+    线上横幅出现过「大雾预警、大雾预警」开头、下面两段几乎一样的话，
+    就是这对数据没合并。
+    """
+    data = _forecast()
+    data["alerts"] = [
+        {
+            "id": "101", "type": "大雾", "severity_color": "yellow",
+            "sender": "石景山区气象台", "pub_time": "2026-11-04T22:10+08:00",
+            "text": "石景山区气象台04日22时10分发布大雾黄色预警，预计，当前至5日早晨石景山区有大雾天气，能见度小于1000米，请注意防范。",
+        },
+        {
+            "id": "102", "type": "大雾", "severity_color": "yellow",
+            "sender": "北京市气象台", "pub_time": "2026-11-04T22:20+08:00",
+            "text": "北京市气象台04日22时20分发布大雾黄色预警信号：预计，5日早晨我市有大雾天气，能见度小于1000米。",
+        },
+    ]
+    row = _rule(window="today", conditions=wn.dump_conditions(["alert"]))
+    hits, _ = wn.evaluate(data, row, datetime(2026, 11, 4, 23, 0))
+
+    assert len(hits) == 1, "同一件事只提一次"
+    assert hits[0]["title"] == "大雾黄色预警"
+    # 留的是发布更晚的市气象台那条
+    assert hits[0]["alert_id"] == "102"
+    assert hits[0]["detail"].startswith("北京市气象台：")
+    assert "大雾黄色预警" not in hits[0]["detail"], "正文里不再重复标题"
+    assert "发布" not in hits[0]["detail"][:6], "开头的「某台某时发布」也砍掉"
 
 
 def test_interval_minutes_defaults_clamps_and_accepts_the_legacy_env(monkeypatch):
@@ -380,6 +421,7 @@ def test_qweather_normalizes_forecast_and_alerts(monkeypatch):
         ]},
         "/weatheralert/v1/current/39.9000/116.2000": {"metadata": {"zeroResult": False}, "alerts": [
             {"id": "101", "headline": "示例市气象台发布暴雨橙色预警",
+             "senderName": "示例市气象台",
              "eventType": {"name": "暴雨"}, "severity": "Severe",
              "color": {"code": "orange"}, "description": "预计未来 3 小时降雨量将达 50 毫米以上",
              "issuedTime": "2026-11-05T08:00Z", "effectiveTime": "2026-11-05T08:00Z",
@@ -421,6 +463,8 @@ def test_qweather_normalizes_forecast_and_alerts(monkeypatch):
     assert data["days"][0]["high"] == 15 and data["days"][0]["wind_kmh"] == 45
     assert [alert["id"] for alert in data["alerts"]] == ["101"]
     assert data["alerts"][0]["type"] == "暴雨" and data["alerts"][0]["severity_color"] == "orange"
+    assert data["alerts"][0]["sender"] == "示例市气象台"
+    assert ws.alert_level(data["alerts"][0]) == "橙色", "颜色码要翻成中文等级"
     assert any(path.startswith("/weatheralert/v1/current/") for path, _, _ in calls), \
         "预警走新版 v1 接口，v7 已被和风下线"
 

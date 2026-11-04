@@ -392,6 +392,30 @@ def _qweather_get(host: str, path: str, key: str, params: dict | None = None) ->
     return data
 
 
+# 和风预警的等级：颜色码和英文严重程度都要能翻成中文。
+# 页面上摆一个「（moderate）」没人看得懂 —— 气象台的说法是「黄色预警」
+_ALERT_LEVELS = {
+    "blue": "蓝色",
+    "yellow": "黄色",
+    "orange": "橙色",
+    "red": "红色",
+    # 英文严重程度兜底（新版接口不一定给 color）
+    "minor": "蓝色",
+    "moderate": "黄色",
+    "severe": "橙色",
+    "extreme": "红色",
+}
+
+
+def alert_level(alert: dict) -> str:
+    """预警等级的中文名：优先用颜色，其次用英文严重程度；都没有返回空串"""
+    for key in ("severity_color", "severity"):
+        value = str(alert.get(key) or "").strip().lower()
+        if value in _ALERT_LEVELS:
+            return _ALERT_LEVELS[value]
+    return ""
+
+
 def _fetch_qweather_alerts(host: str, key: str, lat: float, lon: float) -> list[dict]:
     """官方气象预警（没有就空表）。
 
@@ -424,6 +448,8 @@ def _fetch_qweather_alerts(host: str, key: str, lat: float, lon: float) -> list[
             "type": event_type.get("name") or "",
             "severity": item.get("severity") or "",
             "severity_color": color.get("code") or "",
+            # 发布单位：「石景山区气象台」。区/市两级各发一条时，靠它区分
+            "sender": item.get("senderName") or "",
             "text": item.get("description") or "",
             "pub_time": item.get("issuedTime") or "",
             "start": item.get("effectiveTime") or "",
