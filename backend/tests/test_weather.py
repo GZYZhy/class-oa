@@ -378,11 +378,13 @@ def test_qweather_normalizes_forecast_and_alerts(monkeypatch):
              "iconDay": "305", "textDay": "小雨",
              "windSpeedDay": "45", "precip": "3.2"},
         ]},
-        "/v7/warning/now": {"code": "200", "warning": [
-            {"id": "101", "title": "示例市气象台发布暴雨橙色预警", "typeName": "暴雨",
-             "severity": "Severe", "severityColor": "Orange",
-             "text": "预计未来 3 小时降雨量将达 50 毫米以上", "status": "active"},
-            {"id": "102", "title": "已取消的预警", "status": "cancel"},
+        "/weatheralert/v1/current/39.9000/116.2000": {"metadata": {"zeroResult": False}, "alerts": [
+            {"id": "101", "headline": "示例市气象台发布暴雨橙色预警",
+             "eventType": {"name": "暴雨"}, "severity": "Severe",
+             "color": {"code": "orange"}, "description": "预计未来 3 小时降雨量将达 50 毫米以上",
+             "issuedTime": "2026-11-05T08:00Z", "effectiveTime": "2026-11-05T08:00Z",
+             "expireTime": "2026-11-05T11:00Z", "messageType": {"code": "alert"}},
+            {"id": "102", "headline": "已取消的预警", "messageType": {"code": "cancel"}},
         ]},
     }
 
@@ -396,9 +398,14 @@ def test_qweather_normalizes_forecast_and_alerts(monkeypatch):
         def json(self):
             return self._data
 
-    def fake_get(url, params=None, timeout=None):
-        # url = https://host/v7/weather/now → 取 /v7/weather/now
+    calls = []
+
+    def fake_get(url, headers=None, params=None, timeout=None):
+        # url = https://host/path → 取 /path
         path = "/" + url.split("//", 1)[1].split("/", 1)[1]
+        calls.append((path, headers or {}, params or {}))
+        assert headers == {"X-QW-Api-Key": "key"}, "Key 要走请求头，不能拼进 URL"
+        assert "key" not in (params or {}), "Key 不能再出现在 query 里"
         return _Resp(payloads[path])
 
     monkeypatch.setattr(ws.requests, "get", fake_get)
@@ -413,6 +420,9 @@ def test_qweather_normalizes_forecast_and_alerts(monkeypatch):
     assert ws.is_snow(data["hourly"][2]["code"]), "400 是小雪"
     assert data["days"][0]["high"] == 15 and data["days"][0]["wind_kmh"] == 45
     assert [alert["id"] for alert in data["alerts"]] == ["101"]
+    assert data["alerts"][0]["type"] == "暴雨" and data["alerts"][0]["severity_color"] == "orange"
+    assert any(path.startswith("/weatheralert/v1/current/") for path, _, _ in calls), \
+        "预警走新版 v1 接口，v7 已被和风下线"
 
 
 def test_quiet_hours_handle_midnight():
