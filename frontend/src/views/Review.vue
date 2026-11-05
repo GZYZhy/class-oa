@@ -2,6 +2,14 @@
   <div class="page-card" v-loading="loading">
     <!-- 这里全是同学的家庭地址、邮箱这类信息，盖一层「谁在看」的水印 -->
     <Watermark :text="watermarkText" />
+    <!-- 管理员补录请假证明用的隐藏文件框：一次只处理一行人 -->
+    <input
+      ref="leaveProofInput"
+      type="file"
+      accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp"
+      style="display: none;"
+      @change="handleLeaveProofPicked"
+    />
 
     <h3 class="page-title" style="margin-bottom: 12px;">审核审批</h3>
 
@@ -184,9 +192,30 @@
           </el-table-column>
           <el-table-column label="操作" width="460" align="center">
             <template #default="{ row }">
-              <el-button size="small" link type="primary" @click="viewLeaveProof(row)">
+              <el-button
+                v-if="row.proof_original_name"
+                size="small"
+                link
+                type="primary"
+                @click="viewLeaveProof(row)"
+              >
                 证明材料
               </el-button>
+              <!-- 证明是选填的，学生可以先交申请；管理员看到缺证明时补录。
+                   已批准的单子也允许补，后端不限制状态 -->
+              <el-button
+                v-else-if="userStore.isAdmin"
+                size="small"
+                link
+                type="warning"
+                :loading="leaveProofUploading === row.id"
+                @click="pickLeaveProof(row)"
+              >
+                补证明
+              </el-button>
+              <span v-else style="color: var(--el-text-color-disabled); font-size: 12px;">
+                未上传证明
+              </span>
               <!-- 申请人本人走学生端那个入口，这里只给管理员（班委点了必然 403） -->
               <el-button
                 v-if="row.status === 'approved' && userStore.isAdmin"
@@ -1023,6 +1052,7 @@ import {
   rejectLeave,
   revokeLeave,
   downloadLeaveProof,
+  uploadLeaveProof,
   downloadLeavePdf as apiDownloadLeavePdf
 } from '@/api/leave'
 import {
@@ -1315,6 +1345,38 @@ const proofViewerVisible = ref(false)
 const proofFileUrl = ref('')
 const proofFileName = ref('')
 const proofDownloadName = ref('')
+// 管理员补录证明：选中的行和正在上传的行（同一时间只允许一个）
+const leaveProofInput = ref(null)
+const leaveProofRow = ref(null)
+const leaveProofUploading = ref(null)
+
+function pickLeaveProof(row) {
+  leaveProofRow.value = row
+  if (!leaveProofInput.value) return
+  leaveProofInput.value.value = ''
+  leaveProofInput.value.click()
+}
+
+async function handleLeaveProofPicked(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  const row = leaveProofRow.value
+  leaveProofRow.value = null
+  if (!file || !row) return
+  if (file.size > 20 * 1024 * 1024) {
+    return ElMessage.warning('证明文件不能超过 20MB')
+  }
+  leaveProofUploading.value = row.id
+  try {
+    await uploadLeaveProof(row.id, file)
+    ElMessage.success('证明已补录')
+    fetchLeaveList()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '上传失败')
+  } finally {
+    leaveProofUploading.value = null
+  }
+}
 
 function viewLeaveProof(row) {
   // 打开材料即受理。不 await：别让网络拖慢预览；出错也静默，管理员只是想看眼材料，
