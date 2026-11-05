@@ -2290,7 +2290,7 @@ console.log('\n▶ 请假与电动车：承诺语照抄表上原话，各加一�
   // 请假证明已改成选填：不能再挂 required / 必填 validator，否则不传或传了
   // 都会被自动必填规则卡死。管理员另有补录入口。
   check(!L.includes('prop="proof"') && !L.includes("validateField('proof')") &&
-    L.includes('辅助证明（选填）') && L.includes("fd.append('proof'"),
+    L.includes('label="辅助证明"') && L.includes("fd.append('proof'"),
     '请假：辅助证明是选填，选填后能正常提交')
   const R = readFileSync(`${ROOT}/src/views/Review.vue`, 'utf8')
   check(R.includes('uploadLeaveProof') && R.includes('补证明') &&
@@ -5936,6 +5936,13 @@ console.log('\n▶ 水印：成绩页、成绩弹窗、办件空间都盖上')
   check(/label="办件空间"[\s\S]{0,400}<Watermark :text="watermarkText"/.test(my),
     '「办件空间」页盖水印')
   check(/\.wm-host\s*\{\s*position:\s*relative/.test(my), '两处水印都有定位基准')
+
+  // 深色下的反转必须认 html.dark（手动三档主题），不能只认系统偏好：
+  // 在浅色系统里手动切深色时，媒体查询不生效，黑水印直接看不见
+  const wm = readFileSync(`${ROOT}/src/components/Watermark.vue`, 'utf8')
+  check(/:global\(html\.dark \.watermark:not\(\.keep-dark\)\)[\s\S]{0,80}filter:\s*invert\(1\)/.test(wm),
+    '深色水印跟随页面的 .dark 类反转')
+  check(!/@media\s*\(prefers-color-scheme/.test(wm), '不再用系统偏好判断水印深浅')
 }
 
 console.log('\n▶ 强制改密：签到深链也不能绕过，改完留在原页')

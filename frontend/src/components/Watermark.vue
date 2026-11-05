@@ -107,10 +107,13 @@ const svgDataUrlMobile = computed(() => makeSvg(props.text, MOBILE_FONT_SIZE))
 /* 深色模式：整层反转。水印颜色写在 SVG 里（黑 8%），背景一变深就看不见了，
    反转正好得到白 8% —— 和浅色下的对比度一模一样，不用再维护一套深色图。
    keepDark 的例外：PDF 画布不管什么主题都是白的（见 PdfViewer 的 .pdf-canvas），
-   反转过去反而看不见。 */
-@media (prefers-color-scheme: dark) {
-  .watermark:not(.keep-dark) {
-    filter: invert(1);
-  }
+   反转过去反而看不见。
+
+   **必须认 html.dark，不能认 prefers-color-scheme。** 站里有「自动/浅色/深色」
+   三档（见 useTheme.js），用户可以在浅色系统里手动切深色、也可以在深色系统里
+   固定浅色；媒体查询只反映系统偏好，和页面此刻真正用哪套配色是两回事。
+   以前这里写的是媒体查询，结果手动切深色时水印还是黑的，直接看不见了。 */
+:global(html.dark .watermark:not(.keep-dark)) {
+  filter: invert(1);
 }
 </style>
