@@ -2285,6 +2285,20 @@ console.log('\n▶ 请假与电动车：承诺语照抄表上原话，各加一�
   // 漏挂校验的勾选框等于白摆：不勾也能交上去
   const L = readFileSync(`${ROOT}/src/views/LeaveApply.vue`, 'utf8')
   const E = readFileSync(`${ROOT}/src/views/EvPass.vue`, 'utf8')
+  const C = readFileSync(`${ROOT}/src/views/Certificate.vue`, 'utf8')
+
+  // 文件不在 form 上时，el-form-item 的 required 会额外生成一条读
+  // form.proof / form.attachments 的必填规则，选好文件也永远提交不了。
+  // 星号必须自己画；这两个页面都踩过。
+  check(!L.includes('prop="proof" required') &&
+    L.includes('<template #label><span class="req-star">*</span>辅助证明</template>') &&
+    L.includes("validateField('proof')"),
+    '请假：辅助证明的星号不靠 required，选好文件能通过校验')
+  check(!C.includes('prop="attachments" required') &&
+    C.includes('<template #label><span class="req-star">*</span>申请依据</template>') &&
+    C.includes("validateField('attachments')"),
+    '证明：申请依据同样不靠 required，选好附件能通过校验')
+
   for (const f of ['agreed', 'promised', 'signConfirmed']) {
     check(new RegExp(`${f}: mustCheck\\(`).test(L), `请假：${f} 挂了校验`)
   }

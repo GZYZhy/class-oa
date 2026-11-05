@@ -44,9 +44,10 @@
                 show-word-limit
               />
             </el-form-item>
-            <!-- 同请假页：附件不在 form 上，校验走自定义 validator，
-                 星号用 required 属性给，别写进规则 -->
-            <el-form-item label="申请依据" prop="attachments" required>
+            <!-- 同请假页：附件不在 form 上。星号自己画，不能交给 required ——
+                 它会额外追一条读 form.attachments 的必填规则，选好文件也提交不了 -->
+            <el-form-item prop="attachments">
+              <template #label><span class="req-star">*</span>申请依据</template>
               <el-upload
                 ref="uploadRef"
                 :auto-upload="false"
@@ -421,6 +422,12 @@ onMounted(fetchList)
 </script>
 
 <style scoped>
+/* 文件类表单项不能靠 el-form-item 的 required，星号单独画 */
+.req-star {
+  color: var(--el-color-danger);
+  margin-right: 4px;
+}
+
 /* 修改模式的提示条。用 Element 的调色板变量，深色模式跟着一起变 */
 .edit-hint {
   max-width: 640px;

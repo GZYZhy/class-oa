@@ -81,10 +81,11 @@
               <el-input v-model="form.destination_phone" placeholder="去向地联系电话" />
             </el-form-item>
 
-            <!-- 星号靠 required 属性给：证明文件存在 fileList 里、不在 form 上，
-                 校验走的是自定义 validator，规则里写 required 既不会出星号、
-                 又会去读 form.proof（恒为 undefined）把提交卡死 -->
-            <el-form-item label="辅助证明" prop="proof" required>
+            <!-- 证明文件存在 fileList 里、不在 form 上。星号必须自己画：
+                 el-form-item 的 required 会额外追一条读 form.proof 的必填规则
+                 （恒为 undefined），文件选好了也永远提交不了 -->
+            <el-form-item prop="proof">
+              <template #label><span class="req-star">*</span>辅助证明</template>
               <el-upload
                 :file-list="fileList"
                 :auto-upload="false"
@@ -543,6 +544,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 文件类表单项不能靠 el-form-item 的 required，星号单独画 */
+.req-star {
+  color: var(--el-color-danger);
+  margin-right: 4px;
+}
+
 .form-tip {
   font-size: 12px;
   color: var(--el-text-color-secondary);
