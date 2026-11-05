@@ -84,7 +84,7 @@
             <!-- 证明选填：原则上应上传，但允许先交申请、后由管理员补录。
                  文件存在 fileList 里、不在 form 上，所以不能给 el-form-item 加 required：
                  它会额外追一条读 form.proof 的必填规则，选了文件也永远提交不了 -->
-            <el-form-item label="辅助证明（选填）">
+            <el-form-item label="辅助证明">
               <el-upload
                 :file-list="fileList"
                 :auto-upload="false"

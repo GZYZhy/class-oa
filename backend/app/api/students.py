@@ -361,7 +361,9 @@ def read_my_info(
     user: User = Depends(get_current_user),
     student: Student = Depends(get_current_student),
 ):
-    return student_response(student, user.role or "student")
+    # 一定要带 is_self：班委角色如果按「看别人」裁剪，连自己的身份证号、
+    # 实地采集照片都会被隐藏。这里查的就是本人，不是班委在查别的同学。
+    return student_response(student, user.role or "student", is_self=True)
 
 
 @router.get("/{student_id}/photo", summary="指定学生照片")
