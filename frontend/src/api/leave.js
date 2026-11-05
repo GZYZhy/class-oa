@@ -74,6 +74,22 @@ export function getAdvisorSigners() {
   return request({ url: '/leaves/advisor-signers', method: 'get' })
 }
 
+/** 管理员：补录请假证明（已批准的单子也能补，旧证明会被替换）
+ *
+ * onProgress：(loaded, total) => void
+ */
+export function uploadLeaveProof(id, file, onProgress) {
+  const form = new FormData()
+  form.append('proof', file)
+  return request({
+    url: `/leaves/${id}/proof`,
+    method: 'post',
+    data: form,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: progressHandler(onProgress)
+  })
+}
+
 /** 管理员：下载请假证明文件 */
 export function downloadLeaveProof(id) {
   return request({

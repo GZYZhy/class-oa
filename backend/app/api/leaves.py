@@ -186,14 +186,20 @@ async def submit_leave(
     travel_detail: str = Form(""),
     destination: str = Form(""),
     destination_phone: str = Form(""),
-    proof: UploadFile = File(..., description="请假辅助证明（图片或 PDF，必填）"),
+    proof: UploadFile | None = File(None, description="请假辅助证明（图片或 PDF，选填；可后由管理员补录）"),
     user: User = Depends(get_current_user),
     student: Student = Depends(get_current_student),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
 ):
     _check_fields(leave_type, start_at, end_at, reason)
-    proof_name = await _save_proof(proof)
+    # 证明选填：原则上应提交，但允许先交申请、后由管理员补录（包括批准之后）。
+    # 浏览器没选文件时可能送来一个 filename 为空的空文件，和没传一样处理
+    proof_name = None
+    proof_original_name = None
+    if proof is not None and proof.filename:
+        proof_name = await _save_proof(proof)
+        proof_original_name = proof.filename
 
     leave = LeaveRequest(
         student_id=student.id,
@@ -208,14 +214,15 @@ async def submit_leave(
         destination=destination.strip(),
         destination_phone=destination_phone.strip(),
         proof_file=proof_name,
-        proof_original_name=proof.filename,
+        proof_original_name=proof_original_name,
         status="pending",
     )
     db.add(leave)
     log_operation(
         db, user, "提交请假申请",
         target=f"{student.student_no} {student.name}",
-        detail=f"{leave_type}：{start_at:%Y-%m-%d %H时} ~ {end_at:%Y-%m-%d %H时}",
+        detail=f"{leave_type}：{start_at:%Y-%m-%d %H时} ~ {end_at:%Y-%m-%d %H时}"
+               + ("" if proof_name else "（未附证明，可后补）"),
         ip=ip,
     )
     db.commit()
@@ -482,6 +489,49 @@ def download_pdf(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.post(
+    "/{leave_id}/proof",
+    response_model=LeaveRequestResponse,
+    summary="补录请假证明（仅管理员）",
+)
+async def upload_proof(
+    leave_id: int,
+    proof: UploadFile = File(..., description="请假辅助证明（图片或 PDF）"),
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    """给一条已有请假补上证明材料，已批准、已驳回、已撤销的单子也能补。
+
+    证明提交时是选填项；补录只换文件，不改变审核状态，也不发通知。
+    旧文件在新文件提交成功后才删，失败时档案仍指向原来那份。
+    """
+    leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=404, detail="请假记录不存在")
+
+    old_proof = leave.proof_file
+    new_proof = await _save_proof(proof)
+    leave.proof_file = new_proof
+    leave.proof_original_name = proof.filename
+    log_operation(
+        db, user, "补录请假证明",
+        target=f"{leave.student_no} {leave.student_name}",
+        detail="替换了原有证明" if old_proof else "补充了证明",
+        ip=ip,
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        (LEAVE_DIR / new_proof).unlink(missing_ok=True)
+        raise
+    if old_proof and old_proof != new_proof:
+        (LEAVE_DIR / old_proof).unlink(missing_ok=True)
+    db.refresh(leave)
+    return _to_response(leave)
 
 
 @router.get("/{leave_id}/proof/admin", summary="下载请假证明文件（班委及以上）")

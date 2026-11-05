@@ -382,3 +382,33 @@ def test_migration_backfills_correction_reason(backend):
     for table in tables:
         columns = {row[1] for row in b2.rows(f"PRAGMA table_info({table})")}
         assert "correction_reason" in columns, f"{table} 没补上列"
+
+
+def test_leave_proof_is_optional_and_admin_can_add_it_after_approval(rf):
+    """证明提交时选填；批准后仍可由管理员补录，且不改变审核状态"""
+    r = rf.applicant.post("/api/leaves", data=LEAVE_FORM)  # 不传 proof
+    assert r.status_code == 200, r.text
+    rid = r.json()["id"]
+    assert rf.b.rows("SELECT proof_file FROM leave_requests WHERE id = ?", rid)[0][0] is None
+
+    assert rf.b.client.post(f"/api/leaves/{rid}/accept").status_code == 200
+    assert rf.b.client.post(f"/api/leaves/{rid}/approve").status_code == 200
+    assert rf.b.rows("SELECT status FROM leave_requests WHERE id = ?", rid)[0][0] == "approved"
+
+    # 学生自己不能走管理员补录入口
+    assert rf.applicant.post(
+        f"/api/leaves/{rid}/proof",
+        files={"proof": ("proof.png", PNG, "image/png")},
+    ).status_code == 403
+
+    r = rf.b.client.post(
+        f"/api/leaves/{rid}/proof",
+        files={"proof": ("补录证明.png", PNG, "image/png")},
+    )
+    assert r.status_code == 200, r.text
+    row = rf.b.rows(
+        "SELECT proof_file, proof_original_name, status FROM leave_requests WHERE id = ?",
+        rid,
+    )[0]
+    assert row[0] and row[1] == "补录证明.png"
+    assert row[2] == "approved", "补证明不能把审核状态改回去"

@@ -81,11 +81,10 @@
               <el-input v-model="form.destination_phone" placeholder="去向地联系电话" />
             </el-form-item>
 
-            <!-- 证明文件存在 fileList 里、不在 form 上。星号必须自己画：
-                 el-form-item 的 required 会额外追一条读 form.proof 的必填规则
-                 （恒为 undefined），文件选好了也永远提交不了 -->
-            <el-form-item prop="proof">
-              <template #label><span class="req-star">*</span>辅助证明</template>
+            <!-- 证明选填：原则上应上传，但允许先交申请、后由管理员补录。
+                 文件存在 fileList 里、不在 form 上，所以不能给 el-form-item 加 required：
+                 它会额外追一条读 form.proof 的必填规则，选了文件也永远提交不了 -->
+            <el-form-item label="辅助证明（选填）">
               <el-upload
                 :file-list="fileList"
                 :auto-upload="false"
@@ -100,7 +99,8 @@
                     支持 PDF / 图片，最大 20MB。超过 1MB 的图片会自动压缩；不重选就沿用当前那份
                   </div>
                   <div v-else class="el-upload__tip">
-                    支持 PDF / 图片，最大 20MB，必填。超过 1MB 的图片会自动压缩
+                    支持 PDF / 图片，最大 20MB。建议上传；暂时没有可以先提交，之后可由管理员补录。
+                    超过 1MB 的图片会自动压缩
                   </div>
                 </template>
               </el-upload>
@@ -171,9 +171,18 @@
             </el-table-column>
             <el-table-column label="操作" width="240" align="center">
               <template #default="{ row }">
-                <el-button size="small" link type="primary" @click="viewProof(row)">
+                    <el-button
+                  v-if="row.proof_original_name"
+                  size="small"
+                  link
+                  type="primary"
+                  @click="viewProof(row)"
+                >
                   查看证明
                 </el-button>
+                <span v-else style="color: var(--el-text-color-disabled); font-size: 12px;">
+                  未上传证明
+                </span>
                 <!-- 待受理、待补正都能改；撤只有待受理能撤（受理过的要撤得找班委先撤回受理） -->
                 <el-button
                   v-if="row.status === 'pending' || row.status === 'correcting'"
@@ -310,18 +319,6 @@ const rules = {
   start_at: [{ required: true, message: '请选择开始时间', trigger: 'change' }],
   end_at: [{ required: true, message: '请选择结束时间', trigger: 'change' }],
   reason: [{ required: true, message: '请填写请假事由', trigger: 'blur' }],
-  // 证明文件存在 fileList 里、不在 form 上，所以不能用 required：
-  // required 读的是 form.proof，恒为 undefined，会把提交永远卡住
-  proof: [
-    {
-      validator: (_, __, callback) => {
-        // 修改时可以不重选：不选就沿用原来那份（后端 PUT 的 proof 字段就是这么定的）
-        if (editingId.value || fileList.value.length) callback()
-        else callback(new Error('请上传请假辅助证明'))
-      },
-      trigger: 'change'
-    }
-  ],
   agreed: mustCheck('请先勾选同意条款'),
   promised: mustCheck('请先勾选承诺内容'),
   signConfirmed: mustCheck('请确认会在请假审批表上签字')
@@ -350,14 +347,10 @@ async function handleFileChange(file) {
   // 压完把 raw 换掉 —— 提交时取的就是它
   if (file.raw) file.raw = await compressImage(file.raw)
   fileList.value = [file]
-  // 手动触发校验
-  formRef.value?.validateField('proof')
 }
 
 function handleFileRemove() {
   fileList.value = []
-  // 移掉文件后同步刷新提示，不然红字会一直留在原地
-  formRef.value?.validateField('proof')
 }
 
 /** 清空表单，回到「新建」状态 */
@@ -431,10 +424,6 @@ async function handleSubmit() {
 
   if (new Date(form.end_at.replace(' ', 'T')) <= new Date(form.start_at.replace(' ', 'T'))) {
     return ElMessage.warning('结束时间必须晚于开始时间')
-  }
-
-  if (!editingId.value && !fileList.value.length) {
-    return ElMessage.warning('请上传请假辅助证明')
   }
 
   // 审批表上要印本人签字，系统里没有就先手写一张（签完自动保存并继续提交）
@@ -544,12 +533,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 文件类表单项不能靠 el-form-item 的 required，星号单独画 */
-.req-star {
-  color: var(--el-color-danger);
-  margin-right: 4px;
-}
-
 .form-tip {
   font-size: 12px;
   color: var(--el-text-color-secondary);

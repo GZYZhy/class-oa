@@ -1309,7 +1309,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | `travel_detail` | string | 否 |  |
 | `destination` | string | 否 |  |
 | `destination_phone` | string | 否 |  |
-| `proof` | string | 是 | 请假辅助证明（图片或 PDF，必填） |
+| `proof` | string | 否 | 请假辅助证明（图片或 PDF）；选填，之后可由管理员补录 |
 
 **响应**
 
@@ -1394,6 +1394,24 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` — 成功
+
+### 补录请假证明（仅管理员）
+
+`POST /api/leaves/{leave_id}/proof`
+
+给已有请假补上证明材料，已批准 / 已驳回 / 已撤销的单子也可以补。只换文件，
+不改变审核状态，也不发通知；会替换原有证明并删除旧文件。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `leave_id` | path | 是 | integer |  |
+| `proof` | formData | 是 | string | 请假辅助证明（图片或 PDF，最大 20MB） |
+
+**响应**
+
+- `200` `LeaveRequestResponse` — 成功
 
 ### 下载请假证明文件（班委及以上）
 
