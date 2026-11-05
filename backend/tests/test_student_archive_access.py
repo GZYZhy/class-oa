@@ -377,3 +377,24 @@ def test_only_committee_can_apply_and_admin_does_not_need_to(world):
         "/api/archive-views/requests", json={"student_id": sid_of(world.b, CM1)}
     )
     assert r.status_code == 400
+
+
+def test_committee_me_returns_their_own_full_profile(world):
+    """班委查看自己的 /me 不能被「看别人」的裁剪规则误伤
+
+    班委身份 + 查的是本人：身份证号、实地采集照片这些都应该完整返回。
+    """
+    sid = sid_of(world.b, CM1)
+    r = world.b.client.post(
+        f"/api/students/{sid}/photo?type=on_site",
+        files={"file": ("cm_on_site.png", PNG, "image/png")},
+    )
+    assert r.status_code == 200, r.text
+
+    body = world.cm1.get("/api/students/me").json()
+    assert body["sensitive_hidden"] is False
+    assert body["id_card"] == "110101200605010002"
+    assert body["on_site_photo"]
+    assert world.cm1.get(
+        f"/api/students/{sid}/photo?type=on_site"
+    ).status_code == 200
