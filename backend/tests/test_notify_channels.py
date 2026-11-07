@@ -2,6 +2,7 @@
 
     cd backend && python -m pytest tests/test_notify_channels.py -q
 """
+import base64
 import json
 from urllib.parse import parse_qs, urlparse
 
@@ -127,12 +128,10 @@ def test_read_token_round_trip_and_rejects_tampering(monkeypatch):
     # 改签名里的一个字符。不要用「token 后面接个字符」来测篡改：
     # base64 在不同 Python 版本下对尾部杂字符的宽容度不一样（3.12 会直接忽略），
     # 这种用例会在本机过、CI 红
-    raw = __import__("base64").urlsafe_b64decode(token).decode()
+    raw = base64.urlsafe_b64decode(token).decode()
     payload, sig = raw.rsplit(":", 1)
     bad_sig = ("0" if sig[0] != "0" else "1") + sig[1:]
-    tampered = __import__("base64").urlsafe_b64encode(
-        f"{payload}:{bad_sig}".encode()
-    ).decode()
+    tampered = base64.urlsafe_b64encode(f"{payload}:{bad_sig}".encode()).decode()
     assert inbox_service.parse_read_token(tampered) is None
 
 
