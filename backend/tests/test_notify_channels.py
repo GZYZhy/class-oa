@@ -65,3 +65,20 @@ def test_email_html_uses_site_theme_and_escapes(monkeypatch):
     assert "<script>alert(1)</script>" not in html
     assert "https://example.com/#/leave" in html
     assert "#5b5bd6" in html
+    assert "https://example.com/logo.png?v=1" in html
+    assert 'alt="校徽"' in html
+
+
+def test_email_code_is_highlighted_without_inapp_button(monkeypatch):
+    """验证码邮件把 6 位码单独放大，且不显示「在站内查看」按钮"""
+    monkeypatch.setattr(settings, "site_name", "统1办")
+    monkeypatch.setattr(settings, "public_base_url", "https://example.com")
+    body = "你的登录验证码是 123456，10 分钟内有效。\n\n如果不是你本人操作，请忽略本邮件。"
+
+    html = email_service._body_html("班级信息管理系统登录验证码", body, "/login", code="123456")
+    assert "123456" in html
+    assert "font-size:30px" in html
+    assert "letter-spacing:8px" in html
+    assert "10 分钟内有效" in html
+    assert "在站内查看" not in html
+    assert "https://example.com/logo.png?v=1" in html

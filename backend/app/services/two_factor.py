@@ -220,6 +220,8 @@ def send_login_code(user: User, address: str, code: str) -> bool:
         page="/login",
         timeout=TEST_TIMEOUT,
         budget=TEST_BUDGET,
+        # HTML 模板会把验证码单独放大排版，不再混在正文段落里
+        code=code,
     )
     return bool(ok)
 
