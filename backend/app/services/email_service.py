@@ -4,7 +4,7 @@
 做任何准备**：学生档案里本来就存着邮箱（全班 36 人都有），所以它对偶尔才登录
 的同学最有用。
 
-这里只管邮件这一个渠道：`email_recipients` 查收件地址、`push` 真正发送。
+这里只管邮件这一个渠道：`email_targets` / `email_recipients` 查收件人、`push` 真正发送。
 「这件事该走哪几个渠道」的路由在 notify_service。
 
 **本模块任何函数都不许把异常抛出去** —— 同 bark_service，发信失败绝不能连累
@@ -17,6 +17,7 @@ import html as html_lib
 import smtplib
 import ssl
 import time
+from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate
 
@@ -47,6 +48,50 @@ TEST_TIMEOUT = 5
 TEST_BUDGET = 15
 
 
+@dataclass(frozen=True)
+class EmailTarget:
+    """一个邮件收件人
+
+    比纯地址多带两样东西，都是为了邮件里的「标记为已读」按钮：
+    student_nos 是共用这个地址的账号（一个地址可能被多名学生填了），
+    read_url 是已经拼好的、带签名的绝对链接。后台任务拿着它就能直接发，
+    不需要数据库会话。
+    """
+
+    address: str
+    student_nos: tuple[str, ...] = ()
+    read_url: str | None = None
+
+
+def _address_rows(
+    db: Session,
+    roles: list[str] | None = None,
+    only_no: str | None = None,
+    exclude_no: str | None = None,
+) -> list[tuple[str, str]]:
+    """查 (学号, 邮箱) 对，保留每个账号一行（同一地址可能对应多人）"""
+    query = (
+        db.query(User.student_no, User.notify_email, Student.email)
+        .outerjoin(Student, Student.student_no == User.student_no)
+        .filter(User.notify_email_enabled.is_(True))
+    )
+    if roles:
+        query = query.filter(User.role.in_(roles))
+    if only_no:
+        query = query.filter(User.student_no == only_no)
+    if exclude_no:
+        query = query.filter(User.student_no != exclude_no)
+
+    rows: list[tuple[str, str]] = []
+    for student_no, notify_email, student_email in query.all():
+        # 覆盖值优先，空则回退档案邮箱（两边都要 strip，库里可能存着空格）
+        addr = (notify_email or "").strip() or (student_email or "").strip()
+        if is_valid_email(addr):
+            rows.append((student_no, addr))
+        # 格式不合法就跳过，不打印：查询是每次通知都会走的路径，脏地址会反复刷屏
+    return rows
+
+
 def email_recipients(
     db: Session,
     roles: list[str] | None = None,
@@ -66,38 +111,50 @@ def email_recipients(
       notify_email 的域外账号」静默收不到邮件；
     - roles 过滤要 JOIN users 才拿得到角色，这点和 web_subscriptions 是同一个坑。
     """
-    query = (
-        db.query(User.notify_email, Student.email)
-        .outerjoin(Student, Student.student_no == User.student_no)
-        .filter(User.notify_email_enabled.is_(True))
-    )
-    if roles:
-        query = query.filter(User.role.in_(roles))
-    if only_no:
-        query = query.filter(User.student_no == only_no)
-    if exclude_no:
-        query = query.filter(User.student_no != exclude_no)
+    return _dedupe_addresses(addr for _, addr in _address_rows(
+        db, roles=roles, only_no=only_no, exclude_no=exclude_no
+    ))
 
-    seen: set[str] = set()
-    addresses: list[str] = []
-    for notify_email, student_email in query.all():
-        # 覆盖值优先，空则回退档案邮箱（两边都要 strip，库里可能存着空格）
-        addr = (notify_email or "").strip() or (student_email or "").strip()
-        if not is_valid_email(addr):
-            # 格式不合法就跳过。这里不打印：查询是每次通知都会走的路径，
-            # 脏地址会反复刷屏。真正发信时的跳过会有日志（见 _clean_addresses）
-            continue
+
+def email_targets(
+    db: Session,
+    roles: list[str] | None = None,
+    only_no: str | None = None,
+    exclude_no: str | None = None,
+) -> list[EmailTarget]:
+    """和 email_recipients 同一套取址规则，但把共用一个邮箱的学号归到一起
+
+    邮件是每人一封，地址去重后只发一封；可这一封里得能同时标记多个人的站内信，
+    所以不能像 email_recipients 那样只留地址。read_url 此时还不填 —— 它依赖
+    站内信写库后的消息 id，由 notify_service 补上。
+    """
+    grouped: dict[str, dict] = {}
+    for student_no, addr in _address_rows(
+        db, roles=roles, only_no=only_no, exclude_no=exclude_no
+    ):
         key = addr.lower()
-        if key in seen:
-            # 两个人可能填了同一个地址（比如共用一个邮箱），去重免得收两封
-            continue
-        seen.add(key)
-        addresses.append(addr)
-    return addresses
+        entry = grouped.setdefault(key, {"address": addr, "nos": []})
+        entry["nos"].append(student_no)
+    return [
+        EmailTarget(entry["address"], tuple(entry["nos"]))
+        for entry in grouped.values()
+    ]
+
+
+def _dedupe_addresses(addresses) -> list[str]:
+    """地址去重（不区分大小写），保留第一次出现的写法"""
+    seen: set[str] = set()
+    result: list[str] = []
+    for addr in addresses:
+        key = addr.lower()
+        if key not in seen:
+            seen.add(key)
+            result.append(addr)
+    return result
 
 
 def push(
-    addresses: list[str], title: str, body: str,
+    addresses: list[str | EmailTarget], title: str, body: str,
     level: str = "active", page: str | None = None,
     timeout: int = TIMEOUT, budget: int = BUDGET,
     code: str | None = None,
@@ -114,7 +171,7 @@ def push(
     if not smtp_enabled():
         return False
 
-    targets = _clean_addresses(addresses)
+    targets = _clean_targets(addresses)
     if not targets:
         return False
 
@@ -126,7 +183,7 @@ def push(
         server = _connect(timeout)
         deadline = time.monotonic() + budget
         sent = 0
-        for address in targets:
+        for target in targets:
             if time.monotonic() > deadline:
                 # 不静默截断：剩几个人没发到要留在日志里，否则「有人没收到」无从查起
                 print(
@@ -134,7 +191,10 @@ def push(
                     flush=True,
                 )
                 break
-            if _send(server, address, title, body, page, code=code):
+            if _send(
+                server, target.address, title, body, page,
+                code=code, read_url=target.read_url,
+            ):
                 sent += 1
         return sent > 0
     except Exception as exc:
@@ -177,6 +237,7 @@ def _connect(timeout: int = TIMEOUT) -> smtplib.SMTP:
 def _send(
     server: smtplib.SMTP, address: str, title: str, body: str,
     page: str | None, code: str | None = None,
+    read_url: str | None = None,
 ) -> bool:
     """发一封，返回是否成功
 
@@ -197,9 +258,10 @@ def _send(
         message["Date"] = formatdate(localtime=True)
         # 纯文本与 HTML 同时发。老客户端/纯文本模式看前者，现代客户端看后者；
         # 两者内容一致，HTML 只是把同样的字排成站点主题的卡片。
-        message.set_content(_body_text(body, page))
+        message.set_content(_body_text(body, page, read_url=read_url))
         message.add_alternative(
-            _body_html(title, body, page, code=code), subtype="html"
+            _body_html(title, body, page, code=code, read_url=read_url),
+            subtype="html",
         )
         server.send_message(message)
         return True
@@ -209,16 +271,21 @@ def _send(
         return False
 
 
-def _body_text(body: str, page: str | None) -> str:
-    """邮件正文 = 通知正文 + 回站内的链接
+def _body_text(
+    body: str, page: str | None, read_url: str | None = None,
+) -> str:
+    """邮件正文 = 通知正文 + 回站内的链接 + 标记已读链接
 
     链接的拼法和 Bark 完全一致（都是 hash 路由的 /#/xxx），
     没配 public_base_url 时就不带链接 —— 相对路径在邮件里点不开，宁可不给。
+    read_url 是带签名的绝对地址，点一下就把这次通知标为已读，不用登录。
     """
     text = f"{body[:BODY_LIMIT]}\n\n—— 本邮件由「{settings.app_name}」自动发出，请勿直接回复。"
     base = settings.public_base_url.rstrip("/")
     if base:
         text += f"\n\n在站内查看：{base}/#{page}" if page else f"\n\n{base}"
+    if read_url:
+        text += f"\n\n标记为已读：{read_url}"
     return text
 
 
@@ -234,6 +301,7 @@ def _logo_url() -> str:
 
 def _body_html(
     title: str, body: str, page: str | None, code: str | None = None,
+    read_url: str | None = None,
 ) -> str:
     """邮件 HTML 正文：站点主题的卡片，不依赖外部 CSS
 
@@ -243,6 +311,9 @@ def _body_html(
 
     验证码类邮件单独排版：把验证码从正文里提出来，放大、加字距、放进浅紫卡片，
     并去掉「在站内查看」按钮（用户正在登录页，按钮没有意义）。
+
+    read_url 非空时多一个「标记为已读」按钮：它带签名、不要求登录，
+    用户不必打开站点就能清掉对应站内信的未读状态。
     """
     site = html_lib.escape(settings.site_name.strip() or settings.app_name)
     safe_title = html_lib.escape(title)
@@ -278,13 +349,38 @@ def _body_html(
         base = settings.public_base_url.rstrip("/")
         link = f"{base}/#{page}" if base and page else (base or "")
         action = ""
-        if link:
+        if link or read_url:
+            buttons = []
+            if link:
+                buttons.append(
+                    f'<a href="{html_lib.escape(link, quote=True)}" '
+                    'style="display:inline-block;background:#5b5bd6;color:#ffffff;'
+                    'text-decoration:none;font-size:14px;font-weight:600;'
+                    'padding:12px 22px;border-radius:10px;">在站内查看</a>'
+                )
+            if read_url:
+                read_style = (
+                    "background:#eef0ff;color:#4b4bc4;border:1px solid #d9daf5;"
+                    if link
+                    else "background:#5b5bd6;color:#ffffff;"
+                )
+                gap = "margin-left:10px;" if link else ""
+                buttons.append(
+                    f'<a href="{html_lib.escape(read_url, quote=True)}" '
+                    f'style="display:inline-block;{read_style}text-decoration:none;'
+                    'font-size:14px;font-weight:600;padding:12px 22px;'
+                    f'border-radius:10px;{gap}">标记为已读</a>'
+                )
+            hint = (
+                '<div style="margin-top:10px;color:#8a90a5;font-size:12px;'
+                'line-height:1.6;">不想打开站点？点「标记为已读」即可清除这次的'
+                '站内未读。</div>'
+                if link and read_url
+                else ""
+            )
             action = (
-                '<tr><td style="padding:6px 32px 28px;">'
-                f'<a href="{html_lib.escape(link, quote=True)}" '
-                'style="display:inline-block;background:#5b5bd6;color:#ffffff;'
-                'text-decoration:none;font-size:14px;font-weight:600;'
-                'padding:12px 22px;border-radius:10px;">在站内查看</a></td></tr>'
+                '<tr><td style="padding:6px 32px 26px;">'
+                + "".join(buttons) + hint + "</td></tr>"
             )
 
     return f'''<!DOCTYPE html>
@@ -328,16 +424,20 @@ def _body_html(
 </body></html>'''
 
 
-def _clean_addresses(addresses: list[str]) -> list[str]:
+def _clean_targets(items: list[str | EmailTarget]) -> list[EmailTarget]:
     """发信前再过一遍：去重 + 丢掉格式不合法的
 
     收件人查询里已经过滤过一次，这里不是重复劳动：`push` 也会被「发送测试」
     直接调用（那里传入的是用户刚填的地址），而且以后有别的调用方时这层兜底还在。
+
+    同一地址出现多次时合并 student_nos，并保留先拿到的 read_url：
+    一个邮箱只发一封，链接里必须能带上共用该邮箱的所有人的消息令牌。
     """
-    seen: set[str] = set()
-    cleaned: list[str] = []
-    for raw in addresses:
-        addr = (raw or "").strip()
+    seen: dict[str, int] = {}
+    cleaned: list[EmailTarget] = []
+    for raw in items:
+        target = raw if isinstance(raw, EmailTarget) else EmailTarget(str(raw or ""))
+        addr = target.address.strip()
         if not is_valid_email(addr):
             if addr:
                 # 打完整地址是有意的：不知道是哪个地址坏了，这条日志就没有价值。
@@ -346,9 +446,16 @@ def _clean_addresses(addresses: list[str]) -> list[str]:
             continue
         key = addr.lower()
         if key in seen:
+            prev = cleaned[seen[key]]
+            merged = tuple(dict.fromkeys(prev.student_nos + target.student_nos))
+            cleaned[seen[key]] = EmailTarget(
+                prev.address, merged, prev.read_url or target.read_url
+            )
             continue
-        seen.add(key)
-        cleaned.append(addr)
+        seen[key] = len(cleaned)
+        cleaned.append(
+            EmailTarget(addr, tuple(target.student_nos), target.read_url)
+        )
     if len(cleaned) > MAX_RECIPIENTS:
         print(
             f"[Email] 收件人多于 {MAX_RECIPIENTS} 个，只发前 {MAX_RECIPIENTS} 个"
