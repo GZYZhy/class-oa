@@ -1361,7 +1361,7 @@ console.log('\n▶ 通知公告：RSS 订阅（需要登录）')
   check(hasSubscribeButton(asMember), '登录后能看到订阅按钮')
 
   const AS_EXTERNAL = `const userStore = useUserStore()
-  userStore.info = { student_no: 'x', name: '示例老师乙', role: 'guest', is_external: true }`
+  userStore.info = { student_no: 'x', name: '示例老师', role: 'guest', is_external: true }`
   const { html: asExternal } = await renderPatched(
     NOTICES, 'const userStore = useUserStore()', AS_EXTERNAL)
   check(!hasSubscribeButton(asExternal),

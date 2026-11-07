@@ -173,7 +173,7 @@ def test_rename_only_keeps_sign(ex):
     assert create_ext(ex.b, PNG).status_code == 200
     name = db_sign(ex.b)
 
-    assert update_ext(ex.b, name="示例老师乙").status_code == 200
+    assert update_ext(ex.b, name="示例老师").status_code == 200
     assert db_sign(ex.b) == name
     assert (ex.photos / name).exists()
 
@@ -247,7 +247,8 @@ def test_log_actions_are_searchable(ex):
 def test_rename_logs_no_sign_action(ex):
     """只改名字那次不能冒出签字动作的日志（否则日志页会多出一堆噪音）"""
     assert create_ext(ex.b, PNG).status_code == 200
-    assert update_ext(ex.b, name="示例老师乙").status_code == 200
+    # 必须真的换成另一个名字：和创建时同名会被后端当成「无变化」，不写修改日志
+    assert update_ext(ex.b, name="示例老师（改名）").status_code == 200
     assert last_log(ex.b)[0] == "修改域外账号"
 
 
