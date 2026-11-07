@@ -642,3 +642,24 @@ def test_banner_settings_are_admin_only_and_persist(wb):
     assert saved["qweather_key_set"] is True
     assert saved["qweather_host"] == "abc.re.qweatherapi.com"
     assert saved["notify_interval_minutes"] == 5
+
+def test_notification_key_is_stable_across_sources_and_alerts():
+    """预报去重不能被「带不带官方预警」或数据源切换带跑
+
+    和风超时会回退 Open-Meteo：一个有 alert、一个没有。旧实现把 codes
+    直接拼进 key，两者来回翻，同一件事一小时推三次。
+    """
+    rain = {"code": "rain", "title": "明天可能有雨", "detail": "…"}
+    cold = {"code": "cold", "title": "明天低温", "detail": "…"}
+    alert = {"code": "alert", "alert_id": "101", "title": "大雾黄色预警", "detail": "…"}
+
+    plain = wn._notification_key([rain, cold], "tomorrow", "2026-11-08")
+    with_alert = wn._notification_key([rain, cold, alert], "tomorrow", "2026-11-08")
+    assert plain == with_alert == "tomorrow:2026-11-08:forecast"
+
+    # 只订阅官方预警时，新预警 id 才应该算新事件
+    a = wn._notification_key([alert], "today", "2026-11-08")
+    b = wn._notification_key([{**alert, "alert_id": "102"}], "today", "2026-11-08")
+    assert a != b
+    assert a.startswith("today:2026-11-08:alert:")
+

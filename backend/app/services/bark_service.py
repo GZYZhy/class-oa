@@ -123,7 +123,11 @@ def _send(keys: list[str], title: str, body: str, level: str, page: str | None) 
         # passive 只在通知中心 / active 正常提醒 / timeSensitive 穿透专注模式。
         # critical 需要苹果单独审批的权限，申请不到会静默失败，所以不用
         "level": level,
-        "group": settings.app_name,  # 同一类通知在手机上归到一组，不会刷屏
+        # 分组名用**部署时配置的站名**，不要用代码里写死的 app_name。
+        # app_name 是「班级信息管理系统」这种通用名；同一套镜像服务两个班时，
+        # 两个班的推送会在 Bark 里落进同一个分组，看不出是谁发的。
+        # site_name 为空时才回落到 app_name。
+        "group": (settings.site_name.strip() or settings.app_name),
     }
 
     base = settings.public_base_url.rstrip("/")

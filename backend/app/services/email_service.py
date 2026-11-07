@@ -13,11 +13,12 @@
 整条渠道受 config.smtp_enabled() 全局门控：SMTP 没配齐时，连收件人都不查。
 """
 
+import html as html_lib
 import smtplib
 import ssl
 import time
 from email.message import EmailMessage
-from email.utils import formatdate
+from email.utils import formataddr, formatdate
 
 from sqlalchemy.orm import Session
 
@@ -183,10 +184,17 @@ def _send(server: smtplib.SMTP, address: str, title: str, body: str, page: str |
         message = EmailMessage()
         # 主题必须过 clip()：它会把 \r\n 换成空格，这就是邮件头的第一道防线
         message["Subject"] = clip(title, TITLE_LIMIT)
-        message["From"] = smtp_sender()
+        # 发件人显示名用站名：收件箱里看到的是「统1办」而不是一串邮箱地址。
+        # 地址本身仍用 SMTP_FROM / SMTP_USER，显示名不影响投递。
+        message["From"] = formataddr(
+            ((settings.site_name.strip() or settings.app_name), smtp_sender())
+        )
         message["To"] = address
         message["Date"] = formatdate(localtime=True)
+        # 纯文本与 HTML 同时发。老客户端/纯文本模式看前者，现代客户端看后者；
+        # 两者内容一致，HTML 只是把同样的字排成站点主题的卡片。
         message.set_content(_body_text(body, page))
+        message.add_alternative(_body_html(title, body, page), subtype="html")
         server.send_message(message)
         return True
     except Exception as exc:
@@ -206,6 +214,65 @@ def _body_text(body: str, page: str | None) -> str:
     if base:
         text += f"\n\n在站内查看：{base}/#{page}" if page else f"\n\n{base}"
     return text
+
+
+def _body_html(title: str, body: str, page: str | None) -> str:
+    """邮件 HTML 正文：站点主题的卡片，不依赖外部 CSS / 图片
+
+    邮件客户端对 CSS 的支持很有限：`<style>` 常被剥掉、flex/grid 不可用、
+    远程图片默认不加载。所以这里用 table 布局 + 全部内联样式，配色取自站点
+    的靛蓝 / 浅紫主题；不塞 logo 图片，避免收件人看到一个破图占位。
+    """
+    site = html_lib.escape(settings.site_name.strip() or settings.app_name)
+    safe_title = html_lib.escape(title)
+    safe_body = html_lib.escape(body[:BODY_LIMIT]).replace(chr(10), "<br>")
+    base = settings.public_base_url.rstrip("/")
+    link = f"{base}/#{page}" if base and page else (base or "")
+    action = ""
+    if link:
+        action = (
+            f'<tr><td style="padding:6px 32px 28px;">'
+            f'<a href="{html_lib.escape(link, quote=True)}" '
+            'style="display:inline-block;background:#5b5bd6;color:#ffffff;'
+            'text-decoration:none;font-size:14px;font-weight:600;'
+            'padding:12px 22px;border-radius:10px;">在站内查看</a></td></tr>'
+        )
+    return f'''<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{safe_title}</title></head>
+<body style="margin:0;padding:0;background:#eef0f7;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+{html_lib.escape(body[:80])}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+  style="background:#eef0f7;padding:26px 12px;">
+<tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+  style="max-width:560px;background:#ffffff;border:1px solid #e2e4f2;
+  border-radius:16px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,
+  'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',Arial,sans-serif;">
+<tr><td style="background:#5b5bd6;background-image:linear-gradient(135deg,#5b5bd6,#8b7cf6);
+  padding:22px 32px 20px;color:#ffffff;">
+  <div style="font-size:11px;letter-spacing:.12em;opacity:.78;margin-bottom:6px;">{site}</div>
+  <div style="font-size:19px;line-height:1.45;font-weight:700;">{safe_title}</div>
+</td></tr>
+<tr><td style="padding:26px 32px 14px;color:#2f3447;font-size:14px;line-height:1.85;">
+  {safe_body}
+</td></tr>
+{action}
+<tr><td style="background:#f7f8fd;border-top:1px solid #e8eaf5;padding:14px 32px;
+  color:#8a90a5;font-size:12px;line-height:1.6;">
+  本邮件由「{site}」自动发出，请勿直接回复。<br>
+  如不想继续收到邮件，可在站内「我的信息 → 账户设置 → 通知设置」关闭邮件通知。
+</td></tr>
+</table>
+<div style="max-width:560px;margin:12px auto 0;color:#a0a5b8;font-size:11px;
+  line-height:1.6;text-align:center;font-family:-apple-system,BlinkMacSystemFont,
+  'PingFang SC','Microsoft YaHei',Arial,sans-serif;">
+  这是一封系统通知，不需要回复。
+</div>
+</td></tr></table>
+</body></html>'''
 
 
 def _clean_addresses(addresses: list[str]) -> list[str]:

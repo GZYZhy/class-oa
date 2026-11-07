@@ -17,9 +17,10 @@
   · **一次外呼服务所有人**：预报数据由 weather_service 统一取、统一缓存，
     这个模块只做判断和分发。
 
-  · **去重**：同一个人、同一段时间、同一组条件只发一次（last_key）。
-    条件变多了（比如先报下雨、后来加上雷暴）算新事件，会再发一条；
-    预警按预警 id 区分，一条预警只提一次。
+  · **去重**：同一个人、同一时段、同一天最多一条**预报**提醒；只订阅官方预警时
+    按预警 id 去重。数据源在 Open-Meteo / 和风之间切换、官方预警多一条少一条，
+    都不该让同一天的预报重发 —— 线上出现过一小时连推三次的情况，就是
+    「带预警」和「不带预警」的 key 来回变造成的。
 """
 
 import hashlib
@@ -397,6 +398,23 @@ def interval_minutes(db=None) -> int:
     )
 
 
+def _notification_key(hits: list[dict], window: str, date_key: str) -> str:
+    """去重键：预报一天一条，官方预警按 id 一条
+
+    不能把 ``codes`` 直接拼进 key：和风超时会回退 Open-Meteo，两个数据源
+    一个有官方预警、一个没有，key 就会在「rain,cold,alert」和「rain,cold」
+    之间来回翻，同一件事一小时推三次。预报只按「时段 + 日期」去重；
+    只订阅预警的人才按预警 id 区分，保证新预警还能提醒。
+    """
+    forecast_codes = sorted({h["code"] for h in hits if h.get("code") != "alert"})
+    if forecast_codes:
+        return f"{window}:{date_key}:forecast"
+    alert_ids = ",".join(sorted(str(h["alert_id"]) for h in hits if h.get("alert_id")))
+    # last_key 只有 64 个字符，几条预警 id 串起来就超了；取摘要足够区分
+    digest = hashlib.md5(alert_ids.encode()).hexdigest()[:8]
+    return f"{window}:{date_key}:alert:{digest}"
+
+
 def run_once(db: Session, now: datetime | None = None) -> int:
     """跑一轮：给所有开了提醒的人各判断一次，命中就发。返回发出的条数
 
@@ -421,15 +439,7 @@ def run_once(db: Session, now: datetime | None = None) -> int:
             hits, date_key = evaluate(data, row, now)
             if not hits:
                 continue
-            codes = ",".join(sorted(h["code"] for h in hits))
-            alert_ids = ",".join(
-                sorted(str(h["alert_id"]) for h in hits if h.get("alert_id"))
-            )
-            key = f"{row.window}:{date_key}:{codes}"
-            if alert_ids:
-                # last_key 只有 64 个字符，几条预警的 id 串起来就超了；
-                # 这里只需要区分「是不是同一条预警」，取摘要就够
-                key += ":" + hashlib.md5(alert_ids.encode()).hexdigest()[:8]
+            key = _notification_key(hits, row.window, date_key)
             if key == row.last_key:
                 continue  # 同一件事已经提醒过
 
