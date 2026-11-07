@@ -442,6 +442,14 @@ def run_once(db: Session, now: datetime | None = None) -> int:
             key = _notification_key(hits, row.window, date_key)
             if key == row.last_key:
                 continue  # 同一件事已经提醒过
+            if key.endswith(":forecast") and row.last_key.startswith(
+                f"{row.window}:{date_key}:"
+            ):
+                # 旧版 key 是「时段:日期:条件」；升级后第一次巡检不要补发一条
+                # 同一天的预报，只把旧 key 迁移成新格式。
+                row.last_key = key
+                db.commit()
+                continue
 
             title = "天气提醒：" + "、".join(h["title"] for h in hits)
             source = data.get("source_label") or "Open-Meteo"
