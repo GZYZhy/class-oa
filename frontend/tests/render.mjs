@@ -4288,6 +4288,12 @@ console.log('\n▶ 弱网首屏：图表库按需且不挡首页，图标不整�
   const dashboardSrc = readFileSync(`${ROOT}/src/views/Dashboard.vue`, 'utf8')
   check(dashboardSrc.includes('weather.source_label'),
     '天气卡上的数据源名跟接口走，不写死 Open-Meteo')
+  check(dashboardSrc.includes('weatherBannerClass') &&
+    dashboardSrc.includes('weather-banner--${color}'),
+  '天气横幅按后端给的预警颜色换肤')
+  check(dashboardSrc.includes("banner.lines.join(' ')") &&
+    !dashboardSrc.includes("banner.lines.join('；')"),
+  '天气横幅多条详情用空格分隔，不再出现「。；」')
 
   // 夜间时段：个人提醒（免打扰）与管理员横幅（夜间时段）共用同一张表单。
   // 原先那个「忽略夜间天气」开关已经并进来，表单里不许再出现 ignore_night
