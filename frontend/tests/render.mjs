@@ -950,7 +950,7 @@ console.log('\n▶ 域外账号：我的信息与共享日程（只读 / 分配�
     scheduleSrc.includes('searchStudentSchedules(viewAs.value.id, kw)') &&
     scheduleSrc.includes('getStudentSemesterInfo(viewAs.value.id)'),
   '视角模式的数据走独立只读接口')
-  check(/v-else-if="userStore\.isCommittee"[\s\S]{0,120}?openViewPicker/.test(scheduleSrc) &&
+  check(/v-if="userStore\.isCommittee"[\s\S]{0,120}?openViewPicker/.test(scheduleSrc) &&
     scheduleSrc.includes('正在查看') && scheduleSrc.includes('退出视角'),
   '班委及以上有「视角」入口，查看时显示只读提示和退出')
   check(scheduleSrc.includes('if (viewAs.value) return') &&
@@ -1208,7 +1208,7 @@ console.log('\n▶ 我的日程：全天条的范围选择与几处「点了没�
   // 搜索/导入/订阅/新建日程必须同一行：Element 给相邻按钮的 margin-left
   // 加上默认内边距，375px 上正好把「新建日程」顶到下一行
   check(/\.actions \{\s*flex-wrap: nowrap;[\s\S]{0,120}?width: 100%;[\s\S]{0,120}?gap: 6px;/.test(src),
-    '手机上四个操作按钮强制同一行')
+    '手机上操作按钮强制同一行')
   check(/\.actions :deep\(\.el-button \+ \.el-button\) \{\s*margin-left: 0;/.test(src),
     '去掉相邻按钮自带的 margin-left（否则还是会换行）')
 

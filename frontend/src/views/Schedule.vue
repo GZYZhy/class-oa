@@ -14,43 +14,30 @@
           <el-button size="small" @click="goToday">今天</el-button>
           <el-button size="small" @click="openGoDialog">前往</el-button>
         </span>
-        <!-- 班委没有系统管理页，批次撤销放在日程页；域外班委/管理员同样可用 -->
+      </div>
+      <div class="actions">
+        <el-button :icon="Search" title="搜索" @click="openSearch" />
         <el-button
           v-if="userStore.isCommittee && !viewAs"
-          size="small"
+          :icon="Upload"
+          title="导入"
+          @click="importDialog.open = true"
+        />
+        <el-button
+          v-if="userStore.isCommittee && !viewAs"
+          :icon="Tickets"
           title="管理自己分配/导入的日程批次"
           @click="batchDialog = true"
         >
-          批次
+          <span class="nav-extra">批次</span>
         </el-button>
         <el-button
-          v-if="viewAs"
-          size="small"
-          :icon="Close"
-          title="退出视角"
-          @click="exitViewAs"
-        >
-          <span class="nav-extra">退出视角</span>
-        </el-button>
-        <el-button
-          v-else-if="userStore.isCommittee"
-          size="small"
+          v-if="userStore.isCommittee"
           :icon="View"
           title="以学生视角查看日程"
           @click="openViewPicker"
         >
           <span class="nav-extra">视角</span>
-        </el-button>
-      </div>
-      <div class="actions">
-        <el-button @click="openSearch">
-          <el-icon><Search /></el-icon>搜索
-        </el-button>
-        <el-button
-          v-if="userStore.isCommittee && !viewAs"
-          @click="importDialog.open = true"
-        >
-          <el-icon><Upload /></el-icon>导入
         </el-button>
         <el-button v-if="!isExternal && !viewAs" @click="subscribeDialog.open = true">
           <el-icon><Link /></el-icon>订阅
@@ -63,14 +50,16 @@
           type="primary"
           @click="openCreate()"
         >
-          <el-icon><Plus /></el-icon>{{ isExternal ? '分配日程' : '新建日程' }}
+          <el-icon><Plus /></el-icon>{{ isExternal ? '分配' : '新建' }}
         </el-button>
       </div>
     </div>
 
     <div v-if="viewAs" class="view-banner">
-      正在查看 <b>{{ viewAs.name }}</b>（{{ viewAs.student_no }}）的日程 · 只读
-      <el-button link type="primary" @click="exitViewAs">退出</el-button>
+      <el-icon><View /></el-icon>
+      <span>正在查看 <b>{{ viewAs.name }}</b><span class="view-no">{{ viewAs.student_no }}</span></span>
+      <el-tag size="small" effect="plain">只读</el-tag>
+      <el-button class="view-exit" link type="primary" @click="exitViewAs">退出视角</el-button>
     </div>
 
     <!-- 日历表格 -->
@@ -746,7 +735,7 @@ import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Plus, Upload, Link, Bell, Search,
-  UploadFilled, Refresh, Warning, CopyDocument, View, Close
+  UploadFilled, Refresh, Warning, CopyDocument, View, Tickets
 } from '@element-plus/icons-vue'
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, searchSchedules,
@@ -2074,12 +2063,26 @@ async function handleResetToken() {
 }
 
 .view-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   margin: -4px 0 12px;
   padding: 8px 14px;
+  border: 1px solid var(--el-color-primary-light-7);
   border-radius: 6px;
   background: var(--el-color-primary-light-9);
   color: var(--el-color-primary);
   font-size: 13px;
+}
+
+.view-no {
+  margin-left: 6px;
+  opacity: 0.65;
+}
+
+.view-exit {
+  margin-left: auto;
 }
 
 .toolbar {
@@ -2115,14 +2118,22 @@ async function handleResetToken() {
   margin-left: auto;
 }
 
+/* 宽屏宁可让整组操作换到下一行，也别把周导航里的按钮挤成孤立的一颗 */
+@media (min-width: 900px) {
+  .week-nav,
+  .actions {
+    flex-shrink: 0;
+  }
+}
+
 /* 「今天」「前往」放在同一个盒子里，窄屏换行时它们不会被拆到两行 */
 .quick-jump {
   display: inline-flex;
   gap: 8px;
 }
 
-/* 窄屏：180px 的日期栏太占地方，让它跟着内容收缩 */
-@media (max-width: 560px) {
+/* 窄屏：日期栏收缩，批次/视角只留图标，操作按钮压成一行 */
+@media (max-width: 768px) {
   .week-label {
     min-width: 0;
   }
@@ -2142,8 +2153,7 @@ async function handleResetToken() {
     gap: 6px;
   }
 
-  /* 搜索/导入/订阅/新建日程挤在同一行。默认的 15px 内边距和 Element
-     给相邻按钮的 12px margin-left 会让「新建日程」掉到下一行，这里都收掉 */
+  /* 操作按钮挤在同一行；默认内边距和相邻按钮的 margin-left 都收掉 */
   .actions {
     flex-wrap: nowrap;
     width: 100%;
@@ -2158,6 +2168,12 @@ async function handleResetToken() {
 
   .actions :deep(.el-button + .el-button) {
     margin-left: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .actions {
+    flex-wrap: wrap;
   }
 }
 

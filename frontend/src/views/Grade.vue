@@ -18,17 +18,17 @@
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
           </el-form-item>
-          <el-form-item>
+          <el-form-item class="gd-actions">
             <el-button type="primary" @click="handleSearch">查询</el-button>
             <el-button @click="handleReset">重置</el-button>
+            <el-button type="primary" @click="importRef.open()">
+              <el-icon><Upload /></el-icon>上传成绩
+            </el-button>
           </el-form-item>
         </el-form>
         <span class="gd-tip">
           上传一次成绩后全班可查，学生在「我的信息 → 我的成绩」里看自己的分数
         </span>
-        <el-button type="primary" @click="importRef.open()">
-          <el-icon><Upload /></el-icon>上传成绩
-        </el-button>
       </div>
 
       <el-table
@@ -241,9 +241,24 @@ async function handleDelete(row) {
   color: var(--el-text-color-secondary);
 }
 
-/* 只推上传按钮，别把搜索框里的查询/重置也推到右边 */
-.gd-bar > .el-button {
-  margin-left: auto;
+@media (max-width: 768px) {
+  .gd-filter {
+    width: 100%;
+  }
+
+  .gd-filter :deep(.gd-actions .el-form-item__content) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .gd-filter :deep(.gd-actions .el-button) {
+    margin-left: 0;
+  }
+
+  .gd-tip {
+    line-height: 1.5;
+  }
 }
 
 .gd-pager {
