@@ -5558,8 +5558,33 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
   check(!pageSrc.includes('handleCheckinRemark'),
     '签到的改备注挪进明细，列表上少一个按钮')
 
+  // 管理权：只给管理员或本场发起者；催促 / 改标题仍然人人可点
+  check(pageSrc.includes('function canManage(row)') &&
+    pageSrc.includes('row.operator_no === userStore.info?.student_no'),
+  '考勤页按「管理员或发起者」判断管理权')
+  check(/const manage = canManage\(row\)/.test(pageSrc) &&
+    /if \(manage\) ops\.push\(\{ label: '删除'/.test(pageSrc),
+  '删除按钮只在有管理权时出现（明细 / 链接照旧）')
+  check(pageSrc.includes(':disabled="detailSaving || !detailCanManage"'),
+    '无管理权时明细里的状态是只读的')
+  check(pageSrc.includes('const locked = selection.value.filter((row) => !canManage(row))'),
+    '批量删除混入别人的记录时整批拒绝，不删一半')
+  check(/function rowOps\(row\)[\s\S]{0,900}?label: '标题'/.test(pageSrc),
+    '改标题不受管理权限制')
+  check(checkinDialogSrc.includes('const canManage = computed') &&
+    /v-if="canManage"[\s\S]{0,120}?@click="extend"/.test(checkinDialogSrc),
+  '签到明细里只有管理员/发起者能延长')
+  check(!/v-if="canManage"[\s\S]{0,120}?@click="remind"/.test(checkinDialogSrc),
+    '提醒未签到不受管理权限制')
+  check(checkinDialogSrc.includes(':disabled="savingStatus || !canManage"'),
+    '无管理权时签到明细里也不能改出勤状态')
+
   const src = (p) => readFileSync(`${ROOT}${p}`, 'utf8')
   const attendancePy = src('/../backend/app/api/attendance.py')
+  const checkinsPy = src('/../backend/app/api/checkins.py')
+  check(attendancePy.includes('ensure_manage_attendance') &&
+    checkinsPy.includes('ensure_manage_checkin'),
+  '后端对点名和签到的写操作都做了同一套权限校验')
   check(attendancePy.includes('"/overview"'), '后端提供合并列表接口')
   check(/def overview_attendance\(/.test(attendancePy)
     && attendancePy.includes('type="checkin"') && attendancePy.includes('type="attendance"'),

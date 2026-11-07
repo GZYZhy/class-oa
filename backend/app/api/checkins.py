@@ -50,6 +50,7 @@ from ..schemas import (
     CheckinTargetResponse,
 )
 from ..services import display_name, log_operation, notify, recipients, settle_topic
+from ..services.attendance_permission import ensure_manage_checkin
 from ..services.checkin_service import (
     CHECKIN_DIR,
     CHECKIN_ENDED,
@@ -657,6 +658,7 @@ def pause_checkin(
     """暂停收签到。**暂停不是结束**：恢复后照样能签；到截止时间还没恢复则照常自动结束"""
     finalize_due(db)
     checkin = _get_checkin(db, checkin_id)
+    ensure_manage_checkin(checkin, user, "暂停这次签到")
     state = checkin_status(checkin)
     # 已经暂停时幂等返回，别把「什么时候暂停的」一直往后推
     if state == CHECKIN_PAUSED:
@@ -693,6 +695,7 @@ def resume_checkin(
     """
     finalize_due(db)
     checkin = _get_checkin(db, checkin_id)
+    ensure_manage_checkin(checkin, user, "恢复这次签到")
     was_paused = checkin.paused_at is not None
     checkin.paused_at = None
     if was_paused:
@@ -719,6 +722,7 @@ def close_checkin(
 ):
     finalize_due(db)
     checkin = _get_checkin(db, checkin_id)
+    ensure_manage_checkin(checkin, user, "结束这次签到")
     if checkin.finalized_at is not None:
         raise HTTPException(status_code=400, detail="这次签到已经结束")
 
@@ -754,6 +758,7 @@ def extend_checkin(
     否则会把一次已经结束的签到重新拉回进行中，和结算结果对不上。
     """
     checkin = _get_checkin(db, checkin_id)
+    ensure_manage_checkin(checkin, user, "延长这次签到")
     if checkin.finalized_at is not None:
         raise HTTPException(status_code=400, detail="这次签到已经结束")
     now = datetime.now()
@@ -894,6 +899,7 @@ def delete_checkin(
     （见 attendance.delete_attendance），两边都不留指空的数据。
     """
     checkin = _get_checkin(db, checkin_id)
+    ensure_manage_checkin(checkin, user, "删除这次签到")
     targets = (
         db.query(CheckinTarget)
         .filter(CheckinTarget.checkin_id == checkin_id)

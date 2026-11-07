@@ -54,6 +54,10 @@ from ..services.checkin_service import (
     remove_checkin,
     remove_photos,
 )
+from ..services.attendance_permission import (
+    ensure_manage_attendance,
+    ensure_manage_checkin,
+)
 from ..services.list_filters import keyword_like
 from ..services.share_service import share_path
 from ..utils.links import full_url
@@ -665,6 +669,7 @@ def overview_attendance(
                 time=record.called_at,
                 title=record.scope or "",
                 scope_label=_manual_scope_label(record.scope, sum(counts.values())),
+                operator_no=record.operator_no or "",
                 operator_name=record.operator_name or "",
                 remark=record.remark or "",
                 total=sum(counts.values()),
@@ -712,6 +717,7 @@ def overview_attendance(
                 scope_label=_checkin_scope_label(
                     db, checkin.id, targets.get(checkin.id, 0)
                 ),
+                operator_no=checkin.created_by_no or "",
                 operator_name=checkin.created_by_name or "",
                 remark=checkin.remark or "",
                 # 结算前 total 是 0，前端按 status 显示实时的「已签 x / y」
@@ -796,6 +802,17 @@ def batch_delete_attendance(
         if parent and parent.id not in known_checkin_ids:
             checkins.append(parent)
             known_checkin_ids.add(parent.id)
+
+    # 批量删也要逐条验权限。签到生成的考勤跟着签到走，校验签到本身即可；
+    # 不能因为「勾了一堆」就跳过某一条 —— 那等于给了绕开单条校验的口子
+    parent_of_record = {
+        c.attendance_record_id: c for c in checkins if c.attendance_record_id
+    }
+    for checkin in checkins:
+        ensure_manage_checkin(checkin, user, "删除这条签到")
+    for record in records:
+        if record.id not in parent_of_record:
+            ensure_manage_attendance(record, user, "删除这条考勤")
 
     photo_files: list[str] = []
     handled = 0
@@ -1237,6 +1254,8 @@ def update_item(
     record = db.query(AttendanceRecord).filter(AttendanceRecord.id == record_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="考勤记录不存在")
+    # 改状态是写操作：只有管理员或这场点名的发起者能动（改标题不在此列）
+    ensure_manage_attendance(record, user, "修改考勤状态")
 
     item = (
         db.query(AttendanceItem)
@@ -1323,6 +1342,7 @@ def delete_attendance(
     record = db.query(AttendanceRecord).filter(AttendanceRecord.id == record_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="考勤记录不存在")
+    ensure_manage_attendance(record, user, "删除这条考勤")
 
     # 签到结算出来的记录由 checkins.attendance_record_id 指着。删它等于删那次
     # 签到 —— 单独删会留下一条指空的历史签到；只删签到又会留下这条删不掉的

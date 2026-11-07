@@ -221,7 +221,7 @@
             <el-select
               :model-value="row.status"
               size="small"
-              :disabled="detailSaving"
+              :disabled="detailSaving || !detailCanManage"
               @change="(value) => changeStatus(row, value)"
             >
               <el-option label="到" value="present" />
@@ -290,6 +290,7 @@ import {
   resumeCheckin
 } from '@/api/checkin'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useUserStore } from '@/store/user'
 import { blobErrorDetail, downloadFile } from '@/utils/download'
 import { formatDateTime } from '@/utils/format'
 import { errText } from '@/utils/request'
@@ -321,6 +322,7 @@ const selection = ref([])
 const createRef = ref(null)
 const checkinDetailRef = ref(null)
 const rollCallRef = ref(null)
+const userStore = useUserStore()
 
 const exportVisible = ref(false)
 const exportMode = ref('filtered')
@@ -337,6 +339,20 @@ const detailTitle = computed(() =>
     : '点名明细'
 )
 
+/**
+ * 这一场是不是「我」能管理的
+ *
+ * 与后端同一口径：管理员，或这场记录的发起者。只读的明细、导出不看它；
+ * 删除 / 改状态 / 暂停 / 延长 / 结束这些写操作才看。
+ * 催促和改标题不在这里 —— 那两件事所有班委都能做。
+ */
+function canManage(row) {
+  if (userStore.isAdmin) return true
+  return !!row.operator_no && row.operator_no === userStore.info?.student_no
+}
+
+const detailCanManage = computed(() => canManage(detail.value))
+
 /** 点名的 id 和签到的 id 各自独立，加前缀才不会撞到一起（跨页勾选靠它） */
 function rowKey(row) {
   return `${row.type}-${row.id}`
@@ -347,18 +363,23 @@ function rowKey(row) {
  * 两处共用这一份，免得两边漏改。
  */
 function rowOps(row) {
+  // 只读入口（明细 / 链接）人人有；写操作只留给管理员或发起者。
+  // 催促和改标题不在这个列表里 —— 它们不改变考勤结果，仍然所有班委可用
+  const manage = canManage(row)
   if (row.type === 'attendance') {
-    return [
+    const ops = [
       { label: '明细', type: 'primary', run: () => openDetail(row) },
-      { label: '标题', type: 'primary', run: () => handleRemark(row) },
-      { label: '删除', type: 'danger', run: () => handleDelete(row) }
+      { label: '标题', type: 'primary', run: () => handleRemark(row) }
     ]
+    if (manage) ops.push({ label: '删除', type: 'danger', run: () => handleDelete(row) })
+    return ops
   }
   const ops = [
     // 和刚发布完是同一个弹窗：链接 + 大二维码，方便再投屏或复制
     { label: '链接', type: 'primary', run: () => createRef.value?.openShare(row) },
     { label: '明细', type: 'primary', run: () => openCheckinDetail(row) }
   ]
+  if (!manage) return ops
   if (row.status === 'ongoing') {
     ops.push({ label: '暂停', type: 'warning', run: () => handleTogglePauseCheckin(row) })
   } else if (row.status === 'paused') {
@@ -514,6 +535,7 @@ async function handleRemark(row) {
 }
 
 async function handleDelete(row) {
+  if (!canManage(row)) return ElMessage.warning('只有管理员或这场点名的发起者可以删除')
   try {
     await ElMessageBox.confirm(
       `确定删除「${row.date} ${row.title}」这条考勤记录吗？明细会一起删掉。`
@@ -537,6 +559,7 @@ async function handleDelete(row) {
 
 /** 删除签到。结算生成的考勤记录会一起删，链接随即失效 */
 async function handleDeleteCheckin(row) {
+  if (!canManage(row)) return ElMessage.warning('只有管理员或这场签到的发起者可以删除')
   try {
     await ElMessageBox.confirm(
       `确定删除「${row.title}」这次签到吗？链接会失效，已结算的考勤记录也会一起删掉。`,
@@ -564,6 +587,13 @@ async function handleDeleteCheckin(row) {
  */
 async function handleBatchDelete() {
   if (!selection.value.length) return
+  // 整批都得起本人发起：混进一条别人的就整批拒绝，别删一半留一半
+  const locked = selection.value.filter((row) => !canManage(row))
+  if (locked.length) {
+    return ElMessage.warning(
+      `选中的记录里有 ${locked.length} 条不是你发起的，不能删除`
+    )
+  }
   const checkinCount = selection.value.filter((r) => r.type === 'checkin').length
   const recordCount = selection.value.length - checkinCount
   const parts = []
@@ -629,6 +659,7 @@ function checkinStatusType(status) {
 
 /** 暂停 / 恢复：暂停不是结束，恢复后还能接着签；到点没恢复会照常结算 */
 async function handleTogglePauseCheckin(row) {
+  if (!canManage(row)) return ElMessage.warning('只有管理员或这场签到的发起者可以暂停 / 恢复')
   const pausing = row.status === 'ongoing'
   const tip = pausing
     ? '暂停期间谁都不能签到；到截止时间还没恢复的话，会照常自动结束并结算。'
@@ -652,6 +683,7 @@ async function handleTogglePauseCheckin(row) {
 }
 
 async function handleCloseCheckin(row) {
+  if (!canManage(row)) return ElMessage.warning('只有管理员或这场签到的发起者可以结束')
   try {
     await ElMessageBox.confirm(
       `确定结束「${row.title}」吗？结束后立即结算，还没签的同学不能再签。`,

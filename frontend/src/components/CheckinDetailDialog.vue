@@ -40,7 +40,8 @@
         </span>
         <!-- 只有进行中才能延长 / 提醒；到点后再点，后端也会拒 -->
         <template v-if="detail.status === 'ongoing'">
-          <el-button link type="primary" size="small" :loading="extending"
+          <!-- 延长是写操作，只给管理员/发起者；催一催不动结果，所有班委都能点 -->
+          <el-button v-if="canManage" link type="primary" size="small" :loading="extending"
             @click="extend">
             延长5分钟
           </el-button>
@@ -90,7 +91,7 @@
               v-if="detail.finalized_at && detail.attendance_record_id"
               :model-value="row.status"
               size="small"
-              :disabled="savingStatus"
+              :disabled="savingStatus || !canManage"
               @change="(value) => changeStatus(row, value)"
             >
               <el-option label="到" value="present" />
@@ -163,8 +164,10 @@ import { blobErrorDetail, downloadFile, fetchBlob, saveBlob } from '@/utils/down
 import { formatDateTime } from '@/utils/format'
 import { renderMarkdown } from '@/utils/markdown'
 import { errText } from '@/utils/request'
+import { useUserStore } from '@/store/user'
 
 const emit = defineEmits(['updated'])
+const userStore = useUserStore()
 const visible = ref(false)
 const loading = ref(false)
 const savingStatus = ref(false)
@@ -176,6 +179,18 @@ const detail = ref({ targets: [] })
 const photoViewer = ref({ visible: false, url: '', fileName: '', studentName: '' })
 const downloadingPhotos = ref(false)
 const exportingDetail = ref(false)
+
+/**
+ * 这场签到的管理权：管理员，或发布人
+ *
+ * 只影响延长 / 改出勤状态这些写操作；提醒、改标题、看照片、导出明细
+ * 都不看它（和后端口径一致）
+ */
+const canManage = computed(() => {
+  if (userStore.isAdmin) return true
+  return !!detail.value.created_by_no &&
+    detail.value.created_by_no === userStore.info?.student_no
+})
 
 /** 有人交了照片才显示整包下载；照片可能已被清理，后端会再判一次 */
 const photoCount = computed(

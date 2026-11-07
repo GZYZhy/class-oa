@@ -81,6 +81,9 @@ class AttendanceOverviewItem(BaseModel):
     # 点名的原始 scope 可能是「男生」「共青团员」，不直接拿去展示
     scope_label: str = ""
     operator_name: str = ""
+    # 发起人学号：前端据此判断「删除 / 暂停 / 延长」这些写操作要不要显示。
+    # 只读的明细、导出不看它
+    operator_no: str = ""
     remark: str = ""
 
     # 点名记录的计数
