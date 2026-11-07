@@ -1173,7 +1173,7 @@
           <el-input
             v-model="extForm.display_name"
             maxlength="50"
-            placeholder="姓名、水印都用它，如 示例老师"
+            placeholder="姓名、水印都用它"
           />
         </el-form-item>
         <el-form-item label="等效权限" required>

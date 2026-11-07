@@ -222,7 +222,10 @@ def remind_unread(
         notify(
             db, background, recipients(db, only_no=row["student_no"]),
             f"提醒：{notice.title}",
-            _preview(notice.content or ""), level="active", page="/notices",
+            _preview(notice.content or ""), level="active",
+            # 带 id 才能直接落到那一篇；topic 让公告/站内信的已读互相认
+            page=f"/notices?id={notice.id}",
+            topic=f"notice:{notice.id}",
         )
 
     log_operation(
@@ -399,7 +402,10 @@ async def publish(
 
     notify(
         db, background, targets, f"新通知：{created.title}",
-        _preview(created.content or ""), level="active", page="/notices",
+        _preview(created.content or ""), level="active",
+        # 站内信点开就是那一篇；topic 用于与公告已读双向同步
+        page=f"/notices?id={created.id}",
+        topic=f"notice:{created.id}",
     )
     return created
 

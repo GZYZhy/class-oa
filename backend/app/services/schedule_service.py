@@ -26,7 +26,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import NamedTuple, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..models import Schedule, ScheduleBatch, Student, User
@@ -421,6 +421,101 @@ def search_by_title(
     return out
 
 
+# ---------- 域外账号：只读共享日程 ----------
+
+def _external_templates(db: Session, user: User) -> list[Schedule]:
+    """域外账号能看见的日程模板
+
+    口径（用户拍板）：域外账号没有自己的日程表，能看见的只有
+      ① 分配给**所有人**的批次（target_all）；
+      ② 自己创建的批次（operator_user_id）—— 建完得能看见自己发的东西。
+
+    一个批次会给每个学生复制一份，所以按 source_series_id 去重，
+    每条原始日程只留一份做展开，否则日历上同一条日程会叠 36 层。
+    """
+    batch_ids = [
+        row[0]
+        for row in db.query(ScheduleBatch.id)
+        .filter(
+            or_(
+                ScheduleBatch.target_all.is_(True),
+                ScheduleBatch.operator_user_id == user.id,
+            )
+        )
+        .all()
+    ]
+    if not batch_ids:
+        return []
+    rows = (
+        db.query(Schedule)
+        .filter(Schedule.source_batch_id.in_(batch_ids))
+        .order_by(Schedule.id)
+        .all()
+    )
+    seen: set[str] = set()
+    templates: list[Schedule] = []
+    for row in rows:
+        key = row.source_series_id or f"id:{row.id}"
+        if key in seen:
+            continue
+        seen.add(key)
+        templates.append(row)
+    return templates
+
+
+def list_external_by_range(
+    db: Session, user: User, start_date: date, end_date: date
+) -> list[dict]:
+    """域外账号的日历：把可见批次按日期展开（每条原始日程只展开一次）"""
+    instances: list[dict] = []
+    for tpl in _external_templates(db, user):
+        periods = list_semester_periods(db, tpl.student_id)
+        for occ in occurrences_between(tpl, periods, start_date, end_date):
+            instances.append(_to_instance(tpl, occ, 1))
+    instances.sort(key=lambda item: item["start_time"])
+    return instances
+
+
+def search_external_by_title(
+    db: Session, user: User, keyword: str, limit: int = 100
+) -> list[dict]:
+    """域外账号按标题搜可见日程，每条模板一行（重复日程取离今天最近的一次）"""
+    text = (keyword or "").strip()
+    if not text:
+        return []
+    templates = [
+        tpl for tpl in _external_templates(db, user)
+        if text.lower() in (tpl.title or "").lower()
+    ][:limit]
+    today = date.today()
+    out: list[dict] = []
+    for tpl in templates:
+        periods = list_semester_periods(db, tpl.student_id)
+        occ = (
+            _next_occurrence(tpl, today, periods)
+            or _prev_occurrence(tpl, today, periods)
+            or tpl.start_time.date()
+        )
+        out.append(_to_instance(tpl, occ, 1))
+    out.sort(key=lambda item: (item["instance_date"], item["start_time"]))
+    return out
+
+
+def list_external_periods(db: Session, user: User) -> list[Period]:
+    """域外账号这边的学期区间：可见日程里出现过的区间取并集"""
+    periods: list[Period] = []
+    seen: set[tuple] = set()
+    for tpl in _external_templates(db, user):
+        for period in list_semester_periods(db, tpl.student_id):
+            key = (period.week_start, period.first_day, period.last_day)
+            if key in seen:
+                continue
+            seen.add(key)
+            periods.append(period)
+    periods.sort(key=lambda period: period.week_start)
+    return periods
+
+
 def _to_instance(tpl: Schedule, instance_date: date, share_count: int = 1) -> dict:
     """把模板 + 具体日期展开成一个日程实例 dict
 
@@ -523,10 +618,16 @@ def create_batch(
     batch_name: str,
     schedules_data: list[dict],
     target_student_ids: list[int],
+    *,
+    target_all: bool = False,
+    operator_user_id: Optional[int] = None,
 ) -> ScheduleBatch:
     """批量创建日程（为多个学生各创建一组日程）
 
     返回批次记录。
+
+    target_all / operator_user_id 只服务域外账号：他们不在学生表里，没有
+    「自己的那条副本」，只能靠批次的这两个标记判断「哪些日程该让他看见」。
     """
     batch = ScheduleBatch(
         operator_id=operator_id,
@@ -534,6 +635,8 @@ def create_batch(
         name=batch_name or "批量日程",
         target_count=len(target_student_ids),
         schedule_count=len(schedules_data),
+        target_all=target_all,
+        operator_user_id=operator_user_id,
     )
     db.add(batch)
     db.flush()

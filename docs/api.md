@@ -551,6 +551,10 @@ default_email 是学生档案里**可用**的邮箱，给前端显示「留空�
 
 展开通知时前端调它。重复调用无副作用（唯一约束兜底）
 
+会同步把对应站内信（topic=`notice:<id>`）标为已读；反过来，
+`POST /api/inbox/{message_id}/read` 和 `/api/inbox/read-all` 也会补上公告已读 ——
+两个入口的红点始终一致。
+
 **参数**
 
 | 名称 | 位置 | 必填 | 类型 | 说明 |
@@ -4112,6 +4116,31 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 
 - `200` `ScheduleResponse` — 成功
   - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`lat`、`lng`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
+
+### 域外账号的共享日程
+
+`GET /api/schedules/external`
+
+只返回「分配给所有人」的批次和自己创建的批次，按原始日程去重展开；域外账号
+没有个人课表，所以不能走 `/api/schedules`。等效学生只读；班委/管理员可用下面的
+分配接口。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `start_date` | query | 是 | string | 开始日期 |
+| `end_date` | query | 是 | string | 结束日期（最多 92 天） |
+
+`GET /api/schedules/external/search`、`GET /api/schedules/external/semester`
+分别是只读日历里的搜索与周次区间。
+
+### 分配日程（域外账号，班委/管理员）
+
+`POST /api/schedules/external`
+
+请求体与 `POST /api/schedules` 相同；**下发对象固定为全体学生**（域外账号没有
+自己的日程表，不能选「仅自己」）。等效学生的域外账号调用会返回 403。
 
 ### Search Schedules
 

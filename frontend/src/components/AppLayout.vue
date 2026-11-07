@@ -197,8 +197,9 @@ const MENU_GROUPS = [
   {
     title: '我的',
     items: [
-      { path: '/my-info', title: '我的信息', icon: 'UserFilled', studentOnly: true },
-      { path: '/schedule', title: '我的日程', icon: 'Calendar', studentOnly: true },
+      // 域外账号也有这两项：我的信息只显示账户设置；日程是共享日程的只读/分配视图
+      { path: '/my-info', title: '我的信息', icon: 'UserFilled' },
+      { path: '/schedule', title: '我的日程', icon: 'Calendar' },
       { path: '/inbox', title: '我的消息', icon: 'Message', badge: 'inbox_unread' },
       { path: '/downloads', title: '资料下载', icon: 'Download' },
       { path: '/about', title: '关于班级', icon: 'InfoFilled', public: true }

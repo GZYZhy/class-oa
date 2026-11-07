@@ -99,6 +99,36 @@ export function deleteSchedule(id, instanceDate, scope = 'all', share = false) {
   })
 }
 
+// ---------- 域外账号：共享日程只读 / 分配 ----------
+//
+// 域外账号没有自己的日程表，能看到的只有「分配给所有人」的批次和
+// 自己创建的批次；等效学生只读，班委/管理员才能分配。
+
+export function listExternalSchedules(startDate, endDate) {
+  return request({
+    url: '/schedules/external',
+    method: 'get',
+    params: { start_date: startDate, end_date: endDate }
+  })
+}
+
+export function searchExternalSchedules(keyword) {
+  return request({
+    url: '/schedules/external/search',
+    method: 'get',
+    params: { keyword }
+  })
+}
+
+export function getExternalSemesterInfo() {
+  return request({ url: '/schedules/external/semester', method: 'get' })
+}
+
+/** 分配一条日程给全体学生（域外班委/管理员） */
+export function createExternalSchedule(data) {
+  return request({ url: '/schedules/external', method: 'post', data })
+}
+
 // ---------- 导入（班委） ----------
 
 /**

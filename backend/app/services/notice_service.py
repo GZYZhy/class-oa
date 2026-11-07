@@ -141,15 +141,19 @@ def mark_read(db: Session, notice_id: int, student_no: str) -> None:
         .filter(NoticeRead.notice_id == notice_id, NoticeRead.student_no == student_no)
         .first()
     )
-    if exists:
-        return
+    if not exists:
+        db.add(NoticeRead(notice_id=notice_id, student_no=student_no))
+        try:
+            db.commit()
+        except IntegrityError:
+            # 两次请求几乎同时到达，另一条先把行插进去了 —— 结果是一样的，不必报错
+            db.rollback()
 
-    db.add(NoticeRead(notice_id=notice_id, student_no=student_no))
-    try:
-        db.commit()
-    except IntegrityError:
-        # 两次请求几乎同时到达，另一条先把行插进去了 —— 结果是一样的，不必报错
-        db.rollback()
+    # 反向同步：公告已读 → 对应站内信也标已读。放在函数内 import，
+    # 避免 notice_service 与 inbox_service 在模块加载期互相牵住
+    from .inbox_service import settle_topic
+
+    settle_topic(db, f"notice:{notice_id}", student_no=student_no)
 
 
 def read_notice_ids(db: Session, student_no: str) -> set[int]:

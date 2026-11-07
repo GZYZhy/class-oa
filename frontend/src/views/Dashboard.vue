@@ -308,7 +308,8 @@ const SHORTCUTS = [
   { path: '/notices', title: '通知公告', icon: 'Bell', theme: 'tile-blue', public: true },
   { path: '/service', title: '办事中心', icon: 'Postcard', theme: 'tile-cyan', studentOnly: true },
   { path: '/leave', title: '请假申请', icon: 'Document', theme: 'tile-green', studentOnly: true },
-  { path: '/schedule', title: '我的日程', icon: 'Calendar', theme: 'tile-purple', studentOnly: true },
+  // 域外账号也有日程（共享日程只读 / 有权限可分配），不再是学生专属
+  { path: '/schedule', title: '我的日程', icon: 'Calendar', theme: 'tile-purple' },
   { path: '/downloads', title: '资料下载', icon: 'Download', theme: 'tile-orange' },
   { path: '/students', title: '学生信息', icon: 'List', theme: 'tile-pink', role: 'committee' },
   { path: '/review', title: '审核审批', icon: 'Checked', theme: 'tile-indigo', role: 'committee' },

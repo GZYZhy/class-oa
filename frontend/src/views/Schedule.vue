@@ -19,17 +19,18 @@
         <el-button @click="openSearch">
           <el-icon><Search /></el-icon>搜索
         </el-button>
-        <el-button v-if="userStore.isCommittee" @click="importDialog.open = true">
+        <!-- 域外账号没有个人课表，导入/订阅都不适用；等效学生只能看 -->
+        <el-button v-if="userStore.isCommittee && !isExternal" @click="importDialog.open = true">
           <el-icon><Upload /></el-icon>导入
         </el-button>
-        <el-button @click="subscribeDialog.open = true">
+        <el-button v-if="!isExternal" @click="subscribeDialog.open = true">
           <el-icon><Link /></el-icon>订阅
         </el-button>
         <!-- 这里必须写成 openCreate()：裸写 openCreate 会让 Vue 把 MouseEvent 当成
              第一个参数（date）塞进 editForm.date / end_date，保存时 daysInRange 里
              就报 "(endStr || startStr).split is not a function" -->
-        <el-button type="primary" @click="openCreate()">
-          <el-icon><Plus /></el-icon>新建日程
+        <el-button v-if="!isExternal || userStore.isCommittee" type="primary" @click="openCreate()">
+          <el-icon><Plus /></el-icon>{{ isExternal ? '分配日程' : '新建日程' }}
         </el-button>
       </div>
     </div>
@@ -184,17 +185,18 @@
         </el-descriptions-item>
       </el-descriptions>
       <template #footer>
-        <el-button type="danger" @click="deleteFromDetail">删除</el-button>
+        <!-- 域外账号只有只读日历：详情里不给编辑/删除，避免点进去才吃 403 -->
+        <el-button v-if="!isExternal" type="danger" @click="deleteFromDetail">删除</el-button>
         <span style="flex: 1"></span>
         <el-button @click="detailDialog.visible = false">关闭</el-button>
-        <el-button type="primary" @click="editFromDetail">编辑</el-button>
+        <el-button v-if="!isExternal" type="primary" @click="editFromDetail">编辑</el-button>
       </template>
     </el-dialog>
 
     <!-- 新建/编辑弹窗 -->
     <el-dialog append-to-body
       v-model="editDialog.visible"
-      :title="editDialog.isEdit ? '编辑日程' : '新建日程'"
+      :title="editDialog.isEdit ? '编辑日程' : (isExternal ? '分配日程' : '新建日程')"
       width="580px"
     >
       <el-form :model="editForm" label-width="90px">
@@ -318,8 +320,9 @@
           </span>
         </el-form-item>
 
-        <!-- 班委：影响范围（只在新建时有意义；编辑时改由下面那栏决定发给谁） -->
-        <el-form-item v-if="userStore.isCommittee && !editDialog.isEdit" label="影响范围">
+        <!-- 班委：影响范围（只在新建时有意义；编辑时改由下面那栏决定发给谁）。
+             域外账号固定「全体学生」，不显示这一栏 -->
+        <el-form-item v-if="userStore.isCommittee && !isExternal && !editDialog.isEdit" label="影响范围">
           <el-radio-group v-model="editForm.scope_mode">
             <el-radio value="self">仅自己</el-radio>
             <el-radio value="all">全部学生</el-radio>
@@ -677,6 +680,8 @@ import {
 } from '@element-plus/icons-vue'
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, searchSchedules,
+  createExternalSchedule, getExternalSemesterInfo, listExternalSchedules,
+  searchExternalSchedules,
   importPreview as apiImportPreview, importConfirm as apiImportConfirm,
   getIcalToken, resetIcalToken, getSemesterInfo
 } from '@/api/schedule'
@@ -687,6 +692,8 @@ import { daysInRange, centerScrollLeft, columnizeDay } from '@/utils/schedule'
 import { errText } from '@/utils/request'
 
 const userStore = useUserStore()
+// 域外账号：没有个人日程表，只读「所有人」的共享日程；班委/管理员可以分配
+const isExternal = computed(() => userStore.isExternal)
 
 // ---------- 时间常量 ----------
 // 网格一行 15 分钟，全天 00:00–24:00。日程块本身按分钟定位，所以 06:31 这种
@@ -781,7 +788,10 @@ function parseDay(s) {
 
 async function loadSemesterInfo() {
   try {
-    const data = await getSemesterInfo()
+    // 域外账号的周次区间从「它看得见的共享日程」里取，不查个人课表
+    const data = isExternal.value
+      ? await getExternalSemesterInfo()
+      : await getSemesterInfo()
     // base = 编号基准（第 1 周的周一）；first/last = 这份课表实际覆盖到的范围。
     // 两者不是一回事：补课表可能只覆盖第 8–10 周，基准却在 7 周之前
     semesterPeriods.value = (data.periods || []).map((p) => ({
@@ -872,7 +882,9 @@ async function runSearch() {
   }
   searchDialog.value.loading = true
   try {
-    const data = (await searchSchedules(kw)) || []
+    const data = isExternal.value
+      ? (await searchExternalSchedules(kw)) || []
+      : (await searchSchedules(kw)) || []
     if (seq === searchSeq) searchDialog.value.results = data
   } catch (e) {
     if (seq === searchSeq) ElMessage.error(errText(e, '搜索失败'))
@@ -973,7 +985,9 @@ async function loadSchedules() {
   try {
     const start = weekDays.value[0].date
     const end = weekDays.value[6].date
-    const data = await listSchedules(start, end)
+    const data = isExternal.value
+      ? await listExternalSchedules(start, end)
+      : await listSchedules(start, end)
     schedules.value = data
   } catch (e) {
     // 必须自己弹：request.js 的响应拦截器只打 console，不弹提示。
@@ -1102,10 +1116,11 @@ function minuteTop(min) {
 
 let clockTimer = null
 
+// 域外账号没有「选择学生」这一档（固定全体），不用白拉一次名单
 onMounted(() => {
   loadSchedules()
   loadSemesterInfo()
-  if (userStore.isCommittee) {
+  if (userStore.isCommittee && !isExternal.value) {
     loadStudents()
   }
   clockTimer = setInterval(() => { now.value = new Date() }, 30000)
@@ -1241,6 +1256,8 @@ const allDayHeight = computed(() => {
 
 // ---------- 点击格子新建 ----------
 function handleCellClick(date, time) {
+  // 域外账号：等效学生连格子都不该点出表单；班委/管理员可以点（下发对象固定全体）
+  if (isExternal.value && !userStore.isCommittee) return
   openCreate(date, time)
 }
 
@@ -1292,6 +1309,8 @@ const detailRows = computed(() => {
 })
 
 function editFromDetail() {
+  // 域外账号只读（按钮也已隐藏，这里再兜一道）
+  if (isExternal.value) return
   // records 照传：跨天的全天条丢了它就退化成单天了（见 allDayBars）
   const { evt, records } = detailDialog.value
   detailDialog.value.visible = false
@@ -1299,6 +1318,7 @@ function editFromDetail() {
 }
 
 function deleteFromDetail() {
+  if (isExternal.value) return
   const { evt, records } = detailDialog.value
   detailDialog.value.visible = false
   // 借编辑弹窗那套状态（不打开它）：整条删除、分享范围、403 提示都是现成的。
@@ -1349,6 +1369,8 @@ const saving = ref(false)
 
 function openCreate(date = null, time = null) {
   editForm.value = defaultForm()
+  // 域外账号没有「仅自己」这一档：下发对象固定全体学生
+  if (isExternal.value) editForm.value.scope_mode = 'all'
   geoOpen.value = false
   if (date) {
     editForm.value.date = date
@@ -1417,6 +1439,8 @@ function fillEditState(evt, records = null) {
 }
 
 function openEdit(evt, records = null) {
+  // 域外账号只读：即使有入口也不打开编辑表单（后端同样会拒绝）
+  if (isExternal.value) return
   fillEditState(evt, records)
   editDialog.value.visible = true
 }
@@ -1440,6 +1464,8 @@ function formFields() {
 
 // 班委的分配范围（普通学生传了后端也会忽略）
 function targetFields() {
+  // 域外账号固定「全体学生」：他没有自己的日程表，选中/仅自己都没有去处
+  if (isExternal.value) return { target_all: true, target_student_ids: [] }
   const form = editForm.value
   return {
     target_all: userStore.isCommittee && form.scope_mode === 'all',
@@ -1494,6 +1520,9 @@ async function saveAllDay(days) {
       left.delete(day)
       // scope 跟着「修改范围」走（跨天的条不显示那一栏，form.scope 就是 all）
       await updateSchedule(hit.id, day, { ...base, ...times, scope: form.scope }, share)
+    } else if (isExternal.value) {
+      // 域外账号建多天全天事件：每天各分配一次（下发对象固定全体）
+      await createExternalSchedule({ ...base, ...times })
     } else {
       // 新添的天也要发给原来那批人：不带 share_from 的话，把 3 天的活动改成
       // 5 天，新加的两天只落在自己表里 —— 正是这次要消灭的那种「别人那儿没变」
@@ -1579,6 +1608,9 @@ async function handleSave() {
           { ...formFields(), ...times, all_day: false, scope: form.scope },
           shareEnabled()
         )
+      } else if (isExternal.value) {
+        // 域外账号走「分配」接口：后端强制全体学生并记下操作人账号
+        await createExternalSchedule({ ...formFields(), ...times, all_day: false })
       } else {
         await createSchedule({ ...formFields(), ...times, all_day: false, ...targetFields() })
       }

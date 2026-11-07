@@ -107,7 +107,9 @@ const routes = [
     path: '/schedule',
     name: 'Schedule',
     component: () => import('@/views/Schedule.vue'),
-    meta: { title: '我的日程', studentOnly: true }
+    // 域外账号也有日程：只读共享给所有人的日程；班委/管理员权限可以分配。
+    // 页面内部按 isExternal 切换成「只读/分配」模式
+    meta: { title: '我的日程' }
   },
   {
     path: '/announcements',
@@ -200,8 +202,9 @@ router.beforeEach(async (to) => {
     return { path: '/dashboard' }
   }
 
-  // 域外账号（老师等）没有学生记录，「我的信息」「办事中心」这些页面用不了。
-  // 菜单里不显示入口，这一层是防手敲地址栏（后端接口同样会拒绝）
+  // 域外账号（老师等）没有学生记录：办事中心、请假这些页面用不了；
+  // 「我的信息」只显示账户设置，「我的日程」是共享日程的只读/分配视图，两者已放开。
+  // 这一层防手敲地址栏，后端接口同样会拒绝真正依赖学生身份的调用
   if (to.meta.studentOnly && userStore.isExternal) {
     ElMessage.warning('域外账号不支持该功能')
     return { path: '/dashboard' }

@@ -637,7 +637,7 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
     `onMounted(() => {
   loadSchedules()
   loadSemesterInfo()
-  if (userStore.isCommittee) {
+  if (userStore.isCommittee && !isExternal.value) {
     loadStudents()
   }
   clockTimer = setInterval(() => { now.value = new Date() }, 30000)
@@ -747,7 +747,7 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
     `onMounted(() => {
   loadSchedules()
   loadSemesterInfo()
-  if (userStore.isCommittee) {
+  if (userStore.isCommittee && !isExternal.value) {
     loadStudents()
   }
   clockTimer = setInterval(() => { now.value = new Date() }, 30000)
@@ -894,6 +894,48 @@ console.log('\n▶ 我的日程：分配出去的日程能选改谁的表')
   check(labels(creating).includes('影响范围'), '新建时照旧有「影响范围」')
   check(!labels(creating).includes('改谁的表'), '新建时没有「改谁的表」（还没分配出去）')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')
+}
+
+console.log('\n▶ 域外账号：我的信息与共享日程（只读 / 分配）')
+{
+  const layout = readFileSync(`${ROOT}/src/components/AppLayout.vue`, 'utf8')
+  check(!/path: '\/my-info'[^\n]*studentOnly/.test(layout) &&
+    !/path: '\/schedule'[^\n]*studentOnly/.test(layout),
+  '域外账号侧栏也有「我的信息」「我的日程」')
+
+  // 点头像和点菜单是同一个去处：/my-info?tab=account；路由 meta 不能再拦域外
+  const routerSrc = readFileSync(`${ROOT}/src/router/index.js`, 'utf8')
+  const myInfoAt = routerSrc.indexOf("path: '/my-info'")
+  const scheduleAt = routerSrc.indexOf("path: '/schedule'")
+  check(!/studentOnly/.test(routerSrc.slice(myInfoAt, myInfoAt + 220)),
+    '「我的信息」不再只限学生（域外进去只有账户设置）')
+  check(!/studentOnly/.test(routerSrc.slice(scheduleAt, scheduleAt + 260)),
+    '「我的日程」不再只限学生')
+
+  const { canSee } = await server.ssrLoadModule('/src/utils/roles.js')
+  const external = { isLogin: true, isExternal: true, info: { role: 'student' } }
+  check(canSee({ path: '/my-info' }, external) && canSee({ path: '/schedule' }, external),
+    '域外账号的 canSee 也放行这两项')
+
+  const scheduleSrc = readFileSync(`${ROOT}/src/views/Schedule.vue`, 'utf8')
+  const scheduleApi = readFileSync(`${ROOT}/src/api/schedule.js`, 'utf8')
+  check(scheduleApi.includes("url: '/schedules/external'") &&
+    scheduleApi.includes("url: '/schedules/external/search'") &&
+    scheduleApi.includes("url: '/schedules/external/semester'"),
+  '域外日程走独立接口：列表 / 搜索 / 周次')
+  check(scheduleSrc.includes('listExternalSchedules') &&
+    scheduleSrc.includes('createExternalSchedule') &&
+    /listExternalSchedules\(start, end\)/.test(scheduleSrc),
+  '域外账号加载和分配走 external 接口，不再查个人课表')
+  check(scheduleSrc.includes('v-if="!isExternal || userStore.isCommittee"') &&
+    scheduleSrc.includes('分配日程'),
+  '等效学生只能看；班委/管理员多一个「分配日程」')
+  check(scheduleSrc.includes('if (isExternal.value) return { target_all: true'),
+    '域外账号分配时固定全体学生（没有自己的日程表）')
+  check((scheduleSrc.match(/v-if="!isExternal"/g) || []).length >= 2,
+    '域外账号的详情弹窗不出现编辑/删除')
+  check(scheduleSrc.includes('if (isExternal.value && !userStore.isCommittee) return'),
+    '等效学生点空白格子也不会弹出新建表单')
 }
 
 console.log('\n▶ 我的日程：点卡片先看详情，详情里才能改')

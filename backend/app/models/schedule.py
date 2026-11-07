@@ -141,6 +141,18 @@ class ScheduleBatch(Base):
     target_count = Column(Integer, default=0, comment="目标学生数")
     schedule_count = Column(Integer, default=0, comment="日程条数（每个学生的日程数）")
 
+    # 是否分配给「所有人」。域外账号没有自己的日程表，只能看这类批次
+    # （以及自己创建的批次）—— 一个标志比每次拿 target_count 和班级人数
+    # 现算可靠：学生人数会变，老批次的 target_count 不会跟着变
+    target_all = Column(
+        Boolean, nullable=False, default=False, comment="是否分配给全体学生"
+    )
+    # 操作人的**账号 ID**。学生用 operator_id（Student.id），域外账号没有
+    # Student 行，只能靠这一列记「这批日程是谁建的」，用于「自己建的自己看得见」
+    operator_user_id = Column(
+        Integer, nullable=True, index=True, comment="操作人账号 ID（域外账号用）"
+    )
+
     created_at = Column(DateTime, default=datetime.now, comment="创建时间")
 
 

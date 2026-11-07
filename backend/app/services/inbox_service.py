@@ -14,7 +14,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..config import resolve_session_secret
-from ..models import InboxMessage, User
+from ..models import InboxMessage, Notice, NoticeRead, User
+
+# 公告类站内信的关联标记：topic = "notice:<通知 id>"。
+# 公告和站内信是同一条内容的两个入口，已读状态必须互相认 ——
+# 从这里反解出通知 id，两边才能对上
+NOTICE_TOPIC_PREFIX = "notice:"
 
 
 def recipient_nos(
@@ -118,10 +123,39 @@ def unread_count(db: Session, student_no: str) -> int:
     )
 
 
+def notice_id_from_topic(topic: str | None) -> int | None:
+    """从 "notice:123" 里取出通知 id；不是公告类返回 None"""
+    if not topic or not topic.startswith(NOTICE_TOPIC_PREFIX):
+        return None
+    raw = topic[len(NOTICE_TOPIC_PREFIX):]
+    return int(raw) if raw.isdigit() else None
+
+
+def _ensure_notice_read(db: Session, student_no: str, notice_id: int) -> bool:
+    """补一条公告已读记录（已经读过 / 公告已删就不动），返回是否新增"""
+    if not db.query(Notice.id).filter(Notice.id == notice_id).first():
+        return False
+    exists = (
+        db.query(NoticeRead.id)
+        .filter(
+            NoticeRead.notice_id == notice_id,
+            NoticeRead.student_no == student_no,
+        )
+        .first()
+    )
+    if exists:
+        return False
+    db.add(NoticeRead(notice_id=notice_id, student_no=student_no))
+    return True
+
+
 def mark_read(db: Session, student_no: str, message_id: int) -> bool:
     """标记一条为已读；不是自己的消息返回 False（接口据此报 404）
 
     重复调用无副作用：已经读过的不再改时间，保留「第一次看到」的那一刻。
+
+    公告类消息（topic=notice:<id>）**同步写公告已读**：两个入口看的是同一件事，
+    在这边点开、公告页的红点也得跟着消失。
     """
     message = (
         db.query(InboxMessage)
@@ -130,8 +164,14 @@ def mark_read(db: Session, student_no: str, message_id: int) -> bool:
     )
     if message is None:
         return False
+    changed = False
     if message.read_at is None:
         message.read_at = datetime.now()
+        changed = True
+    notice_id = notice_id_from_topic(message.topic)
+    if notice_id and _ensure_notice_read(db, student_no, notice_id):
+        changed = True
+    if changed:
         db.commit()
     return True
 
@@ -158,18 +198,44 @@ def settle_topic(db: Session, topic: str, student_no: str | None = None) -> int:
     )
     if student_no:
         query = query.filter(InboxMessage.student_no == student_no)
+    # 先把收件人记下来：update 之后这些行就都 read_at 非空了，再查分不清是谁。
+    # 公告类 topic 还要给这些人补 NoticeRead —— 否则公告页仍是未读
+    recipients_before = [row[0] for row in query.with_entities(InboxMessage.student_no).all()]
     updated = query.update({InboxMessage.read_at: datetime.now()})
+    notice_id = notice_id_from_topic(topic)
+    if notice_id:
+        for no in recipients_before:
+            _ensure_notice_read(db, no, notice_id)
     db.commit()
     return updated
 
 
 def mark_all_read(db: Session, student_no: str) -> int:
-    """全部标为已读，返回这次标了几条"""
+    """全部标为已读，返回这次标了几条
+
+    公告类消息顺带把公告已读一起补上：用户点的是「全部已读」，
+    没道理公告页还留着一排红点。
+    """
+    topics = [
+        row[0]
+        for row in db.query(InboxMessage.topic)
+        .filter(
+            InboxMessage.student_no == student_no,
+            InboxMessage.read_at.is_(None),
+            InboxMessage.topic.isnot(None),
+        )
+        .distinct()
+        .all()
+    ]
     updated = (
         db.query(InboxMessage)
         .filter(InboxMessage.student_no == student_no, InboxMessage.read_at.is_(None))
         .update({InboxMessage.read_at: datetime.now()})
     )
+    for topic in topics:
+        notice_id = notice_id_from_topic(topic)
+        if notice_id:
+            _ensure_notice_read(db, student_no, notice_id)
     db.commit()
     return updated
 

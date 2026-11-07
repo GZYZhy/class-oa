@@ -3,6 +3,8 @@
 权限模型：
 - 普通学生：只能看/建/改/删自己的日程
 - 班委及以上：除个人日程外，还可以批量创建（选择目标学生）、导入 Excel、管理批次
+- 域外账号：没有个人日程表。只读「分配给所有人」的批次 + 自己创建的批次；
+  等效学生不能建/改，班委/管理员可以通过 `/external` 分配（对象固定全体学生）
 
 严格约束：
 - 通知默认关闭，未开启通知的日程一律不推送
@@ -49,7 +51,7 @@ from ..schemas import (
     ScheduleUpdate,
     SemesterInfoResponse,
 )
-from ..services import log_operation, notify, recipients
+from ..services import account_name, log_operation, notify, recipients
 from ..utils.links import full_url
 from ..services import schedule_service as ss
 from ..services import schedule_import_service as sis
@@ -206,6 +208,123 @@ def get_semester_info(
     }
 
 
+# ---------- 域外账号：只读共享日程 / 有权限时分配 ----------
+#
+# 域外账号没有 Student 行，因此：
+#   · 看：只显示「分配给所有人」的批次 + 自己创建的批次（按原始日程去重展开）；
+#   · 写：等效学生（role=student）一律不给；班委/管理员可以**分配**新日程，
+#     下发对象固定为全体学生（他们自己没有日程表，选「仅自己」没有去处）。
+
+def _require_external(user: User) -> None:
+    if not user.is_external:
+        raise HTTPException(
+            status_code=403,
+            detail="这个入口只给域外账号使用；学生账号走 /api/schedules",
+        )
+
+
+@router.get("/external", response_model=list[ScheduleResponse])
+def list_external_schedules(
+    start_date: date = Query(..., description="开始日期"),
+    end_date: date = Query(..., description="结束日期"),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_external(user)
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
+    if (end_date - start_date).days > 92:
+        raise HTTPException(status_code=400, detail="查询范围不能超过 92 天")
+    return ss.list_external_by_range(db, user, start_date, end_date)
+
+
+@router.get("/external/search", response_model=list[ScheduleResponse])
+def search_external_schedules(
+    keyword: str = Query("", description="日程名称关键词"),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_external(user)
+    return ss.search_external_by_title(db, user, keyword)
+
+
+@router.get("/external/semester", response_model=SemesterInfoResponse)
+def get_external_semester_info(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_external(user)
+    return {
+        "periods": [
+            {
+                "week_start": period.week_start,
+                "first_day": period.first_day,
+                "last_day": period.last_day,
+            }
+            for period in ss.list_external_periods(db, user)
+        ]
+    }
+
+
+@router.post("/external", response_model=ScheduleResponse)
+def create_external_schedule(
+    data: ScheduleCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """域外账号分配一条日程给全体学生
+
+    **没有「仅自己」这一档**：域外账号没有自己的日程表，下发对象固定为全体学生；
+    建完之后靠批次的 operator_user_id 在只读日历里看见自己发的这条。
+    等效学生的域外账号直接 403 —— 他们只能看，不能建。
+    """
+    _require_external(user)
+    if not is_committee(user):
+        raise HTTPException(
+            status_code=403,
+            detail="当前权限只能查看日程，不能创建（需要班委及以上）",
+        )
+
+    _check_repeat_type(data.repeat_type)
+    _validate_geo(data.lat, data.lng)
+    if data.repeat_type != REPEAT_NONE and not data.repeat_end_date:
+        raise HTTPException(status_code=400, detail="重复日程必须设置结束日期")
+    if not data.all_day:
+        _validate_times(data.start_time, data.end_time)
+
+    sched_data = data.model_dump(
+        exclude={"target_all", "target_student_ids", "share_from"}
+    )
+    target_ids = _resolve_target_students(db, user, True, [])
+    if not target_ids:
+        raise HTTPException(status_code=400, detail="班里还没有学生，暂时没有可分配的对象")
+
+    batch = ss.create_batch(
+        db,
+        operator_id=0,  # 域外账号没有 Student.id；真正的操作人记在 operator_user_id
+        operator_name=account_name(db, user),
+        batch_name=data.title or "批量日程",
+        schedules_data=[sched_data],
+        target_student_ids=target_ids,
+        target_all=True,
+        operator_user_id=user.id,
+    )
+    db.commit()
+    log_operation(
+        db, user,
+        f"域外账号分配日程「{data.title}」，共 {len(target_ids)} 人",
+    )
+    tpl = (
+        db.query(Schedule)
+        .filter(Schedule.source_batch_id == batch.id)
+        .order_by(Schedule.id)
+        .first()
+    )
+    if not tpl:  # 理论上到不了：target_ids 非空，create_batch 至少建一条
+        raise HTTPException(status_code=500, detail="日程创建失败，请重试")
+    return ss._to_instance(tpl, tpl.start_time.date(), len(target_ids))
+
+
 @router.get("/item/{schedule_id}", response_model=ScheduleResponse)
 def get_schedule(
     schedule_id: int,
@@ -294,6 +413,8 @@ def create_schedule(
         batch_name=data.title or "批量日程",
         schedules_data=[sched_data],
         target_student_ids=target_ids,
+        target_all=bool(data.target_all),
+        operator_user_id=user.id,
     )
     db.commit()
 
@@ -641,6 +762,8 @@ def import_confirm(
         batch_name=data.batch_name or "导入日程",
         schedules_data=schedules_data,
         target_student_ids=target_ids,
+        target_all=bool(data.target_all),
+        operator_user_id=user.id,
     )
     db.commit()
 

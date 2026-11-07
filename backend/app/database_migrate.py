@@ -107,6 +107,12 @@ NEW_COLUMNS = [
     # 有值时必须成对出现，这条由接口层保证，不在库里加约束
     ("schedules", "lat", "FLOAT"),
     ("schedules", "lng", "FLOAT"),
+    # ---------- 日程批次：是否发给所有人 / 操作人账号 ----------
+    # 域外账号没有自己的日程表，只能看「分配给所有人」的批次（以及自己创建的）。
+    # target_all 补列后按「目标数 >= 当前学生数」回填一次，见 _backfill_schedule_batch_all；
+    # operator_user_id 可空：老批次没有这个信息，也不影响学生端
+    ("schedule_batches", "target_all", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("schedule_batches", "operator_user_id", "INTEGER"),
     # ---------- 天气卡地点：从 .env 迁到管理员配置 ----------
     # 三列都有安全默认：老库补列后天气卡先显示「未配置」，由管理员在后台填；
     # 上线时会用现有 .env 的值把这一行补齐，用户无感
@@ -390,6 +396,30 @@ def _backfill_weather_interval(conn) -> None:
         )
 
 
+def _backfill_schedule_batch_all(conn) -> None:
+    """把「原本就发给所有人」的老批次补上 target_all
+
+    补列前没有这个标志，只能按「目标人数 ≥ 当前学生总数」推断：批次是给每个
+    学生各复制一份的，目标数等于全班人数就是全体。推断错的概率很低，而漏补的
+    后果是域外账号看不到历史全班日程 —— 比多标一条更糟。
+    """
+    total = conn.execute(text("SELECT COUNT(*) FROM students")).scalar() or 0
+    if not total:
+        return
+    result = conn.execute(
+        text(
+            "UPDATE schedule_batches SET target_all = 1 "
+            "WHERE target_count >= :total AND target_count > 0"
+        ),
+        {"total": total},
+    )
+    if result.rowcount:
+        print(
+            f"[迁移] 已把 {result.rowcount} 个「全体学生」日程批次标记为共享",
+            flush=True,
+        )
+
+
 def run_migrations() -> None:
     """补齐老库缺失的列；新库上什么都不做"""
     if engine.dialect.name != "sqlite":
@@ -409,6 +439,7 @@ def run_migrations() -> None:
     poll_start_notified_added = False
     checkin_start_notified_added = False
     weather_interval_added = False
+    schedule_batch_all_added = False
     with engine.begin() as conn:
         for table, column, ddl in NEW_COLUMNS:
             columns = _existing_columns(conn, table)
@@ -428,6 +459,8 @@ def run_migrations() -> None:
                 checkin_start_notified_added = True
             if table == "weather_banner_settings" and column == "notify_interval_minutes":
                 weather_interval_added = True
+            if table == "schedule_batches" and column == "target_all":
+                schedule_batch_all_added = True
 
         if seed_needed:
             _seed_roles(conn)
@@ -446,5 +479,8 @@ def run_migrations() -> None:
 
         if weather_interval_added:
             _backfill_weather_interval(conn)
+
+        if schedule_batch_all_added:
+            _backfill_schedule_batch_all(conn)
 
         _rebuild_leave_table(conn)
