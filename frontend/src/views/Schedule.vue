@@ -19,8 +19,9 @@
         <el-button @click="openSearch">
           <el-icon><Search /></el-icon>搜索
         </el-button>
-        <!-- 域外账号没有个人课表，导入/订阅都不适用；等效学生只能看 -->
-        <el-button v-if="userStore.isCommittee && !isExternal" @click="importDialog.open = true">
+        <!-- 订阅依赖个人课表，域外账号没有；导入是「分配到别人表里」，
+             班委/管理员权限的域外账号同样可用 -->
+        <el-button v-if="userStore.isCommittee" @click="importDialog.open = true">
           <el-icon><Upload /></el-icon>导入
         </el-button>
         <el-button v-if="!isExternal" @click="subscribeDialog.open = true">
@@ -321,10 +322,10 @@
         </el-form-item>
 
         <!-- 班委：影响范围（只在新建时有意义；编辑时改由下面那栏决定发给谁）。
-             域外账号固定「全体学生」，不显示这一栏 -->
-        <el-form-item v-if="userStore.isCommittee && !isExternal && !editDialog.isEdit" label="影响范围">
+             域外账号没有自己的表，没有「仅自己」，但可以选全体或指定学生 -->
+        <el-form-item v-if="userStore.isCommittee && !editDialog.isEdit" label="影响范围">
           <el-radio-group v-model="editForm.scope_mode">
-            <el-radio value="self">仅自己</el-radio>
+            <el-radio v-if="!isExternal" value="self">仅自己</el-radio>
             <el-radio value="all">全部学生</el-radio>
             <el-radio value="selected">指定学生</el-radio>
           </el-radio-group>
@@ -1116,11 +1117,11 @@ function minuteTop(min) {
 
 let clockTimer = null
 
-// 域外账号没有「选择学生」这一档（固定全体），不用白拉一次名单
+// 域外账号也能「指定学生」和导入，同样需要学生名单
 onMounted(() => {
   loadSchedules()
   loadSemesterInfo()
-  if (userStore.isCommittee && !isExternal.value) {
+  if (userStore.isCommittee) {
     loadStudents()
   }
   clockTimer = setInterval(() => { now.value = new Date() }, 30000)
@@ -1256,7 +1257,7 @@ const allDayHeight = computed(() => {
 
 // ---------- 点击格子新建 ----------
 function handleCellClick(date, time) {
-  // 域外账号：等效学生连格子都不该点出表单；班委/管理员可以点（下发对象固定全体）
+  // 域外账号：等效学生连格子都不该点出表单；班委/管理员可以点（全体或指定学生）
   if (isExternal.value && !userStore.isCommittee) return
   openCreate(date, time)
 }
@@ -1369,7 +1370,7 @@ const saving = ref(false)
 
 function openCreate(date = null, time = null) {
   editForm.value = defaultForm()
-  // 域外账号没有「仅自己」这一档：下发对象固定全体学生
+  // 域外账号没有「仅自己」这一档：默认全体，也可以改成指定学生
   if (isExternal.value) editForm.value.scope_mode = 'all'
   geoOpen.value = false
   if (date) {
@@ -1464,8 +1465,6 @@ function formFields() {
 
 // 班委的分配范围（普通学生传了后端也会忽略）
 function targetFields() {
-  // 域外账号固定「全体学生」：他没有自己的日程表，选中/仅自己都没有去处
-  if (isExternal.value) return { target_all: true, target_student_ids: [] }
   const form = editForm.value
   return {
     target_all: userStore.isCommittee && form.scope_mode === 'all',
@@ -1521,8 +1520,8 @@ async function saveAllDay(days) {
       // scope 跟着「修改范围」走（跨天的条不显示那一栏，form.scope 就是 all）
       await updateSchedule(hit.id, day, { ...base, ...times, scope: form.scope }, share)
     } else if (isExternal.value) {
-      // 域外账号建多天全天事件：每天各分配一次（下发对象固定全体）
-      await createExternalSchedule({ ...base, ...times })
+      // 域外账号建多天全天事件：每天各分配一次（全体或指定学生）
+      await createExternalSchedule({ ...base, ...times, ...targetFields() })
     } else {
       // 新添的天也要发给原来那批人：不带 share_from 的话，把 3 天的活动改成
       // 5 天，新加的两天只落在自己表里 —— 正是这次要消灭的那种「别人那儿没变」
@@ -1561,6 +1560,13 @@ async function handleSave() {
   }
   if (form.repeat_type !== 'none' && !form.repeat_end_date) {
     ElMessage.warning('请设置重复结束日期')
+    return
+  }
+  // 后端把「指定学生但名单为空」当成全体（兼容老调用点）。这里先拦一道，
+  // 免得只是想选几个人，结果一提交发给了全班
+  if (!editDialog.value.isEdit && userStore.isCommittee
+      && form.scope_mode === 'selected' && !selectedStudents.value.length) {
+    ElMessage.warning('请选择目标学生')
     return
   }
 
@@ -1609,8 +1615,10 @@ async function handleSave() {
           shareEnabled()
         )
       } else if (isExternal.value) {
-        // 域外账号走「分配」接口：后端强制全体学生并记下操作人账号
-        await createExternalSchedule({ ...formFields(), ...times, all_day: false })
+        // 域外账号走「分配」接口：全体或指定学生，并记下操作人账号
+        await createExternalSchedule({
+          ...formFields(), ...times, all_day: false, ...targetFields(),
+        })
       } else {
         await createSchedule({ ...formFields(), ...times, all_day: false, ...targetFields() })
       }

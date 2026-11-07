@@ -5,14 +5,20 @@
 口径（用户拍板）：
 - 域外账号没有自己的日程表，只能看到「分配给所有人」的批次 + 自己创建的批次；
 - 等效学生（role=student）不能建/改/删，连格子都点不出表单；
-- 班委/管理员可以分配新日程，下发对象固定为全体学生，建完自己也看得见。
+- 班委/管理员可以分配新日程、导入课表，下发对象可选全体或指定学生；
+  指定学生的批次只有操作者自己能看到。
 
 测试里直接走接口建批次、切账号登录，最后用域外入口读结果。
 """
+from io import BytesIO
 from types import SimpleNamespace
 
 import httpx
+import openpyxl
 import pytest
+from sqlalchemy import create_engine, text
+
+from app.database_migrate import _backfill_schedule_batch_all
 
 PW = "initpass123"
 ADMIN = "2024000001"
@@ -66,6 +72,18 @@ def _login_as(b, no, password) -> httpx.Client:
     return b.client
 
 
+def _as(b, no, password) -> httpx.Client:
+    """独立会话：同一用例里要同时用域外/学生多个身份，不能共用一个 client"""
+    c = httpx.Client(base_url=str(b.client.base_url), timeout=10)
+    r = c.post("/api/auth/login", json={"student_no": no, "password": password})
+    assert r.status_code == 200, r.text
+    return c
+
+
+def _student_id(b, no) -> int:
+    return b.rows("SELECT id FROM students WHERE student_no = ?", no)[0][0]
+
+
 def _admin(b):
     b.logout()
     assert b.login(student_no=ADMIN, password=ADMIN_PW).status_code == 200
@@ -84,12 +102,33 @@ def _schedule(title: str, start: str = "10:00", end: str = "11:00") -> dict:
 
 
 def _list(client) -> list[dict]:
+    return _list_range(client, DAY, DAY)
+
+
+def _list_range(client, start: str, end: str) -> list[dict]:
     r = client.get(
         "/api/schedules/external",
-        params={"start_date": DAY, "end_date": DAY},
+        params={"start_date": start, "end_date": end},
     )
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def _import_xlsx() -> bytes:
+    """最小可导入课表：第 1 周周一 10/12，一节高数"""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "第1周"
+    ws.cell(row=1, column=2, value="10/12 周一")
+    for row in range(90):
+        hour = 7 + row // 6
+        minute = (row % 6) * 10
+        ws.cell(row=row + 2, column=1, value=f"{hour:02d}:{minute:02d}")
+    ws.merge_cells(start_row=2, start_column=2, end_row=7, end_column=2)
+    ws.cell(row=2, column=2, value="高等数学\n课程\n教学楼C101")
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def test_external_sees_only_all_student_batches(es):
@@ -150,6 +189,107 @@ def test_external_manager_can_allocate_and_sees_own(es):
         "SELECT COUNT(*) FROM schedules WHERE source_batch_id = "
         "(SELECT MAX(id) FROM schedule_batches)"
     )[0][0] == 2
+
+
+def test_external_manager_can_allocate_to_selected_students(es):
+    """指定学生：操作者自己能看到，别的域外账号看不到，被点到的学生能看到"""
+    manager = _as(es, MANAGER, MANAGER_PW)
+    student_id = _student_id(es, STUDENT)
+    r = manager.post("/api/schedules/external", json={
+        **_schedule("只给一人"),
+        "target_all": False,
+        "target_student_ids": [student_id],
+    })
+    assert r.status_code == 200, r.text
+
+    assert [item["title"] for item in _list(manager)] == ["只给一人"]
+    teacher = _as(es, TEACHER, TEACHER_PW)
+    assert _list(teacher) == [], "没有发给全体，另一个域外账号不该看到"
+
+    student = _as(es, STUDENT, STUDENT_PW)
+    r = student.get("/api/schedules", params={
+        "start_date": DAY, "end_date": DAY,
+    })
+    assert r.status_code == 200, r.text
+    assert [item["title"] for item in r.json()] == ["只给一人"]
+
+    batch = es.rows(
+        "SELECT target_all FROM schedule_batches ORDER BY id DESC LIMIT 1"
+    )[0]
+    assert batch[0] == 0
+
+
+def test_external_manager_can_import_and_assign_selected(es):
+    """导入同样可用；指定学生时只有操作者和目标学生看得到"""
+    manager = _as(es, MANAGER, MANAGER_PW)
+    student_id = _student_id(es, STUDENT)
+    preview = manager.post(
+        "/api/schedules/import/preview",
+        files={"file": ("课表.xlsx", _import_xlsx(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert preview.status_code == 200, preview.text
+
+    r = manager.post("/api/schedules/import", json={
+        "token": preview.json()["token"],
+        "batch_name": "外部导入",
+        "target_all": False,
+        "target_student_ids": [student_id],
+        "selected_indices": [],
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["target_count"] == 1
+
+    items = _list_range(manager, "2026-10-12", "2026-10-18")
+    assert any(item["title"] == "高等数学" for item in items), items
+    teacher = _as(es, TEACHER, TEACHER_PW)
+    assert _list_range(teacher, "2026-10-12", "2026-10-18") == []
+
+    student = _as(es, STUDENT, STUDENT_PW)
+    r = student.get("/api/schedules", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    })
+    assert any(item["title"] == "高等数学" for item in r.json()), r.text
+
+
+def test_backfill_only_marks_schedules_copied_to_everyone():
+    """迁移不能只看 target_count：生日那种「每人一条」不是共享日程
+
+    批次 1：两条 series，各只有 1 份（典型生日批次）
+    批次 2：一条 series，复制给 2 个人（真正发给全体）
+    批次 3：只发给 1 个人（指定学生）
+    """
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE students (id INTEGER PRIMARY KEY)"))
+        conn.execute(text(
+            "CREATE TABLE schedule_batches ("
+            "id INTEGER PRIMARY KEY, target_count INTEGER, "
+            "target_all BOOLEAN NOT NULL DEFAULT 0)"
+        ))
+        conn.execute(text(
+            "CREATE TABLE schedules ("
+            "id INTEGER PRIMARY KEY, source_batch_id INTEGER, source_series_id TEXT)"
+        ))
+        conn.execute(text("INSERT INTO students (id) VALUES (1), (2)"))
+        conn.execute(text(
+            "INSERT INTO schedule_batches (id, target_count, target_all) "
+            "VALUES (1, 2, 1), (2, 2, 0), (3, 1, 0)"
+        ))
+        conn.execute(text(
+            "INSERT INTO schedules (source_batch_id, source_series_id) VALUES "
+            "(1, 'birthday-a'), (1, 'birthday-b'), "
+            "(2, 'class-a'), (2, 'class-a'), "
+            "(3, 'one-person')"
+        ))
+
+        _backfill_schedule_batch_all(conn)
+
+        flags = dict(conn.execute(text(
+            "SELECT id, target_all FROM schedule_batches"
+        )).all())
+
+    assert flags == {1: 0, 2: 1, 3: 0}
 
 
 def test_external_endpoint_rejects_student_accounts(es):

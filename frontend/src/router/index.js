@@ -107,8 +107,8 @@ const routes = [
     path: '/schedule',
     name: 'Schedule',
     component: () => import('@/views/Schedule.vue'),
-    // 域外账号也有日程：只读共享给所有人的日程；班委/管理员权限可以分配。
-    // 页面内部按 isExternal 切换成「只读/分配」模式
+    // 域外账号也有日程：只读共享给所有人的日程 + 自己分配的；有班委/管理员
+    // 权限时还可以分配和导入。页面内部按 isExternal 切换成「只读/分配」模式
     meta: { title: '我的日程' }
   },
   {

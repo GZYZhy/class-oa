@@ -637,7 +637,7 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
     `onMounted(() => {
   loadSchedules()
   loadSemesterInfo()
-  if (userStore.isCommittee && !isExternal.value) {
+  if (userStore.isCommittee) {
     loadStudents()
   }
   clockTimer = setInterval(() => { now.value = new Date() }, 30000)
@@ -747,7 +747,7 @@ console.log('\n▶ 我的日程：按类型涂色，全天事件排一行按格�
     `onMounted(() => {
   loadSchedules()
   loadSemesterInfo()
-  if (userStore.isCommittee && !isExternal.value) {
+  if (userStore.isCommittee) {
     loadStudents()
   }
   clockTimer = setInterval(() => { now.value = new Date() }, 30000)
@@ -930,8 +930,15 @@ console.log('\n▶ 域外账号：我的信息与共享日程（只读 / 分配�
   check(scheduleSrc.includes('v-if="!isExternal || userStore.isCommittee"') &&
     scheduleSrc.includes('分配日程'),
   '等效学生只能看；班委/管理员多一个「分配日程」')
-  check(scheduleSrc.includes('if (isExternal.value) return { target_all: true'),
-    '域外账号分配时固定全体学生（没有自己的日程表）')
+  check(/v-if="userStore\.isCommittee" @click="importDialog\.open = true"/.test(scheduleSrc),
+    '班委/管理员权限的域外账号也能导入课表')
+  check(scheduleSrc.includes('v-if="userStore.isCommittee && !editDialog.isEdit"') &&
+    scheduleSrc.includes('<el-radio v-if="!isExternal" value="self">仅自己</el-radio>') &&
+    scheduleSrc.includes('<el-radio value="selected">指定学生</el-radio>'),
+  '域外账号可选全体/指定学生，但没有「仅自己」')
+  check(scheduleSrc.includes("target_all: userStore.isCommittee && form.scope_mode === 'all'") &&
+    /createExternalSchedule\(\{[\s\S]{0,140}?targetFields\(\)/.test(scheduleSrc),
+  '域外分配把选中的目标学生一起提交，不再强制全体')
   check((scheduleSrc.match(/v-if="!isExternal"/g) || []).length >= 2,
     '域外账号的详情弹窗不出现编辑/删除')
   check(scheduleSrc.includes('if (isExternal.value && !userStore.isCommittee) return'),

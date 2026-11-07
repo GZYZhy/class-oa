@@ -3,8 +3,8 @@
 权限模型：
 - 普通学生：只能看/建/改/删自己的日程
 - 班委及以上：除个人日程外，还可以批量创建（选择目标学生）、导入 Excel、管理批次
-- 域外账号：没有个人日程表。只读「分配给所有人」的批次 + 自己创建的批次；
-  等效学生不能建/改，班委/管理员可以通过 `/external` 分配（对象固定全体学生）
+- 域外账号：没有个人日程表。只读「分配给所有人」的批次 + 自己创建/导入的批次；
+  等效学生不能建/改，班委/管理员可以通过 `/external` 分配或导入（全体或指定学生）
 
 严格约束：
 - 通知默认关闭，未开启通知的日程一律不推送
@@ -212,8 +212,8 @@ def get_semester_info(
 #
 # 域外账号没有 Student 行，因此：
 #   · 看：只显示「分配给所有人」的批次 + 自己创建的批次（按原始日程去重展开）；
-#   · 写：等效学生（role=student）一律不给；班委/管理员可以**分配**新日程，
-#     下发对象固定为全体学生（他们自己没有日程表，选「仅自己」没有去处）。
+#   · 写：等效学生（role=student）一律不给；班委/管理员可以**分配**新日程或
+#     导入课表，下发对象可选全体或指定学生（他们没有自己的日程表，没有「仅自己」）。
 
 def _require_external(user: User) -> None:
     if not user.is_external:
@@ -272,10 +272,11 @@ def create_external_schedule(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """域外账号分配一条日程给全体学生
+    """域外账号分配一条日程（全体学生或指定学生）
 
-    **没有「仅自己」这一档**：域外账号没有自己的日程表，下发对象固定为全体学生；
-    建完之后靠批次的 operator_user_id 在只读日历里看见自己发的这条。
+    **没有「仅自己」这一档**：域外账号没有自己的日程表。下发对象可以是全体，
+    也可以是部分学生；建完之后靠批次的 operator_user_id 在只读日历里看见
+    自己发的这条（发全体的则所有域外账号都能看到）。
     等效学生的域外账号直接 403 —— 他们只能看，不能建。
     """
     _require_external(user)
@@ -295,9 +296,14 @@ def create_external_schedule(
     sched_data = data.model_dump(
         exclude={"target_all", "target_student_ids", "share_from"}
     )
-    target_ids = _resolve_target_students(db, user, True, [])
+    # 老调用点 / 只传标题的脚本不带 target_*：保持原来的「全体学生」；
+    # 明确传了指定名单才走部分分配
+    target_all = bool(data.target_all) or not data.target_student_ids
+    target_ids = _resolve_target_students(
+        db, user, target_all, data.target_student_ids
+    )
     if not target_ids:
-        raise HTTPException(status_code=400, detail="班里还没有学生，暂时没有可分配的对象")
+        raise HTTPException(status_code=400, detail="请至少选择一位学生")
 
     batch = ss.create_batch(
         db,
@@ -306,7 +312,7 @@ def create_external_schedule(
         batch_name=data.title or "批量日程",
         schedules_data=[sched_data],
         target_student_ids=target_ids,
-        target_all=True,
+        target_all=target_all,
         operator_user_id=user.id,
     )
     db.commit()
@@ -696,7 +702,6 @@ async def import_preview(
 @router.post("/import", response_model=ScheduleImportResultResponse)
 def import_confirm(
     data: ScheduleImportConfirm,
-    student: Student = Depends(get_current_student),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
@@ -755,10 +760,13 @@ def import_confirm(
     if not schedules_data:
         raise HTTPException(status_code=400, detail="没有有效的日程可导入")
 
+    # 域外账号没有 Student 行：operator_id 记 0，真正的操作人靠 operator_user_id；
+    # 在册班委仍按原来的 Student 快照记录，两边行为不变
+    student = db.query(Student).filter(Student.student_no == user.student_no).first()
     batch = ss.create_batch(
         db,
-        operator_id=student.id,
-        operator_name=student.name,
+        operator_id=student.id if student else 0,
+        operator_name=account_name(db, user),
         batch_name=data.batch_name or "导入日程",
         schedules_data=schedules_data,
         target_student_ids=target_ids,

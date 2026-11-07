@@ -397,27 +397,44 @@ def _backfill_weather_interval(conn) -> None:
 
 
 def _backfill_schedule_batch_all(conn) -> None:
-    """把「原本就发给所有人」的老批次补上 target_all
+    """校准 target_all：只有「同一条日程真的复制给了全班」才算共享
 
-    补列前没有这个标志，只能按「目标人数 ≥ 当前学生总数」推断：批次是给每个
-    学生各复制一份的，目标数等于全班人数就是全体。推断错的概率很低，而漏补的
-    后果是域外账号看不到历史全班日程 —— 比多标一条更糟。
+    补列前没有这个标志，只能从数据推断。**不能只看 target_count**：生日这类
+    批次是「给 36 个人各建一条只属于他自己的日程」，target_count=36 却每条
+    series 只有 1 份；按人数推断会把它当成共享日程，域外账号就会看到别人的
+    「我的生日」。所以要求**每一个 source_series_id 的副本数都 >= 当前学生数**，
+    即同一节课/同一个活动确实复制到了每个人表里。
+
+    每次启动都重算（不只在补列时跑一次）：早先版本已经按旧口径写进了 1，
+    必须在升级后把这种误标纠正回来。没有 target_all 列时直接跳过。
     """
+    columns = _existing_columns(conn, "schedule_batches")
+    if "target_all" not in columns:
+        return
     total = conn.execute(text("SELECT COUNT(*) FROM students")).scalar() or 0
     if not total:
+        # 班里一个学生都没有：没有「全体」可言，历史标记一并清掉，
+        # 免得域外账号还能看到已经不存在的收件人的日程
+        conn.execute(text("UPDATE schedule_batches SET target_all = 0"))
         return
-    result = conn.execute(
+    conn.execute(
         text(
-            "UPDATE schedule_batches SET target_all = 1 "
-            "WHERE target_count >= :total AND target_count > 0"
+            "UPDATE schedule_batches SET target_all = CASE "
+            "  WHEN target_count >= :total "
+            "   AND EXISTS ("
+            "     SELECT 1 FROM schedules s "
+            "     WHERE s.source_batch_id = schedule_batches.id"
+            "   ) "
+            "   AND NOT EXISTS ("
+            "     SELECT 1 FROM schedules s "
+            "     WHERE s.source_batch_id = schedule_batches.id "
+            "     GROUP BY s.source_series_id "
+            "     HAVING COUNT(*) < :total"
+            "   ) "
+            "  THEN 1 ELSE 0 END"
         ),
         {"total": total},
     )
-    if result.rowcount:
-        print(
-            f"[迁移] 已把 {result.rowcount} 个「全体学生」日程批次标记为共享",
-            flush=True,
-        )
 
 
 def run_migrations() -> None:
@@ -439,7 +456,6 @@ def run_migrations() -> None:
     poll_start_notified_added = False
     checkin_start_notified_added = False
     weather_interval_added = False
-    schedule_batch_all_added = False
     with engine.begin() as conn:
         for table, column, ddl in NEW_COLUMNS:
             columns = _existing_columns(conn, table)
@@ -459,8 +475,6 @@ def run_migrations() -> None:
                 checkin_start_notified_added = True
             if table == "weather_banner_settings" and column == "notify_interval_minutes":
                 weather_interval_added = True
-            if table == "schedule_batches" and column == "target_all":
-                schedule_batch_all_added = True
 
         if seed_needed:
             _seed_roles(conn)
@@ -480,7 +494,8 @@ def run_migrations() -> None:
         if weather_interval_added:
             _backfill_weather_interval(conn)
 
-        if schedule_batch_all_added:
-            _backfill_schedule_batch_all(conn)
+        # 每次启动都校准：老版本按 target_count 误标的批次（生日那种每人一条）
+        # 要在这里改回 0，否则域外账号会看到别人的个人日程
+        _backfill_schedule_batch_all(conn)
 
         _rebuild_leave_table(conn)
