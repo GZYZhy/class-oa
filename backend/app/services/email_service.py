@@ -100,6 +100,7 @@ def push(
     addresses: list[str], title: str, body: str,
     level: str = "active", page: str | None = None,
     timeout: int = TIMEOUT, budget: int = BUDGET,
+    code: str | None = None,
 ) -> bool:
     """真正把邮件发出去；失败只打印日志，绝不抛出
 
@@ -133,7 +134,7 @@ def push(
                     flush=True,
                 )
                 break
-            if _send(server, address, title, body, page):
+            if _send(server, address, title, body, page, code=code):
                 sent += 1
         return sent > 0
     except Exception as exc:
@@ -173,7 +174,10 @@ def _connect(timeout: int = TIMEOUT) -> smtplib.SMTP:
     return server
 
 
-def _send(server: smtplib.SMTP, address: str, title: str, body: str, page: str | None) -> bool:
+def _send(
+    server: smtplib.SMTP, address: str, title: str, body: str,
+    page: str | None, code: str | None = None,
+) -> bool:
     """发一封，返回是否成功
 
     每人一封而不是一封多收件人：库里那两个坏地址（和以后可能会有更多）必然被拒，
@@ -194,7 +198,9 @@ def _send(server: smtplib.SMTP, address: str, title: str, body: str, page: str |
         # 纯文本与 HTML 同时发。老客户端/纯文本模式看前者，现代客户端看后者；
         # 两者内容一致，HTML 只是把同样的字排成站点主题的卡片。
         message.set_content(_body_text(body, page))
-        message.add_alternative(_body_html(title, body, page), subtype="html")
+        message.add_alternative(
+            _body_html(title, body, page, code=code), subtype="html"
+        )
         server.send_message(message)
         return True
     except Exception as exc:
@@ -216,27 +222,71 @@ def _body_text(body: str, page: str | None) -> str:
     return text
 
 
-def _body_html(title: str, body: str, page: str | None) -> str:
-    """邮件 HTML 正文：站点主题的卡片，不依赖外部 CSS / 图片
+def _logo_url() -> str:
+    """邮件里引用的校徽地址；没配 public_base_url 时返回空串
+
+    邮箱客户端默认可能不加载远程图片，所以 <img> 上必须写 alt；
+    即使被拦，旁边仍有站名和标题，不影响阅读。
+    """
+    base = settings.public_base_url.rstrip("/")
+    return f"{base}/logo.png?v=1" if base else ""
+
+
+def _body_html(
+    title: str, body: str, page: str | None, code: str | None = None,
+) -> str:
+    """邮件 HTML 正文：站点主题的卡片，不依赖外部 CSS
 
     邮件客户端对 CSS 的支持很有限：`<style>` 常被剥掉、flex/grid 不可用、
     远程图片默认不加载。所以这里用 table 布局 + 全部内联样式，配色取自站点
-    的靛蓝 / 浅紫主题；不塞 logo 图片，避免收件人看到一个破图占位。
+    的靛蓝 / 浅紫主题。校徽是远程图片，带 alt，被拦截时也不影响阅读。
+
+    验证码类邮件单独排版：把验证码从正文里提出来，放大、加字距、放进浅紫卡片，
+    并去掉「在站内查看」按钮（用户正在登录页，按钮没有意义）。
     """
     site = html_lib.escape(settings.site_name.strip() or settings.app_name)
     safe_title = html_lib.escape(title)
-    safe_body = html_lib.escape(body[:BODY_LIMIT]).replace(chr(10), "<br>")
-    base = settings.public_base_url.rstrip("/")
-    link = f"{base}/#{page}" if base and page else (base or "")
-    action = ""
-    if link:
-        action = (
-            f'<tr><td style="padding:6px 32px 28px;">'
-            f'<a href="{html_lib.escape(link, quote=True)}" '
-            'style="display:inline-block;background:#5b5bd6;color:#ffffff;'
-            'text-decoration:none;font-size:14px;font-weight:600;'
-            'padding:12px 22px;border-radius:10px;">在站内查看</a></td></tr>'
+    logo = _logo_url()
+    logo_cell = ""
+    if logo:
+        logo_cell = (
+            '<td width="50" valign="middle" style="padding-right:12px;">'
+            f'<img src="{html_lib.escape(logo, quote=True)}" width="44" height="44" '
+            'alt="校徽" style="display:block;border-radius:10px;background:#ffffff;">'
+            "</td>"
         )
+
+    if code and code in body:
+        before, _, after = body.partition(code)
+        intro = html_lib.escape(before.strip()) or "你的验证码是"
+        tail = html_lib.escape(after.lstrip("，。 ,")).replace(chr(10), "<br>")
+        content = (
+            '<p style="margin:0 0 4px;color:#2f3447;font-size:14px;line-height:1.8;">'
+            f"{intro}</p>"
+            '<div style="margin:14px 0 16px;padding:16px 8px;text-align:center;'
+            "background:#f4f5ff;border:1px solid #e2e3f7;border-radius:12px;"
+            "color:#343a66;font-size:30px;line-height:1.2;font-weight:700;"
+            f'letter-spacing:8px;">{html_lib.escape(code)}</div>'
+            f'<p style="margin:0;color:#2f3447;font-size:14px;line-height:1.85;">{tail}</p>'
+        )
+        action = ""
+    else:
+        content = (
+            '<p style="margin:0;color:#2f3447;font-size:14px;line-height:1.85;">'
+            f'{html_lib.escape(body[:BODY_LIMIT]).replace(chr(10), "<br>")}</p>'
+        )
+        base = settings.public_base_url.rstrip("/")
+        link = f"{base}/#{page}" if base and page else (base or "")
+        action = ""
+        if link:
+            action = (
+                '<tr><td style="padding:6px 32px 28px;">'
+                f'<a href="{html_lib.escape(link, quote=True)}" '
+                'style="display:inline-block;background:#5b5bd6;color:#ffffff;'
+                'text-decoration:none;font-size:14px;font-weight:600;'
+                'padding:12px 22px;border-radius:10px;">在站内查看</a></td></tr>'
+            )
+
     return f'''<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -252,13 +302,16 @@ def _body_html(title: str, body: str, page: str | None) -> str:
   border-radius:16px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,
   'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',Arial,sans-serif;">
 <tr><td style="background:#5b5bd6;background-image:linear-gradient(135deg,#5b5bd6,#8b7cf6);
-  padding:22px 32px 20px;color:#ffffff;">
-  <div style="font-size:11px;letter-spacing:.12em;opacity:.78;margin-bottom:6px;">{site}</div>
-  <div style="font-size:19px;line-height:1.45;font-weight:700;">{safe_title}</div>
+  padding:20px 30px 18px;color:#ffffff;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+  {logo_cell}
+  <td valign="middle">
+    <div style="font-size:11px;letter-spacing:.12em;opacity:.78;margin-bottom:5px;">{site}</div>
+    <div style="font-size:19px;line-height:1.4;font-weight:700;">{safe_title}</div>
+  </td>
+  </tr></table>
 </td></tr>
-<tr><td style="padding:26px 32px 14px;color:#2f3447;font-size:14px;line-height:1.85;">
-  {safe_body}
-</td></tr>
+<tr><td style="padding:24px 32px 18px;">{content}</td></tr>
 {action}
 <tr><td style="background:#f7f8fd;border-top:1px solid #e8eaf5;padding:14px 32px;
   color:#8a90a5;font-size:12px;line-height:1.6;">
