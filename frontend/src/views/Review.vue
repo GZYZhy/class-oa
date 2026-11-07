@@ -1557,7 +1557,7 @@ const evPassDialogMode = ref('approve')
 const evPassDialogRow = ref(null)
 const evPassDialogSubmitting = ref(false)
 const evPassDialogForm = ref({ sign_no: '' })
-// 能当经办班委签字人的管理员列表，第一次打开弹窗时拉一次就够了
+// 能当经办班委签字人的账号（班委及以上、签字图在盘上），第一次打开弹窗时拉一次
 const evPassSigners = ref([])
 
 const evPassDialogTitle = computed(

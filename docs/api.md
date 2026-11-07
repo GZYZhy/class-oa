@@ -2454,7 +2454,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `GET /api/ev-passes/signers`
 
-列管理员、且签字图在盘上的账号，供批准时选「用谁的签字」 口径与请假的 GET /api/leaves/advisor-signers 共用（见 services/signer_service.py）。 接口名不叫 advisor-signers：这边签字的是经办班委，落在落款处，不是班导师
+列**班委及以上**、且签字图在盘上的账号，供批准时选「用谁的签字」。接口本身仍只给管理员（批准/补签字都是管理员操作），但候选项包含班委 —— 落款是「经办班委」，班委本人的签字也可以选。口径与请假的 GET /api/leaves/advisor-signers 共用（见 services/signer_service.py），请假那边仍只列管理员。
 
 **响应**
 

@@ -81,7 +81,7 @@ export function signEvPass(id, payload) {
   return request({ url: `/ev-passes/${id}/sign`, method: 'post', data: payload })
 }
 
-/** 管理员：能当经办班委签字人的账号（管理员、且签字图在盘上） */
+/** 管理员：能当经办班委签字人的账号（班委及以上、且签字图在盘上） */
 export function getEvPassSigners() {
   return request({ url: '/ev-passes/signers', method: 'get' })
 }

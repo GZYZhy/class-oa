@@ -784,12 +784,13 @@ def committee_signers(
     _: User = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
-    """列管理员、且签字图在盘上的账号，供批准时选「用谁的签字」
+    """列**班委及以上**、且签字图在盘上的账号，供批准时选「用谁的签字」
 
-    口径与请假的 GET /api/leaves/advisor-signers 共用（见 services/signer_service.py）。
-    接口名不叫 advisor-signers：这边签字的是经办班委，落在落款处，不是班导师
+    口径与请假的 GET /api/leaves/advisor-signers 共用（见 services/signer_service.py），
+    只是这边把可选范围放到了班委：落款是「经办班委」，班委本人的签字也应当能选。
+    接口名不叫 advisor-signers：这边签字的是经办班委，不是班导师。
     """
-    return signer_options(db)
+    return signer_options(db, roles=("committee", "admin"))
 
 
 @router.post("/{req_id}/reject", summary="驳回申请（管理员）")

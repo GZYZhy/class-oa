@@ -158,8 +158,9 @@ def ep(backend, tmp_path):
     assert b.client.put(f"/api/admin/users/{NOSIGN}/role",
                         json={"role": "admin"}).status_code == 200
 
-    # 签字图：甲（要当经办班委）与戊（申请人的那张，印在承诺书上）
+    # 签字图：甲（管理员）、丙（班委）与戊（申请人的那张，印在承诺书上）
     assert upload_sign(b, sid_of(b, ADMIN)).status_code == 200
+    assert upload_sign(b, sid_of(b, CM)).status_code == 200
     assert upload_sign(b, sid_of(b, APPLICANT)).status_code == 200
 
     # 域外管理员，创建时就带上签字图
@@ -269,20 +270,28 @@ def test_rejecting_an_approved_request_is_refused(ep):
 
 # ---------- 候选人 ----------
 
-def test_signers_lists_admins_with_a_photo_and_nobody_else(ep):
-    """候选人 = 管理员 + 签字图真在盘上；域外与在册同等对待
+def test_signers_lists_committee_and_admins_with_a_photo(ep):
+    """候选人 = 班委及以上 + 签字图真在盘上；域外与在册同等对待
 
-    没图的乙、以及班委丙都不该在里头 —— 丙不在是因为**权限**（班委不能签），
-    乙不在是因为点了他也插不进表
+    丙（班委，有图）现在应该出现 —— 经办班委那一栏可以落班委本人的签字；
+    乙（管理员但没图）与丁（普通学生）仍然不在。
     """
     r = ep.b.client.get("/api/ev-passes/signers")
     assert r.status_code == 200, r.text
 
     rows = {row["student_no"]: row for row in r.json()}
-    assert set(rows) == {ADMIN, EXTERNAL}, f"候选人口径不对：{sorted(rows)}"
+    assert set(rows) == {ADMIN, CM, EXTERNAL}, f"候选人口径不对：{sorted(rows)}"
     assert rows[ADMIN]["name"] == NAME[ADMIN]
+    assert rows[CM] == {"student_no": CM, "name": NAME[CM], "is_external": False}
     assert rows[EXTERNAL] == {"student_no": EXTERNAL, "name": EXTERNAL_NAME,
                               "is_external": True}, "域外账号要标出来，前端好区分"
+
+
+def test_a_committee_can_be_the_signer(ep):
+    """班委本人也能当经办班委签字人：三列落库，快照的是他的图"""
+    rid = submit(ep.applicant)
+    assert approve(ep.b, rid, sign_no=CM).status_code == 200
+    assert req_row(ep.b, rid)[:2] == (CM, NAME[CM])
 
 
 def test_signers_is_admin_only(ep):

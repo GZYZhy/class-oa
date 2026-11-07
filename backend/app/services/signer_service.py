@@ -40,24 +40,37 @@ def signer_photo(db: Session, student_no: str) -> tuple[Path, User] | None:
     return path, user
 
 
-def signer_candidates(db: Session) -> list[User]:
-    """能当签字人的账号：管理员，且签字图确实在盘上
+def signer_candidates(
+    db: Session, roles: tuple[str, ...] = ("admin",)
+) -> list[User]:
+    """能当签字人的账号：给定角色范围内，且签字图确实在盘上
+
+    默认仍然只取管理员（请假的「班导师签字」沿用这个口径）；
+    电动车通行证的「经办班委签字」传 `roles=("committee", "admin")` ——
+    用户口径是**班委及以上**，签字栏里也可以落一位班委的图。
 
     **不复用** GET /api/admin/users 的 has_sign_photo：那一列的语义是
     「域外账号有没有签字图，学生账号恒 False」，拿它筛会把学生管理员整批漏掉。
 
     候选人一共没几个，逐个查图的 N+1 无所谓，好读优先。
     """
-    rows = db.query(User).filter(User.role == "admin").order_by(User.student_no).all()
+    rows = (
+        db.query(User)
+        .filter(User.role.in_(roles))
+        .order_by(User.student_no)
+        .all()
+    )
     return [row for row in rows if signer_photo(db, row.student_no)]
 
 
-def signer_options(db: Session) -> list[dict]:
+def signer_options(
+    db: Session, roles: tuple[str, ...] = ("admin",)
+) -> list[dict]:
     """候选人列表，直接当接口的响应体（域外与在册同权，用 is_external 标出来给前端区分）"""
     return [
         {"student_no": row.student_no, "name": display_name(db, row),
          "is_external": bool(row.is_external)}
-        for row in signer_candidates(db)
+        for row in signer_candidates(db, roles)
     ]
 
 
