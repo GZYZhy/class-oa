@@ -26,7 +26,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import NamedTuple, Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from ..models import Schedule, ScheduleBatch, Student, User
@@ -1026,16 +1026,36 @@ def delete_shared(
 
 # ---------- 批量管理 ----------
 
-def delete_batch(db: Session, batch_id: int, operator_id: int) -> int:
+def can_manage_batch(
+    batch: ScheduleBatch, operator_id: int, operator_user_id: int
+) -> bool:
+    """是不是这个账号创建的批次
+
+    在册学生看 operator_id；域外账号没有 Student 行，只能看 operator_user_id。
+    新批次两个都写；老批次 operator_user_id 为空，用 operator_id 兜底。
+    """
+    if batch.operator_user_id is not None:
+        return batch.operator_user_id == operator_user_id
+    return bool(operator_id) and batch.operator_id == operator_id
+
+
+def delete_batch(
+    db: Session,
+    batch_id: int,
+    operator_id: int,
+    operator_user_id: int,
+    *,
+    allow_any: bool = False,
+) -> int:
     """撤销整个批次（删除该批次下所有学生的所有日程）
 
-    返回删除的日程条数。operator_id 用于校验权限。
+    返回删除的日程条数。allow_any 只给管理员从系统管理里撤销别人的批次；
+    普通班委仍只能删自己建的。
     """
     batch = db.query(ScheduleBatch).filter(ScheduleBatch.id == batch_id).first()
     if not batch:
         return 0
-    if batch.operator_id != operator_id:
-        # 不是自己创建的批次：管理员也不允许删（简单原则）
+    if not allow_any and not can_manage_batch(batch, operator_id, operator_user_id):
         return 0
 
     count = (
@@ -1048,12 +1068,33 @@ def delete_batch(db: Session, batch_id: int, operator_id: int) -> int:
     return count
 
 
-def list_batches(db: Session, operator_id: int, limit: int = 50) -> list[ScheduleBatch]:
-    """查看自己创建的导入批次列表"""
+def list_batches(
+    db: Session,
+    operator_id: int,
+    operator_user_id: int,
+    limit: int = 50,
+    *,
+    all_batches: bool = False,
+) -> list[ScheduleBatch]:
+    """查看批次列表
+
+    默认只看自己创建/导入的（在册学生与域外账号同一套口径）；
+    all_batches 只由管理员在「系统管理 → 日程批次」使用，列全站。
+    """
+    query = db.query(ScheduleBatch)
+    if not all_batches:
+        filters = [ScheduleBatch.operator_user_id == operator_user_id]
+        if operator_id:
+            # 老批次没有 operator_user_id，按学生 id 兜底
+            filters.append(
+                and_(
+                    ScheduleBatch.operator_user_id.is_(None),
+                    ScheduleBatch.operator_id == operator_id,
+                )
+            )
+        query = query.filter(or_(*filters))
     return (
-        db.query(ScheduleBatch)
-        .filter(ScheduleBatch.operator_id == operator_id)
-        .order_by(ScheduleBatch.created_at.desc())
+        query.order_by(ScheduleBatch.created_at.desc())
         .limit(limit)
         .all()
     )

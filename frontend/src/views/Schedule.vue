@@ -14,6 +14,15 @@
           <el-button size="small" @click="goToday">今天</el-button>
           <el-button size="small" @click="openGoDialog">前往</el-button>
         </span>
+        <!-- 班委没有系统管理页，批次撤销放在日程页；域外班委/管理员同样可用 -->
+        <el-button
+          v-if="userStore.isCommittee"
+          size="small"
+          title="管理自己分配/导入的日程批次"
+          @click="batchDialog = true"
+        >
+          批次
+        </el-button>
       </div>
       <div class="actions">
         <el-button @click="openSearch">
@@ -396,6 +405,16 @@
       </template>
     </el-dialog>
 
+    <!-- 日程批次：撤销自己分配/导入的一整批（班委没有系统管理，入口放这里） -->
+    <el-dialog append-to-body
+      v-model="batchDialog"
+      title="日程批次"
+      width="820px"
+      destroy-on-close
+    >
+      <ScheduleBatchPanel v-if="batchDialog" />
+    </el-dialog>
+
     <!-- 导入弹窗 -->
     <!-- destroy-on-close：关掉就把 el-upload 一起销毁，下次打开是干净的实例。
          它内部那份文件列表不销毁，配上 :limit="1" 会把新选的文件直接吞掉 -->
@@ -687,6 +706,7 @@ import {
   getIcalToken, resetIcalToken, getSemesterInfo
 } from '@/api/schedule'
 import { getStudentList } from '@/api/student'
+import ScheduleBatchPanel from '@/components/ScheduleBatchPanel.vue'
 // 选人快捷范围的判据（班委/团员/团学成员），和点名、投票出卷、分类统计共用一份
 import { COMMITTEE_FIELD, LEAGUE_OFFICER_FIELD, hasPosition, isLeagueMember } from '@/utils/roster'
 import { daysInRange, centerScrollLeft, columnizeDay } from '@/utils/schedule'
@@ -1721,6 +1741,9 @@ function EMPTY_IMPORT_PREVIEW() {
     schedule_count: 0, all_day_count: 0, warnings: [],
   }
 }
+
+// 批次管理弹窗。班委没有系统管理页，撤销批次的入口放在日程页
+const batchDialog = ref(false)
 
 const importDialog = ref({ open: false })
 const importStep = ref(0)

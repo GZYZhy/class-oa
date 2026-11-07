@@ -60,6 +60,7 @@ from .deps import (
     committee_required,
     get_current_student,
     get_current_user,
+    is_admin,
     is_committee,
 )
 
@@ -803,12 +804,19 @@ def _parse_time_str(s: str) -> datetime.time:
 
 @router.get("/batches", response_model=list[ScheduleBatchResponse])
 def list_batches(
-    student: Student = Depends(get_current_student),
+    all_batches: bool = Query(
+        False, alias="all", description="管理员查看全站批次（系统管理用）"
+    ),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
-    """查看自己创建的导入批次"""
-    batches = ss.list_batches(db, student.id)
+    """查看批次：默认只看自己的；管理员可传 all=true 看全站"""
+    if all_batches and not is_admin(user):
+        raise HTTPException(status_code=403, detail="只有管理员可以查看全部批次")
+    student = db.query(Student).filter(Student.student_no == user.student_no).first()
+    batches = ss.list_batches(
+        db, student.id if student else 0, user.id, all_batches=all_batches
+    )
     return [
         {
             "id": b.id,
@@ -825,18 +833,22 @@ def list_batches(
 @router.delete("/batches/{batch_id}")
 def delete_batch(
     batch_id: int,
-    student: Student = Depends(get_current_student),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
-    """撤销整个导入批次（删除该批次下所有日程）"""
+    """撤销整个导入/分配批次（删除该批次下所有日程，域外账号也可用）"""
     batch = db.query(ScheduleBatch).filter(ScheduleBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="批次不存在")
-    if batch.operator_id != student.id:
+    student = db.query(Student).filter(Student.student_no == user.student_no).first()
+    operator_id = student.id if student else 0
+    admin = is_admin(user)
+    if not admin and not ss.can_manage_batch(batch, operator_id, user.id):
         raise HTTPException(status_code=403, detail="只能撤销自己创建的批次")
 
-    count = ss.delete_batch(db, batch_id, student.id)
+    count = ss.delete_batch(
+        db, batch_id, operator_id, user.id, allow_any=admin
+    )
     db.commit()
     log_operation(db, user, f"撤销日程批次：{batch.name}（{count} 条）")
     return {"ok": True, "deleted": count}

@@ -986,12 +986,7 @@ def test_webhook(user: User = Depends(get_current_user)):
 def get_email_notify(
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    """default_email 是学生档案里**可用**的邮箱，给前端显示「留空就用 xxx」
-
-    只回可用的：真实库里有 2 个缺 @ 的邮箱（Excel 导入带进来的，形如
-    3681914218qq.com）。原样回给前端的话，页面上会写「留空则用 3681914218qq.com」，
-    而那个地址根本发不出去 —— 等于当着用户的面撒谎。回空串，前端改说
-    「档案里的邮箱不可用，请自己填一个」，和 PUT 的提示口径一致。
+    """default_email 是学生档案里**可用**的邮箱，给前端显示「留空就用 xxx」，只回可用的。
 
     域外账号没有学生记录，也是空串 —— 前端据 is_external 换成「得自己填一个」
     （它压根没有档案可以回退）。**这里只读，不写。**

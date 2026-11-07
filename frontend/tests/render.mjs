@@ -943,6 +943,9 @@ console.log('\n▶ 域外账号：我的信息与共享日程（只读 / 分配�
     '域外账号的详情弹窗不出现编辑/删除')
   check(scheduleSrc.includes('if (isExternal.value && !userStore.isCommittee) return'),
     '等效学生点空白格子也不会弹出新建表单')
+  check(scheduleSrc.includes('@click="batchDialog = true"') &&
+    scheduleSrc.includes('<ScheduleBatchPanel v-if="batchDialog" />'),
+  '日程页「批次」入口只列自己的；管理员要撤别人的去系统管理')
 }
 
 console.log('\n▶ 我的日程：点卡片先看详情，详情里才能改')
@@ -1040,10 +1043,7 @@ console.log('\n▶ 系统管理：日程批次面板')
     { id: 2, name: '运动会安排', target_count: 3, schedule_count: 2, created_at: '2026-10-08T09:30:00' }
   ]`
   const { html, warns } = await renderPatched(
-    '/src/components/ScheduleBatchPanel.vue',
-    `onMounted(() => {
-  if (!userStore.isExternal) load()
-})`, BATCHES)
+    '/src/components/ScheduleBatchPanel.vue', 'onMounted(load)', BATCHES)
 
   check(html.includes('秋季课表') && html.includes('运动会安排'), '两条批次名都渲出来了')
   check(html.includes('>36<') && html.includes('>42<'), '目标人数 / 每人日程数各自成列')
@@ -1053,6 +1053,19 @@ console.log('\n▶ 系统管理：日程批次面板')
   const panelSrc = readFileSync(`${ROOT}src/components/ScheduleBatchPanel.vue`, 'utf-8')
   check(panelSrc.includes('label="每人日程数"') && !panelSrc.includes('label="日程数"'),
     '「日程数」改叫「每人日程数」—— 它是每人几条，不是这一批一共几条')
+  check(!panelSrc.includes('没有学籍档案'), '不再按域外账号整块隐藏批次管理')
+  check(panelSrc.includes('onMounted(load)') && !panelSrc.includes('!userStore.isExternal'),
+    '域外账号也拉批次列表（后端已按 operator_user_id 支持）')
+  check(panelSrc.includes('adminMode') && panelSrc.includes('listBatches(props.adminMode)') &&
+    panelSrc.includes('prop="operator_name"'),
+  '管理员视图拉全站批次，并显示创建人')
+  const adminSrc = readFileSync(`${ROOT}src/views/Admin.vue`, 'utf-8')
+  check(adminSrc.includes('<ScheduleBatchPanel admin-mode />'),
+    '系统管理的批次面板以管理员模式挂载')
+  const scheduleApiSrc = readFileSync(`${ROOT}src/api/schedule.js`, 'utf-8')
+  check(/export function listBatches\(all = false\)/.test(scheduleApiSrc) &&
+    /params: all \? \{ all: true \}/.test(scheduleApiSrc),
+  '批次列表接口带 all=true，管理员可看全站')
   check(html.split(/撤销(?:<!--\]-->)?<\/span>/).length - 1 === 2, '两行各有一个「撤销」按钮')
   check(html.includes('撤销一个批次'), '说明写清了撤销的后果')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')

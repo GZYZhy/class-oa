@@ -252,6 +252,62 @@ def test_external_manager_can_import_and_assign_selected(es):
     assert any(item["title"] == "高等数学" for item in r.json()), r.text
 
 
+def test_external_manager_can_list_and_revoke_own_batches(es):
+    """域外账号没有 Student 行，也能管理自己分配/导入的批次"""
+    manager = _as(es, MANAGER, MANAGER_PW)
+    student_id = _student_id(es, STUDENT)
+    r = manager.post("/api/schedules/external", json={
+        **_schedule("自己的一批"),
+        "target_all": False,
+        "target_student_ids": [student_id],
+    })
+    assert r.status_code == 200, r.text
+    batch_id = r.json()["source_batch_id"]
+
+    rows = manager.get("/api/schedules/batches")
+    assert rows.status_code == 200, rows.text
+    assert [row["id"] for row in rows.json()] == [batch_id]
+
+    teacher = _as(es, TEACHER, TEACHER_PW)
+    assert teacher.get("/api/schedules/batches").status_code == 403
+    assert teacher.delete(f"/api/schedules/batches/{batch_id}").status_code == 403
+
+    assert manager.delete(f"/api/schedules/batches/{batch_id}").status_code == 200
+    assert manager.get("/api/schedules/batches").json() == []
+    student = _as(es, STUDENT, STUDENT_PW)
+    assert student.get("/api/schedules", params={
+        "start_date": DAY, "end_date": DAY,
+    }).json() == []
+
+
+def test_admin_sees_and_revokes_other_peoples_batches(es):
+    """系统管理的管理员视图：看全站批次，并能撤销别人建的"""
+    manager = _as(es, MANAGER, MANAGER_PW)
+    student_id = _student_id(es, STUDENT)
+    r = manager.post("/api/schedules/external", json={
+        **_schedule("别人建的一批"),
+        "target_all": False,
+        "target_student_ids": [student_id],
+    })
+    assert r.status_code == 200, r.text
+    batch_id = r.json()["source_batch_id"]
+
+    admin = _as(es, ADMIN, ADMIN_PW)
+    assert admin.get("/api/schedules/batches").json() == [], "默认仍只看自己的"
+    rows = admin.get("/api/schedules/batches", params={"all": True})
+    assert rows.status_code == 200, rows.text
+    assert [row["id"] for row in rows.json()] == [batch_id]
+    assert rows.json()[0]["operator_name"] == "示例老师乙"
+
+    # 非管理员不能借 all 参数看全站
+    assert manager.get(
+        "/api/schedules/batches", params={"all": True}
+    ).status_code == 403
+
+    assert admin.delete(f"/api/schedules/batches/{batch_id}").status_code == 200
+    assert manager.get("/api/schedules/batches").json() == []
+
+
 def test_backfill_only_marks_schedules_copied_to_everyone():
     """迁移不能只看 target_count，也要容忍个别学生删掉几节课
 

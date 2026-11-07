@@ -9,14 +9,6 @@
 services/student_service.py 已经 import 了 schemas，schema 再反向 import
 services 就成环了。（和 notify_text.py 里那份 clip 是同一个理由。）
 
-判据写得比较严，是有具体原因的：
-
-- `students.email` 来自 Excel 导入和学生的变更申请，库里**已经有脏数据**了
-  （`3681914218qq.com`、`1113808118qq.com`，都是缺 `@` 的那种），不校验就会
-  一直往 SMTP 送无效收件人；
-- 更要紧的是它可能带 `\\r\\n`。这个地址最终要拼进 SMTP 的 `To:` 头，不挡就是
-  头注入 —— 一个学生把变更申请的邮箱填成 `a@b.com\\nBcc: 全班`，班委审批通过后
-  就等于给这条通知开了一条群发通道。
 """
 
 import re

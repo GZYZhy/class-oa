@@ -160,12 +160,15 @@ export function importConfirm(data) {
 }
 
 /**
- * 查看导入批次列表
+ * 查看批次列表
+ *
+ * 默认只看自己建的；系统管理里传 all=true，管理员能看到全站批次（并可撤销别人的）。
  */
-export function listBatches() {
+export function listBatches(all = false) {
   return request({
     url: '/schedules/batches',
-    method: 'get'
+    method: 'get',
+    params: all ? { all: true } : undefined
   })
 }
 

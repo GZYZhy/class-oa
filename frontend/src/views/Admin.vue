@@ -907,13 +907,12 @@
       </el-tab-pane>
 
       <!--
-        只有班委及以上能分配日程，但这一页是给管理员收拾烂摊子用的，所以按管理员
-        收口（本页面在系统管理里，路由 meta.role 已经是 admin）。后端接口权限照旧
-        （committee_required + 只能看自己建的），这里不做二次过滤 —— 后果是这个
-        tab 只列当前登录管理员自己建的批次，不是全站批次
+        管理员的批次面板看**全站**：传 admin-mode 后接口带 all=true，
+        能列出并撤销其他人建/导入的批次（收拾烂摊子用）。
+        班委没有系统管理页，自己的批次入口在日程页的「批次」弹窗。
       -->
       <el-tab-pane label="日程批次" name="schedule-batches">
-        <ScheduleBatchPanel />
+        <ScheduleBatchPanel admin-mode />
       </el-tab-pane>
 
       <el-tab-pane label="数据体检" name="health">
