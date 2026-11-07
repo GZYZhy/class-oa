@@ -2419,3 +2419,41 @@ def test_ical_geo_property(b):
     assert 'X-TITLE="甲^\'乙,丙;丁":geo:1.0,2.0' in flat
     assert "X-APPLE-STRUCTURED-LOCATION" not in events["没坐标"]
     assert "GEO" not in events["没坐标"]
+
+
+# ---------- 以学生视角查看（只读） ----------
+
+def test_committee_can_view_a_student_full_schedule(b):
+    sid = b.rows("SELECT id FROM students WHERE student_no = ?", ROSTER[1][0])[0][0]
+    student = as_student(b, 1)
+    r = student.post("/api/schedules", json=_make_schedule(
+        title="学生私事", start="2026-10-14T19:00:00", end="2026-10-14T20:00:00",
+    ))
+    assert r.status_code == 200, r.text
+
+    r = b.client.get(f"/api/schedules/view/{sid}", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    })
+    assert r.status_code == 200, r.text
+    assert [item["title"] for item in r.json()] == ["学生私事"]
+
+    assert b.client.get(f"/api/schedules/view/{sid}/search", params={
+        "keyword": "私事",
+    }).json()[0]["title"] == "学生私事"
+    assert b.client.get(f"/api/schedules/view/{sid}/semester").status_code == 200
+
+    # 班委也能看；普通学生不能拿这个接口看别人
+    assert b.client.put(f"/api/admin/users/{ROSTER[2][0]}/role", json={
+        "role": "committee",
+    }).status_code == 200
+    committee = as_student(b, 2)
+    assert committee.get(f"/api/schedules/view/{sid}", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    }).status_code == 200
+    assert student.get(f"/api/schedules/view/{sid}", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    }).status_code == 403
+
+    assert b.client.get("/api/schedules/view/9999", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    }).status_code == 404

@@ -173,6 +173,61 @@ def search_schedules(
     return ss.search_by_title(db, student.id, keyword)
 
 
+# ---------- 以学生视角查看（班委及以上，只读） ----------
+
+def _view_target(db: Session, student_id: int) -> Student:
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+    return student
+
+
+@router.get("/view/{student_id}", response_model=list[ScheduleResponse])
+def view_student_schedules(
+    student_id: int,
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    _view_target(db, student_id)
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
+    if (end_date - start_date).days > 92:
+        raise HTTPException(status_code=400, detail="查询范围不能超过 92 天")
+    return ss.list_by_range(db, student_id, start_date, end_date)
+
+
+@router.get("/view/{student_id}/search", response_model=list[ScheduleResponse])
+def search_view_student(
+    student_id: int,
+    keyword: str = Query(""),
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    _view_target(db, student_id)
+    return ss.search_by_title(db, student_id, keyword)
+
+
+@router.get("/view/{student_id}/semester", response_model=SemesterInfoResponse)
+def view_student_semester(
+    student_id: int,
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    _view_target(db, student_id)
+    return {
+        "periods": [
+            {
+                "week_start": period.week_start,
+                "first_day": period.first_day,
+                "last_day": period.last_day,
+            }
+            for period in ss.list_semester_periods(db, student_id)
+        ]
+    }
+
+
 @router.get("/semester", response_model=SemesterInfoResponse)
 def get_semester_info(
     student: Student = Depends(get_current_student),

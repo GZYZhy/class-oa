@@ -927,10 +927,10 @@ console.log('\n▶ 域外账号：我的信息与共享日程（只读 / 分配�
     scheduleSrc.includes('createExternalSchedule') &&
     /listExternalSchedules\(start, end\)/.test(scheduleSrc),
   '域外账号加载和分配走 external 接口，不再查个人课表')
-  check(scheduleSrc.includes('v-if="!isExternal || userStore.isCommittee"') &&
+  check(/v-if="\(!isExternal \|\| userStore\.isCommittee\) && !viewAs"/.test(scheduleSrc) &&
     scheduleSrc.includes('分配日程'),
   '等效学生只能看；班委/管理员多一个「分配日程」')
-  check(/v-if="userStore\.isCommittee" @click="importDialog\.open = true"/.test(scheduleSrc),
+  check(/v-if="userStore\.isCommittee && !viewAs"[\s\S]{0,120}?importDialog\.open = true/.test(scheduleSrc),
     '班委/管理员权限的域外账号也能导入课表')
   check(scheduleSrc.includes('v-if="userStore.isCommittee && !editDialog.isEdit"') &&
     scheduleSrc.includes('<el-radio v-if="!isExternal" value="self">仅自己</el-radio>') &&
@@ -939,13 +939,28 @@ console.log('\n▶ 域外账号：我的信息与共享日程（只读 / 分配�
   check(scheduleSrc.includes("target_all: userStore.isCommittee && form.scope_mode === 'all'") &&
     /createExternalSchedule\(\{[\s\S]{0,140}?targetFields\(\)/.test(scheduleSrc),
   '域外分配把选中的目标学生一起提交，不再强制全体')
-  check((scheduleSrc.match(/v-if="!isExternal"/g) || []).length >= 2,
+  check((scheduleSrc.match(/v-if="!isExternal && !viewAs"/g) || []).length >= 2,
     '域外账号的详情弹窗不出现编辑/删除')
   check(scheduleSrc.includes('if (isExternal.value && !userStore.isCommittee) return'),
     '等效学生点空白格子也不会弹出新建表单')
   check(scheduleSrc.includes('@click="batchDialog = true"') &&
     scheduleSrc.includes('<ScheduleBatchPanel v-if="batchDialog" />'),
   '日程页「批次」入口只列自己的；管理员要撤别人的去系统管理')
+  check(scheduleSrc.includes('listStudentSchedules(viewAs.value.id, start, end)') &&
+    scheduleSrc.includes('searchStudentSchedules(viewAs.value.id, kw)') &&
+    scheduleSrc.includes('getStudentSemesterInfo(viewAs.value.id)'),
+  '视角模式的数据走独立只读接口')
+  check(/v-else-if="userStore\.isCommittee"[\s\S]{0,120}?openViewPicker/.test(scheduleSrc) &&
+    scheduleSrc.includes('正在查看') && scheduleSrc.includes('退出视角'),
+  '班委及以上有「视角」入口，查看时显示只读提示和退出')
+  check(scheduleSrc.includes('if (viewAs.value) return') &&
+    scheduleSrc.includes('if (isExternal.value || viewAs.value) return'),
+  '视角下所有写操作入口都被挡住')
+  const scheduleApiView = readFileSync(`${ROOT}src/api/schedule.js`, 'utf8')
+  check(scheduleApiView.includes("url: `/schedules/view/${studentId}`") &&
+    scheduleApiView.includes("url: `/schedules/view/${studentId}/search`") &&
+    scheduleApiView.includes("url: `/schedules/view/${studentId}/semester`"),
+  '视角接口：列表 / 搜索 / 周次')
 }
 
 console.log('\n▶ 我的日程：点卡片先看详情，详情里才能改')

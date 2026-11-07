@@ -16,33 +16,61 @@
         </span>
         <!-- 班委没有系统管理页，批次撤销放在日程页；域外班委/管理员同样可用 -->
         <el-button
-          v-if="userStore.isCommittee"
+          v-if="userStore.isCommittee && !viewAs"
           size="small"
           title="管理自己分配/导入的日程批次"
           @click="batchDialog = true"
         >
           批次
         </el-button>
+        <el-button
+          v-if="viewAs"
+          size="small"
+          :icon="Close"
+          title="退出视角"
+          @click="exitViewAs"
+        >
+          <span class="nav-extra">退出视角</span>
+        </el-button>
+        <el-button
+          v-else-if="userStore.isCommittee"
+          size="small"
+          :icon="View"
+          title="以学生视角查看日程"
+          @click="openViewPicker"
+        >
+          <span class="nav-extra">视角</span>
+        </el-button>
       </div>
       <div class="actions">
         <el-button @click="openSearch">
           <el-icon><Search /></el-icon>搜索
         </el-button>
-        <!-- 订阅依赖个人课表，域外账号没有；导入是「分配到别人表里」，
-             班委/管理员权限的域外账号同样可用 -->
-        <el-button v-if="userStore.isCommittee" @click="importDialog.open = true">
+        <el-button
+          v-if="userStore.isCommittee && !viewAs"
+          @click="importDialog.open = true"
+        >
           <el-icon><Upload /></el-icon>导入
         </el-button>
-        <el-button v-if="!isExternal" @click="subscribeDialog.open = true">
+        <el-button v-if="!isExternal && !viewAs" @click="subscribeDialog.open = true">
           <el-icon><Link /></el-icon>订阅
         </el-button>
         <!-- 这里必须写成 openCreate()：裸写 openCreate 会让 Vue 把 MouseEvent 当成
              第一个参数（date）塞进 editForm.date / end_date，保存时 daysInRange 里
              就报 "(endStr || startStr).split is not a function" -->
-        <el-button v-if="!isExternal || userStore.isCommittee" type="primary" @click="openCreate()">
+        <el-button
+          v-if="(!isExternal || userStore.isCommittee) && !viewAs"
+          type="primary"
+          @click="openCreate()"
+        >
           <el-icon><Plus /></el-icon>{{ isExternal ? '分配日程' : '新建日程' }}
         </el-button>
       </div>
+    </div>
+
+    <div v-if="viewAs" class="view-banner">
+      正在查看 <b>{{ viewAs.name }}</b>（{{ viewAs.student_no }}）的日程 · 只读
+      <el-button link type="primary" @click="exitViewAs">退出</el-button>
     </div>
 
     <!-- 日历表格 -->
@@ -196,10 +224,10 @@
       </el-descriptions>
       <template #footer>
         <!-- 域外账号只有只读日历：详情里不给编辑/删除，避免点进去才吃 403 -->
-        <el-button v-if="!isExternal" type="danger" @click="deleteFromDetail">删除</el-button>
+        <el-button v-if="!isExternal && !viewAs" type="danger" @click="deleteFromDetail">删除</el-button>
         <span style="flex: 1"></span>
         <el-button @click="detailDialog.visible = false">关闭</el-button>
-        <el-button v-if="!isExternal" type="primary" @click="editFromDetail">编辑</el-button>
+        <el-button v-if="!isExternal && !viewAs" type="primary" @click="editFromDetail">编辑</el-button>
       </template>
     </el-dialog>
 
@@ -402,6 +430,28 @@
       <template #footer>
         <el-button @click="studentPicker.open = false">取消</el-button>
         <el-button type="primary" @click="studentPicker.open = false">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog append-to-body v-model="viewPicker.open" title="以学生视角查看" width="420px">
+      <el-select
+        v-model="viewPicker.studentId"
+        filterable
+        placeholder="搜索姓名或学号"
+        style="width: 100%"
+      >
+        <el-option
+          v-for="s in allStudents"
+          :key="s.id"
+          :label="`${s.name}（${s.student_no}）`"
+          :value="s.id"
+        />
+      </el-select>
+      <template #footer>
+        <el-button @click="viewPicker.open = false">取消</el-button>
+        <el-button type="primary" :disabled="!viewPicker.studentId" @click="confirmView">
+          查看
+        </el-button>
       </template>
     </el-dialog>
 
@@ -696,12 +746,13 @@ import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Plus, Upload, Link, Bell, Search,
-  UploadFilled, Refresh, Warning, CopyDocument
+  UploadFilled, Refresh, Warning, CopyDocument, View, Close
 } from '@element-plus/icons-vue'
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, searchSchedules,
   createExternalSchedule, getExternalSemesterInfo, listExternalSchedules,
   searchExternalSchedules,
+  listStudentSchedules, searchStudentSchedules, getStudentSemesterInfo,
   importPreview as apiImportPreview, importConfirm as apiImportConfirm,
   getIcalToken, resetIcalToken, getSemesterInfo
 } from '@/api/schedule'
@@ -715,6 +766,9 @@ import { errText } from '@/utils/request'
 const userStore = useUserStore()
 // 域外账号：没有个人日程表，只读「所有人」的共享日程；班委/管理员可以分配
 const isExternal = computed(() => userStore.isExternal)
+// 视角模式：看某位学生的完整日程，只读
+const viewAs = ref(null)
+const viewPicker = ref({ open: false, studentId: null })
 
 // ---------- 时间常量 ----------
 // 网格一行 15 分钟，全天 00:00–24:00。日程块本身按分钟定位，所以 06:31 这种
@@ -809,10 +863,11 @@ function parseDay(s) {
 
 async function loadSemesterInfo() {
   try {
-    // 域外账号的周次区间从「它看得见的共享日程」里取，不查个人课表
-    const data = isExternal.value
-      ? await getExternalSemesterInfo()
-      : await getSemesterInfo()
+    const data = viewAs.value
+      ? await getStudentSemesterInfo(viewAs.value.id)
+      : isExternal.value
+        ? await getExternalSemesterInfo()
+        : await getSemesterInfo()
     // base = 编号基准（第 1 周的周一）；first/last = 这份课表实际覆盖到的范围。
     // 两者不是一回事：补课表可能只覆盖第 8–10 周，基准却在 7 周之前
     semesterPeriods.value = (data.periods || []).map((p) => ({
@@ -903,9 +958,11 @@ async function runSearch() {
   }
   searchDialog.value.loading = true
   try {
-    const data = isExternal.value
-      ? (await searchExternalSchedules(kw)) || []
-      : (await searchSchedules(kw)) || []
+    const data = viewAs.value
+      ? (await searchStudentSchedules(viewAs.value.id, kw)) || []
+      : isExternal.value
+        ? (await searchExternalSchedules(kw)) || []
+        : (await searchSchedules(kw)) || []
     if (seq === searchSeq) searchDialog.value.results = data
   } catch (e) {
     if (seq === searchSeq) ElMessage.error(errText(e, '搜索失败'))
@@ -1006,9 +1063,11 @@ async function loadSchedules() {
   try {
     const start = weekDays.value[0].date
     const end = weekDays.value[6].date
-    const data = isExternal.value
-      ? await listExternalSchedules(start, end)
-      : await listSchedules(start, end)
+    const data = viewAs.value
+      ? await listStudentSchedules(viewAs.value.id, start, end)
+      : isExternal.value
+        ? await listExternalSchedules(start, end)
+        : await listSchedules(start, end)
     schedules.value = data
   } catch (e) {
     // 必须自己弹：request.js 的响应拦截器只打 console，不弹提示。
@@ -1277,6 +1336,7 @@ const allDayHeight = computed(() => {
 
 // ---------- 点击格子新建 ----------
 function handleCellClick(date, time) {
+  if (viewAs.value) return
   // 域外账号：等效学生连格子都不该点出表单；班委/管理员可以点（全体或指定学生）
   if (isExternal.value && !userStore.isCommittee) return
   openCreate(date, time)
@@ -1330,8 +1390,7 @@ const detailRows = computed(() => {
 })
 
 function editFromDetail() {
-  // 域外账号只读（按钮也已隐藏，这里再兜一道）
-  if (isExternal.value) return
+  if (isExternal.value || viewAs.value) return
   // records 照传：跨天的全天条丢了它就退化成单天了（见 allDayBars）
   const { evt, records } = detailDialog.value
   detailDialog.value.visible = false
@@ -1339,7 +1398,7 @@ function editFromDetail() {
 }
 
 function deleteFromDetail() {
-  if (isExternal.value) return
+  if (isExternal.value || viewAs.value) return
   const { evt, records } = detailDialog.value
   detailDialog.value.visible = false
   // 借编辑弹窗那套状态（不打开它）：整条删除、分享范围、403 提示都是现成的。
@@ -1389,6 +1448,7 @@ const editForm = ref(defaultForm())
 const saving = ref(false)
 
 function openCreate(date = null, time = null) {
+  if (viewAs.value) return
   editForm.value = defaultForm()
   // 域外账号没有「仅自己」这一档：默认全体，也可以改成指定学生
   if (isExternal.value) editForm.value.scope_mode = 'all'
@@ -1460,8 +1520,7 @@ function fillEditState(evt, records = null) {
 }
 
 function openEdit(evt, records = null) {
-  // 域外账号只读：即使有入口也不打开编辑表单（后端同样会拒绝）
-  if (isExternal.value) return
+  if (isExternal.value || viewAs.value) return
   fillEditState(evt, records)
   editDialog.value.visible = true
 }
@@ -1712,6 +1771,26 @@ async function handleDelete(fromDetail = false) {
 const allStudents = ref([])
 const selectedStudents = ref([])
 const studentPicker = ref({ open: false, keyword: '' })
+
+function openViewPicker() {
+  viewPicker.value = { open: true, studentId: null }
+}
+
+function confirmView() {
+  const student = allStudents.value.find((s) => s.id === viewPicker.value.studentId)
+  if (!student) return
+  viewAs.value = student
+  viewPicker.value.open = false
+  loadSchedules()
+  loadSemesterInfo()
+}
+
+function exitViewAs() {
+  if (!viewAs.value) return
+  viewAs.value = null
+  loadSchedules()
+  loadSemesterInfo()
+}
 
 async function loadStudents() {
   try {
@@ -1994,6 +2073,15 @@ async function handleResetToken() {
   padding: 16px;
 }
 
+.view-banner {
+  margin: -4px 0 12px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-size: 13px;
+}
+
 .toolbar {
   display: flex;
   /* 这个工具栏必换行：窄窗口（截图里那种半屏、手机）一行放不下「翻周 + 今天 +
@@ -2044,6 +2132,10 @@ async function handleResetToken() {
      今天/前往作为整体一起换行 */
   .week-nav {
     gap: 6px;
+  }
+
+  .nav-extra {
+    display: none;
   }
 
   .quick-jump {

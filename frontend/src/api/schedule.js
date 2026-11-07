@@ -42,6 +42,31 @@ export function getSemesterInfo() {
   })
 }
 
+// ---------- 以学生视角查看（班委及以上，只读） ----------
+
+export function listStudentSchedules(studentId, startDate, endDate) {
+  return request({
+    url: `/schedules/view/${studentId}`,
+    method: 'get',
+    params: { start_date: startDate, end_date: endDate }
+  })
+}
+
+export function searchStudentSchedules(studentId, keyword) {
+  return request({
+    url: `/schedules/view/${studentId}/search`,
+    method: 'get',
+    params: { keyword }
+  })
+}
+
+export function getStudentSemesterInfo(studentId) {
+  return request({
+    url: `/schedules/view/${studentId}/semester`,
+    method: 'get'
+  })
+}
+
 /**
  * 获取单条日程详情
  * @param {number} id - 日程 ID

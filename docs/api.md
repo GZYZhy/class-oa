@@ -4139,6 +4139,14 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 `GET /api/schedules/external/search`、`GET /api/schedules/external/semester`
 分别是只读日历里的搜索与周次区间。
 
+### 以学生视角查看日程（班委及以上，只读）
+
+- `GET /api/schedules/view/{student_id}?start_date=&end_date=`
+- `GET /api/schedules/view/{student_id}/search?keyword=`
+- `GET /api/schedules/view/{student_id}/semester`
+
+返回该学生的完整日程（含个人日程），只读；写操作仍走自己的学生身份接口。
+
 ### 分配日程（域外账号，班委/管理员）
 
 `POST /api/schedules/external`

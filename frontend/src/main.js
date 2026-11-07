@@ -36,14 +36,14 @@ import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import {
   Aim, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Avatar, Bell,
   BellFilled, Bottom, Calendar, ChatDotRound, Checked, CircleCheck,
-  Cloudy, CopyDocument, Delete, Document, Download, Drizzling, EditPen, Female,
+  Close, Cloudy, CopyDocument, Delete, Document, Download, Drizzling, EditPen, Female,
   Files, FolderOpened, Grid, Histogram, HomeFilled, InfoFilled,
   Key, Lightning, Link, List, Loading, Lock, Male,
   Medal, Menu, Message, Monitor, Moon, MoreFilled, Notification, Paperclip,
   PartlyCloudy, Picture, PieChart, Plus, Pointer, Postcard, Pouring, Present,
   Refresh, RefreshLeft, RefreshRight, Right, Search, Select, Setting,
   Sort, Star, Sunny, SwitchButton, Tickets, Top, Upload,
-  UploadFilled, User, UserFilled, Van, Warning, ZoomIn,
+  UploadFilled, User, UserFilled, Van, View, Warning, ZoomIn,
   ZoomOut
 } from '@element-plus/icons-vue'
 
@@ -71,14 +71,14 @@ const app = createApp(App)
 const ICONS = {
   Aim, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Avatar, Bell,
   BellFilled, Bottom, Calendar, ChatDotRound, Checked, CircleCheck,
-  Cloudy, CopyDocument, Delete, Document, Download, Drizzling, EditPen, Female,
+  Close, Cloudy, CopyDocument, Delete, Document, Download, Drizzling, EditPen, Female,
   Files, FolderOpened, Grid, Histogram, HomeFilled, InfoFilled,
   Key, Lightning, Link, List, Loading, Lock, Male,
   Medal, Menu, Message, Monitor, Moon, MoreFilled, Notification, Paperclip,
   PartlyCloudy, Picture, PieChart, Plus, Pointer, Postcard, Pouring, Present,
   Refresh, RefreshLeft, RefreshRight, Right, Search, Select, Setting,
   Sort, Star, Sunny, SwitchButton, Tickets, Top, Upload,
-  UploadFilled, User, UserFilled, Van, Warning, ZoomIn,
+  UploadFilled, User, UserFilled, Van, View, Warning, ZoomIn,
   ZoomOut
 }
 
