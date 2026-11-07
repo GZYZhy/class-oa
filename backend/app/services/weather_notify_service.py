@@ -308,6 +308,7 @@ def evaluate(data: dict, row: WeatherNotifySettings, now: datetime) -> tuple[lis
                 "code": "alert",
                 # 去重要用到：同一条预警只提一次，换一条（新 id）才继续提
                 "alert_id": str(alert.get("id") or headline),
+                "alert_color": weather_service.alert_color(alert),
                 "title": headline,
                 "detail": detail,
             })
@@ -560,9 +561,18 @@ def banner_state(db: Session, data: dict | None, now: datetime | None = None) ->
     hits, _ = evaluate(data, row, now or datetime.now())
     if not hits:
         return {"active": False}
+    # 有官方预警时用最高的那档颜色给首页横幅换肤；没有预警就用默认天青
+    alert_colors = [
+        h.get("alert_color") for h in hits
+        if h.get("code") == "alert" and h.get("alert_color")
+    ]
+    rank = {"blue": 1, "yellow": 2, "orange": 3, "red": 4}
+    alert_color = max(alert_colors, key=lambda c: rank.get(c, 0), default="")
+
     return {
         "active": True,
         "title": "、".join(h["title"] for h in hits),
         "lines": [h["detail"] for h in hits],
         "codes": [h["code"] for h in hits],
+        "alert_color": alert_color,
     }

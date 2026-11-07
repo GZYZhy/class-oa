@@ -28,11 +28,15 @@
 
     <!-- 天气横幅：管理员在系统管理里配的广播提醒，命中条件才出现。
          和生日条幅并列，用冷色区分开；文案由后端算（和数据源同一套判断） -->
-    <div v-if="weather?.banner?.active" class="weather-banner">
+    <div
+      v-if="weather?.banner?.active"
+      class="weather-banner"
+      :class="weatherBannerClass"
+    >
       <el-icon class="weather-banner-icon"><Warning /></el-icon>
       <div class="weather-banner-main">
         <span class="weather-banner-title">{{ weather.banner.title }}</span>
-        <span class="weather-banner-text">{{ weather.banner.lines.join('；') }}</span>
+        <span class="weather-banner-text">{{ weather.banner.lines.join(' ') }}</span>
       </div>
     </div>
 
@@ -321,6 +325,13 @@ let genderChart = null
 const weather = ref(null)
 
 const weatherState = computed(() => weather.value?.state || 'loading')
+
+/** 有官方预警时用预警色：蓝 / 黄 / 橙 / 红；没有预警保持默认天青 */
+const WEATHER_ALERT_COLORS = ['blue', 'yellow', 'orange', 'red']
+const weatherBannerClass = computed(() => {
+  const color = weather.value?.banner?.alert_color
+  return WEATHER_ALERT_COLORS.includes(color) ? `weather-banner--${color}` : ''
+})
 
 /** 三种「没有数据」的情况分开说，不然用户分不清是没配还是挂了 */
 const weatherEmptyText = computed(
@@ -624,6 +635,28 @@ onBeforeUnmount(() => {
   margin-bottom: 20px;
   font-size: 14px;
   box-shadow: 0 12px 30px rgba(63, 121, 216, 0.20);
+}
+
+/* 有官方预警时整条换预警色。黄色底用深色字，不然白字在琥珀色上发虚 */
+.weather-banner--blue {
+  background: linear-gradient(135deg, #4d9de0 0%, #2563c9 100%);
+  box-shadow: 0 12px 30px rgba(37, 99, 201, 0.22);
+}
+
+.weather-banner--yellow {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  color: #3f2a00;
+  box-shadow: 0 12px 30px rgba(245, 158, 11, 0.24);
+}
+
+.weather-banner--orange {
+  background: linear-gradient(135deg, #fb923c 0%, #ea580c 100%);
+  box-shadow: 0 12px 30px rgba(234, 88, 12, 0.24);
+}
+
+.weather-banner--red {
+  background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+  box-shadow: 0 12px 30px rgba(220, 38, 38, 0.24);
 }
 
 .weather-banner-icon {

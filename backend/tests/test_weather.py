@@ -319,11 +319,37 @@ def test_official_alerts_are_a_condition_of_their_own():
     assert [h["code"] for h in hits] == ["alert"]
     assert hits[0]["title"] == "暴雨橙色预警"
     assert hits[0]["alert_id"] == "101"
+    assert hits[0]["alert_color"] == "orange"
     # 正文：发布单位 + 去掉重复开头后的内容；英文等级码不能露出来
     assert hits[0]["detail"].startswith("示例市气象台：")
     assert "预计未来 3 小时降雨量将达 50 毫米以上" in hits[0]["detail"]
     assert "发布暴雨橙色预警信号" not in hits[0]["detail"]
     assert "Severe" not in hits[0]["detail"] and "moderate" not in hits[0]["detail"]
+
+
+def test_banner_uses_the_strongest_alert_color(tmp_path):
+    """首页横幅有预警时用预警色；多条预警取最高一档"""
+    engine = create_engine(f"sqlite:///{tmp_path / 'banner_color.db'}")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    try:
+        db.add(WeatherBannerSettings(
+            id=1, enabled=True, conditions='["alert"]', window="today",
+            quiet_start=0, quiet_end=0,
+        ))
+        db.commit()
+        data = _forecast()
+        data["alerts"] = [
+            {"id": "1", "type": "大雾", "severity_color": "yellow",
+             "sender": "示例市气象台", "text": "预计有大雾。"},
+            {"id": "2", "type": "暴雨", "severity_color": "red",
+             "sender": "示例市气象台", "text": "预计有暴雨。"},
+        ]
+        state = wn.banner_state(db, data, datetime(2026, 10, 25, 8, 0))
+        assert state["active"] is True
+        assert state["alert_color"] == "red"
+    finally:
+        db.close()
 
 
 def test_same_alert_from_two_agencies_is_merged():

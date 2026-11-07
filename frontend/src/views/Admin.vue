@@ -888,7 +888,7 @@
             <div class="weather-preview" :class="{ on: bannerPreview.active }">
               <el-icon><component :is="bannerPreview.active ? 'Warning' : 'InfoFilled'" /></el-icon>
               <span v-if="bannerPreview.active">
-                按当前预报会显示：{{ bannerPreview.lines.join('；') }}
+                按当前预报会显示：{{ bannerPreview.lines.join(' ') }}
               </span>
               <span v-else>按当前预报不会显示（条件没命中）</span>
             </div>
