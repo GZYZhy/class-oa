@@ -396,6 +396,40 @@ def _backfill_weather_interval(conn) -> None:
         )
 
 
+SCHEDULE_BATCH_ALL_FIX = "2026-11-08-schedule-batch-all-v2"
+
+
+def _apply_schedule_batch_all_fix(conn) -> None:
+    """一次性校准历史上被旧口径误标的 target_all
+
+    旧版本按 target_count 直接把批次标成「共享」，生日那种每人一条的批次
+    也被算了进去。这个修正在老库升级后只跑一次，用 schema_migrations 记标记：
+    之后新建批次完全以创建时写入的 target_all 为准，不再每次启动重新推断。
+    """
+    if "target_all" not in _existing_columns(conn, "schedule_batches"):
+        return
+    conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS schema_migrations ("
+        "name VARCHAR(100) PRIMARY KEY, applied_at DATETIME)"
+    ))
+    applied = conn.execute(
+        text("SELECT 1 FROM schema_migrations WHERE name = :name"),
+        {"name": SCHEDULE_BATCH_ALL_FIX},
+    ).first()
+    if applied:
+        return
+
+    _backfill_schedule_batch_all(conn)
+    conn.execute(
+        text(
+            "INSERT INTO schema_migrations (name, applied_at) "
+            "VALUES (:name, :at)"
+        ),
+        {"name": SCHEDULE_BATCH_ALL_FIX, "at": datetime.now()},
+    )
+    print("[迁移] 已校准日程批次的共享标记（一次性）", flush=True)
+
+
 def _backfill_schedule_batch_all(conn) -> None:
     """校准 target_all：只有「同一条日程真的复制给了全班」才算共享
 
@@ -410,8 +444,8 @@ def _backfill_schedule_batch_all(conn) -> None:
       · 课程 31/36 → 共享；
       · 生日 1/36、入党谈话 4/19 → 个人/小范围，不是共享。
 
-    每次启动都重算（不只在补列时跑一次）：早先版本已经按旧口径写进了 1，
-    必须在升级后把这种误标纠正回来。没有 target_all 列时直接跳过。
+    这是一次性修正，由 schema_migrations 里的标记控制（见 _apply_schedule_batch_all_fix）：
+    跑过一次之后，新建批次完全以创建时写入的 target_all 为准，不再回头重算。
     """
     columns = _existing_columns(conn, "schedule_batches")
     if "target_all" not in columns:
@@ -499,8 +533,8 @@ def run_migrations() -> None:
         if weather_interval_added:
             _backfill_weather_interval(conn)
 
-        # 每次启动都校准：老版本按 target_count 误标的批次（生日那种每人一条）
-        # 要在这里改回 0，否则域外账号会看到别人的个人日程
-        _backfill_schedule_batch_all(conn)
+        # 只校准一次：老版本按 target_count 误标的批次（生日那种每人一条）。
+        # 之后新建批次以创建时写入的 target_all 为准，不再随每次启动重算
+        _apply_schedule_batch_all_fix(conn)
 
         _rebuild_leave_table(conn)

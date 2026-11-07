@@ -18,7 +18,7 @@ import openpyxl
 import pytest
 from sqlalchemy import create_engine, text
 
-from app.database_migrate import _backfill_schedule_batch_all
+from app.database_migrate import _apply_schedule_batch_all_fix
 
 PW = "initpass123"
 ADMIN = "2024000001"
@@ -287,13 +287,22 @@ def test_backfill_only_marks_schedules_copied_to_everyone():
             "(5, 'personal-a')"
         ))
 
-        _backfill_schedule_batch_all(conn)
+        _apply_schedule_batch_all_fix(conn)
 
         flags = dict(conn.execute(text(
             "SELECT id, target_all FROM schedule_batches"
         )).all())
 
+        # 第二次启动不能再重算：模拟新建批次明确写了 target_all=1，
+        # 即使数据看着不像「全班」也不该被历史推断覆盖
+        conn.execute(text("UPDATE schedule_batches SET target_all = 1 WHERE id = 1"))
+        _apply_schedule_batch_all_fix(conn)
+        again = dict(conn.execute(text(
+            "SELECT id, target_all FROM schedule_batches"
+        )).all())
+
     assert flags == {1: 0, 2: 1, 3: 0, 4: 1, 5: 0}
+    assert again[1] == 1, "标记写入后不应再重算，新建批次的显式标记必须保留"
 
 
 def test_external_endpoint_rejects_student_accounts(es):
