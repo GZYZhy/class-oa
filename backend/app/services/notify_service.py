@@ -16,15 +16,16 @@ email_service 里，这里只管路由，业务代码只跟这一层打交道。
 """
 
 from dataclasses import dataclass, field
+from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
-from ..config import smtp_enabled
+from ..config import settings, smtp_enabled
 from .bark_service import bark_keys
 from .bark_service import push as bark_push
-from .email_service import email_recipients
+from .email_service import EmailTarget, email_targets
 from .email_service import push as email_push
-from .inbox_service import recipient_nos, save_messages
+from .inbox_service import read_token, recipient_nos, save_messages
 from .webhook_service import push as webhook_push
 from .webhook_service import webhook_targets
 from .webpush_service import push as web_push
@@ -49,14 +50,14 @@ _CHANNELS = (
 class Recipients:
     """一次通知的收件人，每个渠道各一份
 
-    存的是纯数据（字符串 / dict），不含 ORM 对象 —— 后台任务拿到就能直接发，
+    存的是纯数据（字符串 / dict / EmailTarget），不含 ORM 对象 —— 后台任务拿到就能直接发，
     不需要再碰数据库会话。
     """
 
     bark: list[str] = field(default_factory=list)
     web: list[dict] = field(default_factory=list)
     webhook: list[dict] = field(default_factory=list)
-    email: list[str] = field(default_factory=list)
+    email: list[EmailTarget] = field(default_factory=list)
     # 站内信收件人（学号列表）。和上面四个的区别：**这里不看任何开关**，有账号就有。
     # 它也是唯一不交给后台任务的渠道（见 notify），但把学号放这里，
     # 「这次通知实际会落到谁手里」就有了一处准确的答案。
@@ -106,7 +107,7 @@ def recipients(
         # 不光是省一次查询 —— 查出来的地址交给后台任务也发不出去，
         # 白白让人以为「有人会收到」
         email=(
-            email_recipients(db, roles=roles, only_no=only_no, exclude_no=exclude_no)
+            email_targets(db, roles=roles, only_no=only_no, exclude_no=exclude_no)
             if smtp_enabled()
             else []
         ),
@@ -134,9 +135,11 @@ def notify(
     """
     if not targets:
         return
-    _save_inbox(db, targets, title, body, level, page, topic)
+    saved = _save_inbox(db, targets, title, body, level, page, topic)
     for attr, send in _CHANNELS:
         target = getattr(targets, attr)
+        if attr == "email":
+            target = _with_read_urls(target, saved)
         if target:
             background.add_task(send, target, title, body, level, page)
 
@@ -144,17 +147,55 @@ def notify(
 def _save_inbox(
     db: Session, targets: Recipients, title: str, body: str,
     level: str, page: str | None, topic: str | None,
-) -> None:
-    """写站内信存档。**异常必须在这里吞掉**
+) -> dict[str, int]:
+    """写站内信存档，返回 {学号: 消息 id}。**异常必须在这里吞掉**
 
     它只是「顺手存一份」，不能因为写库失败（SQLite 写锁被长请求占着之类）
     把请假提交、公告发布这些主流程带崩。丢了存档比丢了这个请求好得多，
-    所以打印一行日志就够，不往外抛。
+    所以打印一行日志就够，不往外抛；失败时返回空映射，邮件里就不带已读按钮。
     """
     try:
-        save_messages(db, targets.inbox, title, body, level=level, page=page, topic=topic)
+        return save_messages(
+            db, targets.inbox, title, body, level=level, page=page, topic=topic
+        )
     except Exception as exc:
         print(f"[站内信] 保存失败：{exc!r}", flush=True)
+        return {}
+
+
+def _with_read_urls(
+    targets: list[str | EmailTarget], saved: dict[str, int],
+) -> list[str | EmailTarget]:
+    """给每个邮件收件人生成「标记为已读」链接
+
+    链接指向一个不需要登录的接口，里面装着这次通知对应的站内信令牌：
+    一个邮箱被多个账号共用时，一封邮件要能同时标记那几个人的消息，
+    所以是逗号拼接的多个令牌。没配 public_base_url 就生成不了可点的绝对地址，
+    此时原样返回，邮件里不出现按钮。
+    """
+    base = settings.public_base_url.rstrip("/")
+    if not base or not saved:
+        return targets
+
+    result: list[str | EmailTarget] = []
+    for target in targets:
+        if not isinstance(target, EmailTarget):
+            result.append(target)  # 兼容外部直接塞地址字符串的调用方
+            continue
+        tokens = [
+            read_token(saved[no], no)
+            for no in target.student_nos
+            if no in saved
+        ]
+        if not tokens:
+            result.append(target)
+            continue
+        url = (
+            f"{base}/api/inbox/read-email"
+            f"?tokens={quote(','.join(tokens), safe='')}"
+        )
+        result.append(EmailTarget(target.address, target.student_nos, url))
+    return result
 
 
 def deliver_now(
@@ -180,10 +221,12 @@ def deliver_now(
     """
     if not targets:
         return True
-    _save_inbox(db, targets, title, body, level, page, topic)
+    saved = _save_inbox(db, targets, title, body, level, page, topic)
     ok = True
     for attr, send in _CHANNELS:
         target = getattr(targets, attr)
+        if attr == "email":
+            target = _with_read_urls(target, saved)
         if not target:
             continue
         try:

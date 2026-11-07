@@ -91,7 +91,7 @@ def _send_notification(db, tpl, student, notify_time: datetime) -> None:
     from .bark_service import bark_keys
     from .webpush_service import web_subscriptions
     from .webhook_service import webhook_targets
-    from .email_service import email_recipients
+    from .email_service import email_targets
     from ..config import smtp_enabled
     # 这里**只能 import 真正存在的名字**：以前还多写了个用不上的 email_enabled
     # （email_service 里没有这个名字），于是每次调用都在这一行 ImportError，
@@ -105,7 +105,7 @@ def _send_notification(db, tpl, student, notify_time: datetime) -> None:
         web=web_subscriptions(db, only_no=student.student_no),
         webhook=webhook_targets(db, only_no=student.student_no),
         email=(
-            email_recipients(db, only_no=student.student_no)
+            email_targets(db, only_no=student.student_no)
             if smtp_enabled()
             else []
         ),

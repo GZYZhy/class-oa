@@ -1328,7 +1328,7 @@ def test_all_day_notification_body_says_all_day(b, monkeypatch):
         ("app.services.bark_service", "bark_keys"),
         ("app.services.webpush_service", "web_subscriptions"),
         ("app.services.webhook_service", "webhook_targets"),
-        ("app.services.email_service", "email_recipients"),
+        ("app.services.email_service", "email_targets"),
     ]:
         monkeypatch.setattr(f"{mod}.{fn}", lambda db, **kw: [])
 

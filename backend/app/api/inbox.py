@@ -5,9 +5,13 @@
 不在这里重复开接口。
 """
 
+import html as html_lib
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..models import User
 from ..schemas.inbox import InboxListResponse
@@ -18,6 +22,8 @@ router = APIRouter(prefix="/api/inbox", tags=["站内信"])
 
 # 每页条数上限。前端固定传 20，这个上限只是防手工构造请求一次拉全表
 MAX_PAGE_SIZE = 100
+# 邮件已读链接里最多认多少个令牌（共用邮箱时一个人可能带好几条，留足余量）
+MAX_EMAIL_TOKENS = 100
 
 
 @router.get("", response_model=InboxListResponse, summary="我的站内信")
@@ -35,6 +41,68 @@ def list_inbox(
         page_size=page_size,
         unread=inbox_service.unread_count(db, user.student_no),
         items=rows,
+    )
+
+
+@router.get("/read-email", response_class=HTMLResponse, summary="邮件里一键标记已读")
+def read_email(
+    tokens: str = Query("", max_length=8000),
+    db: Session = Depends(get_db),
+):
+    """邮件里的「标记为已读」按钮点进来这里，**不要求登录**
+
+    每条令牌由 inbox_service 用站点密钥签名，绑定了消息 id 和学号，
+    改一个字符就验不过，所以不需要账号也不会误标别人的消息。
+    一个邮箱被多人共用时链接里会带多个令牌，这里逐个处理。
+
+    返回一页极简结果，不跳转 SPA —— 用户点邮件里的按钮只是清红点，
+    不该被带进整个站点。
+    """
+    pairs = []
+    for raw in tokens.split(",")[:MAX_EMAIL_TOKENS]:
+        pair = inbox_service.parse_read_token(raw.strip())
+        if pair:
+            pairs.append(pair)
+
+    if not pairs:
+        return _result_page("链接无效或已过期", "请回到站内信查看这条通知。", 400)
+
+    found = sum(
+        1 for message_id, student_no in pairs
+        if inbox_service.mark_read(db, student_no, message_id)
+    )
+    if not found:
+        return _result_page("通知不存在或已删除", "它可能已经被清理掉了。", 404)
+    return _result_page("已标记为已读", f"这次通知（共 {found} 条）不会再显示未读。")
+
+
+def _result_page(title: str, message: str, status_code: int = 200) -> HTMLResponse:
+    """结果页：和邮件同一套配色，单个卡片，不需要任何前端资源"""
+    site = html_lib.escape(settings.site_name.strip() or settings.app_name)
+    base = settings.public_base_url.rstrip("/")
+    back = ""
+    if base:
+        back = (
+            f'<p style="margin:18px 0 0;"><a href="{html_lib.escape(base, quote=True)}" '
+            'style="color:#5b5bd6;font-size:13px;text-decoration:none;">'
+            "返回站点</a></p>"
+        )
+    body = f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html_lib.escape(title)} - {site}</title></head>
+<body style="margin:0;background:#eef0f7;font-family:-apple-system,BlinkMacSystemFont,
+'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif;">
+<div style="max-width:420px;margin:12vh auto 0;padding:0 16px;">
+<div style="background:#ffffff;border:1px solid #e2e4f2;border-radius:16px;
+padding:30px 30px 26px;text-align:center;">
+<div style="font-size:12px;letter-spacing:.12em;color:#8a90a5;margin-bottom:14px;">{site}</div>
+<div style="font-size:20px;font-weight:700;color:#343a66;line-height:1.5;">{html_lib.escape(title)}</div>
+<p style="margin:12px 0 0;color:#5f657b;font-size:14px;line-height:1.8;">{html_lib.escape(message)}</p>
+{back}
+</div></div></body></html>"""
+    return HTMLResponse(
+        body, status_code=status_code, headers={"Cache-Control": "no-store"}
     )
 
 

@@ -5,11 +5,15 @@
 推送发给了 A、存档却记在 B 名下这种事。
 """
 
+import base64
+import hashlib
+import hmac
 from datetime import datetime
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..config import resolve_session_secret
 from ..models import InboxMessage, User
 
 
@@ -49,8 +53,8 @@ def save_messages(
     level: str = "active",
     page: str | None = None,
     topic: str | None = None,
-) -> int:
-    """给这批人各存一条，返回写入条数
+) -> dict[str, int]:
+    """给这批人各存一条，返回 {学号: 消息 id}
 
     **同步落库、就地 commit**：调用方是请求里的 notify()，这次不写就没有第二次机会。
     推送那条链是后台任务，失败了顶多少收一条手机通知；站内信是**存档**，
@@ -63,9 +67,9 @@ def save_messages(
     业务代码不直接调这里。
     """
     if not student_nos:
-        return 0
+        return {}
     now = datetime.now()
-    db.add_all([
+    messages = [
         InboxMessage(
             student_no=no,
             title=title,
@@ -76,9 +80,13 @@ def save_messages(
             created_at=now,
         )
         for no in student_nos
-    ])
+    ]
+    db.add_all(messages)
+    db.flush()  # 先拿 id：commit 默认会过期 ORM 属性，之后再读就是逐条重查
+    ids = {m.student_no: m.id for m in messages}
     db.commit()
-    return len(student_nos)
+    # 返回 id 映射而不是条数：邮件渠道要拿每条消息的 id 生成「标记已读」链接
+    return ids
 
 
 def list_messages(
@@ -179,3 +187,37 @@ def delete_read(db: Session, student_no: str) -> int:
     )
     db.commit()
     return deleted
+
+
+# ---------------------------------------------------------------- 邮件「标记已读」链接
+
+def read_token(message_id: int, student_no: str) -> str:
+    """把「哪条消息、属于谁」签成一个 URL 安全令牌
+
+    邮件里的已读按钮不能要求登录，所以链接必须自带凭证；HMAC 保证别人改不了
+    message_id 或学号去看/改别人的消息。只签这两个字段，链接短、也不会把正文带出去。
+    """
+    payload = f"{message_id}:{student_no}"
+    sig = hmac.new(
+        resolve_session_secret().encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    return base64.urlsafe_b64encode(f"{payload}:{sig}".encode()).decode()
+
+
+def parse_read_token(token: str) -> tuple[int, str] | None:
+    """验邮件已读令牌，返回 (message_id, student_no)；不合法返回 None"""
+    try:
+        raw = base64.urlsafe_b64decode(token.encode()).decode()
+        payload, sig = raw.rsplit(":", 1)
+        message_id, student_no = payload.split(":", 1)
+        message_id_int = int(message_id)
+    except (ValueError, UnicodeDecodeError, OverflowError):
+        return None
+    if message_id_int <= 0 or not student_no:
+        return None
+    expected = hmac.new(
+        resolve_session_secret().encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    if not hmac.compare_digest(sig, expected):
+        return None
+    return message_id_int, student_no
