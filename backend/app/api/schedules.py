@@ -42,6 +42,7 @@ from ..models.schedule import (
 )
 from ..schemas import (
     ICalTokenResponse,
+    ScheduleBatchListResponse,
     ScheduleBatchResponse,
     ScheduleCreate,
     ScheduleImportConfirm,
@@ -802,32 +803,42 @@ def _parse_time_str(s: str) -> datetime.time:
 
 # ---------- 批次管理（班委） ----------
 
-@router.get("/batches", response_model=list[ScheduleBatchResponse])
+@router.get("/batches", response_model=ScheduleBatchListResponse)
 def list_batches(
     all_batches: bool = Query(
         False, alias="all", description="管理员查看全站批次（系统管理用）"
     ),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     user: User = Depends(committee_required),
     db: Session = Depends(get_db),
 ):
-    """查看批次：默认只看自己的；管理员可传 all=true 看全站"""
+    """查看批次（分页）：默认只看自己的；管理员可传 all=true 看全站"""
     if all_batches and not is_admin(user):
         raise HTTPException(status_code=403, detail="只有管理员可以查看全部批次")
     student = db.query(Student).filter(Student.student_no == user.student_no).first()
-    batches = ss.list_batches(
-        db, student.id if student else 0, user.id, all_batches=all_batches
+    batches, total = ss.list_batches(
+        db,
+        student.id if student else 0,
+        user.id,
+        page=page,
+        page_size=page_size,
+        all_batches=all_batches,
     )
-    return [
-        {
-            "id": b.id,
-            "name": b.name,
-            "target_count": b.target_count,
-            "schedule_count": b.schedule_count,
-            "operator_name": b.operator_name or "",
-            "created_at": b.created_at,
-        }
-        for b in batches
-    ]
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": b.id,
+                "name": b.name,
+                "target_count": b.target_count,
+                "schedule_count": b.schedule_count,
+                "operator_name": b.operator_name or "",
+                "created_at": b.created_at,
+            }
+            for b in batches
+        ],
+    }
 
 
 @router.delete("/batches/{batch_id}")

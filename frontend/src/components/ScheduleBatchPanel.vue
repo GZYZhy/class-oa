@@ -37,6 +37,22 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <div class="batch-pager">
+      <span class="batch-total">共 {{ total }} 个批次</span>
+      <el-pagination
+        v-if="total > pageSize"
+        background
+        small
+        layout="sizes, prev, pager, next"
+        :current-page="page"
+        :page-size="pageSize"
+        :page-sizes="[10, 20, 50]"
+        :total="total"
+        @current-change="handlePageChange"
+        @size-change="handleSizeChange"
+      />
+    </div>
   </div>
 </template>
 
@@ -54,16 +70,32 @@ const props = defineProps({
 
 const batches = ref([])
 const loading = ref(false)
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 
 async function load() {
   loading.value = true
   try {
-    batches.value = await listBatches(props.adminMode)
+    const data = await listBatches(props.adminMode, page.value, pageSize.value)
+    batches.value = data.items || []
+    total.value = data.total || 0
   } catch (e) {
     ElMessage.error(errText(e, '读取批次失败'))
   } finally {
     loading.value = false
   }
+}
+
+function handlePageChange(value) {
+  page.value = value
+  load()
+}
+
+function handleSizeChange(value) {
+  pageSize.value = value
+  page.value = 1
+  load()
 }
 
 async function handleDelete(row) {
@@ -81,6 +113,8 @@ async function handleDelete(row) {
   try {
     const res = await deleteBatch(row.id)
     ElMessage.success(`已撤销，删掉 ${res.deleted} 条日程`)
+    // 当前页最后一条被删掉时往前翻，别停在空页上
+    if (batches.value.length === 1 && page.value > 1) page.value -= 1
     load()
   } catch (e) {
     ElMessage.error(errText(e, '撤销失败'))
@@ -98,5 +132,19 @@ onMounted(load)
   color: var(--el-text-color-secondary);
   line-height: 1.7;
   margin-bottom: 12px;
+}
+
+.batch-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.batch-total {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 </style>

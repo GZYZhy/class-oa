@@ -266,14 +266,15 @@ def test_external_manager_can_list_and_revoke_own_batches(es):
 
     rows = manager.get("/api/schedules/batches")
     assert rows.status_code == 200, rows.text
-    assert [row["id"] for row in rows.json()] == [batch_id]
+    assert [row["id"] for row in rows.json()["items"]] == [batch_id]
+    assert rows.json()["total"] == 1
 
     teacher = _as(es, TEACHER, TEACHER_PW)
     assert teacher.get("/api/schedules/batches").status_code == 403
     assert teacher.delete(f"/api/schedules/batches/{batch_id}").status_code == 403
 
     assert manager.delete(f"/api/schedules/batches/{batch_id}").status_code == 200
-    assert manager.get("/api/schedules/batches").json() == []
+    assert manager.get("/api/schedules/batches").json()["items"] == []
     student = _as(es, STUDENT, STUDENT_PW)
     assert student.get("/api/schedules", params={
         "start_date": DAY, "end_date": DAY,
@@ -293,11 +294,11 @@ def test_admin_sees_and_revokes_other_peoples_batches(es):
     batch_id = r.json()["source_batch_id"]
 
     admin = _as(es, ADMIN, ADMIN_PW)
-    assert admin.get("/api/schedules/batches").json() == [], "默认仍只看自己的"
+    assert admin.get("/api/schedules/batches").json()["items"] == [], "默认仍只看自己的"
     rows = admin.get("/api/schedules/batches", params={"all": True})
     assert rows.status_code == 200, rows.text
-    assert [row["id"] for row in rows.json()] == [batch_id]
-    assert rows.json()[0]["operator_name"] == "示例老师乙"
+    assert [row["id"] for row in rows.json()["items"]] == [batch_id]
+    assert rows.json()["items"][0]["operator_name"] == "示例老师乙"
 
     # 非管理员不能借 all 参数看全站
     assert manager.get(
@@ -305,7 +306,36 @@ def test_admin_sees_and_revokes_other_peoples_batches(es):
     ).status_code == 403
 
     assert admin.delete(f"/api/schedules/batches/{batch_id}").status_code == 200
-    assert manager.get("/api/schedules/batches").json() == []
+    assert manager.get("/api/schedules/batches").json()["items"] == []
+
+
+def test_batch_list_is_paginated(es):
+    """批次列表真分页：total 是总数，items 只给当前页"""
+    manager = _as(es, MANAGER, MANAGER_PW)
+    student_id = _student_id(es, STUDENT)
+    ids = []
+    for title in ("批次一", "批次二", "批次三"):
+        r = manager.post("/api/schedules/external", json={
+            **_schedule(title),
+            "target_all": False,
+            "target_student_ids": [student_id],
+        })
+        assert r.status_code == 200, r.text
+        ids.append(r.json()["source_batch_id"])
+
+    first = manager.get("/api/schedules/batches", params={
+        "page": 1, "page_size": 2,
+    }).json()
+    second = manager.get("/api/schedules/batches", params={
+        "page": 2, "page_size": 2,
+    }).json()
+
+    assert first["total"] == second["total"] == 3
+    assert len(first["items"]) == 2
+    assert len(second["items"]) == 1
+    assert {row["id"] for row in first["items"]} | {
+        row["id"] for row in second["items"]
+    } == set(ids)
 
 
 def test_backfill_only_marks_schedules_copied_to_everyone():

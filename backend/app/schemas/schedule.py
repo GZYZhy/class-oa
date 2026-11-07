@@ -203,6 +203,12 @@ class ScheduleBatchResponse(BaseModel):
     created_at: datetime
 
 
+class ScheduleBatchListResponse(BaseModel):
+    """批次列表（分页）"""
+    total: int
+    items: list[ScheduleBatchResponse]
+
+
 # ---------- 学期信息 ----------
 
 class SemesterPeriod(BaseModel):

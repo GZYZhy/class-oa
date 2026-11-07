@@ -1056,16 +1056,21 @@ console.log('\n▶ 系统管理：日程批次面板')
   check(!panelSrc.includes('没有学籍档案'), '不再按域外账号整块隐藏批次管理')
   check(panelSrc.includes('onMounted(load)') && !panelSrc.includes('!userStore.isExternal'),
     '域外账号也拉批次列表（后端已按 operator_user_id 支持）')
-  check(panelSrc.includes('adminMode') && panelSrc.includes('listBatches(props.adminMode)') &&
+  check(panelSrc.includes('adminMode') &&
+    panelSrc.includes('listBatches(props.adminMode, page.value, pageSize.value)') &&
     panelSrc.includes('prop="operator_name"'),
   '管理员视图拉全站批次，并显示创建人')
+  check(panelSrc.includes('<el-pagination') && panelSrc.includes('handlePageChange') &&
+    panelSrc.includes('共 {{ total }} 个批次'),
+  '批次列表带分页器与总数，不会静默截断到前 N 条')
   const adminSrc = readFileSync(`${ROOT}src/views/Admin.vue`, 'utf-8')
   check(adminSrc.includes('<ScheduleBatchPanel admin-mode />'),
     '系统管理的批次面板以管理员模式挂载')
   const scheduleApiSrc = readFileSync(`${ROOT}src/api/schedule.js`, 'utf-8')
-  check(/export function listBatches\(all = false\)/.test(scheduleApiSrc) &&
-    /params: all \? \{ all: true \}/.test(scheduleApiSrc),
-  '批次列表接口带 all=true，管理员可看全站')
+  check(/export function listBatches\(all = false, page = 1, pageSize = 20\)/.test(scheduleApiSrc) &&
+    scheduleApiSrc.includes('page_size: pageSize') &&
+    /\.\.\.\(all \? \{ all: true \} : \{\}\)/.test(scheduleApiSrc),
+  '批次列表接口带分页参数；管理员再额外带 all=true')
   check(html.split(/撤销(?:<!--\]-->)?<\/span>/).length - 1 === 2, '两行各有一个「撤销」按钮')
   check(html.includes('撤销一个批次'), '说明写清了撤销的后果')
   check(!warns.some((w) => /Failed to resolve (component|directive)/.test(w)), '没有未解析的组件/指令')

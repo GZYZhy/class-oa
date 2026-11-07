@@ -1072,11 +1072,12 @@ def list_batches(
     db: Session,
     operator_id: int,
     operator_user_id: int,
-    limit: int = 50,
+    page: int = 1,
+    page_size: int = 20,
     *,
     all_batches: bool = False,
-) -> list[ScheduleBatch]:
-    """查看批次列表
+) -> tuple[list[ScheduleBatch], int]:
+    """查看批次列表（分页），返回 (当前页, 总数)
 
     默认只看自己创建/导入的（在册学生与域外账号同一套口径）；
     all_batches 只由管理员在「系统管理 → 日程批次」使用，列全站。
@@ -1093,11 +1094,15 @@ def list_batches(
                 )
             )
         query = query.filter(or_(*filters))
-    return (
-        query.order_by(ScheduleBatch.created_at.desc())
-        .limit(limit)
+
+    total = query.count()
+    rows = (
+        query.order_by(ScheduleBatch.created_at.desc(), ScheduleBatch.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
+    return rows, total
 
 
 # ---------- iCal token ----------

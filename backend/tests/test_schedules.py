@@ -1382,7 +1382,7 @@ def test_batch_list_and_delete(b):
     # 批次列表有它
     r = b.client.get("/api/schedules/batches")
     assert r.status_code == 200
-    batches = r.json()
+    batches = r.json()["items"]
     assert any(b["id"] == batch_id for b in batches)
 
     # 删批次

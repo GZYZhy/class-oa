@@ -4297,20 +4297,29 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 
 `GET /api/schedules/batches`
 
-查看自己创建/导入的批次。在册学生按 `operator_id`，域外账号按 `operator_user_id`；
-两者都只能看到、撤销自己建的批次。
+分页查看批次。默认只看自己创建/导入的：在册学生按 `operator_id`，域外账号按
+`operator_user_id`。管理员传 `all=true` 可看全站（系统管理里的管理员视图）。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `page` | query | 否 | integer | 页码，默认 1 |
+| `page_size` | query | 否 | integer | 每页条数，默认 20，最大 100 |
+| `all` | query | 否 | boolean | 仅管理员：查看全站批次 |
 
 **响应**
 
 - `200` — 成功
-  - 字段：ScheduleBatchResponse[]
+  - 字段：`total`、`items`（`ScheduleBatchResponse[]`）
 
 ### Delete Batch
 
 `DELETE /api/schedules/batches/{batch_id}`
 
-撤销整个批次（删除该批次下所有日程）。只能撤销自己建/导入的批次；域外账号
-没有 Student 行，按 `operator_user_id` 校验，同样可用。
+撤销整个批次（删除该批次下所有日程）。班委只能撤销自己建/导入的批次；域外账号
+没有 Student 行，按 `operator_user_id` 校验，同样可用。管理员不校验归属，可以撤销
+系统管理里看到的任意批次。
 
 **参数**
 
