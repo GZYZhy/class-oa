@@ -253,11 +253,13 @@ def test_external_manager_can_import_and_assign_selected(es):
 
 
 def test_backfill_only_marks_schedules_copied_to_everyone():
-    """迁移不能只看 target_count：生日那种「每人一条」不是共享日程
+    """迁移不能只看 target_count，也要容忍个别学生删掉几节课
 
-    批次 1：两条 series，各只有 1 份（典型生日批次）
+    批次 1：两条 series，各只有 1 份（典型生日批次，旧逻辑误标成 1）
     批次 2：一条 series，复制给 2 个人（真正发给全体）
     批次 3：只发给 1 个人（指定学生）
+    批次 4：发给 4 个人，但每条 series 只剩 3 份（课程发下去后被删掉几份）
+    批次 5：只发了 1 份，却挂着 target_count=4（个人日程伪装成全体）
     """
     engine = create_engine("sqlite://")
     with engine.begin() as conn:
@@ -271,16 +273,18 @@ def test_backfill_only_marks_schedules_copied_to_everyone():
             "CREATE TABLE schedules ("
             "id INTEGER PRIMARY KEY, source_batch_id INTEGER, source_series_id TEXT)"
         ))
-        conn.execute(text("INSERT INTO students (id) VALUES (1), (2)"))
+        conn.execute(text("INSERT INTO students (id) VALUES (1), (2), (3), (4)"))
         conn.execute(text(
             "INSERT INTO schedule_batches (id, target_count, target_all) "
-            "VALUES (1, 2, 1), (2, 2, 0), (3, 1, 0)"
+            "VALUES (1, 4, 1), (2, 4, 0), (3, 1, 0), (4, 4, 0), (5, 4, 0)"
         ))
         conn.execute(text(
             "INSERT INTO schedules (source_batch_id, source_series_id) VALUES "
             "(1, 'birthday-a'), (1, 'birthday-b'), "
-            "(2, 'class-a'), (2, 'class-a'), "
-            "(3, 'one-person')"
+            "(2, 'class-a'), (2, 'class-a'), (2, 'class-a'), (2, 'class-a'), "
+            "(3, 'one-person'), "
+            "(4, 'course-a'), (4, 'course-a'), (4, 'course-a'), "
+            "(5, 'personal-a')"
         ))
 
         _backfill_schedule_batch_all(conn)
@@ -289,7 +293,7 @@ def test_backfill_only_marks_schedules_copied_to_everyone():
             "SELECT id, target_all FROM schedule_batches"
         )).all())
 
-    assert flags == {1: 0, 2: 1, 3: 0}
+    assert flags == {1: 0, 2: 1, 3: 0, 4: 1, 5: 0}
 
 
 def test_external_endpoint_rejects_student_accounts(es):

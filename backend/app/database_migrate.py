@@ -402,8 +402,13 @@ def _backfill_schedule_batch_all(conn) -> None:
     补列前没有这个标志，只能从数据推断。**不能只看 target_count**：生日这类
     批次是「给 36 个人各建一条只属于他自己的日程」，target_count=36 却每条
     series 只有 1 份；按人数推断会把它当成共享日程，域外账号就会看到别人的
-    「我的生日」。所以要求**每一个 source_series_id 的副本数都 >= 当前学生数**，
-    即同一节课/同一个活动确实复制到了每个人表里。
+    「我的生日」。
+
+    也不能要求「每条 series 都完整 36 份」：课表发下去之后，个别学生删掉
+    某几节课很常见（实测课程批次最少的一条只剩 31/36）。所以判据放宽到
+    **每条 series 的副本数都超过 target_count 的一半**：
+      · 课程 31/36 → 共享；
+      · 生日 1/36、入党谈话 4/19 → 个人/小范围，不是共享。
 
     每次启动都重算（不只在补列时跑一次）：早先版本已经按旧口径写进了 1，
     必须在升级后把这种误标纠正回来。没有 target_all 列时直接跳过。
@@ -429,7 +434,7 @@ def _backfill_schedule_batch_all(conn) -> None:
             "     SELECT 1 FROM schedules s "
             "     WHERE s.source_batch_id = schedule_batches.id "
             "     GROUP BY s.source_series_id "
-            "     HAVING COUNT(*) < :total"
+            "     HAVING COUNT(*) * 2 <= schedule_batches.target_count"
             "   ) "
             "  THEN 1 ELSE 0 END"
         ),
