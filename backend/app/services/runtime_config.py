@@ -42,7 +42,7 @@ class Field:
     key: str
     label: str
     group: str
-    kind: str = "text"          # text | int | secret | choice
+    kind: str = "text"          # text | int | secret | choice | bool
     help: str = ""
     choices: tuple[str, ...] = ()
     min: int | None = None
@@ -86,6 +86,13 @@ FIELDS: tuple[Field, ...] = (
         help="QQ / 163 邮箱填授权码，不是登录密码",
     ),
     Field("smtp_from", "发件人地址", "邮件通知（SMTP）", help="留空则用发信账号"),
+    Field(
+        "email_open_auto_read", "邮件加载自动标记已读", "邮件通知（SMTP）", kind="bool",
+        help=(
+            "非「重要」通知：收件人客户端加载校徽时会自动把对应站内信标为已读。"
+            "重要通知不受影响；图片被拦截时不生效。关闭后「标记为已读」按钮仍然可用"
+        ),
+    ),
     # ---------- 人机验证 ----------
     Field(
         "captcha_mode", "验证方式", "人机验证", kind="choice",
@@ -190,6 +197,14 @@ def _default(field: Field) -> object:
 
 def _coerce(field: Field, raw: str) -> object:
     """库里存的字符串 → settings 属性要的类型。值不合法时抛 ValueError（带中文说明）"""
+    if field.kind == "bool":
+        text = str(raw).strip().lower()
+        if text in ("1", "true", "yes", "on"):
+            return True
+        if text in ("0", "false", "no", "off"):
+            return False
+        raise ValueError(f"{field.label}只能是 true / false")
+
     if field.kind == "int":
         try:
             number = int(str(raw).strip())
@@ -280,6 +295,8 @@ def snapshot(db: Session) -> dict:
 
         if field.kind == "secret" and value:
             value = MASK
+        if field.kind == "bool":
+            value = "true" if _coerce(field, _to_str(value)) else "false"
 
         fields.append({
             "key": field.key,
@@ -363,8 +380,11 @@ def save(
                 changed.append(key)
             continue
 
-        # 先按类型校验一遍，坏值连库都不进
-        _coerce(field, text)
+        # 先按类型校验一遍，坏值连库都不进；布尔统一存 true / false，
+        # 免得库里同时出现 True / 1 / on 三种写法
+        coerced = _coerce(field, text)
+        if field.kind == "bool":
+            text = "true" if coerced else "false"
         if row is None:
             db.add(RuntimeSetting(
                 key=key,

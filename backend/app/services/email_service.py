@@ -52,15 +52,17 @@ TEST_BUDGET = 15
 class EmailTarget:
     """一个邮件收件人
 
-    比纯地址多带两样东西，都是为了邮件里的「标记为已读」按钮：
+    比纯地址多带三样东西，都是为了邮件里的已读能力：
     student_nos 是共用这个地址的账号（一个地址可能被多名学生填了），
-    read_url 是已经拼好的、带签名的绝对链接。后台任务拿着它就能直接发，
-    不需要数据库会话。
+    read_url 是「标记为已读」按钮的签名链接，open_url 是给非重要通知用的
+    唯一校徽地址。后台任务拿着它就能直接发，不需要数据库会话。
     """
 
     address: str
     student_nos: tuple[str, ...] = ()
     read_url: str | None = None
+    # 唯一校徽地址：非「重要」通知加载它时自动标已读。重要通知不填这个字段。
+    open_url: str | None = None
 
 
 def _address_rows(
@@ -191,9 +193,11 @@ def push(
                     flush=True,
                 )
                 break
+            # 重要通知不走图片自动已读：它们的 open_url 即便存在也不使用
+            open_url = target.open_url if level != "timeSensitive" else None
             if _send(
                 server, target.address, title, body, page,
-                code=code, read_url=target.read_url,
+                code=code, read_url=target.read_url, open_url=open_url,
             ):
                 sent += 1
         return sent > 0
@@ -237,7 +241,7 @@ def _connect(timeout: int = TIMEOUT) -> smtplib.SMTP:
 def _send(
     server: smtplib.SMTP, address: str, title: str, body: str,
     page: str | None, code: str | None = None,
-    read_url: str | None = None,
+    read_url: str | None = None, open_url: str | None = None,
 ) -> bool:
     """发一封，返回是否成功
 
@@ -260,7 +264,9 @@ def _send(
         # 两者内容一致，HTML 只是把同样的字排成站点主题的卡片。
         message.set_content(_body_text(body, page, read_url=read_url))
         message.add_alternative(
-            _body_html(title, body, page, code=code, read_url=read_url),
+            _body_html(
+                title, body, page, code=code, read_url=read_url, open_url=open_url
+            ),
             subtype="html",
         )
         server.send_message(message)
@@ -301,7 +307,7 @@ def _logo_url() -> str:
 
 def _body_html(
     title: str, body: str, page: str | None, code: str | None = None,
-    read_url: str | None = None,
+    read_url: str | None = None, open_url: str | None = None,
 ) -> str:
     """邮件 HTML 正文：站点主题的卡片，不依赖外部 CSS
 
@@ -314,16 +320,21 @@ def _body_html(
 
     read_url 非空时多一个「标记为已读」按钮：它带签名、不要求登录，
     用户不必打开站点就能清掉对应站内信的未读状态。
+
+    open_url 是给非重要通知用的唯一校徽地址：客户端加载校徽时请求它，
+    接口会顺手把站内信标为已读。重要通知的 open_url 由调用方置空，
+    所以这里不用再判断等级。
     """
     site = html_lib.escape(settings.site_name.strip() or settings.app_name)
     safe_title = html_lib.escape(title)
-    logo = _logo_url()
+    logo = open_url or _logo_url()
     logo_cell = ""
     if logo:
         logo_cell = (
             '<td width="50" valign="middle" style="padding-right:12px;">'
             f'<img src="{html_lib.escape(logo, quote=True)}" width="44" height="44" '
-            'alt="校徽" style="display:block;border-radius:10px;background:#ffffff;">'
+            # 站点和邮件里的校徽都取正圆；open_url 只是带令牌的同一张图
+            'alt="校徽" style="display:block;border-radius:50%;background:#ffffff;">'
             "</td>"
         )
 
@@ -449,12 +460,15 @@ def _clean_targets(items: list[str | EmailTarget]) -> list[EmailTarget]:
             prev = cleaned[seen[key]]
             merged = tuple(dict.fromkeys(prev.student_nos + target.student_nos))
             cleaned[seen[key]] = EmailTarget(
-                prev.address, merged, prev.read_url or target.read_url
+                prev.address, merged, prev.read_url or target.read_url,
+                prev.open_url or target.open_url,
             )
             continue
         seen[key] = len(cleaned)
         cleaned.append(
-            EmailTarget(addr, tuple(target.student_nos), target.read_url)
+            EmailTarget(
+                addr, tuple(target.student_nos), target.read_url, target.open_url
+            )
         )
     if len(cleaned) > MAX_RECIPIENTS:
         print(

@@ -73,6 +73,23 @@ def test_snapshot_lists_every_field_and_env_only_items(b):
     assert data["version"]["app_version"]
 
 
+def test_email_open_auto_read_is_a_boolean_switch(b):
+    """邮件校徽自动已读在运维页是布尔开关，存库后立刻生效"""
+    field = _field(b, "email_open_auto_read")
+    assert field["kind"] == "bool"
+    assert field["value"] == "true", "默认开启"
+
+    r = _save(b, {"email_open_auto_read": "false"})
+    assert r.status_code == 200, r.text
+    field = _field(b, "email_open_auto_read")
+    assert field["value"] == "false"
+    assert field["source"] == "database"
+
+    r = _save(b, {"email_open_auto_read": "true"})
+    assert r.status_code == 200, r.text
+    assert _field(b, "email_open_auto_read")["value"] == "true"
+
+
 def test_saving_takes_effect_without_restart(b):
     """保存 SMTP 与验证方式之后，登录页 / 我的信息立刻反映出来"""
     before = b.client.get("/api/auth/captcha-required").json()

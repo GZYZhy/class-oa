@@ -165,6 +165,11 @@ class Settings(BaseSettings):
     # 发件人地址。留空则用 smtp_user
     smtp_from: str = ""
 
+    # 非「重要」通知：邮件里的校徽用唯一追踪地址加载时，自动把对应站内信标为已读。
+    # 重要通知（level=timeSensitive）永远不自动标记；显式「标记为已读」按钮始终可用。
+    # 图片被邮箱客户端拦截时不会触发；可在「系统管理 → 运维」里随时关闭。
+    email_open_auto_read: bool = True
+
     # ---------- 日程 iCal ----------
     # Apple 日历结构化地点的显示名，按坐标匹配，JSON 数组：
     #   [{"lat": 39.9, "lng": 116.4, "name": "图书馆"}, ...]

@@ -1109,6 +1109,13 @@
                     <el-option v-for="choice in f.choices" :key="choice" :label="choice" :value="choice" />
                   </el-select>
 
+                  <el-switch
+                    v-else-if="f.kind === 'bool'"
+                    v-model="opsForm[f.key]"
+                    active-text="开启"
+                    inactive-text="关闭"
+                  />
+
                   <el-input-number
                     v-else-if="f.kind === 'int'"
                     v-model="opsForm[f.key]"
@@ -2184,6 +2191,7 @@ function fillOpsForm() {
   for (const field of opsConfig.value?.fields || []) {
     if (field.kind === 'int') opsForm[field.key] = Number(field.value) || 0
     else if (field.kind === 'secret') opsForm[field.key] = ''
+    else if (field.kind === 'bool') opsForm[field.key] = field.value === 'true'
     else opsForm[field.key] = field.value
     opsClear[field.key] = false
   }
@@ -2209,6 +2217,12 @@ async function handleSaveOps() {
       // 留空 = 不修改；勾了「清除」才真的删掉库里的覆盖值
       if (opsClear[field.key]) values[field.key] = '__CLEAR__'
       else if (String(opsForm[field.key] || '').trim()) values[field.key] = opsForm[field.key]
+      continue
+    }
+    if (field.kind === 'bool') {
+      if (Boolean(opsForm[field.key]) !== (field.value === 'true')) {
+        values[field.key] = opsForm[field.key] ? 'true' : 'false'
+      }
       continue
     }
     // 只提交改动过的项：没碰的字段不该被重新写一遍（也会让日志里多出一串无关项）

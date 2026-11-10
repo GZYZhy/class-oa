@@ -71,6 +71,7 @@ def test_email_html_uses_site_theme_and_escapes(monkeypatch):
     assert "#5b5bd6" in html
     assert "https://example.com/logo.png?v=1" in html
     assert 'alt="校徽"' in html
+    assert "border-radius:50%" in html
 
 
 def test_email_code_is_highlighted_without_inapp_button(monkeypatch):
@@ -104,6 +105,18 @@ def test_email_has_mark_read_button_without_opening_site(monkeypatch):
 
     text = email_service._body_text("正文", "/leave", read_url=read_url)
     assert f"标记为已读：{read_url}" in text
+
+
+def test_email_logo_uses_unique_open_url(monkeypatch):
+    """非重要通知的校徽换成唯一令牌地址，并保持正圆"""
+    monkeypatch.setattr(settings, "public_base_url", "https://example.com")
+    open_url = "https://example.com/api/inbox/email-open?tokens=abc"
+    html = email_service._body_html(
+        "通知", "正文", "/dashboard", open_url=open_url
+    )
+    assert f'src="{open_url}"' in html
+    assert "https://example.com/logo.png?v=1" not in html
+    assert "border-radius:50%" in html
 
 
 def test_verification_code_email_has_no_mark_read_button(monkeypatch):
@@ -175,9 +188,10 @@ def test_push_puts_read_link_in_both_parts(monkeypatch):
 
     monkeypatch.setattr(email_service, "_connect", lambda timeout=0: FakeServer())
     read_url = "https://example.com/api/inbox/read-email?tokens=abc"
+    open_url = "https://example.com/api/inbox/email-open?tokens=abc"
 
     assert email_service.push(
-        [EmailTarget("student@example.com", ("2024000001",), read_url)],
+        [EmailTarget("student@example.com", ("2024000001",), read_url, open_url)],
         "请假已通过", "你的请假审批通过了。", "/leave",
     )
     message = captured["message"]
@@ -185,3 +199,29 @@ def test_push_puts_read_link_in_both_parts(monkeypatch):
     assert "标记为已读" in parts["text/html"]
     assert read_url in parts["text/html"]
     assert read_url in parts["text/plain"]
+    assert open_url in parts["text/html"], "非重要通知的校徽应使用追踪地址"
+
+
+def test_important_email_keeps_static_logo(monkeypatch):
+    """重要通知不用唯一校徽，避免「打开图片就当读」"""
+    monkeypatch.setattr(email_service, "smtp_enabled", lambda: True)
+    monkeypatch.setattr(settings, "public_base_url", "https://example.com")
+    captured = {}
+
+    class FakeServer:
+        def send_message(self, message):
+            captured["message"] = message
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr(email_service, "_connect", lambda timeout=0: FakeServer())
+    open_url = "https://example.com/api/inbox/email-open?tokens=abc"
+    assert email_service.push(
+        [EmailTarget("student@example.com", ("2024000001",), None, open_url)],
+        "签到提醒", "还有 10 分钟截止。",
+        level="timeSensitive", page="/dashboard",
+    )
+    html = captured["message"].get_body(("html",)).get_content()
+    assert open_url not in html
+    assert "https://example.com/logo.png?v=1" in html

@@ -68,3 +68,52 @@ def test_invalid_link_marks_nothing(backend):
         r = b.client.get("/api/inbox/read-email", params={"tokens": bad})
         assert r.status_code == 400, r.text
         assert read_at(b, message_id) is None
+
+
+def test_logo_load_marks_message_read(backend):
+    """非重要通知的校徽地址被加载：返回图片并标记已读，不需要登录"""
+    b = backend(db="email_open.db")
+    message_id = add_message(b, "2024000001", "邮件校徽通知")
+    token = inbox_service.read_token(message_id, "2024000001")
+
+    r = b.client.get("/api/inbox/email-open", params={"tokens": token})
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("image/gif")
+    assert read_at(b, message_id) is not None
+
+
+def test_logo_load_redirects_to_static_logo_when_configured(backend):
+    b = backend(db="email_open_redirect.db", PUBLIC_BASE_URL="https://example.com")
+    message_id = add_message(b, "2024000001", "邮件校徽通知")
+    token = inbox_service.read_token(message_id, "2024000001")
+
+    r = b.client.get(
+        "/api/inbox/email-open", params={"tokens": token}, follow_redirects=False
+    )
+    assert r.status_code == 302, r.text
+    assert r.headers["location"] == "https://example.com/logo.png?v=1"
+    assert read_at(b, message_id) is not None
+
+
+def test_logo_load_can_be_disabled_in_ops(backend):
+    """后台关掉后，旧邮件里的校徽地址再被加载也不标记"""
+    b = backend(db="email_open_off.db", EMAIL_OPEN_AUTO_READ="0")
+    message_id = add_message(b, "2024000001", "不该自动已读")
+    token = inbox_service.read_token(message_id, "2024000001")
+
+    r = b.client.get("/api/inbox/email-open", params={"tokens": token})
+    assert r.status_code == 200, r.text
+    assert read_at(b, message_id) is None
+
+
+def test_invalid_logo_token_still_returns_image(backend):
+    """坏令牌不能让邮箱里出现破图，也不能标记任何消息"""
+    b = backend(db="email_open_bad.db")
+    message_id = add_message(b, "2024000001", "不该被标记")
+    good = inbox_service.read_token(message_id, "2024000001")
+
+    for bad in ("bad", good + "x", ""):
+        r = b.client.get("/api/inbox/email-open", params={"tokens": bad})
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"].startswith("image/gif")
+        assert read_at(b, message_id) is None

@@ -6428,6 +6428,8 @@ console.log('\n▶ 人机验证：字符图 / 拼图 / Turnstile 三选一')
 
   const runtimePy = readFileSync(`${ROOT}../backend/app/services/runtime_config.py`, 'utf8')
   check(runtimePy.includes('"captcha_mode"'), '运维页能选验证方式')
+  check(runtimePy.includes('"email_open_auto_read"'),
+    '邮件加载自动已读可在后台开关')
   check(runtimePy.includes('不会回退到字符图或拼图'),
     '保存时就拦住「选了 Turnstile 但 Key 不齐」')
 
@@ -6503,6 +6505,8 @@ console.log('\n▶ 运维页：运行时配置与检查更新')
   check(adminSrc.includes('env_only'), '仍由环境变量配置的项以只读清单展示')
   check(adminSrc.includes("field.kind === 'secret'") && adminSrc.includes('SECRET_MASK'),
     '密文项打码，留空表示不修改')
+  check(adminSrc.includes("f.kind === 'bool'") && adminSrc.includes('<el-switch'),
+    '布尔配置项用开关渲染（邮件加载自动已读）')
   check(adminSrc.includes(":label-width=\"isMobile ? 'auto' : '250px'\"") &&
     adminSrc.includes(":label-position=\"isMobile ? 'top' : 'left'\""),
   '运维表单的标签列够宽，窄屏自动改成上下排')

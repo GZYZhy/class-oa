@@ -14,7 +14,7 @@ class OpsConfigField(BaseModel):
     label: str
     group: str
     kind: str
-    """text / int / secret / choice"""
+    """text / int / secret / choice / bool"""
     help: str = ""
     choices: list[str] = Field(default_factory=list)
     min: int | None = None

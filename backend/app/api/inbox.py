@@ -7,8 +7,8 @@
 
 import html as html_lib
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -24,6 +24,11 @@ router = APIRouter(prefix="/api/inbox", tags=["站内信"])
 MAX_PAGE_SIZE = 100
 # 邮件已读链接里最多认多少个令牌（共用邮箱时一个人可能带好几条，留足余量）
 MAX_EMAIL_TOKENS = 100
+# public_base_url 没配时追踪接口也得返回一张图，不能给邮箱客户端一个 404
+_TRANSPARENT_GIF = (
+    b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!"
+    b"\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+)
 
 
 @router.get("", response_model=InboxListResponse, summary="我的站内信")
@@ -58,22 +63,65 @@ def read_email(
     返回一页极简结果，不跳转 SPA —— 用户点邮件里的按钮只是清红点，
     不该被带进整个站点。
     """
+    pairs = _parse_email_tokens(tokens)
+    if not pairs:
+        return _result_page("链接无效或已过期", "请回到站内信查看这条通知。", 400)
+
+    found = _mark_email_tokens(db, pairs)
+    if not found:
+        return _result_page("通知不存在或已删除", "它可能已经被清理掉了。", 404)
+    return _result_page("已标记为已读", f"这次通知（共 {found} 条）不会再显示未读。")
+
+
+def _parse_email_tokens(tokens: str) -> list[tuple[int, str]]:
+    """解析逗号分隔的令牌，非法的直接丢掉"""
     pairs = []
     for raw in tokens.split(",")[:MAX_EMAIL_TOKENS]:
         pair = inbox_service.parse_read_token(raw.strip())
         if pair:
             pairs.append(pair)
+    return pairs
 
-    if not pairs:
-        return _result_page("链接无效或已过期", "请回到站内信查看这条通知。", 400)
 
-    found = sum(
+def _mark_email_tokens(db: Session, pairs: list[tuple[int, str]]) -> int:
+    """把令牌对应的消息标为已读，返回找到的条数（已读的也算找到）"""
+    return sum(
         1 for message_id, student_no in pairs
         if inbox_service.mark_read(db, student_no, message_id)
     )
-    if not found:
-        return _result_page("通知不存在或已删除", "它可能已经被清理掉了。", 404)
-    return _result_page("已标记为已读", f"这次通知（共 {found} 条）不会再显示未读。")
+
+
+@router.get(
+    "/email-open",
+    summary="邮件校徽加载追踪（非重要通知自动已读）",
+    include_in_schema=False,
+)
+def email_open(
+    tokens: str = Query("", max_length=8000),
+    db: Session = Depends(get_db),
+):
+    """非重要通知的校徽唯一地址：图片被加载时顺手标记已读
+
+    **只用于非重要通知**：发送侧不会把重要通知的校徽换成这个地址。
+    开关关掉后，已经发出去的旧邮件再被加载也不会标记 —— 这里每次都重新读配置。
+    无效令牌、消息已删都不报错，照样返回校徽，避免邮箱里出现破图。
+    """
+    if settings.email_open_auto_read:
+        _mark_email_tokens(db, _parse_email_tokens(tokens))
+
+    base = settings.public_base_url.rstrip("/")
+    if base:
+        # 302 到真正的静态校徽：图片内容不经过后端，也避免在仓库里再存一份
+        return RedirectResponse(
+            f"{base}/logo.png?v=1",
+            status_code=302,
+            headers={"Cache-Control": "no-store"},
+        )
+    return Response(
+        content=_TRANSPARENT_GIF,
+        media_type="image/gif",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _result_page(title: str, message: str, status_code: int = 200) -> HTMLResponse:

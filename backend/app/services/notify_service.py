@@ -190,11 +190,18 @@ def _with_read_urls(
         if not tokens:
             result.append(target)
             continue
-        url = (
-            f"{base}/api/inbox/read-email"
-            f"?tokens={quote(','.join(tokens), safe='')}"
+        token_param = quote(','.join(tokens), safe="")
+        read_url = f"{base}/api/inbox/read-email?tokens={token_param}"
+        # 非重要通知的校徽用同一个令牌拼一个唯一地址；重要通知由发送侧忽略它。
+        # 开关关闭时不生成，之后即使旧邮件还带着地址，接口也会再检查一次开关。
+        open_url = (
+            f"{base}/api/inbox/email-open?tokens={token_param}"
+            if settings.email_open_auto_read
+            else None
         )
-        result.append(EmailTarget(target.address, target.student_nos, url))
+        result.append(
+            EmailTarget(target.address, target.student_nos, read_url, open_url)
+        )
     return result
 
 
