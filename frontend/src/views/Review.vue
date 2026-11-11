@@ -111,7 +111,7 @@
             </template>
           </el-table-column>
 
-          <el-table-column label="操作" :width="isMobile ? 100 : 150" fixed="right" align="center">
+          <el-table-column label="操作" :width="opWidth(150, 120, 90)" class-name="op-cell" fixed="right" align="center">
             <template #default="{ row }">
               <!-- 与后端一致：修改申请班委就能批（change_requests.py 用的是
                    committee_required）。能进这个页面的人本来就都是班委及以上 -->
@@ -192,7 +192,7 @@
           <el-table-column label="申请时间" width="150" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" :width="isMobile ? 100 : 460" fixed="right" align="center">
+          <el-table-column label="操作" :width="opWidth(300, 220)" class-name="op-cell" fixed="right" align="center">
             <template #default="{ row }">
               <el-button
                 v-if="row.proof_original_name"
@@ -344,7 +344,7 @@
               <span v-else style="color: var(--el-text-color-secondary);">暂不签署</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" min-width="530" align="center">
+          <el-table-column label="操作" :width="opWidth(320, 240)" class-name="op-cell" fixed="right" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewEvLicense(row)">行驶证</el-button>
               <!-- 生成的文档：班委和管理员都能下（留档、报学院盖章用）。
@@ -470,7 +470,7 @@
               <el-tag v-else-if="row.status === 'revoked'" type="info" size="small">已撤销</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" min-width="420" align="center">
+          <el-table-column label="操作" :width="opWidth(280, 220)" class-name="op-cell" fixed="right" align="center">
             <template #default="{ row }">
               <template v-if="row.attachments?.length">
                 <el-button size="small" link type="primary" @click="viewCertAttachment(row)">
@@ -592,7 +592,7 @@
               {{ row.status === 'rejected' ? (row.reason || '') : (row.reviewer_name || '-') }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" :width="isMobile ? 100 : 200" fixed="right" align="center">
+          <el-table-column label="操作" :width="opWidth(190, 150)" class-name="op-cell" fixed="right" align="center">
             <template #default="{ row }">
               <!-- 签字图本身也在这里给管理员看一眼：批之前总得知道批的是什么。
                    管理员看签字不受审批限制（取图接口直接放行） -->
@@ -653,7 +653,7 @@
               {{ row.status === 'rejected' ? (row.reason || '') : (row.reviewer_name || '-') }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" :width="isMobile ? 100 : 140" fixed="right" align="center">
+          <el-table-column label="操作" :width="opWidth(140, 110, 90)" class-name="op-cell" fixed="right" align="center">
             <template #default="{ row }">
               <template v-if="row.status === 'pending'">
                 <el-button size="small" link type="success" @click="handleApproveArchive(row)">通过</el-button>
@@ -716,7 +716,7 @@
           <el-table-column label="申请时间" min-width="160" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" min-width="260" align="center">
+          <el-table-column label="操作" :width="opWidth(220, 180)" class-name="op-cell" fixed="right" align="center">
             <template #default="{ row }">
               <template v-if="(row.status === 'generated' || row.status === 'approved') && (userStore.isAdmin || row.student_no === userStore.userInfo?.student_no)">
                 <el-button
@@ -790,7 +790,7 @@
           <el-table-column label="提交时间" width="160" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" :width="isMobile ? 100 : 180" fixed="right" align="center">
+          <el-table-column label="操作" :width="opWidth(180, 140)" class-name="op-cell" fixed="right" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewFeedback(row)">
                 查看
@@ -1132,6 +1132,14 @@ const loading = ref(false)
 const loadError = ref('')
 const reviewRequest = useLatestRequest()
 const isMobile = useIsMobile()
+const isTablet = useIsMobile(1024)
+
+/** 操作列宽度：桌面 / iPad / 手机三档，避免 iPad 上还按桌面宽度吃满 */
+function opWidth(desktop, tablet, mobile = 100) {
+  if (isMobile.value) return mobile
+  return isTablet.value ? tablet : desktop
+}
+
 // 从推送点进来时带着 ?tab=leave 之类的参数，直接落到对应分类；
 // 不带参数（正常从菜单进）就还是老样子，停在信息修改申请
 const TABS = ['change', 'leave', 'evpass', 'certificate', 'signphoto', 'archive', 'export', 'feedback']
@@ -2234,6 +2242,23 @@ onMounted(handleTabChange)
 .page-card {
   /* 水印的定位基准 */
   position: relative;
+}
+
+/* 操作列可能同时出现受理/撤回/补正/撤销等很多按钮：允许换行，别把列撑爆 */
+:deep(.op-cell .cell) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 6px;
+}
+
+:deep(.op-cell .cell > .el-button) {
+  margin-left: 0;
+}
+
+:deep(.op-cell .cell > span) {
+  flex-basis: 100%;
 }
 
 /* tab 标签上的待办红点。手写一个 span 而不用 el-badge：

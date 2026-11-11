@@ -790,6 +790,22 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+/* 工具栏四个按钮统一宽高；主按钮只保留内高光，别让外发光看起来比旁边大一圈 */
+.at-actions :deep(.el-button) {
+  min-width: 112px;
+  height: 36px;
+  padding: 0 14px;
+  justify-content: center;
+}
+
+.at-actions :deep(.el-button .el-icon) {
+  margin-right: 6px;
+}
+
+.at-actions :deep(.el-button--primary) {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
+}
+
 /* 筛选栏整条摆在浅色底上，不再用表单项标签撑出好几行 */
 .at-filter {
   display: flex;

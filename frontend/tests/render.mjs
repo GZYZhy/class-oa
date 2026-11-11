@@ -1832,6 +1832,18 @@ const currentStudent = ref({ id: 7, student_no: '2024000004', name: '丁', sensi
     '申请与状态接口路径和后端一致')
 }
 
+console.log('\n▶ 审核页：操作列统一固定，宽度分三档')
+{
+  const src = readFileSync(`${ROOT}/src/views/Review.vue`, 'utf8')
+  const ops = src.match(/label="操作"[^\n]*/g) || []
+  check(ops.length === 8 && ops.every((line) => line.includes('fixed="right"')),
+    '八个 tab 的操作列都固定右侧')
+  check(src.includes('function opWidth(desktop, tablet, mobile = 100)') &&
+    src.includes('useIsMobile(1024)') &&
+    !src.includes('isMobile ? 100 : 460'),
+  '操作列宽度按桌面 / iPad / 手机分档，不再给 iPad 留 460px')
+}
+
 console.log('\n▶ 审核页：档案查看申请 tab')
 {
   const src = readFileSync(`${ROOT}/src/views/Review.vue`, 'utf8')

@@ -514,19 +514,18 @@ html.dark .el-overlay {
   font-weight: 500;
 }
 
-/* 主按钮在渐变底上再叠一层同色柔光，让它从页面里「浮」起来一档；
-   plain/link/text 不动，保持它们轻量的定位 */
+/* 主按钮用渐变和上缘高光区分层级，不再加外发光 ——
+   外发光会把整颗按钮撑大一圈，和旁边的普通按钮并排时显得尺寸不一致 */
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
   background-image: var(--app-accent-gradient);
   border-color: transparent;
-  /* 上缘一道极细高光：和卡片的受光面同一套语言，按钮才不像一块贴纸 */
-  box-shadow: var(--app-accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
 }
 
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover,
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):focus-visible {
   background-image: var(--app-accent-gradient-hover);
-  box-shadow: 0 6px 16px rgba(107, 116, 244, 0.20);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
 }
 
 .el-input__wrapper,
