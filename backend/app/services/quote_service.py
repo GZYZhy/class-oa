@@ -19,14 +19,19 @@ def _empty(enabled: bool = True) -> dict:
     return {"enabled": enabled, "text": "", "from": "", "from_who": ""}
 
 
-def _categories() -> str:
-    return ",".join(
+def _categories() -> list[str]:
+    """分类列表。requests 对列表会编码成重复的 c=d&c=i&c=k，
+
+    不能拼成 c=d,i,k：实测一言接口会返回 400「没有分类有句子」，
+    首页就永远只剩一句空话。
+    """
+    return [
         part.strip() for part in (settings.hitokoto_categories or "").split(",")
         if part.strip()
-    )
+    ]
 
 
-def _fetch(categories: str) -> dict:
+def _fetch(categories: list[str]) -> dict:
     try:
         params = {"encode": "json", "charset": "utf-8"}
         if categories:
@@ -55,14 +60,15 @@ def get_quote() -> dict:
     if not settings.hitokoto_enabled:
         return _empty(False)
 
-    key = _categories() or "*"
+    categories = _categories()
+    key = ",".join(categories) or "*"
     now = time.monotonic()
     with _lock:
         cached = _cache.get(key)
         if cached and cached[0] > now:
             return cached[1]
 
-    quote = _fetch(key if key != "*" else "")
+    quote = _fetch(categories)
     with _lock:
         _cache[key] = (now + CACHE_SECONDS, quote)
     return quote

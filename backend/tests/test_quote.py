@@ -40,6 +40,7 @@ def test_success_is_cached(monkeypatch):
     assert first["from_who"] == "某人"
     assert second == first
     assert len(calls) == 1, "同一分类十分钟内只请求一次"
+    assert calls[0]["c"] == ["d", "i"], "多分类必须重复传参，不能拼成 d,i"
 
 
 def test_failure_degrades_to_empty(monkeypatch):
