@@ -21,18 +21,18 @@
       </router-link>
     </div>
 
-    <div class="work-columns" :class="{ 'no-quote': !quote?.text }">
+    <div class="work-columns">
       <section class="work-section">
         <header class="work-heading">
           <h2>近期事项</h2>
           <router-link to="/vote">投票与收集<el-icon><ArrowRight /></el-icon></router-link>
         </header>
         <div v-if="loading" class="work-skeleton" aria-label="正在加载近期事项" aria-busy="true">
-          <span v-for="n in 3" :key="n" />
+          <span v-for="n in 2" :key="n" />
         </div>
         <ListFeedback v-else-if="tasksError" :error="tasksError" @retry="load" />
         <ul v-else-if="tasks.length" class="work-list">
-          <li v-for="task in tasks.slice(0, 5)" :key="task.key" class="work-task">
+          <li v-for="task in tasks.slice(0, 2)" :key="task.key" class="work-task">
             <span class="task-kind" :class="{ 'task-correction': task.kind === '补正' }">{{ task.kind }}</span>
             <div class="task-main">
               <a v-if="task.share" :href="task.path" target="_blank" rel="noopener noreferrer" class="task-title">{{ task.title }}</a>
@@ -48,12 +48,8 @@
           <strong>近期没有需要参与的事项</strong>
           <span>进行中的投票、收集和需要补正的申请会显示在这里。</span>
         </div>
-        <router-link v-if="tasks.length > 5" to="/vote" class="work-more">查看其他事项</router-link>
+        <router-link v-if="tasks.length > 2" to="/vote" class="work-more">查看其他事项</router-link>
         <p v-if="hasMore" class="work-note">这里只汇总最近发布的事项，历史记录可在对应页面查看。</p>
-        <figure v-if="quote?.enabled && quote.text" class="work-quote">
-          <blockquote>{{ quote.text }}</blockquote>
-          <figcaption>—— {{ quote.from_who || quote.from || '一言' }}</figcaption>
-        </figure>
       </section>
 
       <section class="work-section agenda-section">
@@ -62,7 +58,7 @@
           <router-link to="/schedule">打开日程<el-icon><ArrowRight /></el-icon></router-link>
         </header>
         <div v-if="loading" class="work-skeleton" aria-label="正在加载今日日程" aria-busy="true">
-          <span v-for="n in 3" :key="n" />
+          <span v-for="n in 2" :key="n" />
         </div>
         <ListFeedback v-else-if="agendaError" :error="agendaError" @retry="load" />
         <ul v-else-if="agenda.length" class="agenda-list">
@@ -92,7 +88,6 @@ import { useLatestRequest } from '@/composables/useLatestRequest'
 import { getPolls } from '@/api/vote'
 import { getCollections } from '@/api/collection'
 import { getMySubmitted } from '@/api/workspace'
-import { getDailyQuote } from '@/api/auth'
 import { listExternalSchedules, listSchedules } from '@/api/schedule'
 import { formatDateTime } from '@/utils/format'
 import { sharePath } from '@/utils/share-url'
@@ -101,10 +96,8 @@ import ListFeedback from '@/components/ListFeedback.vue'
 const user = useUserStore()
 const badges = useBadgeStore()
 const latest = useLatestRequest()
-const quoteLatest = useLatestRequest()
 const tasks = ref([])
 const agenda = ref([])
-const quote = ref(null)
 const loading = ref(true)
 const tasksError = ref('')
 const agendaError = ref('')
@@ -116,7 +109,6 @@ async function load() {
   loading.value = true
   tasksError.value = ''
   agendaError.value = ''
-  loadQuote()
   const now = new Date()
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const [polls, collections, cases, schedules] = await Promise.allSettled([
@@ -151,17 +143,6 @@ async function load() {
   if (schedules.status === 'rejected') agendaError.value = '今日日程加载失败'
   else agenda.value = [...schedules.value].sort((a, b) => a.start_time.localeCompare(b.start_time))
   loading.value = false
-}
-
-async function loadQuote() {
-  const id = quoteLatest.start()
-  quote.value = null
-  try {
-    const data = await getDailyQuote()
-    if (quoteLatest.isCurrent(id)) quote.value = data
-  } catch {
-    // 一言只是点缀，失败不打扰用户
-  }
 }
 
 onMounted(load)
@@ -217,7 +198,7 @@ watch(() => user.info?.student_no, load)
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
 }
-.work-columns.no-quote {
+.work-columns {
   align-items: start;
 }
 .work-section {
@@ -311,12 +292,12 @@ watch(() => user.info?.student_no, load)
   padding: 8px 0 8px 8px;
 }
 .work-empty {
-  min-height: 130px;
+  min-height: 76px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 10px;
+  gap: 6px;
 }
 .work-empty > .el-icon {
   color: var(--el-color-primary);
@@ -368,30 +349,6 @@ watch(() => user.info?.student_no, load)
   text-decoration: none;
   line-height: 1.7;
 }
-.work-quote {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 120px;
-  margin: 18px 0 0;
-  padding: 18px 0 0;
-  border-top: 1px solid var(--app-outline);
-}
-.work-quote blockquote {
-  margin: 0;
-  color: var(--el-text-color-regular);
-  font-size: 16px;
-  line-height: 1.8;
-  overflow-wrap: anywhere;
-}
-.work-quote figcaption {
-  margin-top: 10px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  text-align: right;
-}
-
 .work-skeleton {
   display: grid;
   gap: 14px;
@@ -410,7 +367,7 @@ watch(() => user.info?.student_no, load)
     border-top: 1px solid var(--app-outline);
   }
   .work-empty {
-    min-height: 100px;
+    min-height: 70px;
   }
 }
 @media (max-width: 520px) {
@@ -426,12 +383,6 @@ watch(() => user.info?.student_no, load)
   }
   .work-section {
     padding: 19px 16px;
-  }
-  .work-quote {
-    min-height: 96px;
-  }
-  .work-quote blockquote {
-    font-size: 15px;
   }
   .work-heading {
     margin-bottom: 18px;

@@ -6596,17 +6596,15 @@ console.log('\n▶ 加载失败时有重试入口，不能被当成空列表')
   check(work.html.includes('近期事项暂时无法完整加载') && work.html.includes('重新加载'), '首页部分请求失败时明确说明并提供重试')
   check(!work.html.includes('近期没有需要参与的事项'), '汇总失败时不声称所有事项已处理')
 
-  const withQuote = await renderPatched('/src/components/DashboardWork.vue', 'onMounted(load)', `
-    loading.value = false
-    tasks.value = []
-    quote.value = { enabled: true, text: '人间烟火气，最抚凡人心。', from: '出处', from_who: '某人' }
-  `)
-  check(withQuote.html.includes('人间烟火气') && withQuote.html.includes('某人'),
-    '首页一言显示在事务区底部')
-  check(withQuote.html.includes('work-quote'), '一言块会填满左栏空白，和右侧日程对齐')
   const workSrc = readFileSync(`${ROOT}src/components/DashboardWork.vue`, 'utf8')
-  check(workSrc.includes('getDailyQuote') && workSrc.includes("'no-quote'"),
-    '一言请求独立加载，关闭时不强行撑高左栏')
+  check(workSrc.includes('tasks.slice(0, 2)'),
+    '近期事项只为两条仍激活的事项预留位置')
+  check(!workSrc.includes('work-quote') && !workSrc.includes('getDailyQuote'),
+    '一言不再占用近期事项左栏')
+
+  const dashboardSrc = readFileSync(`${ROOT}src/views/Dashboard.vue`, 'utf8')
+  check(dashboardSrc.includes('banner-quote') && dashboardSrc.includes('getDailyQuote'),
+    '一言移到问候横幅里')
 }
 
 await server.close()

@@ -8,6 +8,11 @@
         <h1 v-if="userStore.isLogin">{{ greeting }}，{{ userStore.info.name }}</h1>
         <h1 v-else>欢迎来到{{ SITE.shortName }}</h1>
         <p v-if="userStore.isLogin" class="banner-date">{{ todayLabel }}</p>
+        <!-- 一言放在问候语下面，作为横幅的一部分；没有内容时整行不出现 -->
+        <p v-if="userStore.isLogin && quote?.text" class="banner-quote">
+          “{{ quote.text }}”
+          <span v-if="quote.from_who || quote.from">—— {{ quote.from_who || quote.from }}</span>
+        </p>
         <p v-if="SITE.subtitle && !userStore.isLogin" class="banner-subtitle">{{ SITE.subtitle }}</p>
         <!-- 学院、专业：各自判空，**不是拼成一句话再过滤** —— SITE 里没配就是空字符串、
              代码刻意不做兜底（utils/site.js 的口径），拼的话两个都空会渲染出一句孤零零的「 · 」 -->
@@ -250,9 +255,9 @@
 
 <script setup>
 import ListFeedback from '@/components/ListFeedback.vue'
-import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getPublicSummary } from '@/api/auth'
+import { getPublicSummary, getDailyQuote } from '@/api/auth'
 import { getBirthdayToday } from '@/api/birthday'
 import { getWeather } from '@/api/weather'
 import { getNotices } from '@/api/notice'
@@ -274,6 +279,25 @@ const showGuestTip = computed(() => userStore.resolved && !userStore.isLogin)
 function goLogin() {
   router.push({ path: '/login', query: { redirect: '/dashboard' } })
 }
+
+// 首页一言：放在欢迎横幅里。只在登录后请求，失败就当没有这句话
+const quote = ref(null)
+async function loadQuote() {
+  try {
+    const data = await getDailyQuote()
+    quote.value = data?.enabled && data.text ? data : null
+  } catch {
+    quote.value = null
+  }
+}
+watch(
+  () => userStore.isLogin,
+  (login) => {
+    if (login) loadQuote()
+    else quote.value = null
+  },
+  { immediate: true }
+)
 
 const stats = ref(null)
 // 首页统计的加载/失败：弱网下「0 人」是假数据，宁可显示骨架或一句实话
@@ -502,6 +526,20 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 1;
   min-width: 0;
+}
+
+.banner-quote {
+  margin: 10px 0 0;
+  max-width: 760px;
+  font-size: 13px;
+  line-height: 1.75;
+  opacity: .86;
+  overflow-wrap: anywhere;
+}
+.banner-quote span {
+  margin-left: 8px;
+  opacity: .72;
+  white-space: nowrap;
 }
 
 .banner-text h1 {
