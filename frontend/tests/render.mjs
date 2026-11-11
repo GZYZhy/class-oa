@@ -283,8 +283,6 @@ console.log('\n▶ 多端布局与弱网反馈')
     '键盘焦点环与文字选中色都有，键盘和鼠标用户都不吃亏')
 
   const dash = readFileSync(`${ROOT}/src/views/Dashboard.vue`, 'utf8')
-  check(dash.includes('statsLoading') && dash.includes('stat-skeleton'),
-    '统计加载中显示骨架，而不是先报「0 人」这种假数据')
   check(dash.includes('noticesLoading') && dash.includes('notice-skeleton-row'),
     '通知加载中占住三行骨架，避免先塌一块再弹出来')
   check(dash.includes('statsError') && dash.includes('loadStats'),
@@ -2638,75 +2636,13 @@ console.log('\n▶ 文件公开：删掉的文件，水印溯源要说得出「�
     '删确认框里写明「查看/下载记录也会一并清理」')
 }
 
-console.log('\n▶ 首页统计卡：iPad 竖屏下两位数不折行')
+console.log('\n▶ 首页：统计卡已移除')
 {
-  // 折行是布局算出来的，SSR 出来的 HTML 里没有宽度 —— 所以这一节断的是**样式表**：
-  // 把 <style> 里每条 @media 的条件解析出来，算出某宽度会命中哪几条，再断言命中的
-  // 那条确实把卡里的图标和数字收小了。
-  //
-  // 为什么盯 820：iPad 竖屏（810 / 820 / 834）在 768 之上，拿不到「手机」那套尺寸，
-  // 而四张卡已经按 1/4 宽排好了，桌面尺寸（图标 60px、数字 28px、内边距 20px）挤不下 ——
-  // 「36」当场被压成上下两个数字，标签「总人数」也竖成三行。
   const src = readFileSync(`${ROOT}/src/views/Dashboard.vue`, 'utf8')
-  const style = src.slice(src.indexOf('<style'), src.lastIndexOf('</style>'))
-
-  /** 从 s[open]（'{' 的位置）起找配对的那个 '}'，返回里面那段文本 */
-  const inside = (s, open) => {
-    let depth = 0
-    for (let i = open; i < s.length; i++) {
-      if (s[i] === '{') depth++
-      else if (s[i] === '}' && --depth === 0) return s.slice(open + 1, i)
-    }
-    return ''
-  }
-  const media = [...style.matchAll(/@media\s*([^{]+)\{/g)].map((m) => {
-    const open = m.index + m[0].length - 1
-    const body = inside(style, open)
-    return { cond: m[1].trim(), start: m.index, end: open + body.length + 2, body }
-  })
-  check(media.length > 0, '样式表里有 @media')
-
-  /** 一条 @media 的条件把宽度 w 圈在里面吗（只认 min-width / max-width，够用了） */
-  const covers = (cond, w) => {
-    const min = cond.match(/min-width:\s*([\d.]+)px/)
-    const max = cond.match(/max-width:\s*([\d.]+)px/)
-    return !(min && w < +min[1]) && !(max && w > +max[1])
-  }
-  /** 样式文本里某个选择器的声明块（`[^}]` 收尾即可：这几条规则里没有嵌套） */
-  const decls = (text, sel) =>
-    (text.match(new RegExp(sel.replace(/\./g, '\\.') + '\\s*\\{([^}]*)\\}')) || ['', ''])[1]
-  /** 一条声明里的某个 px 值 */
-  const px = (decl, prop) => {
-    const m = decl.match(new RegExp(`${prop}:\\s*([\\d.]+)px`))
-    return m ? +m[1] : null
-  }
-
-  const W = 820
-  const hit = media.filter((b) => covers(b.cond, W))
-  const icons = hit.map((b) => px(decls(b.body, '.stat-icon'), 'width')).filter((v) => v !== null)
-  const values = hit.map((b) => px(decls(b.body, '.stat-value'), 'font-size')).filter((v) => v !== null)
-
-  check(icons.length > 0 && Math.min(...icons) <= 50,
-    `${W}px 会命中一条把图标收到 50px 以内的媒体查询（现在是 ${icons.length ? Math.min(...icons) + 'px' : '没命中'}）`)
-  check(values.length > 0 && Math.min(...values) <= 24,
-    `${W}px 会把数字收到 24px 以内（现在是 ${values.length ? Math.min(...values) + 'px' : '没命中'}）`)
-
-  // 兜底：数字任何宽度下都不许换行 —— 上面那条媒体查询哪天被删了，两位数也不该折成两行。
-  // 先把它那几条 @media 整块挖掉，才是各行其是的「基础样式」（倒着挖，下标才还准）
-  let base = style
-  for (const b of [...media].reverse()) base = base.slice(0, b.start) + base.slice(b.end)
-  check(/white-space:\s*nowrap/.test(decls(base, '.stat-value')),
-    '基础样式里 .stat-value 写着 white-space: nowrap')
-
-  // 这一页**渲染不了**（顶部 import echarts，而 zrender 在模块顶层就摸 document），
-  // 四张卡还在不在只能断源码
-  const cards = ['总人数', '女生', '男生', '班委']
-  check(cards.every((label) => src.includes(`<div class="stat-label">${label}</div>`)),
-    `四张统计卡都还在（${cards.join(' / ')}）`)
-  // 标签一律短词：四字短语（「女生人数」）在窄屏上会被卡片宽度挤成两行，
-  // 而那是卡片里唯一不会自己收窄的东西
-  check(cards.every((label) => label.length <= 3),
-    `标签都不超过三个字（${cards.join(' / ')}）`)
+  check(!src.includes('stat-card') && !src.includes('stat-label'),
+    '四张统计小卡片已移除')
+  check(src.includes('genderChartRef') && src.includes('性别分布'),
+    '性别分布图仍然保留')
 }
 
 console.log('\n▶ 首页：品牌标签、快捷入口、最新通知')

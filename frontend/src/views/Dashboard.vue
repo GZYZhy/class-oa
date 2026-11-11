@@ -97,60 +97,6 @@
     </div>
 
     <h2 class="overview-title">班级概览</h2>
-    <!-- 顶部统计卡片。
-         标签一律用短词（「女生」而不是「女生人数」）：四字短语在窄屏上会被卡片宽度
-         挤成两行，而这两行是卡片里唯一不会自己收窄的东西 -->
-    <el-row :gutter="20">
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card card-blue">
-          <div class="stat-icon"><el-icon><User /></el-icon></div>
-          <div class="stat-info">
-            <div v-if="statsLoading" class="stat-value stat-skeleton" aria-label="加载中" />
-            <div v-else class="stat-value">
-              {{ stats?.total ?? '—' }}<span v-if="stats?.total != null" class="stat-unit">人</span>
-            </div>
-            <div class="stat-label">总人数</div>
-          </div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card card-pink">
-          <div class="stat-icon"><el-icon><Female /></el-icon></div>
-          <div class="stat-info">
-            <div v-if="statsLoading" class="stat-value stat-skeleton" aria-label="加载中" />
-            <div v-else class="stat-value">
-              {{ stats?.gender?.['女'] ?? '—' }}<span v-if="stats?.gender?.['女'] != null" class="stat-unit">人</span>
-            </div>
-            <div class="stat-label">女生</div>
-          </div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card card-cyan">
-          <div class="stat-icon"><el-icon><Male /></el-icon></div>
-          <div class="stat-info">
-            <div v-if="statsLoading" class="stat-value stat-skeleton" aria-label="加载中" />
-            <div v-else class="stat-value">
-              {{ stats?.gender?.['男'] ?? '—' }}<span v-if="stats?.gender?.['男'] != null" class="stat-unit">人</span>
-            </div>
-            <div class="stat-label">男生</div>
-          </div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card card-green">
-          <div class="stat-icon"><el-icon><Medal /></el-icon></div>
-          <div class="stat-info">
-            <div v-if="statsLoading" class="stat-value stat-skeleton" aria-label="加载中" />
-            <div v-else class="stat-value">
-              {{ stats?.class_committee_count ?? '—' }}<span v-if="stats?.class_committee_count != null" class="stat-unit">人</span>
-            </div>
-            <div class="stat-label">班委</div>
-          </div>
-        </div>
-      </el-col>
-    </el-row>
-
     <!-- 统计没拿到时不说「0 人」：那是假数据。给一句实话 + 重试 -->
     <div v-if="statsError" class="stats-error">
       <el-icon><Warning /></el-icon>
@@ -161,7 +107,7 @@
     </div>
 
     <!-- 性别分布 + 天气：天气卡替代了原来的政治面貌饼图 -->
-    <el-row :gutter="20" style="margin-top: 20px;">
+    <el-row :gutter="20">
       <el-col :xs="24" :md="12">
         <div class="page-card chart-card">
           <h3 class="page-title">性别分布</h3>
@@ -680,147 +626,6 @@ onBeforeUnmount(() => {
   opacity: 0.92;
 }
 
-.stat-card {
-  /* 和 page-card 同一道受光面 */
-  background: var(--app-surface-sheen) padding-box;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius);
-  padding: 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  /* 分层投影 + 顶部内高光，和 .page-card 同一套玻璃质感 */
-  box-shadow: var(--app-shadow), var(--app-card-inset);
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.stat-card:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--app-shadow-hover), var(--app-card-inset);
-}
-
-/* 统计数字的骨架：宽 64、高 22，和真实数字（28px 高）几乎等高，
-   数据回来时卡片不跳。动画只动背景位置，走合成层 */
-.stat-skeleton {
-  display: flex;
-  align-items: center;
-  /* 跟着字号走：桌面 28px、手机 20px 两档下都正好和真实数字等高，数据回来不跳 */
-  height: 1.2em;
-}
-
-.stat-skeleton::before {
-  content: '';
-  width: 2.2em;
-  height: 0.78em;
-  border-radius: 8px;
-  background: linear-gradient(
-    90deg,
-    rgba(120, 125, 160, 0.10),
-    rgba(120, 125, 160, 0.22),
-    rgba(120, 125, 160, 0.10)
-  );
-  background-size: 200% 100%;
-  animation: stat-shimmer 1.2s linear infinite;
-}
-
-@keyframes stat-shimmer {
-  to { background-position: -200% 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stat-skeleton::before {
-    animation: none;
-  }
-}
-
-/* 统计失败：一行实话 + 重试，不占卡片、也不打断页面其它部分 */
-.stats-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 8px 14px;
-  border-radius: 12px;
-  border: 1px dashed var(--app-outline);
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-/* 通知骨架：三行同高占位，行宽递减一点，看起来像真列表在加载 */
-.notice-skeleton-row {
-  height: 22px;
-  margin: 10px 0;
-  border-radius: 6px;
-  background: linear-gradient(
-    90deg,
-    rgba(120, 125, 160, 0.08),
-    rgba(120, 125, 160, 0.16),
-    rgba(120, 125, 160, 0.08)
-  );
-  background-size: 200% 100%;
-  animation: stat-shimmer 1.2s linear infinite;
-}
-
-.notice-skeleton-row:nth-child(2) {
-  width: 78%;
-}
-
-.notice-skeleton-row:nth-child(3) {
-  width: 56%;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .notice-skeleton-row {
-    animation: none;
-  }
-}
-
-.stat-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 30px;
-  color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
-
-/* 图标渐变调回「中调起点」：上一版压淡半档后和浅卡片糊在一起、对比不足，
-   现在起点加深一档、终点保持柔，白图标始终清晰 */
-.card-blue .stat-icon { background: linear-gradient(135deg, #4d84ee, #83aef7); box-shadow: 0 8px 18px rgba(77, 132, 238, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
-.card-pink .stat-icon { background: linear-gradient(135deg, #ec6d8c, #f5a3b4); box-shadow: 0 8px 18px rgba(236, 109, 140, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
-.card-cyan .stat-icon { background: linear-gradient(135deg, #2bb3a0, #6ed4c2); box-shadow: 0 8px 18px rgba(43, 179, 160, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
-.card-green .stat-icon { background: linear-gradient(135deg, #52b864, #8cd996); box-shadow: 0 8px 18px rgba(82, 184, 100, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-  line-height: 1.2;
-  letter-spacing: 0.3px;
-  font-variant-numeric: tabular-nums;
-  /* 数字永远不换行：卡片被挤窄时「36」会被折成上下两个数字，看着像写错了。
-     见下面那条 iPad 竖屏的媒体查询 —— 空间不够是根源，这里是兜底 */
-  white-space: nowrap;
-}
-
-/* 「人」跟在数字后面，小一号、淡一档：标签已经说明了是什么人，
-   这个字只是把「36」从裸数字变成量词 */
-.stat-unit {
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--el-text-color-secondary);
-  margin-left: 3px;
-}
-
-.stat-label {
-  font-size: 14px;
-  color: var(--el-text-color-secondary);
-  margin-top: 4px;
-}
-
 /* 最新通知跟在统计卡后面，间距和图表那行保持一致 */
 .notice-card {
   margin-top: 20px;
@@ -1146,33 +951,6 @@ onBeforeUnmount(() => {
   }
 }
 
-/* iPad 竖屏那一段（810 / 820 / 834px）：它在 768 之上，拿不到下面那套手机尺寸，
-   于是四张卡按**桌面尺寸**（图标 60px、数字 28px、内边距 20px）挤在 1/4 宽里 ——
-   「36」这种两位数当场被压成上下两个数字，标签「总人数」也竖成三行。
-   这里单独收一号，把 769~991 这段补齐（992 起是 md，1/4 宽够放桌面尺寸） */
-@media (min-width: 769px) and (max-width: 992px) {
-  .stat-card {
-    padding: 14px;
-    gap: 12px;
-  }
-
-  .stat-icon {
-    width: 44px;
-    height: 44px;
-    font-size: 22px;
-    border-radius: 10px;
-    flex-shrink: 0;
-  }
-
-  .stat-value {
-    font-size: 22px;
-  }
-
-  .stat-label {
-    font-size: 12px;
-  }
-}
-
 /* 手机上卡片只有半屏宽，图标和数字都收一号才放得下 */
 @media (max-width: 768px) {
   .welcome-banner {
@@ -1206,29 +984,7 @@ onBeforeUnmount(() => {
     font-size: 13px;
   }
 
-  .stat-card {
-    padding: 12px;
-    gap: 10px;
-    margin-bottom: 12px;
-  }
-
-  .stat-icon {
-    width: 40px;
-    height: 40px;
-    font-size: 20px;
-    border-radius: 8px;
-    flex-shrink: 0;
-  }
-
-  .stat-value {
-    font-size: 20px;
-  }
-
-  .stat-label {
-    font-size: 12px;
-  }
-
-  .chart-container {
+          .chart-container {
     min-height: 220px;
   }
 
