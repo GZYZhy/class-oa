@@ -58,7 +58,9 @@
       </div>
 
       <!-- 列表 -->
-      <el-table
+      <ListFeedback :error="loadError" :loading="loading" @retry="fetchList()" />
+
+    <el-table v-show="!loadError"
         ref="tableRef"
         v-loading="loading"
         :data="rows"
@@ -268,6 +270,9 @@
 </template>
 
 <script setup>
+import ListFeedback from '@/components/ListFeedback.vue'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { usePageState } from '@/composables/usePageState'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CheckinCreateDialog from '@/components/CheckinCreateDialog.vue'
@@ -308,6 +313,8 @@ function formatClock(value) {
 }
 
 const loading = ref(false)
+const loadError = ref('')
+const listRequest = useLatestRequest()
 const exporting = ref(false)
 const rows = ref([])
 const total = ref(0)
@@ -316,6 +323,7 @@ const pageSize = ref(20)
 const dateRange = ref(null)
 // 关键词搜两类记录的标题（点名取 remark、签到取 title）。和日期范围是「并且」的关系
 const keyword = ref('')
+usePageState('Attendance', { currentPage, pageSize, keyword, dateRange }, loading)
 
 const tableRef = ref(null)
 const selection = ref([])
@@ -404,6 +412,8 @@ function restActions(row) {
 }
 
 async function fetchList(quiet = false) {
+  const requestId = listRequest.start()
+  if (!quiet) loadError.value = ''
   if (!quiet) loading.value = true
   try {
     const params = { page: currentPage.value, page_size: pageSize.value }
@@ -413,13 +423,15 @@ async function fetchList(quiet = false) {
     }
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await getAttendanceOverview(params)
+    if (!listRequest.isCurrent(requestId)) return
+    loadError.value = ''
     rows.value = res.items || []
     total.value = res.total || 0
   } catch (e) {
     // 后台静默刷新失败不打扰用户，下一次轮询会再试
-    if (!quiet) ElMessage.error(errText(e, '读取考勤记录失败'))
+    if (!quiet && listRequest.isCurrent(requestId)) loadError.value = errText(e, '读取考勤记录失败')
   } finally {
-    if (!quiet) loading.value = false
+    if (!quiet && listRequest.isCurrent(requestId)) loading.value = false
   }
 }
 

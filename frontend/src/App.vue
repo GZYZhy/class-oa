@@ -24,6 +24,7 @@
 </template>
 
 <script setup>
+import { clearPageStates } from '@/composables/usePageState'
 import { defineAsyncComponent, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouteProgress } from '@/composables/useRouteProgress'
@@ -41,6 +42,7 @@ const AppLayout = defineAsyncComponent(() => import('@/components/AppLayout.vue'
 const route = useRoute()
 const userStore = useUserStore()
 const badgeStore = useBadgeStore()
+watch([() => userStore.info?.student_no, () => userStore.info?.role], clearPageStates)
 // 顶部那条 2px 进度条的状态；挂载一次，之后由 router 钩子驱动
 const routeProgress = useRouteProgress()
 

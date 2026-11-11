@@ -41,7 +41,10 @@
     </div>
 
     <!-- 列表 -->
-    <el-table
+    <ListFeedback :error="loadError" :loading="loading" @retry="fetchList" />
+
+      <el-table
+        v-show="!loadError"
       v-loading="loading"
       :data="rows"
       stripe
@@ -173,6 +176,9 @@
 </template>
 
 <script setup>
+import ListFeedback from '@/components/ListFeedback.vue'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { usePageState } from '@/composables/usePageState'
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Refresh, Search } from '@element-plus/icons-vue'
@@ -200,12 +206,15 @@ import { errText } from '@/utils/request'
 import { openShareInNewTab, shareUrl } from '@/utils/share-url'
 
 const loading = ref(false)
+const loadError = ref('')
+const listRequest = useLatestRequest()
 const rows = ref([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const status = ref('')
 const keyword = ref('')
+usePageState('CollectPanel', { currentPage, pageSize, status, keyword }, loading)
 
 const createRef = ref(null)
 const responsesVisible = ref(false)
@@ -217,18 +226,21 @@ const shareSubtitle = ref('')
 const shareLink = ref('')
 
 async function fetchList() {
+  const requestId = listRequest.start()
+  loadError.value = ''
   loading.value = true
   try {
     const params = { page: currentPage.value, page_size: pageSize.value }
     if (status.value) params.status = status.value
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await getCollections(params)
+    if (!listRequest.isCurrent(requestId)) return
     rows.value = res.items || []
     total.value = res.total || 0
   } catch (e) {
-    ElMessage.error(errText(e, '读取收集列表失败'))
+    if (listRequest.isCurrent(requestId)) loadError.value = errText(e, '读取收集列表失败')
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(requestId)) loading.value = false
   }
 }
 

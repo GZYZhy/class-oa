@@ -3,7 +3,10 @@
     <!-- 全班成绩都在这一页，盖一层「谁在什么时候看的」 -->
     <Watermark :text="watermarkText" />
     <div class="page-card">
-      <h3 class="page-title">成绩管理</h3>
+      <div class="page-toolbar page-heading">
+        <h3 class="page-title">成绩管理</h3>
+        <span class="page-count" role="status">共 {{ total }} 场测试</span>
+      </div>
       <div class="gd-bar">
         <el-form :inline="true" size="default" class="gd-filter" @submit.prevent>
           <el-form-item label="考试名称">
@@ -31,12 +34,41 @@
         </span>
       </div>
 
+      <ListFeedback :error="loadError" :loading="loading" @retry="fetchList" />
+
+      <div v-if="isMobile && !loadError" v-loading="loading" class="mobile-records">
+        <el-empty v-if="!loading && !rows.length" :description="keyword.trim() ? '没有匹配的成绩记录' : '还没有成绩记录'" />
+        <article v-for="row in rows" :key="row.id" class="mobile-record">
+          <h4>{{ row.name }}</h4>
+          <div class="mobile-record-meta">
+            <span>{{ formatDate(row.tested_at) }}</span>
+            <span>{{ row.subject_count }} 科</span>
+            <span>{{ row.student_count }} 人已录入</span>
+          </div>
+          <p v-if="row.remark" class="grade-remark">{{ row.remark }}</p>
+          <div class="mobile-record-actions">
+            <el-button link type="primary" @click="detailRef.open(row)">查看明细</el-button>
+            <el-button link type="primary" @click="statsRef.open(row)">成绩统计</el-button>
+            <el-dropdown trigger="click" @command="handleRowAction($event, row)">
+              <el-button link :aria-label="`${row.name}的更多操作`">更多<el-icon><ArrowDown /></el-icon></el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="edit">修改信息</el-dropdown-item>
+                  <el-dropdown-item command="delete" divided>删除测试</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+        </article>
+      </div>
+
       <el-table
+        v-if="!isMobile && !loadError"
         v-loading="loading"
         :data="rows"
         stripe
         style="margin-top: 12px;"
-        empty-text="还没有成绩记录"
+        :empty-text="keyword.trim() ? '没有匹配的成绩记录' : '还没有成绩记录'"
       >
         <el-table-column prop="name" label="测试名称" min-width="180" show-overflow-tooltip align="left" />
         <el-table-column label="测试日期" width="120">
@@ -61,11 +93,13 @@
       </el-table>
 
       <el-pagination
+        v-if="!loadError"
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
         :page-sizes="[10, 20, 50, 100]"
         :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
+        :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
+        :pager-count="isMobile ? 5 : 7"
         background
         class="gd-pager"
         @size-change="handleSizeChange"
@@ -107,6 +141,10 @@
 </template>
 
 <script setup>
+import ListFeedback from '@/components/ListFeedback.vue'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { usePageState } from '@/composables/usePageState'
+import { useIsMobile } from '@/composables/useIsMobile'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { deleteGradeTest, getGradeList, updateGradeTest } from '@/api/grade'
@@ -119,13 +157,17 @@ import Watermark from '@/components/Watermark.vue'
 import { useWatermark } from '@/composables/useWatermark'
 
 const watermarkText = useWatermark()
+const isMobile = useIsMobile()
 const loading = ref(false)
+const loadError = ref('')
+const listRequest = useLatestRequest()
 const rows = ref([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 // 考试名称关键词。空串 = 不过滤
 const keyword = ref('')
+usePageState('Grade', { currentPage, pageSize, keyword }, loading)
 const importRef = ref(null)
 const detailRef = ref(null)
 const statsRef = ref(null)
@@ -137,17 +179,20 @@ const editForm = reactive({ id: null, name: '', tested_at: '', remark: '' })
 onMounted(fetchList)
 
 async function fetchList() {
+  const requestId = listRequest.start()
+  loadError.value = ''
   loading.value = true
   try {
     const params = { page: currentPage.value, page_size: pageSize.value }
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await getGradeList(params)
+    if (!listRequest.isCurrent(requestId)) return
     rows.value = res.items || []
     total.value = res.total || 0
   } catch (e) {
-    ElMessage.error(errText(e, '读取成绩列表失败'))
+    if (listRequest.isCurrent(requestId)) loadError.value = '读取成绩列表失败'
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(requestId)) loading.value = false
   }
 }
 
@@ -172,6 +217,11 @@ function openEdit(row) {
   editForm.tested_at = formatDate(row.tested_at)
   editForm.remark = row.remark || ''
   editVisible.value = true
+}
+
+function handleRowAction(command, row) {
+  if (command === 'edit') openEdit(row)
+  else if (command === 'delete') handleDelete(row)
 }
 
 async function handleEditSave() {
@@ -218,6 +268,14 @@ async function handleDelete(row) {
 </script>
 
 <style scoped>
+.grade-remark {
+  margin: 8px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* 水印的定位基准 */
 .grade,
 .wm-host {

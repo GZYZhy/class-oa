@@ -49,7 +49,7 @@ class Field:
     max: int | None = None
 
 
-GROUPS = ("站点与链接", "邮件通知（SMTP）", "人机验证", "登录安全", "办件文档")
+GROUPS = ("站点与链接", "首页模块", "邮件通知（SMTP）", "人机验证", "登录安全", "办件文档")
 
 FIELDS: tuple[Field, ...] = (
     # ---------- 站点与链接 ----------
@@ -68,6 +68,15 @@ FIELDS: tuple[Field, ...] = (
     Field(
         "vapid_subject", "Web Push 联系地址", "站点与链接",
         help="推送服务出问题时联系谁，形如 mailto:you@example.com 或 https://example.com",
+    ),
+    # ---------- 首页模块 ----------
+    Field(
+        "hitokoto_enabled", "首页一言", "首页模块", kind="bool",
+        help="首页「我的事务」底部显示一句话；关闭后不再请求一言接口",
+    ),
+    Field(
+        "hitokoto_categories", "一言分类", "首页模块",
+        help="留空 = 全部分类；多个用逗号分隔。默认 d,i,k = 文学、诗词、哲学",
     ),
     # ---------- 邮件通知 ----------
     Field("smtp_host", "SMTP 主机", "邮件通知（SMTP）", help="留空 = 邮件渠道整体关闭"),

@@ -5,9 +5,15 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Student
+from ..services.quote_service import get_quote
 from sqlalchemy import func
 
 router = APIRouter(prefix="/api/public", tags=["公开信息"])
+
+
+@router.get("/quote", summary="首页一言")
+def quote():
+    return get_quote()
 
 
 @router.get("/summary", summary="首页公开摘要")

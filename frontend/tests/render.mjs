@@ -1772,8 +1772,13 @@ console.log('\n▶ 学生名单：班委只能看允许的字段，完整档案�
     '贫困生筛选只给管理员')
   check(/<el-dropdown-item v-if="userStore\.isAdmin" command="birthday">/.test(src),
     '「近期生日」入口只给管理员')
-  check(/v-if="userStore\.isAdmin"[\s\S]{0,160}prop="gaokao_score"/.test(src),
-    '高考分数列只给管理员')
+  check(/v-if="userStore\.isAdmin && !isMobile"[\s\S]{0,160}prop="gaokao_score"/.test(src),
+    '高考分数列只给管理员，手机在详情中查看')
+  check(/\.row-subtext \{[^}]*text-overflow: ellipsis/.test(src),
+    '手机名单的学号/职务在姓名列内省略，不把表格撑宽')
+  check(/v-if="!isMobile"[\s\S]{0,80}label="照片"/.test(src) &&
+    (src.match(/v-if="!isMobile"/g) || []).length >= 8,
+  '手机名单收起序号、照片和其余列，只留姓名、学号与操作')
   check(/<template v-if="userStore\.isAdmin">[\s\S]{0,600}command="birth_date_asc"[\s\S]{0,400}command="gaokao_score_desc"/.test(src),
     '年龄 / 分数排序只给管理员')
   check((src.match(/v-if="!currentStudent\.sensitive_hidden"/g) || []).length >= 10,
@@ -6569,6 +6574,68 @@ console.log('\n▶ 首屏骨架、图表按需与资料卡栅格')
   '文件大小会进位到 MB / GB，不把大文件写成一长串 KB')
   check(downloads.includes(':title="item.name"'),
     '卡片放不下时仍能悬停看完整文件名')
+}
+
+
+console.log('\n▶ 查询请求：较早的响应和离页后的响应失效')
+{
+  const { effectScope } = await import('vue')
+  const { useLatestRequest } = await server.ssrLoadModule('/src/composables/useLatestRequest.js')
+  const scope = effectScope()
+  let request
+  scope.run(() => { request = useLatestRequest() })
+  const first = request.start()
+  const second = request.start()
+  check(!request.isCurrent(first) && request.isCurrent(second), '快速修改筛选后，只接受最后一次查询结果')
+  scope.stop()
+  check(!request.isCurrent(second), '离开页面后，未返回的请求不能再更新列表')
+}
+
+console.log('\n▶ 手机成绩页：主操作直接可见，次要操作收进更多')
+{
+  const original = window.matchMedia
+  window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} })
+  try {
+    const { html, warns } = await renderPatched('/src/views/Grade.vue', 'onMounted(fetchList)', `
+      rows.value = [{ id: 1, name: '期中测试', tested_at: '2026-11-10', subject_count: 2, student_count: 28, remark: '手机记录卡' }]
+      total.value = 1
+    `)
+    check(html.includes('期中测试') && html.includes('手机记录卡'), '手机卡片显示测试名称和备注')
+    check(html.includes('查看明细') && html.includes('成绩统计') && html.includes('更多'), '明细和统计直接可用，编辑删除收进更多')
+    check(html.includes('28 人已录入') && html.includes('2 科'), '科目数和录入人数完整显示')
+    check(!warns.length, '手机卡片没有未解析的组件或指令')
+  } finally {
+    window.matchMedia = original
+  }
+}
+
+console.log('\n▶ 加载失败时有重试入口，不能被当成空列表')
+{
+  const { html } = await renderPatched('/src/views/Grade.vue', 'onMounted(fetchList)', `
+    loadError.value = '读取成绩列表失败'
+    loading.value = false
+  `)
+  check(html.includes('读取成绩列表失败') && html.includes('重新加载'), '成绩列表失败后可原地重试')
+  check(!html.includes('还没有成绩记录'), '失败时不展示无数据提示')
+
+  const work = await renderPatched('/src/components/DashboardWork.vue', 'onMounted(load)', `
+    loading.value = false
+    tasksError.value = '近期事项暂时无法完整加载'
+  `)
+  check(work.html.includes('近期事项暂时无法完整加载') && work.html.includes('重新加载'), '首页部分请求失败时明确说明并提供重试')
+  check(!work.html.includes('近期没有需要参与的事项'), '汇总失败时不声称所有事项已处理')
+
+  const withQuote = await renderPatched('/src/components/DashboardWork.vue', 'onMounted(load)', `
+    loading.value = false
+    tasks.value = []
+    quote.value = { enabled: true, text: '人间烟火气，最抚凡人心。', from: '出处', from_who: '某人' }
+  `)
+  check(withQuote.html.includes('人间烟火气') && withQuote.html.includes('某人'),
+    '首页一言显示在事务区底部')
+  check(withQuote.html.includes('work-quote'), '一言块会填满左栏空白，和右侧日程对齐')
+  const workSrc = readFileSync(`${ROOT}src/components/DashboardWork.vue`, 'utf8')
+  check(workSrc.includes('getDailyQuote') && workSrc.includes("'no-quote'"),
+    '一言请求独立加载，关闭时不强行撑高左栏')
 }
 
 await server.close()

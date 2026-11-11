@@ -24,13 +24,20 @@
         </div>
       </div>
 
-      <el-empty v-if="!loading && !items.length" description="还没有收到任何消息" />
+      <ListFeedback :error="loadError" :loading="loading" @retry="load" />
 
-      <div v-else class="msg-list">
+      <el-empty v-if="!loadError && !loading && !items.length" description="还没有收到任何消息" />
+
+      <div v-else-if="!loadError" class="msg-list">
         <div
           v-for="item in items"
           :key="item.id"
           class="msg-card"
+          role="button"
+          tabindex="0"
+          :aria-expanded="expandedId === item.id"
+          @keydown.enter.self="toggle(item)"
+          @keydown.space.self.prevent="toggle(item)"
           :class="{ 'is-unread': !item.read_at }"
           @click="toggle(item)"
         >
@@ -54,7 +61,7 @@
         </div>
       </div>
 
-      <div v-if="total > pageSize" class="inbox-pager">
+      <div v-if="!loadError && total > pageSize" class="inbox-pager">
         <el-pagination
           layout="prev, pager, next"
           :total="total"
@@ -68,6 +75,9 @@
 </template>
 
 <script setup>
+import { usePageState } from '@/composables/usePageState'
+import ListFeedback from '@/components/ListFeedback.vue'
+import { useLatestRequest } from '@/composables/useLatestRequest'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -84,23 +94,29 @@ const unread = ref(0)
 const page = ref(1)
 const pageSize = 20
 const loading = ref(false)
+const loadError = ref('')
+const listRequest = useLatestRequest()
 const markingAll = ref(false)
 const deletingRead = ref(false)
 // 当前展开的那条。一次只开一条：收件箱是流水，同时摊开一堆正文反而找不到刚看的那条
 const expandedId = ref(null)
+usePageState('Inbox', { page }, loading)
 
 async function load() {
+  const requestId = listRequest.start()
+  loadError.value = ''
   loading.value = true
   try {
     const data = await getInbox({ page: page.value, page_size: pageSize })
+    if (!listRequest.isCurrent(requestId)) return
     items.value = data.items || []
     total.value = data.total || 0
     unread.value = data.unread || 0
     syncBadge()
   } catch (e) {
-    ElMessage.error('收件箱加载失败')
+    if (listRequest.isCurrent(requestId)) loadError.value = '收件箱加载失败'
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(requestId)) loading.value = false
   }
 }
 

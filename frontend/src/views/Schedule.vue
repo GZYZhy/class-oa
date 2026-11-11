@@ -3,11 +3,11 @@
     <!-- 顶部工具栏 -->
     <div class="page-card toolbar">
       <div class="week-nav">
-        <el-button :icon="ArrowLeft" circle @click="prevWeek" />
+        <el-button :icon="ArrowLeft" circle aria-label="上一周" @click="prevWeek" />
         <span class="week-label">
           {{ weekLabel }}<template v-if="weekOfSemester">（第{{ weekOfSemester }}周）</template>
         </span>
-        <el-button :icon="ArrowRight" circle @click="nextWeek" />
+        <el-button :icon="ArrowRight" circle aria-label="下一周" @click="nextWeek" />
         <!-- 这两个必须包在一起：窄屏换行时若各自是独立项，「今天」留在上一行、
              「前往」掉到下一行，两个同类操作就被拆散了 -->
         <span class="quick-jump">
@@ -63,7 +63,9 @@
     </div>
 
     <!-- 日历表格 -->
-    <div ref="calendarWrapper" class="page-card calendar-wrapper" v-loading="loading">
+    <ListFeedback :error="loadError" :loading="loading" @retry="loadSchedules" />
+
+    <div v-show="!loadError" ref="calendarWrapper" class="page-card calendar-wrapper" v-loading="loading">
       <div class="calendar-grid">
         <!-- 表头 -->
         <div class="cal-header cal-row">
@@ -730,6 +732,9 @@
 </template>
 
 <script setup>
+import ListFeedback from '@/components/ListFeedback.vue'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { usePageState } from '@/composables/usePageState'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1041,6 +1046,8 @@ function formatDate(d) {
 
 // ---------- 数据加载 ----------
 const loading = ref(false)
+const loadError = ref('')
+const scheduleRequest = useLatestRequest()
 const schedules = ref([])
 
 // 只有第一次进页面才把「今天」居中；之后重载数据不抢用户自己滑出来的位置
@@ -1048,6 +1055,8 @@ let centeredOnce = false
 
 async function loadSchedules() {
   if (!weekDays.value.length) return
+  const requestId = scheduleRequest.start()
+  loadError.value = ''
   loading.value = true
   try {
     const start = weekDays.value[0].date
@@ -1057,23 +1066,25 @@ async function loadSchedules() {
       : isExternal.value
         ? await listExternalSchedules(start, end)
         : await listSchedules(start, end)
+    if (!scheduleRequest.isCurrent(requestId)) return
     schedules.value = data
   } catch (e) {
-    // 必须自己弹：request.js 的响应拦截器只打 console，不弹提示。
-    // 不弹的话加载失败和「这周真没日程」长得一模一样 —— 都是空表格，
-    // 用户只会以为导入没生效（踩过一次）。
-    schedules.value = []
-    ElMessage.error(errText(e, '日程加载失败'))
+    if (scheduleRequest.isCurrent(requestId)) {
+      schedules.value = []
+      loadError.value = errText(e, '日程加载失败')
+    }
   } finally {
-    loading.value = false
-    if (!centeredOnce) {
-      centeredOnce = true
-      // 等这一帧的 DOM 落定再量宽高（表格刚渲染出来时量不到）。
-      // 全天网格一屏放不下，首次进来要直接停在当前时间附近，而不是 00:00
-      nextTick(() => {
-        centerToday()
-        scrollToSlot(nowSlotLabel(), false)
-      })
+    if (scheduleRequest.isCurrent(requestId)) {
+      loading.value = false
+      if (!centeredOnce) {
+        centeredOnce = true
+        // 等这一帧的 DOM 落定再量宽高（表格刚渲染出来时量不到）。
+        // 全天网格一屏放不下，首次进来要直接停在当前时间附近，而不是 00:00
+        nextTick(() => {
+          centerToday()
+          scrollToSlot(nowSlotLabel(), false)
+        })
+      }
     }
   }
 }
@@ -1186,6 +1197,8 @@ function minuteTop(min) {
 let clockTimer = null
 
 // 域外账号也能「指定学生」和导入，同样需要学生名单
+usePageState('Schedule', { currentMonday }, loading)
+
 onMounted(() => {
   loadSchedules()
   loadSemesterInfo()

@@ -1,7 +1,10 @@
 <template>
   <div>
     <div class="page-card">
-      <h3 class="page-title">办事中心</h3>
+      <div class="page-toolbar page-heading">
+        <h3 class="page-title">办事中心</h3>
+        <router-link to="/my-info?tab=workspace" class="case-progress-link">查看我的办件<el-icon><ArrowRight /></el-icon></router-link>
+      </div>
 
       <div class="service-grid">
         <!-- 请假申请 -->
@@ -69,6 +72,14 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
 </script>
 
 <style scoped>
+.case-progress-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--el-color-primary);
+  text-decoration: none;
+  font-size: 13px;
+}
 /* 自适应网格：宽屏自动排成多列，窄屏自然退回一列。
    删掉原先那层 720px 的壳之后，若还按 flex 竖着一列排，四张卡在宽屏上
    会各自拉成一条横幅 —— 左边一个图标、右边一个箭头，中间一大片空白。
@@ -174,7 +185,8 @@ import { Document, ArrowRight, ChatDotRound, Van } from '@element-plus/icons-vue
   }
 
   .service-desc {
-    display: none;
+    font-size: 12px;
+    line-height: 1.6;
   }
 }
 </style>

@@ -5,11 +5,13 @@
     <div class="welcome-banner">
       <img :src="SITE.logoUrl" class="banner-logo" alt="校徽" />
       <div class="banner-text">
-        <h1>欢迎来到{{ SITE.shortName }}</h1>
-        <p v-if="SITE.subtitle" class="banner-subtitle">{{ SITE.subtitle }}</p>
+        <h1 v-if="userStore.isLogin">{{ greeting }}，{{ userStore.info.name }}</h1>
+        <h1 v-else>欢迎来到{{ SITE.shortName }}</h1>
+        <p v-if="userStore.isLogin" class="banner-date">{{ todayLabel }}</p>
+        <p v-if="SITE.subtitle && !userStore.isLogin" class="banner-subtitle">{{ SITE.subtitle }}</p>
         <!-- 学院、专业：各自判空，**不是拼成一句话再过滤** —— SITE 里没配就是空字符串、
              代码刻意不做兜底（utils/site.js 的口径），拼的话两个都空会渲染出一句孤零零的「 · 」 -->
-        <div v-if="SITE.college || SITE.major" class="banner-chips">
+        <div v-if="!userStore.isLogin && (SITE.college || SITE.major)" class="banner-chips">
           <span v-if="SITE.college" class="brand-chip">{{ SITE.college }}</span>
           <span v-if="SITE.major" class="brand-chip">{{ SITE.major }}</span>
         </div>
@@ -50,6 +52,66 @@
       </div>
     </el-alert>
 
+    <DashboardWork v-if="userStore.resolved && userStore.isLogin" />
+
+    <!-- 快捷入口：登录后才有（游客点进去也是被弹回来，不如不摆）。
+         判据和侧边菜单同一份（utils/roles.js 的 canSee），所以这里的 role / studentOnly
+         写法和路由 meta 逐字一致，改一处就得三处一起改 -->
+    <div v-if="userStore.resolved && userStore.isLogin" class="page-card quick-card">
+      <h3 class="page-title">快捷入口</h3>
+      <div class="quick-grid">
+        <router-link
+          v-for="item in visibleShortcuts"
+          :key="item.path"
+          :to="item.path"
+          class="quick-tile"
+        >
+          <div class="quick-icon" :class="item.theme">
+            <el-icon><component :is="item.icon" /></el-icon>
+          </div>
+          <span class="quick-name">{{ item.title }}</span>
+        </router-link>
+      </div>
+    </div>
+
+    <!-- 最新通知：接口本来就公开，游客也看得见。
+         未读圆点必须绑在登录态上 —— 后端对游客恒返回 is_read=false，
+         不判断的话游客页会整列都是红点。
+         加载中先占住三行骨架：弱网下「先空一块、再突然长出来」比慢更晃眼 -->
+    <div v-if="noticesLoading" class="page-card notice-card" aria-busy="true">
+      <div class="card-head">
+        <h3 class="page-title">最新通知</h3>
+      </div>
+      <ul class="notice-list">
+        <li v-for="n in 3" :key="n" class="notice-skeleton-row" />
+      </ul>
+    </div>
+
+    <div v-else-if="noticesError" class="page-card notice-card">
+      <h3 class="page-title">最新通知</h3>
+      <ListFeedback :error="noticesError" :loading="noticesLoading" @retry="loadNotices" />
+    </div>
+
+    <div v-else-if="notices.length" class="page-card notice-card">
+      <div class="card-head">
+        <h3 class="page-title">最新通知</h3>
+        <router-link to="/notices" class="more-link">
+          更多<el-icon><ArrowRight /></el-icon>
+        </router-link>
+      </div>
+      <ul class="notice-list">
+        <li v-for="item in notices" :key="item.id">
+          <!-- 点一条直接定位到那一篇（通知页认 ?id=，见 utils/notice.js） -->
+          <router-link :to="`/notices?id=${item.id}`" class="notice-item">
+            <span v-if="userStore.isLogin && !item.is_read" class="notice-dot" title="未读" />
+            <span class="notice-title">{{ item.title }}</span>
+            <span class="notice-date">{{ item.publish_date }}</span>
+          </router-link>
+        </li>
+      </ul>
+    </div>
+
+    <h2 class="overview-title">班级概览</h2>
     <!-- 顶部统计卡片。
          标签一律用短词（「女生」而不是「女生人数」）：四字短语在窄屏上会被卡片宽度
          挤成两行，而这两行是卡片里唯一不会自己收窄的东西 -->
@@ -111,58 +173,6 @@
       <el-button link type="primary" size="small" :loading="statsLoading" @click="loadStats">
         重试
       </el-button>
-    </div>
-
-    <!-- 快捷入口：登录后才有（游客点进去也是被弹回来，不如不摆）。
-         判据和侧边菜单同一份（utils/roles.js 的 canSee），所以这里的 role / studentOnly
-         写法和路由 meta 逐字一致，改一处就得三处一起改 -->
-    <div v-if="userStore.resolved && userStore.isLogin" class="page-card quick-card">
-      <h3 class="page-title">快捷入口</h3>
-      <div class="quick-grid">
-        <router-link
-          v-for="item in visibleShortcuts"
-          :key="item.path"
-          :to="item.path"
-          class="quick-tile"
-        >
-          <div class="quick-icon" :class="item.theme">
-            <el-icon><component :is="item.icon" /></el-icon>
-          </div>
-          <span class="quick-name">{{ item.title }}</span>
-        </router-link>
-      </div>
-    </div>
-
-    <!-- 最新通知：接口本来就公开，游客也看得见。
-         未读圆点必须绑在登录态上 —— 后端对游客恒返回 is_read=false，
-         不判断的话游客页会整列都是红点。
-         加载中先占住三行骨架：弱网下「先空一块、再突然长出来」比慢更晃眼 -->
-    <div v-if="noticesLoading" class="page-card notice-card" aria-busy="true">
-      <div class="card-head">
-        <h3 class="page-title">最新通知</h3>
-      </div>
-      <ul class="notice-list">
-        <li v-for="n in 3" :key="n" class="notice-skeleton-row" />
-      </ul>
-    </div>
-
-    <div v-else-if="notices.length" class="page-card notice-card">
-      <div class="card-head">
-        <h3 class="page-title">最新通知</h3>
-        <router-link to="/notices" class="more-link">
-          更多<el-icon><ArrowRight /></el-icon>
-        </router-link>
-      </div>
-      <ul class="notice-list">
-        <li v-for="item in notices" :key="item.id">
-          <!-- 点一条直接定位到那一篇（通知页认 ?id=，见 utils/notice.js） -->
-          <router-link :to="`/notices?id=${item.id}`" class="notice-item">
-            <span v-if="userStore.isLogin && !item.is_read" class="notice-dot" title="未读" />
-            <span class="notice-title">{{ item.title }}</span>
-            <span class="notice-date">{{ item.publish_date }}</span>
-          </router-link>
-        </li>
-      </ul>
     </div>
 
     <!-- 性别分布 + 天气：天气卡替代了原来的政治面貌饼图 -->
@@ -259,7 +269,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import ListFeedback from '@/components/ListFeedback.vue'
+import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { getPublicSummary } from '@/api/auth'
 import { getBirthdayToday } from '@/api/birthday'
@@ -269,8 +280,13 @@ import { useUserStore } from '@/store/user'
 import { canSee } from '@/utils/roles'
 import { SITE } from '@/utils/site'
 
+const DashboardWork = defineAsyncComponent(() => import('@/components/DashboardWork.vue'))
+
 const router = useRouter()
 const userStore = useUserStore()
+const today = new Date()
+const greeting = today.getHours() < 12 ? '上午好' : today.getHours() < 18 ? '下午好' : '晚上好'
+const todayLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(today)
 
 // 登录状态是 App.vue 挂载后异步恢复的（fetchMe），resolved 之前谁都说不准，
 // 所以先不显示提示条，避免已登录用户看到它闪一下
@@ -290,6 +306,7 @@ const birthday = ref(null)
 const notices = ref([])
 // 通知在等接口时先撑出三行骨架，避免列表区先塌下去再弹出来
 const noticesLoading = ref(true)
+const noticesError = ref('')
 
 /** 首页「最新通知」要几条。
  *
@@ -449,23 +466,29 @@ async function loadStats() {
   }
 }
 
+async function loadNotices() {
+  noticesLoading.value = true
+  noticesError.value = ''
+  try {
+    notices.value = await getNotices({ limit: NOTICE_COUNT })
+  } catch (e) {
+    noticesError.value = '最新通知加载失败'
+  } finally {
+    noticesLoading.value = false
+  }
+}
+
 async function loadData() {
   // 天气先发出去，**不等它**：它最坏要等后端 3 秒超时，
   // 串进下面的 await 链会把人数、通知、图表一起拖住
   loadWeather()
 
-  await loadStats()
-
-  // 生日条幅和最新通知都属于锦上添花：各自兜各自的异常，谁挂了都不连累首页统计
-  // （后端没升级到有生日接口时也走这条）。两路一起发，别串着等
-  const [today, list] = await Promise.allSettled([
-    getBirthdayToday(),
-    getNotices({ limit: NOTICE_COUNT })
+  // 各区块独立加载，统计接口变慢时仍可先阅读通知。
+  await Promise.allSettled([
+    loadStats(),
+    getBirthdayToday().then((today) => { birthday.value = today }),
+    loadNotices()
   ])
-  if (today.status === 'fulfilled') birthday.value = today.value
-  if (list.status === 'fulfilled') notices.value = list.value
-  // 通知先撤骨架再渲染；失败时也是空数组，整块不出现（不发假空状态）
-  noticesLoading.value = false
 
   await nextTick()
 
@@ -497,12 +520,16 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.dashboard { max-width: 1440px; margin-inline: auto; }
+.banner-date { margin: 0; font-size: 14px; opacity: .85; letter-spacing: .3px; }
+.overview-title { margin: 28px 0 16px; font-size: 17px; font-weight: 650; color: var(--el-text-color-primary); }
+
 .welcome-banner {
   /* 三段式紫色序列（靛蓝→薰衣草）。之前尾端的天青拿掉了 ——
      蓝交给左下那团浅蓝光斑和副色系去说，横幅本身保持纯净 */
-  background: linear-gradient(135deg, #6269f0 0%, #8b7bf2 58%, #a78bfa 100%);
+  background: linear-gradient(115deg, #4f58bf 0%, #6770d5 62%, #8781db 100%);
   border-radius: var(--app-radius);
-  padding: 30px 34px;
+  padding: 26px 30px;
   color: #fff;
   margin-bottom: 20px;
   box-shadow: 0 14px 36px rgba(104, 110, 240, 0.20);
@@ -511,30 +538,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 20px;
-}
-
-/* 两团光斑对角布置（右上大、左下小），把横幅从「一块色块」变成有层次的版面。
-   左下这团是浅蓝 —— 副色在品牌横幅上的一次点到为止 */
-.welcome-banner::before {
-  content: '';
-  position: absolute;
-  right: -40px;
-  top: -40px;
-  width: 220px;
-  height: 220px;
-  background: rgba(255, 255, 255, 0.09);
-  border-radius: 50%;
-}
-
-.welcome-banner::after {
-  content: '';
-  position: absolute;
-  left: -30px;
-  bottom: -60px;
-  width: 180px;
-  height: 180px;
-  background: rgba(125, 211, 252, 0.20);
-  border-radius: 50%;
 }
 
 .banner-text {
@@ -1290,13 +1293,17 @@ onBeforeUnmount(() => {
   }
 
   .quick-grid {
-    gap: 10px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .quick-tile {
     padding: 12px 6px;
     gap: 8px;
   }
+
+  .quick-icon { width: 32px; height: 32px; font-size: 20px; }
+  .quick-name { font-size: 12px; }
 
   .chart-container {
     min-height: 220px;
@@ -1318,7 +1325,7 @@ onBeforeUnmount(() => {
 }
 
 /* 快捷入口的列数（配合上面 .quick-grid 那条基础规则里的注释看）：
-   768 以下两列、768~1199 四列、1200 以上一行八块。
+   768 以下四列、768~1199 四列、1200 以上一行八块。
    断点跟着侧边栏走 —— 1200 减去侧栏和两边留白，八块每块还有 105px 左右 */
 @media (min-width: 769px) {
   .quick-grid {

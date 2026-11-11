@@ -58,6 +58,13 @@
 
 - `200` — 成功
 
+### 首页一言
+
+`GET /api/public/quote`
+
+后端代理 hitokoto 并缓存 10 分钟，返回 `enabled / text / from / from_who`。管理员可在
+「系统管理 → 运维 → 首页模块」关闭，或调整分类；关闭时 `enabled=false`，前端不显示。
+
 ## 认证
 
 ### 获取人机验证码（按当前验证方式）

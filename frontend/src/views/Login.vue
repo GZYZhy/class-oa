@@ -85,6 +85,7 @@
             v-model="form.student_no"
             size="large"
             placeholder="学号 / 账号"
+            aria-label="学号或账号"
             name="username"
             autocomplete="username webauthn"
             :prefix-icon="User"
@@ -97,6 +98,8 @@
             type="password"
             size="large"
             placeholder="密码（默认身份证号后6位）"
+            aria-label="密码"
+            autocomplete="current-password"
             :prefix-icon="Lock"
             show-password
             @keyup.enter="handleLogin"

@@ -76,6 +76,8 @@
 
       <!-- 表格区域。标题行已经去掉了：「学生信息」在上面说清楚了，
            再来一行「学生名单」只是把同一件事说两遍 -->
+      <ListFeedback :error="loadError" :loading="loading" @retry="fetchData" />
+
       <div class="table-header">
         <div class="table-tools">
           <span class="tools-count">共 {{ total }} 人</span>
@@ -169,7 +171,7 @@
       </div>
 
       <!-- row-key + reserve-selection 一起才有跨页保留勾选的效果（前者认人，后者记住） -->
-      <el-table
+      <el-table v-show="!loadError"
         ref="tableRef"
         :data="tableData"
         row-key="id"
@@ -193,6 +195,7 @@
         <!-- 序号列带个 col-index：40px 里再扣掉左右各 12px 的默认内边距，两位数
              （第 10 行往后）就挤到折行了。宽度不能再加，所以收的是内边距，见样式 -->
         <el-table-column
+          v-if="!isMobile"
           type="index"
           label="序号"
           width="40"
@@ -200,7 +203,7 @@
           class-name="col-index"
           label-class-name="col-index"
         />
-        <el-table-column label="照片" width="70" align="center">
+        <el-table-column v-if="!isMobile" label="照片" width="70" align="center">
           <template #default="{ row }">
             <div
               class="thumb-photo"
@@ -222,35 +225,42 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="name" label="姓名" width="90" align="center" />
-        <el-table-column prop="gender" label="性别" width="60" align="center">
+        <el-table-column prop="name" :label="isMobile ? '姓名 / 学号' : '姓名'" :width="isMobile ? 130 : 90" align="center" :fixed="isMobile ? 'left' : false">
+          <template #default="{ row }">
+            <span>{{ row.name }}</span>
+            <span v-if="isMobile && row.gender" class="student-gender">{{ row.gender }}</span>
+            <div v-if="isMobile" class="row-subtext">{{ row.student_no }}</div>
+            <div v-if="isMobile && row.class_position && row.class_position !== '无'" class="row-subtext">{{ row.class_position }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="!isMobile" prop="gender" label="性别" width="60" align="center">
           <template #default="{ row }">
             <el-tag :type="row.gender === '男' ? 'primary' : 'danger'" size="small">
               {{ row.gender }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="student_no" label="学号" width="130" align="center" />
-        <el-table-column prop="ethnicity" label="民族" width="90" align="center" />
-        <el-table-column prop="political_status" label="政治面貌" width="100" align="center" />
+        <el-table-column v-if="!isMobile" prop="student_no" label="学号" width="130" align="center" />
+        <el-table-column v-if="!isMobile" prop="ethnicity" label="民族" width="90" align="center" />
+        <el-table-column v-if="!isMobile" prop="political_status" label="政治面貌" width="100" align="center" />
         <!-- 生源地不再平铺展示，让位给备注：备注是班委内部记录，需要一眼看到 -->
         <!-- 备注列：去掉 Markdown 语法符号后显示，避免表格里出现 # ** 等符号 -->
-        <el-table-column prop="remark" label="备注" min-width="180" align="center" show-overflow-tooltip>
+        <el-table-column v-if="!isMobile" prop="remark" label="备注" min-width="180" align="center" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.remark">{{ stripMarkdown(row.remark) }}</span>
             <span v-else style="color: var(--el-text-color-disabled);">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="dormitory" label="宿舍" width="90" align="center" />
+        <el-table-column v-if="!isMobile" prop="dormitory" label="宿舍" width="90" align="center" />
         <el-table-column
-          v-if="userStore.isAdmin"
+          v-if="userStore.isAdmin && !isMobile"
           prop="gaokao_score"
           label="高考分数"
           width="90"
           align="center"
           sortable
         />
-        <el-table-column prop="class_position" label="班委" width="120" align="center" show-overflow-tooltip>
+        <el-table-column v-if="!isMobile" prop="class_position" label="班委" width="120" align="center" show-overflow-tooltip>
           <template #default="{ row }">
             <el-tag v-if="row.class_position && row.class_position !== '无'" type="warning" size="small">
               {{ row.class_position }}
@@ -258,12 +268,21 @@
             <span v-else style="color: var(--el-text-color-disabled);">-</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="190" fixed="right" align="center">
+        <el-table-column label="操作" :width="isMobile ? 94 : 190" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link @click.stop="handleView(row)">查看</el-button>
-            <el-button type="warning" link @click.stop="handleEdit(row)">编辑</el-button>
+            <el-dropdown v-if="isMobile" trigger="click">
+              <el-button link aria-label="更多学生操作" @click.stop><el-icon><MoreFilled /></el-icon></el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item @click="handleEdit(row)">编辑信息</el-dropdown-item>
+                  <el-dropdown-item v-if="userStore.isAdmin" divided @click="handleDelete(row)">删除学生</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+            <el-button v-else type="warning" link @click.stop="handleEdit(row)">编辑</el-button>
             <el-button
-              v-if="userStore.isAdmin"
+              v-if="userStore.isAdmin && !isMobile"
               type="danger"
               link
               @click.stop="handleDelete(row)"
@@ -281,7 +300,8 @@
           v-model:page-size="pageSize"
           :page-sizes="[10, 20, 36, 50]"
           :total="total"
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
+          :pager-count="isMobile ? 5 : 7"
           background
           @size-change="handleSizeChange"
           @current-change="handleCurrentChange"
@@ -1335,6 +1355,9 @@
 </template>
 
 <script setup>
+import ListFeedback from '@/components/ListFeedback.vue'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { usePageState } from '@/composables/usePageState'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1419,6 +1442,8 @@ const detailColumns = computed(() => (isMobile.value ? 1 : 2))
 const tableData = ref([])
 const total = ref(0)
 const loading = ref(false)
+const loadError = ref('')
+const listRequest = useLatestRequest()
 const currentPage = ref(1)
 const pageSize = ref(20)
 const filterOptions = ref(null)
@@ -1438,6 +1463,7 @@ const sortOrder = ref('asc')
 // 近期生日筛选
 const birthdayDays = ref(7)
 const birthdayFilter = ref(false)
+usePageState('StudentList', { currentPage, pageSize, filterForm, sortBy, sortOrder, birthdayDays, birthdayFilter }, loading)
 // 近期生日的输入框收在弹窗里（入口在「更多」下拉里）
 const birthdayDialogVisible = ref(false)
 
@@ -1683,6 +1709,8 @@ function openStudentPhotos(student, photoType) {
 }
 
 async function fetchData() {
+  const requestId = listRequest.start()
+  loadError.value = ''
   loading.value = true
   try {
     const params = {
@@ -1699,13 +1727,13 @@ async function fetchData() {
       birthday_days: birthdayFilter.value ? birthdayDays.value : undefined
     }
     const res = await getStudentList(params)
+    if (!listRequest.isCurrent(requestId)) return
     tableData.value = res.items
     total.value = res.total
   } catch (e) {
-    ElMessage.error('获取数据失败')
-    console.error(e)
+    if (listRequest.isCurrent(requestId)) loadError.value = '学生列表加载失败'
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(requestId)) loading.value = false
   }
 }
 
@@ -2557,6 +2585,28 @@ watch(() => route.query.open, openFromQuery)
 </script>
 
 <style scoped>
+.student-gender {
+  margin-left: 5px;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+}
+
+.row-subtext {
+  margin-top: 2px;
+  max-width: 120px;
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .table-tools { gap: 8px; }
+  .table-tools :deep(.el-button) { padding-inline: 10px; }
+}
+
 .student-list {
   padding: 0;
   /* 整页水印以它为定位基准铺满 */

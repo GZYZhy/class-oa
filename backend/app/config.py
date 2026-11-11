@@ -170,6 +170,14 @@ class Settings(BaseSettings):
     # 图片被邮箱客户端拦截时不会触发；可在「系统管理 → 运维」里随时关闭。
     email_open_auto_read: bool = True
 
+    # ---------- 首页一言 ----------
+    # 首页事务区底部的一句话。请求由后端代理并缓存，前台不直连外部接口。
+    # 关闭后接口直接返回 enabled=false，首页不显示这一块。
+    hitokoto_enabled: bool = True
+    # 一言分类：d 文学 / i 诗词 / k 哲学 / a 动画 / b 漫画 / c 游戏 / e 原创 / f 来自网络等。
+    # 留空 = 全部分类；多个用逗号分隔。默认只取文学、诗词、哲学三类。
+    hitokoto_categories: str = "d,i,k"
+
     # ---------- 日程 iCal ----------
     # Apple 日历结构化地点的显示名，按坐标匹配，JSON 数组：
     #   [{"lat": 39.9, "lng": 116.4, "name": "图书馆"}, ...]

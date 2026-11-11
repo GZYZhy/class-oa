@@ -1,9 +1,12 @@
 <template>
   <el-container class="layout-container">
+    <button type="button" class="skip-content" @click="focusMain">跳转到正文</button>
     <el-header class="layout-header">
       <div class="header-left">
         <!-- 手机上才显示：点开左侧菜单抽屉 -->
-        <el-icon class="menu-toggle" @click="drawerOpen = true"><Menu /></el-icon>
+        <button ref="menuToggle" type="button" class="menu-toggle" aria-label="班级导航" aria-controls="class-navigation" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen">
+          <el-icon><Menu /></el-icon>
+        </button>
         <img :src="SITE.logoUrl" class="logo-img" alt="校徽" />
         <div class="title-group">
           <span class="app-title">{{ SITE.name }}</span>
@@ -29,12 +32,12 @@
         </span>
 
         <!-- 已登录：头像 + 姓名，点击跳转到账户设置 -->
-        <div v-if="userStore.isLogin" class="user-box" @click="router.push('/my-info?tab=account')">
+        <button v-if="userStore.isLogin" type="button" class="user-box" :aria-label="`${userStore.info.name}的账户设置`" @click="router.push('/my-info?tab=account')">
           <el-avatar :size="34" :src="userStore.info.avatar || ''" class="user-avatar">
             {{ userStore.initial }}
           </el-avatar>
           <span class="user-name">{{ userStore.info.name }}</span>
-        </div>
+        </button>
 
         <el-button v-else type="primary" plain size="small" @click="router.push('/login')">
           登录
@@ -51,9 +54,16 @@
         width 用绑定而不是写死，el-aside 会把宽度写成行内样式，媒体查询盖不住
       -->
       <el-aside
+        id="class-navigation"
+        :role="mobileView ? 'dialog' : 'navigation'"
+        :aria-modal="mobileView && drawerOpen ? true : null"
+        aria-label="班级导航"
+        :inert="mobileView && !drawerOpen ? '' : null"
         :width="compact ? '72px' : '220px'"
         class="layout-aside"
         :class="{ 'is-open': drawerOpen, 'is-compact': compact }"
+        @keydown.esc.stop="closeDrawer"
+        @keydown.tab="trapDrawerFocus"
       >
         <div class="aside-inner">
           <el-menu
@@ -81,16 +91,16 @@
 
           <!-- 底部：已登录时显示退出登录。图标栏模式下只留图标，title 兜住含义 -->
           <div v-if="userStore.isLogin" class="aside-footer">
-            <div class="logout-item" :title="compact ? '退出登录' : ''" @click="handleLogout">
+            <button type="button" class="logout-item" aria-label="退出登录" :title="compact ? '退出登录' : ''" @click="handleLogout">
               <el-icon><SwitchButton /></el-icon>
               <span v-if="!compact">退出登录</span>
-            </div>
+            </button>
           </div>
         </div>
       </el-aside>
 
       <!-- 手机上菜单展开时的遮罩，点一下收起（桌面端永远不显示） -->
-      <div v-if="drawerOpen" class="aside-mask" @click="drawerOpen = false"></div>
+      <div v-if="drawerOpen" class="aside-mask" @click="closeDrawer"></div>
 
       <!-- 断网提示：弱网下最常见的情况之一是网根本没通，而页面还在等接口超时。
            提前说清楚，比让用户对着转圈猜要好；恢复后自动消失 -->
@@ -102,7 +112,7 @@
         </div>
       </transition>
 
-      <el-main class="layout-main">
+      <el-main id="main-content" class="layout-main" tabindex="-1">
         <!-- 校徽纹样：固定在视口右下角的一枚极淡徽记，给空旷的页面底色添一点纹样。
              纯装饰 —— 不进无障碍树、不接鼠标事件，也永远不会盖住内容 -->
         <!-- 校徽换了地址、或品牌还没配校徽时可能 404：直接隐藏，别让破图图标挂在角上 -->
@@ -137,7 +147,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import IosInstallGuide from '@/components/IosInstallGuide.vue'
@@ -147,6 +157,7 @@ import { useBadgeStore } from '@/store/badge'
 import { canSee } from '@/utils/roles'
 import { SITE } from '@/utils/site'
 import { useTheme } from '@/composables/useTheme'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 /**
  * 登录后的整站布局（顶栏 + 侧边菜单 + 主区 + 脚栏）
@@ -173,6 +184,38 @@ const backTarget = computed(() =>
 
 // 手机端的菜单抽屉：桌面端侧边栏常驻，这个开关不起作用
 const drawerOpen = ref(false)
+const menuToggle = ref(null)
+const mobileView = useIsMobile()
+
+function focusMain() {
+  document.getElementById('main-content')?.focus()
+}
+
+function closeDrawer() {
+  drawerOpen.value = false
+  menuToggle.value?.focus()
+}
+
+function trapDrawerFocus(event) {
+  if (!mobileView.value || !drawerOpen.value) return
+  const controls = [...event.currentTarget.querySelectorAll('[role="menuitem"], .logout-item')]
+    .filter((element) => element.offsetParent && element.getAttribute('aria-disabled') !== 'true')
+  const first = controls[0]
+  const last = controls[controls.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last?.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
+
+watch(drawerOpen, async (open) => {
+  if (!open || !mobileView.value) return
+  await nextTick()
+  document.querySelector('#class-navigation [role="menuitem"]')?.focus()
+})
 
 // 换页时顺手把红点重算一次（一次 COUNT 查询的代价），同时收起手机端抽屉
 watch(() => route.path, () => {
@@ -323,6 +366,22 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.skip-content {
+  position: fixed;
+  top: 8px;
+  left: 12px;
+  z-index: 4000;
+  transform: translateY(-160%);
+  padding: 10px 18px;
+  border: 1px solid var(--el-color-primary);
+  border-radius: 8px;
+  background: var(--app-surface-solid);
+  color: var(--el-color-primary);
+}
+.skip-content:focus-visible { transform: translateY(0); }
+.user-box, .logout-item, .menu-toggle { border: 0; font: inherit; background: transparent; }
+.logout-item { width: 100%; text-align: left; }
+.menu-toggle { padding: 8px; min-width: 40px; min-height: 40px; }
 .layout-container {
   height: 100vh;
   /* dvh 会随手机浏览器地址栏的收放变化，避免底部被地址栏压掉一截 */

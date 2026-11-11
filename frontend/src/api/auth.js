@@ -88,6 +88,11 @@ export function getPublicSummary() {
   return request({ url: '/public/summary', method: 'get' })
 }
 
+/** 首页一言（公开；后端代理并缓存，关闭时 enabled=false） */
+export function getDailyQuote() {
+  return request({ url: '/public/quote', method: 'get' })
+}
+
 /* ---------- 访问令牌（给脚本 / MCP 用的长期凭据） ----------
  * 这三个接口后端都挂了 require_cookie_auth：**带令牌调一律 403**，
  * 免得一把泄露的令牌能自己再铸一把长期令牌。所以它们只能在浏览器里用。

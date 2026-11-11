@@ -5,7 +5,7 @@
    极淡的颗粒底纹（磨砂要有东西可磨，纯渐变会糊成一片）。
    深色模式只换这里的值，组件样式一律不写死颜色。 */
 :root {
-  --app-bg: #e4e9f7;
+  --app-bg: #f4f6fc;
   /* 底色本身几乎等于白，卡片再怎么透也只会算出 #fcfcff —— 看着就是白块。
      所以先把背景做出颜色，卡片才有东西可透：四团渐变的浓度整体提一档，
      左上靛蓝、右上薰衣草、下方天青与薄荷，撑起一个从冷到暖的场。
@@ -13,29 +13,29 @@
      最后一团是**中间那层薰衣草**：卡片多半落在中间，只有四角有色时，
      磨砂一开中间就是一片白雾（截图里那两张空卡就是这样）。 */
   --app-bg-image:
-    radial-gradient(1200px 800px at 10% -12%, rgba(140, 152, 255, 0.50), transparent 58%),
-    radial-gradient(1000px 720px at 104% -4%, rgba(176, 150, 252, 0.38), transparent 54%),
-    radial-gradient(900px 640px at 50% 116%, rgba(126, 214, 250, 0.34), transparent 56%),
-    radial-gradient(700px 500px at 85% 108%, rgba(134, 239, 211, 0.24), transparent 60%),
-    radial-gradient(900px 620px at 50% 40%, rgba(198, 208, 255, 0.52), transparent 72%);
+    radial-gradient(1200px 800px at 10% -12%, rgba(140, 152, 255, 0.23), transparent 58%),
+    radial-gradient(1000px 720px at 104% -4%, rgba(176, 150, 252, 0.17), transparent 54%),
+    radial-gradient(900px 640px at 50% 116%, rgba(126, 214, 250, 0.16), transparent 56%),
+    radial-gradient(700px 500px at 85% 108%, rgba(134, 239, 211, 0.12), transparent 60%),
+    radial-gradient(900px 620px at 50% 40%, rgba(198, 208, 255, 0.20), transparent 72%);
   /* 卡片透到 0.56：磨砂会把背后的底色「抹匀」，太实就看不出是玻璃；
      0.56 白 + 淡紫底 ≈ #f2f4fd，正文对比度仍稳（卡片里还有一层受光面兜着） */
-  --app-surface: rgba(255, 255, 255, 0.56);
+  --app-surface: rgba(255, 255, 255, 0.76);
   --app-surface-solid: #ffffff;
   /* 卡片自己的「受光面」：左上更白、右下更透。平涂的白永远是一块白，
      有了这道斜向渐变，卡面上才有方向感和厚度；右下透出来的正好是
      背景的薄荷/天青和那枚校徽纹样 */
   --app-surface-sheen: linear-gradient(152deg,
     rgba(255, 255, 255, 0.86) 0%,
-    rgba(255, 255, 255, 0.52) 58%,
-    rgba(255, 255, 255, 0.40) 100%);
+    rgba(255, 255, 255, 0.76) 58%,
+    rgba(255, 255, 255, 0.68) 100%);
 
   /* ---- 毛玻璃三档 ----
      不是全站一个 blur 值：内容面只轻轻磨一层（大块区域，滚动时重绘最贵），
      浮层磨得厚（面积小、停在最上面，可读性优先），顶栏/侧栏居中。
      saturate 一起提，玻璃后面才不会灰扑扑的。 */
-  --app-glass-blur: 18px;
-  --app-glass-blur-chrome: 22px;
+  --app-glass-blur: 12px;
+  --app-glass-blur-chrome: 16px;
   --app-glass-blur-float: 26px;
   --app-glass-saturate: 150%;
 
@@ -58,7 +58,7 @@
   --app-shadow-hover: 0 2px 6px rgba(88, 84, 214, 0.05), 0 22px 52px rgba(88, 84, 214, 0.13);
   /* 卡片顶部的内高光：模拟玻璃受光的上缘线，配合半透明底色出「薄壳」质感 */
   --app-card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.75);
-  --app-radius: 20px;
+  --app-radius: 16px;
   --app-radius-sm: 12px;
   /* 顶栏和侧栏是「固定玻璃」：比内容面透一点，滚动时背后一直有东西经过，
      磨砂的层次主要靠它们撑（内容面只在静止时看） */
@@ -671,8 +671,8 @@ html .el-textarea__inner:focus {
   width: 520px;
   height: 520px;
   object-fit: contain;
-  /* 卡片现在透到 0.62，纹样要再浓一点才透得出来 */
-  opacity: 0.13;
+  /* 品牌纹样保持低对比度，避免穿过内容面干扰阅读。 */
+  opacity: 0.045;
   /* 去色后只剩「形」，不会跟主题色抢注意力 */
   filter: grayscale(1);
   /* 品牌定制换上的校徽不一定是透明 PNG（也可能是白底 JPG）：
@@ -694,7 +694,7 @@ html.dark .app-emblem {
      反相后原白底成了黑底，用 screen 让黑「消失」 */
   filter: grayscale(1) invert(1);
   mix-blend-mode: screen;
-  opacity: 0.115;
+  opacity: 0.05;
 }
 
 /* ============ 页面进场上浮 ============
@@ -1138,4 +1138,27 @@ body {
     --app-float-bg: #1e2134;
     --el-bg-color-overlay: #1e2134;
   }
+}
+
+/* 可点击内容与工具栏共用的交互尺寸，键盘焦点不依赖 hover。 */
+:is(button, a, [role="button"]):focus-visible {
+  outline: 3px solid var(--app-secondary);
+  outline-offset: 3px;
+}
+.page-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.page-heading .page-title { margin: 0; }
+.page-count { color: var(--el-text-color-secondary); font-size: 13px; font-variant-numeric: tabular-nums; }
+.mobile-records { display: grid; gap: 12px; margin-top: 16px; }
+.mobile-record { padding: 16px; border: 1px solid var(--app-line); border-radius: 12px; background: var(--el-fill-color-blank); }
+.mobile-record h4 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; line-height: 1.6; }
+.mobile-record-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 9px 0; font-size: 12px; color: var(--el-text-color-secondary); }
+.mobile-record-actions { display: flex; align-items: center; gap: 14px; border-top: 1px solid var(--app-outline); margin-top: 12px; padding-top: 10px; }
+.mobile-record-actions .el-dropdown { margin-left: auto; }
+.row-subtext { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 11px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+@media (max-width: 768px) {
+  .el-pagination { justify-content: center; flex-wrap: wrap; row-gap: 10px; }
+  .el-pagination .el-pager li { min-width: 30px; }
+  .page-card > .el-form--inline .el-form-item { margin-right: 10px; }
+  .mobile-record-actions .el-button { min-height: 32px; }
+  .el-table .cell .el-button + .el-dropdown { margin-left: 8px; }
 }

@@ -52,7 +52,10 @@
       </div>
 
       <!-- 列表 -->
+      <ListFeedback :error="loadError" :loading="loading" @retry="fetchList" />
+
       <el-table
+        v-show="!loadError"
         v-loading="loading"
         :data="rows"
         stripe
@@ -268,6 +271,9 @@
 </template>
 
 <script setup>
+import ListFeedback from '@/components/ListFeedback.vue'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { usePageState } from '@/composables/usePageState'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -318,6 +324,8 @@ const userStore = useUserStore()
 const watermarkText = useWatermark()
 
 const loading = ref(false)
+const loadError = ref('')
+const listRequest = useLatestRequest()
 const rows = ref([])
 const total = ref(0)
 const currentPage = ref(1)
@@ -329,6 +337,8 @@ const createRef = ref(null)
 const collectRef = ref(null)
 /** 当前 Tab；?tab=collect 刷新后仍停在收集 */
 const activeTab = ref(route.query.tab === 'collect' ? 'collect' : 'vote')
+usePageState('Vote', { currentPage, pageSize, status, keyword, activeTab }, loading)
+if (['vote', 'collect'].includes(route.query.tab)) activeTab.value = route.query.tab
 
 const reminding = ref(false)
 
@@ -346,18 +356,21 @@ const ballots = ref({ total: 0, voted_count: 0, rows: [] })
 // ---------- 列表 ----------
 
 async function fetchList() {
+  const requestId = listRequest.start()
+  loadError.value = ''
   loading.value = true
   try {
     const params = { page: currentPage.value, page_size: pageSize.value }
     if (status.value) params.status = status.value
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await getPolls(params)
+    if (!listRequest.isCurrent(requestId)) return
     rows.value = res.items || []
     total.value = res.total || 0
   } catch (e) {
-    ElMessage.error(errText(e, '读取投票列表失败'))
+    if (listRequest.isCurrent(requestId)) loadError.value = errText(e, '读取投票列表失败')
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(requestId)) loading.value = false
   }
 }
 

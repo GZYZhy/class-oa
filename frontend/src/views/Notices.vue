@@ -55,8 +55,10 @@
       </el-form>
 
       <!-- 通知列表：手风琴式，最新一条默认展开 -->
-      <el-empty v-if="!loading && !list.length" description="暂无通知" style="margin-top: 20px;" />
-      <el-collapse v-else v-model="activeNames" class="notice-collapse" @change="handleExpand">
+      <el-empty v-if="!loadError && !loading && !list.length" :description="searchForm.title || searchForm.dateRange?.length ? '没有匹配的通知' : '暂无通知'" style="margin-top: 20px;" />
+      <ListFeedback :error="loadError" :loading="loading" @retry="fetchList()" />
+
+      <el-collapse v-if="!loadError && list.length" v-model="activeNames" class="notice-collapse" @change="handleExpand">
         <el-collapse-item
           v-for="item in list"
           :key="item.id"
@@ -362,6 +364,9 @@
 </template>
 
 <script setup>
+import ListFeedback from '@/components/ListFeedback.vue'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { usePageState } from '@/composables/usePageState'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -401,6 +406,8 @@ const badgeStore = useBadgeStore()
 
 const list = ref([])
 const loading = ref(false)
+const loadError = ref('')
+const listRequest = useLatestRequest()
 const activeNames = ref([])
 
 // 分享弹窗：每条公告都有人人可见的「分享」入口，链接是稳定的真实路径
@@ -418,6 +425,7 @@ function openShare(item) {
 }
 
 const searchForm = reactive({ title: '', dateRange: [] })
+usePageState('Notices', { searchForm }, loading)
 
 const publishVisible = ref(false)
 const submitting = ref(false)
@@ -473,6 +481,8 @@ function formatDateTime(value) {
  * 那样每次搜索、发布、重置都会把用户弹回第一条。
  */
 async function fetchList(focusId = null) {
+  const requestId = listRequest.start()
+  loadError.value = ''
   loading.value = true
   try {
     const params = {
@@ -480,7 +490,9 @@ async function fetchList(focusId = null) {
       start_date: searchForm.dateRange?.[0] || undefined,
       end_date: searchForm.dateRange?.[1] || undefined,
     }
-    list.value = await getNotices(params)
+    const data = await getNotices(params)
+    if (!listRequest.isCurrent(requestId)) return
+    list.value = data
 
     const target = focusId ? list.value.find((item) => item.id === focusId) : null
     if (target) {
@@ -502,9 +514,9 @@ async function fetchList(focusId = null) {
       markRead(list.value.slice(0, 1))
     }
   } catch (e) {
-    ElMessage.error('通知列表加载失败')
+    if (listRequest.isCurrent(requestId)) loadError.value = '通知列表加载失败'
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(requestId)) loading.value = false
   }
 }
 

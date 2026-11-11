@@ -257,6 +257,7 @@
 </template>
 
 <script setup>
+import { useUnsavedChanges } from '@/composables/useUnsavedChanges'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { syncRecordTab } from '@/composables/recordTab'
@@ -314,6 +315,11 @@ function mustCheck(message) {
   ]
 }
 
+const { markSaved } = useUnsavedChanges(() => ({
+  ...form,
+  files: fileList.value.map((file) => [file.uid, file.name, file.size])
+}))
+
 const rules = {
   leave_type: [{ required: true, message: '请选择请假类型', trigger: 'change' }],
   start_at: [{ required: true, message: '请选择开始时间', trigger: 'change' }],
@@ -370,6 +376,7 @@ function resetForm() {
   })
   fileList.value = []
   editingId.value = null
+  markSaved()
 }
 
 /** 修改：把这条记录预填进表单并切回表单那一栏 */
@@ -393,6 +400,7 @@ function startEdit(row) {
   fileList.value = []
   activeTab.value = 'apply'
   formRef.value?.clearValidate()
+  markSaved()
 }
 
 function cancelEdit() {

@@ -181,6 +181,7 @@
 </template>
 
 <script setup>
+import { useUnsavedChanges } from '@/composables/useUnsavedChanges'
 import { ref, reactive, onMounted } from 'vue'
 import { syncRecordTab } from '@/composables/recordTab'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -240,6 +241,11 @@ const validateConfirmed = (_rule, _value, callback) => {
   else callback()
 }
 
+const { markSaved } = useUnsavedChanges(() => ({
+  ...form,
+  files: fileList.value.map((file) => [file.uid, file.name, file.size])
+}))
+
 const rules = {
   title: [{ required: true, message: '请填写证明标题', trigger: 'blur' }],
   recipient: [{ required: true, message: '请填写收文单位', trigger: 'blur' }],
@@ -289,6 +295,7 @@ function resetForm() {
   selectedFiles.value = []
   editingId.value = null
   uploadRef.value?.clearFiles()
+  markSaved()
 }
 
 /** 修改：把这条记录预填进表单并切回申请那一栏 */
@@ -306,6 +313,7 @@ function startEdit(row) {
   uploadRef.value?.clearFiles()
   activeTab.value = 'apply'
   formRef.value?.clearValidate()
+  markSaved()
 }
 
 function cancelEdit() {

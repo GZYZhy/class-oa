@@ -128,6 +128,7 @@
 </template>
 
 <script setup>
+import { useUnsavedChanges } from '@/composables/useUnsavedChanges'
 import { ref, reactive, onMounted } from 'vue'
 import { syncRecordTab } from '@/composables/recordTab'
 import { ElMessage } from 'element-plus'
@@ -173,6 +174,11 @@ const form = reactive({
   title: '',
   content: ''
 })
+
+const { markSaved } = useUnsavedChanges(() => ({
+  ...form,
+  files: fileList.value.map((file) => [file.uid, file.name, file.size])
+}))
 
 const rules = {
   title: [{ required: true, message: '请填写标题', trigger: 'blur' }],
@@ -249,6 +255,7 @@ async function handleSubmit() {
     form.title = ''
     form.content = ''
     fileList.value = []
+    markSaved()
     activeTab.value = 'my'
     await fetchList()
   } catch (e) {

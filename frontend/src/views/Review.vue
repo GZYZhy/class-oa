@@ -1,5 +1,5 @@
 <template>
-  <div class="page-card" v-loading="loading">
+  <div class="page-card review-page" v-loading="loading">
     <!-- 这里全是同学的家庭地址、邮箱这类信息，盖一层「谁在看」的水印 -->
     <Watermark :text="watermarkText" />
     <!-- 管理员补录请假证明用的隐藏文件框：一次只处理一行人 -->
@@ -12,6 +12,8 @@
     />
 
     <h3 class="page-title" style="margin-bottom: 12px;">审核审批</h3>
+
+    <ListFeedback :error="loadError" :loading="loading" @retry="handleTabChange" />
 
     <el-tabs v-model="activeTab" @tab-change="handleTabChange">
       <!-- ============ 信息修改申请 ============ -->
@@ -32,7 +34,7 @@
           </el-radio-group>
         </div>
 
-        <el-table :data="changeList" stripe border style="width: 100%; margin-top: 12px;">
+        <el-table v-show="!loadError" :data="changeList" stripe border style="width: 100%; margin-top: 12px;">
           <el-table-column label="申请人" width="150" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
@@ -109,7 +111,7 @@
             </template>
           </el-table-column>
 
-          <el-table-column label="操作" width="150" align="center">
+          <el-table-column label="操作" :width="isMobile ? 100 : 150" fixed="right" align="center">
             <template #default="{ row }">
               <!-- 与后端一致：修改申请班委就能批（change_requests.py 用的是
                    committee_required）。能进这个页面的人本来就都是班委及以上 -->
@@ -151,7 +153,7 @@
           </el-radio-group>
         </div>
 
-        <el-table :data="leaveList" stripe border style="width: 100%; margin-top: 12px;">
+        <el-table v-show="!loadError" :data="leaveList" stripe border style="width: 100%; margin-top: 12px;">
           <el-table-column label="申请人" width="150" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
@@ -190,7 +192,7 @@
           <el-table-column label="申请时间" width="150" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="460" align="center">
+          <el-table-column label="操作" :width="isMobile ? 100 : 460" fixed="right" align="center">
             <template #default="{ row }">
               <el-button
                 v-if="row.proof_original_name"
@@ -312,7 +314,7 @@
           </el-radio-group>
         </div>
 
-        <el-table :data="evPassList" stripe border style="width: 100%; margin-top: 12px;">
+        <el-table v-show="!loadError" :data="evPassList" stripe border style="width: 100%; margin-top: 12px;">
           <el-table-column label="申请人" min-width="140" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
@@ -446,7 +448,7 @@
           </el-radio-group>
         </div>
 
-        <el-table :data="certificateList" stripe border style="width: 100%; margin-top: 12px;">
+        <el-table v-show="!loadError" :data="certificateList" stripe border style="width: 100%; margin-top: 12px;">
           <el-table-column label="申请人" width="140" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
@@ -562,7 +564,7 @@
           </el-radio-group>
         </div>
 
-        <el-table :data="signList" stripe border style="width: 100%; margin-top: 12px;">
+        <el-table v-show="!loadError" :data="signList" stripe border style="width: 100%; margin-top: 12px;">
           <el-table-column label="申请人" width="140" align="center">
             <template #default="{ row }">
               {{ row.applicant_name }}
@@ -590,7 +592,7 @@
               {{ row.status === 'rejected' ? (row.reason || '') : (row.reviewer_name || '-') }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="200" align="center">
+          <el-table-column label="操作" :width="isMobile ? 100 : 200" fixed="right" align="center">
             <template #default="{ row }">
               <!-- 签字图本身也在这里给管理员看一眼：批之前总得知道批的是什么。
                    管理员看签字不受审批限制（取图接口直接放行） -->
@@ -623,7 +625,7 @@
           </el-radio-group>
         </div>
 
-        <el-table :data="archiveList" stripe border style="width: 100%; margin-top: 12px;">
+        <el-table v-show="!loadError" :data="archiveList" stripe border style="width: 100%; margin-top: 12px;">
           <el-table-column label="申请人" width="140" align="center">
             <template #default="{ row }">
               {{ row.applicant_name }}
@@ -651,7 +653,7 @@
               {{ row.status === 'rejected' ? (row.reason || '') : (row.reviewer_name || '-') }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="140" align="center">
+          <el-table-column label="操作" :width="isMobile ? 100 : 140" fixed="right" align="center">
             <template #default="{ row }">
               <template v-if="row.status === 'pending'">
                 <el-button size="small" link type="success" @click="handleApproveArchive(row)">通过</el-button>
@@ -682,7 +684,7 @@
           </el-radio-group>
         </div>
 
-        <el-table :data="exportList" v-loading="exportLoading" stripe border style="width: 100%; margin-top: 12px;">
+        <el-table v-show="!loadError" :data="exportList" v-loading="exportLoading" stripe border style="width: 100%; margin-top: 12px;">
           <el-table-column label="申请人" min-width="150" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
@@ -770,7 +772,7 @@
           </el-radio-group>
         </div>
 
-        <el-table :data="feedbackList" stripe border style="width: 100%; margin-top: 12px;">
+        <el-table v-show="!loadError" :data="feedbackList" stripe border style="width: 100%; margin-top: 12px;">
           <el-table-column label="提交人" width="140" align="center">
             <template #default="{ row }">
               {{ row.student_name }}
@@ -788,7 +790,7 @@
           <el-table-column label="提交时间" width="160" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="180" align="center">
+          <el-table-column label="操作" :width="isMobile ? 100 : 180" fixed="right" align="center">
             <template #default="{ row }">
               <el-button size="small" link type="primary" @click="viewFeedback(row)">
                 查看
@@ -1031,7 +1033,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import ListFeedback from '@/components/ListFeedback.vue'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { useIsMobile } from '@/composables/useIsMobile'
+import { usePageState } from '@/composables/usePageState'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { blobErrorDetail } from '@/utils/download'
@@ -1123,6 +1129,9 @@ const watermarkText = useWatermark()
 const route = useRoute()
 
 const loading = ref(false)
+const loadError = ref('')
+const reviewRequest = useLatestRequest()
+const isMobile = useIsMobile()
 // 从推送点进来时带着 ?tab=leave 之类的参数，直接落到对应分类；
 // 不带参数（正常从菜单进）就还是老样子，停在信息修改申请
 const TABS = ['change', 'leave', 'evpass', 'certificate', 'signphoto', 'archive', 'export', 'feedback']
@@ -1204,16 +1213,24 @@ function onImgError(e) {
 }
 
 async function fetchChangeList() {
+  const requestId = reviewRequest.start()
+  loadError.value = ''
   loading.value = true
+  exportLoading.value = false
   try {
-    changeList.value = await getChangeRequests(
+    const data = await getChangeRequests(
       reviewParams(changeStatus.value, changeKeyword.value, changeRange.value)
     )
+    if (!reviewRequest.isCurrent(requestId)) return
+    changeList.value = data
   } catch (e) {
-    ElMessage.error('申请列表加载失败')
+    if (reviewRequest.isCurrent(requestId)) loadError.value = '申请列表加载失败'
   } finally {
-    loading.value = false
-    badgeStore.refresh()
+    if (reviewRequest.isCurrent(requestId)) {
+      loading.value = false
+      exportLoading.value = false
+      badgeStore.refresh()
+    }
   }
 }
 
@@ -1295,16 +1312,24 @@ const leaveKeyword = ref('')
 const leaveRange = ref(null)
 
 async function fetchLeaveList() {
+  const requestId = reviewRequest.start()
+  loadError.value = ''
   loading.value = true
+  exportLoading.value = false
   try {
-    leaveList.value = await getLeaveList(
+    const data = await getLeaveList(
       reviewParams(leaveStatus.value, leaveKeyword.value, leaveRange.value)
     )
+    if (!reviewRequest.isCurrent(requestId)) return
+    leaveList.value = data
   } catch (e) {
-    ElMessage.error('请假列表加载失败')
+    if (reviewRequest.isCurrent(requestId)) loadError.value = '请假列表加载失败'
   } finally {
-    loading.value = false
-    badgeStore.refresh()
+    if (reviewRequest.isCurrent(requestId)) {
+      loading.value = false
+      exportLoading.value = false
+      badgeStore.refresh()
+    }
   }
 }
 
@@ -1492,16 +1517,24 @@ const evPassKeyword = ref('')
 const evPassRange = ref(null)
 
 async function fetchEvPassList() {
+  const requestId = reviewRequest.start()
+  loadError.value = ''
   loading.value = true
+  exportLoading.value = false
   try {
-    evPassList.value = await getEvPassList(
+    const data = await getEvPassList(
       reviewParams(evPassStatus.value, evPassKeyword.value, evPassRange.value)
     )
+    if (!reviewRequest.isCurrent(requestId)) return
+    evPassList.value = data
   } catch (e) {
-    ElMessage.error('通行证申请列表加载失败')
+    if (reviewRequest.isCurrent(requestId)) loadError.value = '通行证申请列表加载失败'
   } finally {
-    loading.value = false
-    badgeStore.refresh()
+    if (reviewRequest.isCurrent(requestId)) {
+      loading.value = false
+      exportLoading.value = false
+      badgeStore.refresh()
+    }
   }
 }
 
@@ -1635,16 +1668,24 @@ const certificateKeyword = ref('')
 const certificateRange = ref(null)
 
 async function fetchCertificateList() {
+  const requestId = reviewRequest.start()
+  loadError.value = ''
   loading.value = true
+  exportLoading.value = false
   try {
-    certificateList.value = await getCertificateList(
+    const data = await getCertificateList(
       reviewParams(certificateStatus.value, certificateKeyword.value, certificateRange.value)
     )
+    if (!reviewRequest.isCurrent(requestId)) return
+    certificateList.value = data
   } catch (e) {
-    ElMessage.error('证明申请列表加载失败')
+    if (reviewRequest.isCurrent(requestId)) loadError.value = '证明申请列表加载失败'
   } finally {
-    loading.value = false
-    badgeStore.refresh()
+    if (reviewRequest.isCurrent(requestId)) {
+      loading.value = false
+      exportLoading.value = false
+      badgeStore.refresh()
+    }
   }
 }
 
@@ -1748,17 +1789,24 @@ const signFileUrl = ref('')
 const signFileName = ref('')
 
 async function fetchSignList() {
+  const requestId = reviewRequest.start()
+  loadError.value = ''
   loading.value = true
+  exportLoading.value = false
   try {
     const res = await getSignRequests(
       reviewParams(signStatus.value, signKeyword.value, signRange.value)
     )
+    if (!reviewRequest.isCurrent(requestId)) return
     signList.value = res.items || []
   } catch (e) {
-    ElMessage.error('签字申请列表加载失败')
+    if (reviewRequest.isCurrent(requestId)) loadError.value = '签字申请列表加载失败'
   } finally {
-    loading.value = false
-    badgeStore.refresh()
+    if (reviewRequest.isCurrent(requestId)) {
+      loading.value = false
+      exportLoading.value = false
+      badgeStore.refresh()
+    }
   }
 }
 
@@ -1820,17 +1868,24 @@ const archiveKeyword = ref('')
 const archiveRange = ref(null)
 
 async function fetchArchiveList() {
+  const requestId = reviewRequest.start()
+  loadError.value = ''
   loading.value = true
+  exportLoading.value = false
   try {
     const res = await getArchiveRequests(
       reviewParams(archiveStatus.value, archiveKeyword.value, archiveRange.value)
     )
+    if (!reviewRequest.isCurrent(requestId)) return
     archiveList.value = res.items || []
   } catch (e) {
-    ElMessage.error('档案申请列表加载失败')
+    if (reviewRequest.isCurrent(requestId)) loadError.value = '档案申请列表加载失败'
   } finally {
-    loading.value = false
-    badgeStore.refresh()
+    if (reviewRequest.isCurrent(requestId)) {
+      loading.value = false
+      exportLoading.value = false
+      badgeStore.refresh()
+    }
   }
 }
 
@@ -1922,6 +1977,9 @@ const exportDownloadingId = ref(null)
 const exportDownloadPercent = ref(0)
 
 async function fetchExportList() {
+  const requestId = reviewRequest.start()
+  loadError.value = ''
+  loading.value = true
   exportLoading.value = true
   try {
     const res = await getExportRequests({
@@ -1929,14 +1987,18 @@ async function fetchExportList() {
       page: 1,
       page_size: 100
     })
+    if (!reviewRequest.isCurrent(requestId)) return
     exportList.value = res.items || []
   } catch (e) {
-    ElMessage.error('加载导出申请列表失败')
+    if (reviewRequest.isCurrent(requestId)) loadError.value = '加载导出申请列表失败'
     console.error(e)
   } finally {
-    exportLoading.value = false
-    // 顺手刷一下红点，原因同 fetchFeedbackList 里的说明
-    badgeStore.refresh()
+    if (reviewRequest.isCurrent(requestId)) {
+      loading.value = false
+      exportLoading.value = false
+      // 顺手刷一下红点，原因同 fetchFeedbackList 里的说明
+      badgeStore.refresh()
+    }
   }
 }
 
@@ -2039,19 +2101,27 @@ const replyContent = ref('')
 const replying = ref(false)
 
 async function fetchFeedbackList() {
+  const requestId = reviewRequest.start()
+  loadError.value = ''
   loading.value = true
+  exportLoading.value = false
   try {
-    feedbackList.value = await getFeedbackList(
+    const data = await getFeedbackList(
       reviewParams(feedbackStatus.value, feedbackKeyword.value, feedbackRange.value)
     )
+    if (!reviewRequest.isCurrent(requestId)) return
+    feedbackList.value = data
   } catch (e) {
-    ElMessage.error('反馈列表加载失败')
+    if (reviewRequest.isCurrent(requestId)) loadError.value = '反馈列表加载失败'
   } finally {
-    loading.value = false
-    // 红点刷新统一挂在各列表的 finally 里：每个审核操作成功之后本来就都会重拉列表，
-    // 这样将来新增操作时漏掉刷新的概率是零（红点里的数字会跟着立刻减下去）。
-    // 代价是切 tab 会多发一次请求，可以接受
-    badgeStore.refresh()
+    if (reviewRequest.isCurrent(requestId)) {
+      loading.value = false
+      exportLoading.value = false
+      // 红点刷新统一挂在各列表的 finally 里：每个审核操作成功之后本来就都会重拉列表，
+      // 这样将来新增操作时漏掉刷新的概率是零（红点里的数字会跟着立刻减下去）。
+      // 代价是切 tab 会多发一次请求，可以接受
+      badgeStore.refresh()
+    }
   }
 }
 
@@ -2133,10 +2203,34 @@ function handleTabChange() {
 }
 
 // 按当前 tab 拉数据（而不是固定拉修改申请），这样 ?tab=leave 进来才是对的
+usePageState('Review', {
+  activeTab, changeStatus, changeKeyword,
+  changeRange, leaveStatus, leaveKeyword,
+  leaveRange, evPassStatus, evPassKeyword,
+  evPassRange, certificateStatus, certificateKeyword,
+  certificateRange, signStatus, signKeyword,
+  signRange, archiveStatus, archiveKeyword,
+  archiveRange, exportStatus, exportKeyword,
+  exportRange, feedbackStatus, feedbackKeyword,
+  feedbackRange
+}, loading)
+if (TABS.includes(route.query.tab)) activeTab.value = route.query.tab
+watch(() => route.query.tab, (tab) => {
+  if (TABS.includes(tab)) activeTab.value = tab
+})
 onMounted(handleTabChange)
 </script>
 
 <style scoped>
+@media (max-width: 768px) {
+  .tab-toolbar { align-items: stretch; gap: 12px; }
+  .tab-toolbar :deep(.el-radio-group) { display: flex; flex-wrap: wrap; row-gap: 6px; }
+  .tab-toolbar :deep(.el-radio-button__inner) { min-height: 34px; display: flex; align-items: center; }
+  :deep(.el-table__fixed-right .cell), :deep(.el-table-fixed-column--right .cell) { padding: 6px; }
+  :deep(.el-table .cell > .el-button) { min-height: 30px; margin: 0 5px; }
+  :deep(.el-tabs__item) { min-height: 44px; }
+}
+
 .page-card {
   /* 水印的定位基准 */
   position: relative;

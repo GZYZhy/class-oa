@@ -35,6 +35,7 @@ function reset() {
     <el-input
       v-model="keywordValue"
       placeholder="提交人姓名或学号"
+      aria-label="提交人姓名或学号"
       clearable
       style="width: 170px"
       @keyup.enter="emit('search')"
@@ -60,6 +61,11 @@ function reset() {
 </template>
 
 <style scoped>
+@media (max-width: 768px) {
+  .review-search { width: 100%; }
+  .review-search > .el-input { flex: 1 1 150px; }
+  .review-search > :deep(.el-date-editor) { max-width: 100%; flex: 1 1 240px; }
+}
 .review-search {
   display: flex;
   flex-wrap: wrap;
