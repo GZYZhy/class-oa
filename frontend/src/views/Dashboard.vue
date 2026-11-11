@@ -96,7 +96,6 @@
       </ul>
     </div>
 
-    <h2 class="overview-title">班级概览</h2>
     <!-- 统计没拿到时不说「0 人」：那是假数据。给一句实话 + 重试 -->
     <div v-if="statsError" class="stats-error">
       <el-icon><Warning /></el-icon>
@@ -107,7 +106,7 @@
     </div>
 
     <!-- 性别分布 + 天气：天气卡替代了原来的政治面貌饼图 -->
-    <el-row :gutter="20">
+    <el-row :gutter="20" style="margin-top: 24px;">
       <el-col :xs="24" :md="12">
         <div class="page-card chart-card">
           <h3 class="page-title">性别分布</h3>
@@ -450,7 +449,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .dashboard { max-width: 1440px; margin-inline: auto; }
 .banner-date { margin: 0; font-size: 14px; opacity: .85; letter-spacing: .3px; }
-.overview-title { margin: 28px 0 16px; font-size: 17px; font-weight: 650; color: var(--el-text-color-primary); }
 
 .welcome-banner {
   /* 三段式紫色序列（靛蓝→薰衣草）。之前尾端的天青拿掉了 ——
