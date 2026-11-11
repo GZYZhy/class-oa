@@ -1,5 +1,5 @@
 # 后端 Dockerfile
-FROM python:3.12-slim
+FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
@@ -15,7 +15,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # ca-certificates 必须显式装：slim 镜像 + --no-install-recommends 下它不会被
 # curl 带进来，而 urllib 的外呼（Bark / Turnstile / 检查更新）会因此报
 # CERTIFICATE_VERIFY_FAILED（requests 用 certifi，不受影响，所以只有这几处坏）
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     tzdata \
@@ -28,7 +29,10 @@ COPY requirements.txt .
 # 主源用清华镜像（国内快），加 --extra-index-url 指向官方 PyPI 作为兜底：
 # 清华源偶尔会出现「某个版本同步丢了」的情况（比如 fastapi 0.115.0 就出现过），
 # 有兜底源就不会因为一个包找不到导致整个构建挂掉
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN pip install --no-cache-dir --upgrade pip==26.3 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    --extra-index-url https://pypi.org/simple \
+    && pip install --no-cache-dir -r requirements.txt \
     -i https://pypi.tuna.tsinghua.edu.cn/simple \
     --extra-index-url https://pypi.org/simple
 

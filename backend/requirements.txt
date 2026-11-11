@@ -1,4 +1,6 @@
-fastapi==0.115.0
+fastapi==0.139.0
+# 锁定包含表单解析、文件响应等安全修复的 Starlette。
+starlette==1.3.1
 uvicorn[standard]==0.30.6
 sqlalchemy==2.0.35
 pydantic==2.9.2
@@ -11,7 +13,7 @@ itsdangerous==2.2.0
 pywebpush==2.5.0
 # 登录页的拖动拼图验证码：只用来生成/裁剪/调暗图片（utils/captcha.py）。
 # 选 manylinux wheel，slim 镜像里不用装编译工具链
-Pillow==11.0.0
+Pillow==13.0.0
 # 字符图 / 语音验证码（默认的人机验证方式）。依赖只有 Pillow，
 # 自带字体与语音数据，镜像里不用再装 ttf
 captcha==0.7.1
