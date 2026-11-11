@@ -124,6 +124,10 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          # 每次发版检查基础镜像更新，并重新执行前端运行阶段的 apk upgrade。
+          # builder 阶段仍使用缓存，避免重复安装前端依赖。
+          pull: true
+          no-cache-filters: ${{ matrix.service == 'frontend' && 'runtime' || '' }}
           # 缓存放 GitHub 自己的存储里，下一次构建能复用绝大部分层。
           # scope 必须按镜像分开，否则后端和前端会互相覆盖对方的缓存
           cache-from: type=gha,scope=${{ matrix.service }}

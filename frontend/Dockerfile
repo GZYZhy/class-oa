@@ -17,8 +17,12 @@ COPY . .
 # 构建
 RUN npm run build
 
-# 运行阶段 - 使用 nginx 提供静态文件
-FROM nginx:alpine
+# 运行阶段：项目使用 Nginx 内置的静态服务、反代、SSI、gzip 和 HTTPS。
+# slim 变体省去未使用的 XSLT/njs 等动态模块及其 XML 依赖。
+FROM nginx:alpine-slim AS runtime
+
+# 安装当前 Alpine 分支的安全更新。CI 对 runtime 禁用缓存，每次发版重新检查。
+RUN apk upgrade --no-cache
 
 # 复制构建产物
 COPY --from=builder /app/dist /usr/share/nginx/html
