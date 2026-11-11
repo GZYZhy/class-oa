@@ -189,6 +189,8 @@
           :reserve-selection="true"
           width="38"
           align="center"
+          class-name="col-select"
+          label-class-name="col-select"
         />
         <!-- 复选框和序号这两列都收到刚好放得下内容：窄屏横向滚动时，省下的这几十
              像素正好够把「姓名」挪进可视区（排在它们前面的就这两列） -->
@@ -203,7 +205,13 @@
           class-name="col-index"
           label-class-name="col-index"
         />
-        <el-table-column v-if="!isMobile" label="照片" width="70" align="center">
+        <el-table-column
+          label="照片"
+          :width="isMobile ? 44 : 70"
+          align="center"
+          class-name="col-photo"
+          label-class-name="col-photo"
+        >
           <template #default="{ row }">
             <div
               class="thumb-photo"
@@ -225,12 +233,43 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="name" :label="isMobile ? '姓名 / 学号' : '姓名'" :width="isMobile ? 130 : 90" align="center" :fixed="isMobile ? 'left' : false">
+        <el-table-column
+          prop="name"
+          :label="isMobile ? '姓名 / 学号' : '姓名'"
+          :width="isMobile ? undefined : 90"
+          :min-width="isMobile ? 120 : undefined"
+          :align="isMobile ? 'left' : 'center'"
+          :fixed="isMobile ? false : 'left'"
+          class-name="col-name"
+        >
           <template #default="{ row }">
-            <span>{{ row.name }}</span>
-            <span v-if="isMobile && row.gender" class="student-gender">{{ row.gender }}</span>
-            <div v-if="isMobile" class="row-subtext">{{ row.student_no }}</div>
-            <div v-if="isMobile && row.class_position && row.class_position !== '无'" class="row-subtext">{{ row.class_position }}</div>
+            <div v-if="isMobile" class="mobile-name-cell">
+              <div class="mobile-name-copy">
+                <div class="mobile-name-line">
+                  <span>{{ row.name }}</span>
+                  <span v-if="row.gender" class="student-gender">{{ row.gender }}</span>
+                </div>
+                <div class="row-subtext">{{ row.student_no }}</div>
+                <div v-if="row.class_position && row.class_position !== '无'" class="row-subtext">
+                  {{ row.class_position }}
+                </div>
+              </div>
+              <el-dropdown trigger="click">
+                <el-button link aria-label="更多学生操作" @click.stop>
+                  <el-icon><MoreFilled /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="handleView(row)">查看</el-dropdown-item>
+                    <el-dropdown-item @click="handleEdit(row)">编辑信息</el-dropdown-item>
+                    <el-dropdown-item v-if="userStore.isAdmin" divided @click="handleDelete(row)">
+                      删除学生
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+            <span v-else>{{ row.name }}</span>
           </template>
         </el-table-column>
         <el-table-column v-if="!isMobile" prop="gender" label="性别" width="60" align="center">
@@ -268,21 +307,12 @@
             <span v-else style="color: var(--el-text-color-disabled);">-</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" :width="isMobile ? 94 : 190" fixed="right" align="center">
+        <el-table-column v-if="!isMobile" label="操作" width="190" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link @click.stop="handleView(row)">查看</el-button>
-            <el-dropdown v-if="isMobile" trigger="click">
-              <el-button link aria-label="更多学生操作" @click.stop><el-icon><MoreFilled /></el-icon></el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item @click="handleEdit(row)">编辑信息</el-dropdown-item>
-                  <el-dropdown-item v-if="userStore.isAdmin" divided @click="handleDelete(row)">删除学生</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-            <el-button v-else type="warning" link @click.stop="handleEdit(row)">编辑</el-button>
+            <el-button type="warning" link @click.stop="handleEdit(row)">编辑</el-button>
             <el-button
-              v-if="userStore.isAdmin && !isMobile"
+              v-if="userStore.isAdmin"
               type="danger"
               link
               @click.stop="handleDelete(row)"
@@ -2593,18 +2623,50 @@ watch(() => route.query.open, openFromQuery)
 
 .row-subtext {
   margin-top: 2px;
-  max-width: 120px;
-  overflow: hidden;
   color: var(--el-text-color-secondary);
   font-size: 11px;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.mobile-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobile-name-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-name-line {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.mobile-name-cell :deep(.el-dropdown) {
+  flex-shrink: 0;
 }
 
 @media (max-width: 768px) {
   .table-tools { gap: 8px; }
   .table-tools :deep(.el-button) { padding-inline: 10px; }
+
+  :deep(.col-select .cell),
+  :deep(.col-photo .cell) {
+    padding: 2px;
+  }
+
+  .thumb-photo,
+  .thumb-img,
+  .thumb-placeholder {
+    width: 36px;
+    height: 36px;
+  }
 }
 
 .student-list {

@@ -54,26 +54,6 @@
 
     <DashboardWork v-if="userStore.resolved && userStore.isLogin" />
 
-    <!-- 快捷入口：登录后才有（游客点进去也是被弹回来，不如不摆）。
-         判据和侧边菜单同一份（utils/roles.js 的 canSee），所以这里的 role / studentOnly
-         写法和路由 meta 逐字一致，改一处就得三处一起改 -->
-    <div v-if="userStore.resolved && userStore.isLogin" class="page-card quick-card">
-      <h3 class="page-title">快捷入口</h3>
-      <div class="quick-grid">
-        <router-link
-          v-for="item in visibleShortcuts"
-          :key="item.path"
-          :to="item.path"
-          class="quick-tile"
-        >
-          <div class="quick-icon" :class="item.theme">
-            <el-icon><component :is="item.icon" /></el-icon>
-          </div>
-          <span class="quick-name">{{ item.title }}</span>
-        </router-link>
-      </div>
-    </div>
-
     <!-- 最新通知：接口本来就公开，游客也看得见。
          未读圆点必须绑在登录态上 —— 后端对游客恒返回 is_read=false，
          不判断的话游客页会整列都是红点。
@@ -277,7 +257,6 @@ import { getBirthdayToday } from '@/api/birthday'
 import { getWeather } from '@/api/weather'
 import { getNotices } from '@/api/notice'
 import { useUserStore } from '@/store/user'
-import { canSee } from '@/utils/roles'
 import { SITE } from '@/utils/site'
 
 const DashboardWork = defineAsyncComponent(() => import('@/components/DashboardWork.vue'))
@@ -313,27 +292,6 @@ const noticesError = ref('')
  * 后端列表接口有 limit 参数，**只取这么多、不是取回来再切片** —— 每条通知都带着
  * 整篇 Markdown 正文，首页为 5 行标题拉回全班历来通知的全文不划算 */
 const NOTICE_COUNT = 5
-
-/** 快捷入口。
- *
- * 字段口径（public / studentOnly / role）和侧边菜单、路由 meta **完全一致**，
- * 就是为了能直接套用 utils/roles.js 那份 canSee —— 判据只剩一份，
- * 不会出现「首页摆得出来、点进去被守卫弹回首页」。
- * render.mjs 有一节比着 router/index.js 的 meta 逐条断，加项时照着改。
- */
-const SHORTCUTS = [
-  { path: '/notices', title: '通知公告', icon: 'Bell', theme: 'tile-blue', public: true },
-  { path: '/service', title: '办事中心', icon: 'Postcard', theme: 'tile-cyan', studentOnly: true },
-  { path: '/leave', title: '请假申请', icon: 'Document', theme: 'tile-green', studentOnly: true },
-  // 域外账号也有日程（共享日程只读 / 有权限可分配），不再是学生专属
-  { path: '/schedule', title: '我的日程', icon: 'Calendar', theme: 'tile-purple' },
-  { path: '/downloads', title: '资料下载', icon: 'Download', theme: 'tile-orange' },
-  { path: '/students', title: '学生信息', icon: 'List', theme: 'tile-pink', role: 'committee' },
-  { path: '/review', title: '审核审批', icon: 'Checked', theme: 'tile-indigo', role: 'committee' },
-  { path: '/statistics', title: '分类统计', icon: 'PieChart', theme: 'tile-teal', role: 'committee' }
-]
-
-const visibleShortcuts = computed(() => SHORTCUTS.filter((item) => canSee(item, userStore)))
 
 const genderChartRef = ref(null)
 
@@ -825,70 +783,10 @@ onBeforeUnmount(() => {
   margin-top: 4px;
 }
 
-/* 快捷入口 / 最新通知这两块都跟在统计卡后面，间距和图表那行保持一致 */
-.quick-card,
+/* 最新通知跟在统计卡后面，间距和图表那行保持一致 */
 .notice-card {
   margin-top: 20px;
 }
-
-/* 磁贴的列数按屏宽分三档：手机两列、平板四列、宽屏一行八块。
-   试过 auto-fill + 最小宽度那种「不用写媒体查询」的写法，但在 1280 的桌面上
-   算下来是 7 列 —— 八块磁贴排成 7+1，最后一块孤零零占一整行，很难看。
-   八块是上限（普通学生只有五块），一行八块、一行四块都不会有零头溢出来。 */
-.quick-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.quick-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 8px;
-  border-radius: 16px;
-  /* 卡片里的磁贴：跟着卡片玻璃走的浅色涂层，不再是一块实色 */
-  background: var(--app-inset-bg);
-  border: 1px solid var(--app-outline);
-  color: var(--el-text-color-primary);
-  text-decoration: none;
-  transition: all 0.2s;
-}
-
-.quick-tile:hover {
-  background: var(--app-secondary-soft);
-  border-color: var(--app-secondary-border);
-  color: var(--app-secondary-deep);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 18px rgba(47, 157, 228, 0.14);
-}
-
-.quick-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 21px;
-  /* 白字压在彩色渐变上，明暗两种模式下都清晰，所以这几个色值写死、不跟深色模式 */
-  color: #fff;
-}
-
-.quick-name {
-  font-size: 13px;
-}
-
-/* 每个入口一个色，和卡片图标用的是同一套渐变 */
-.tile-blue { background: linear-gradient(135deg, #409EFF, #66b1ff); }
-.tile-cyan { background: linear-gradient(135deg, #1abc9c, #48c9b0); }
-.tile-green { background: linear-gradient(135deg, #67C23A, #85ce61); }
-.tile-purple { background: linear-gradient(135deg, #8e6bd6, #ab8ee0); }
-.tile-orange { background: linear-gradient(135deg, #E6A23C, #ebb563); }
-.tile-pink { background: linear-gradient(135deg, #F56C6C, #f89898); }
-.tile-indigo { background: linear-gradient(135deg, #5b6ee0, #7d8ce8); }
-.tile-teal { background: linear-gradient(135deg, #2f9fb5, #52b8cb); }
 
 /* 卡片标题 + 右侧「更多」：标题自带的 margin-bottom 会把这一行撑高，
    这里交给 flex 对齐，margin 压掉 */
@@ -1292,19 +1190,6 @@ onBeforeUnmount(() => {
     font-size: 12px;
   }
 
-  .quick-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .quick-tile {
-    padding: 12px 6px;
-    gap: 8px;
-  }
-
-  .quick-icon { width: 32px; height: 32px; font-size: 20px; }
-  .quick-name { font-size: 12px; }
-
   .chart-container {
     min-height: 220px;
   }
@@ -1321,21 +1206,6 @@ onBeforeUnmount(() => {
 
   .weather-temp {
     font-size: 38px;
-  }
-}
-
-/* 快捷入口的列数（配合上面 .quick-grid 那条基础规则里的注释看）：
-   768 以下四列、768~1199 四列、1200 以上一行八块。
-   断点跟着侧边栏走 —— 1200 减去侧栏和两边留白，八块每块还有 105px 左右 */
-@media (min-width: 769px) {
-  .quick-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-@media (min-width: 1200px) {
-  .quick-grid {
-    grid-template-columns: repeat(8, 1fr);
   }
 }
 </style>

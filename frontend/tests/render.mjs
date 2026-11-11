@@ -1774,11 +1774,17 @@ console.log('\n▶ 学生名单：班委只能看允许的字段，完整档案�
     '「近期生日」入口只给管理员')
   check(/v-if="userStore\.isAdmin && !isMobile"[\s\S]{0,160}prop="gaokao_score"/.test(src),
     '高考分数列只给管理员，手机在详情中查看')
-  check(/\.row-subtext \{[^}]*text-overflow: ellipsis/.test(src),
-    '手机名单的学号/职务在姓名列内省略，不把表格撑宽')
-  check(/v-if="!isMobile"[\s\S]{0,80}label="照片"/.test(src) &&
-    (src.match(/v-if="!isMobile"/g) || []).length >= 8,
-  '手机名单收起序号、照片和其余列，只留姓名、学号与操作')
+  check(/\.row-subtext \{[^}]*overflow-wrap: anywhere/.test(src),
+    '手机名单的学号/职务允许在姓名列内换行，不把表格撑宽')
+  check(/:min-width="isMobile \? 120/.test(src) &&
+    src.includes('class="mobile-name-cell"') &&
+    /<el-table-column v-if="!isMobile" label="操作"/.test(src),
+  '手机名单把操作收进姓名列，不再被单独一列挤出屏幕')
+  check(/:width="isMobile \? 44 : 70"/.test(src) &&
+    /class-name="col-select"/.test(src) &&
+    /\.thumb-photo,[\s\S]{0,80}width: 36px/.test(src) &&
+    (src.match(/v-if="!isMobile"/g) || []).length >= 7,
+  '手机名单保留头像和复选框，只收起序号及其余档案列')
   check(/<template v-if="userStore\.isAdmin">[\s\S]{0,600}command="birth_date_asc"[\s\S]{0,400}command="gaokao_score_desc"/.test(src),
     '年龄 / 分数排序只给管理员')
   check((src.match(/v-if="!currentStudent\.sensitive_hidden"/g) || []).length >= 10,
@@ -2700,58 +2706,9 @@ console.log('\n▶ 首页：品牌标签、快捷入口、最新通知')
   check(/<span v-if="SITE\.college" class="brand-chip">/.test(src), '学院配了才渲染那个标签')
   check(/<span v-if="SITE\.major" class="brand-chip">/.test(src), '专业配了才渲染那个标签')
 
-  // 快捷入口：从源码里解析出这份清单，然后两件事都用它来断 ——
-  // 一是每项的可见性和路由 meta 对不对得上，二是那份判据本身跑起来对不对
-  const shortcuts = [...src.matchAll(
-    /\{ path: '(\/[^']+)', title: '([^']+)', icon: '[^']+', theme: '[^']+'([^}]*)\}/g
-  )].map(([, path, title, tail]) => ({
-    path,
-    title,
-    public: /public: true/.test(tail),
-    studentOnly: /studentOnly: true/.test(tail),
-    role: (tail.match(/role: '(\w+)'/) || [])[1]
-  }))
-  check(shortcuts.length >= 6, `从首页源码里解析出 ${shortcuts.length} 个快捷入口`)
-
-  // 首页摆得出来、点进去被路由守卫弹回首页，是最难发现的那种错（界面上只是「点了没反应」）。
-  // 所以逐项比着 router/index.js 的 meta 断：可见性条件必须**一模一样**，多一条少一条都不行
-  const router = readFileSync(`${ROOT}/src/router/index.js`, 'utf8')
-  const flags = (text) => ({
-    public: /public: true/.test(text),
-    studentOnly: /studentOnly: true/.test(text),
-    role: (text.match(/role: '(\w+)'/) || [])[1] || null
-  })
-  for (const item of shortcuts) {
-    const at = router.indexOf(`path: '${item.path}'`)
-    check(at >= 0, `${item.path}（${item.title}）在路由表里`)
-    if (at < 0) continue
-    const meta = (router.slice(at).match(/meta: \{([^}]*)\}/) || ['', ''])[1]
-    const own = { public: item.public, studentOnly: item.studentOnly, role: item.role || null }
-    const want = flags(meta)
-    check(JSON.stringify(own) === JSON.stringify(want),
-      `${item.path} 的可见性和路由 meta 一致（首页 ${JSON.stringify(own)} / 路由 ${JSON.stringify(want)}）`)
-  }
-
-  // 判据本体真跑一遍 —— 首页渲染不出来，但这份纯函数能。同一份 canSee 侧边菜单也在用
-  const { canSee } = await server.ssrLoadModule('/src/utils/roles.js')
-  const seen = (user) => shortcuts.filter((i) => canSee(i, user)).map((i) => i.path)
-  const guy = (role, extra = {}) => ({ isLogin: true, isExternal: false, info: { role }, ...extra })
-
-  check(seen({ isLogin: false, isExternal: false, info: null }).join() === '/notices',
-    '游客只剩「通知公告」（它本来就是公开页）')
-  check(seen(guy('student')).join() === '/notices,/service,/leave,/schedule,/downloads',
-    `普通学生看得见那五项（实际 ${seen(guy('student')).join(' / ')}）`)
-  check(!seen(guy('student', { isExternal: true })).includes('/service'),
-    '域外账号看不见学生用的那几项（域外账号没有学生记录，点进去也会被弹回）')
-  check(!seen(guy('student')).includes('/students'),
-    '普通学生看不见「学生信息」（那是班委及以上才有的页）')
-  check(seen(guy('committee')).length === shortcuts.length,
-    '班委/管理员八项全看得见')
-
-  // 整块只给登录用户：游客看得见的那一项在侧边菜单里已经有了，
-  // 为它单摆一块卡片没意义
-  check(/v-if="userStore\.resolved && userStore\.isLogin" class="page-card quick-card"/.test(src),
-    '快捷入口整块只给登录用户（且等 resolved，别闪一下）')
+  // 首页不再重复摆侧边菜单已有的快捷入口
+  check(!src.includes('快捷入口') && !src.includes('quick-card'),
+    '首页不再重复展示快捷入口磁贴')
 
   // 最新通知
   check(/getNotices\(\{ limit: NOTICE_COUNT \}\)/.test(src),
@@ -2773,6 +2730,8 @@ console.log('\n▶ 首页：品牌标签、快捷入口、最新通知')
   check(!/function canSee\(/.test(app), 'AppLayout 里没有第二份 canSee 实现')
 
   // 「关于班级」是公开页：路由放行，游客侧栏也看得到入口
+  const router = readFileSync(`${ROOT}/src/router/index.js`, 'utf8')
+  const flags = (text) => ({ public: /public: true/.test(text) })
   const aboutAt = router.indexOf("path: '/about'")
   const aboutMeta = (router.slice(aboutAt).match(/meta: \{([^}]*)\}/) || ['', ''])[1]
   check(flags(aboutMeta).public, '关于班级路由不需要登录')
