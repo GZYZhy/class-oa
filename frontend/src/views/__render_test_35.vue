@@ -1,0 +1,3118 @@
+<template>
+  <div class="student-list">
+    <!-- 和审核审批一样整页一张卡片：标题、筛选和表格都在里面 -->
+    <div class="page-card">
+      <h3 class="page-title">学生信息</h3>
+      <el-form :inline="true" :model="filterForm" size="default">
+        <el-form-item label="关键词">
+          <el-input
+            v-model="filterForm.keyword"
+            placeholder="姓名 / 学号 / 电话 / 备注"
+            clearable
+            style="width: 240px"
+            @keyup.enter="handleSearch"
+          >
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </el-input>
+        </el-form-item>
+
+        <el-form-item label="性别">
+          <el-select v-model="filterForm.gender" placeholder="全部" clearable style="width: 100px">
+            <el-option label="男" value="男" />
+            <el-option label="女" value="女" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="民族">
+          <el-select v-model="filterForm.ethnicity" placeholder="全部" clearable style="width: 120px">
+            <el-option
+              v-for="item in filterOptions?.ethnicities || []"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="政治面貌">
+          <el-select v-model="filterForm.political_status" placeholder="全部" clearable style="width: 130px">
+            <el-option
+              v-for="item in filterOptions?.political_statuses || []"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="宿舍">
+          <el-select v-model="filterForm.dormitory" placeholder="全部" clearable style="width: 110px">
+            <el-option
+              v-for="item in filterOptions?.dormitories || []"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+        </el-form-item>
+
+        <!-- 贫困生也是被隐藏的敏感字段之一，连「谁符合条件」都不该让班委筛 -->
+        <el-form-item v-if="userStore.isAdmin" label="贫困生">
+          <el-select v-model="filterForm.is_poor" placeholder="全部" clearable style="width: 100px">
+            <el-option label="是" value="是" />
+            <el-option label="否" value="否" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item>
+          <el-button type="primary" @click="handleSearch">
+            <el-icon><Search /></el-icon>查询
+          </el-button>
+          <el-button @click="handleReset">
+            <el-icon><Refresh /></el-icon>重置
+          </el-button>
+        </el-form-item>
+      </el-form>
+
+      <!-- 表格区域。标题行已经去掉了：「学生信息」在上面说清楚了，
+           再来一行「学生名单」只是把同一件事说两遍 -->
+      <ListFeedback :error="loadError" :loading="loading" @retry="fetchData" />
+
+      <div class="table-header">
+        <div class="table-tools">
+          <span class="tools-count">共 {{ total }} 人</span>
+          <el-dropdown @command="handleSort">
+            <el-button>
+              <el-icon><Sort /></el-icon>
+              排序
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="student_no_asc">按学号 ↑</el-dropdown-item>
+                <el-dropdown-item command="student_no_desc">按学号 ↓</el-dropdown-item>
+                <el-dropdown-item command="name_asc">按姓名 ↑</el-dropdown-item>
+                <!-- 出生日期、高考分数都是班委看不到的敏感字段。排序会把顺序暴露出来，
+                     跟字段本身一样只给管理员用 -->
+                <template v-if="userStore.isAdmin">
+                  <!-- 排的是 birth_date 这个**生日**，方向和年龄正好相反：生日升序（早的在前）
+                       才是年龄大的在前。所以这两行看着别扭是应该的，别顺手对调回来 -->
+                  <el-dropdown-item command="birth_date_asc">按年龄从大到小</el-dropdown-item>
+                  <el-dropdown-item command="birth_date_desc">按年龄从小到大</el-dropdown-item>
+                  <el-dropdown-item command="gaokao_score_desc">按高考分数 ↓</el-dropdown-item>
+                  <el-dropdown-item command="gaokao_score_asc">按高考分数 ↑</el-dropdown-item>
+                </template>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
+          <!-- 抽签：独立弹窗，权限与页面一致（班委及以上）。
+               点名已经挪到考勤页（那里才有考勤记录），别再加回这里 -->
+          <el-button v-if="userStore.isCommittee" @click="drawRef?.open()">
+            <el-icon><Aim /></el-icon>
+            抽签
+          </el-button>
+
+          <!-- 低频操作都收进「更多」：全摆出来窄屏就排不开了。可见性逐项跟着
+               原来那个按钮走 —— 普通学生只有「近期生日」，班委多一个「导出」，
+               管理员还有下面那四项 -->
+          <el-dropdown @command="handleMore">
+            <el-button>
+              <el-icon><MoreFilled /></el-icon>
+              更多
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <!-- 生日筛选会暴露出生日期，只给管理员用 -->
+                <el-dropdown-item v-if="userStore.isAdmin" command="birthday">
+                  <!-- Element Plus 没有 Cake 这个图标，写了会渲染成未知元素、什么都不显示。
+                       最贴近「生日」的是 Present（礼物盒） -->
+                  <el-icon><Present /></el-icon>近期生日
+                </el-dropdown-item>
+                <!-- 导出：班委及以上可用，提交申请后管理员审批 -->
+                <el-dropdown-item v-if="userStore.isCommittee" command="export">
+                  <el-icon><Download /></el-icon>导出
+                </el-dropdown-item>
+                <el-dropdown-item v-if="userStore.isAdmin" command="import">
+                  <el-icon><Upload /></el-icon>导入 Excel
+                </el-dropdown-item>
+                <el-dropdown-item v-if="userStore.isAdmin" command="photo-import">
+                  <el-icon><Picture /></el-icon>批量导入照片
+                </el-dropdown-item>
+                <el-dropdown-item v-if="userStore.isAdmin" command="batch-sign">
+                  <el-icon><EditPen /></el-icon>批量签字
+                </el-dropdown-item>
+                <el-dropdown-item v-if="userStore.isAdmin" command="create">
+                  <el-icon><Plus /></el-icon>添加学生
+                </el-dropdown-item>
+                <!-- 批量删除：勾了人才出现 -->
+                <el-dropdown-item
+                  v-if="userStore.isAdmin && selectedStudents.length"
+                  command="batch-delete"
+                  divided
+                >
+                  <el-icon><Delete /></el-icon>删除选中 {{ selectedStudents.length }} 人
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
+          <!-- 生日筛选生效时显示的标签（入口只给管理员，标签也同样） -->
+          <el-tag v-if="userStore.isAdmin && birthdayFilter" type="warning" closable @close="clearBirthday">
+            未来 {{ birthdayDays }} 天生日 · {{ total }} 人
+          </el-tag>
+
+          <!-- 勾选跨页保留之后，当前页可能一个勾都没有，得让「手上还攥着人」可见 -->
+          <el-tag v-if="selectedStudents.length" type="info" closable @close="clearSelection">
+            已选 {{ selectedStudents.length }} 人
+          </el-tag>
+        </div>
+      </div>
+
+      <!-- row-key + reserve-selection 一起才有跨页保留勾选的效果（前者认人，后者记住） -->
+      <el-table v-show="!loadError"
+        ref="tableRef"
+        :data="tableData"
+        row-key="id"
+        v-loading="loading"
+        stripe
+        border
+        style="width: 100%; margin-top: 16px;"
+        @selection-change="handleSelectionChange"
+        @row-click="handleView"
+        :row-style="{ cursor: 'pointer' }"
+      >
+        <el-table-column
+          v-if="userStore.isCommittee || userStore.isAdmin"
+          type="selection"
+          :reserve-selection="true"
+          width="38"
+          align="center"
+          class-name="col-select"
+          label-class-name="col-select"
+        />
+        <!-- 复选框和序号这两列都收到刚好放得下内容：窄屏横向滚动时，省下的这几十
+             像素正好够把「姓名」挪进可视区（排在它们前面的就这两列） -->
+        <!-- 序号列带个 col-index：40px 里再扣掉左右各 12px 的默认内边距，两位数
+             （第 10 行往后）就挤到折行了。宽度不能再加，所以收的是内边距，见样式 -->
+        <el-table-column
+          v-if="!isMobile"
+          type="index"
+          label="序号"
+          width="40"
+          align="center"
+          class-name="col-index"
+          label-class-name="col-index"
+        />
+        <el-table-column
+          label="照片"
+          :width="isMobile ? 44 : 70"
+          align="center"
+          class-name="col-photo"
+          label-class-name="col-photo"
+        >
+          <template #default="{ row }">
+            <div
+              class="thumb-photo"
+              @click.stop="primaryPhoto(row) && openRowPhotos(row)"
+            >
+              <!-- 列表缩略图走 v-photo-src：进视口才下载。
+                   别换回 :src + loading="lazy" —— 见 script 里那段注释 -->
+              <img
+                v-if="primaryPhoto(row)"
+                v-photo-src="getPhotoUrl(row, primaryPhoto(row).type)"
+                class="thumb-img"
+                decoding="async"
+                fetchpriority="low"
+                @error="handleImgError($event)"
+              />
+              <div v-else class="thumb-placeholder">
+                <el-icon style="font-size: 22px;"><Avatar /></el-icon>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="name"
+          :label="isMobile ? '姓名 / 学号' : '姓名'"
+          :width="isMobile ? undefined : 90"
+          :min-width="isMobile ? 120 : undefined"
+          :align="isMobile ? 'left' : 'center'"
+          :fixed="isMobile ? false : 'left'"
+          class-name="col-name"
+        >
+          <template #default="{ row }">
+            <div v-if="isMobile" class="mobile-name-cell">
+              <div class="mobile-name-copy">
+                <div class="mobile-name-line">
+                  <span>{{ row.name }}</span>
+                  <span v-if="row.gender" class="student-gender">{{ row.gender }}</span>
+                </div>
+                <div class="row-subtext">{{ row.student_no }}</div>
+                <div v-if="row.class_position && row.class_position !== '无'" class="row-subtext">
+                  {{ row.class_position }}
+                </div>
+              </div>
+              <el-dropdown trigger="click">
+                <el-button link aria-label="更多学生操作" @click.stop>
+                  <el-icon><MoreFilled /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="handleView(row)">查看</el-dropdown-item>
+                    <el-dropdown-item @click="handleEdit(row)">编辑信息</el-dropdown-item>
+                    <el-dropdown-item v-if="userStore.isAdmin" divided @click="handleDelete(row)">
+                      删除学生
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+            <span v-else>{{ row.name }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="!isMobile" prop="gender" label="性别" width="60" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.gender === '男' ? 'primary' : 'danger'" size="small">
+              {{ row.gender }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="!isMobile" prop="student_no" label="学号" width="130" align="center" />
+        <el-table-column v-if="!isMobile" prop="ethnicity" label="民族" width="90" align="center" />
+        <el-table-column v-if="!isMobile" prop="political_status" label="政治面貌" width="100" align="center" />
+        <!-- 生源地不再平铺展示，让位给备注：备注是班委内部记录，需要一眼看到 -->
+        <!-- 备注列：去掉 Markdown 语法符号后显示，避免表格里出现 # ** 等符号 -->
+        <el-table-column v-if="!isMobile" prop="remark" label="备注" min-width="180" align="center" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.remark">{{ stripMarkdown(row.remark) }}</span>
+            <span v-else style="color: var(--el-text-color-disabled);">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="!isMobile" prop="dormitory" label="宿舍" width="90" align="center" />
+        <el-table-column
+          v-if="userStore.isAdmin && !isMobile"
+          prop="gaokao_score"
+          label="高考分数"
+          width="90"
+          align="center"
+          sortable
+        />
+        <el-table-column v-if="!isMobile" prop="class_position" label="班委" width="120" align="center" show-overflow-tooltip>
+          <template #default="{ row }">
+            <el-tag v-if="row.class_position && row.class_position !== '无'" type="warning" size="small">
+              {{ row.class_position }}
+            </el-tag>
+            <span v-else style="color: var(--el-text-color-disabled);">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="!isMobile" label="操作" width="190" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-button type="primary" link @click.stop="handleView(row)">查看</el-button>
+            <el-button type="warning" link @click.stop="handleEdit(row)">编辑</el-button>
+            <el-button
+              v-if="userStore.isAdmin"
+              type="danger"
+              link
+              @click.stop="handleDelete(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- 分页 -->
+      <div class="pagination-wrap">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 36, 50]"
+          :total="total"
+          :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
+          :pager-count="isMobile ? 5 : 7"
+          background
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
+    </div>
+
+    <!-- 近期生日弹窗（原来是工具栏上的一个 popover） -->
+    <el-dialog append-to-body v-model="birthdayDialogVisible" title="近期生日" width="360px">
+      <p style="margin: 0 0 12px 0; font-size: 13px; color: var(--el-text-color-regular);">
+        筛选未来 N 天内过生日的同学
+      </p>
+      <el-input-number v-model="birthdayDays" :min="1" :max="365" style="width: 100%;" />
+      <template #footer>
+        <el-button @click="clearBirthday">清除筛选</el-button>
+        <el-button type="primary" @click="applyBirthday">筛选</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 详情弹窗 -->
+    <el-dialog append-to-body
+      v-model="detailVisible"
+      title="学生详情"
+      width="800px"
+      :close-on-click-modal="false"
+      class="detail-dialog"
+    >
+      <!-- 详情弹窗里是身份证号、家庭地址这类最敏感的信息，同样盖一层水印 -->
+      <Watermark :text="watermarkText" />
+
+      <template v-if="currentStudent">
+        <div class="detail-header">
+          <div class="detail-photo" @click="primaryPhoto(currentStudent) && openStudentPhotos(currentStudent)">
+            <img
+              v-if="primaryPhoto(currentStudent)"
+              :src="getPhotoUrl(currentStudent, primaryPhoto(currentStudent).type)"
+              class="detail-photo-img"
+              decoding="async"
+              @error="handleImgError($event)"
+            />
+            <div v-else class="no-photo">
+              <el-icon style="font-size: 48px;"><Avatar /></el-icon>
+              <span>暂无照片</span>
+            </div>
+          </div>
+          <div class="detail-info">
+            <h2 style="margin: 0 0 8px 0; font-size: 22px;">{{ currentStudent.name }}</h2>
+            <p style="margin: 4px 0; color: var(--el-text-color-regular);">
+              学号：{{ currentStudent.student_no }}
+              <el-button link type="primary" @click="copyText(currentStudent.student_no)">
+                <el-icon><CopyDocument /></el-icon>
+              </el-button>
+            </p>
+            <p style="margin: 4px 0; color: var(--el-text-color-regular);">
+              {{ currentStudent.class_name }}班 · {{ currentStudent.major }}专业
+            </p>
+            <p style="margin: 4px 0; color: var(--el-text-color-regular);">
+              <el-tag :type="currentStudent.gender === '男' ? 'primary' : 'danger'" size="small" style="margin-right: 8px;">
+                {{ currentStudent.gender }}
+              </el-tag>
+              <el-tag type="info" size="small" style="margin-right: 8px;">
+                {{ currentStudent.ethnicity }}
+              </el-tag>
+              <el-tag type="warning" size="small">
+                {{ currentStudent.political_status }}
+              </el-tag>
+            </p>
+          </div>
+        </div>
+
+        <!-- 班委看到的敏感字段被后端裁剪了，这里说清楚为什么，以及能怎么申请 -->
+        <el-alert
+          v-if="currentStudent.sensitive_hidden"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-top: 16px;"
+        >
+          身份证号、出生日期、家庭联系方式、高考信息和实地采集照片等敏感内容已隐藏。
+          如确需查看，可点击下方「申请查看完整档案」，经管理员同意后一小时内可见。
+        </el-alert>
+
+        <el-descriptions :column="detailColumns" border size="default" style="margin-top: 16px;">
+          <el-descriptions-item
+            v-if="!currentStudent.sensitive_hidden"
+            label="出生日期"
+          >{{ formatDate(currentStudent.birth_date) }}</el-descriptions-item>
+          <el-descriptions-item label="在校状态">
+            <el-tag :type="currentStudent.school_status === '正常' ? 'success' : 'warning'">
+              {{ currentStudent.school_status }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="生源地" :span="detailColumns">
+            {{ currentStudent.hometown }}
+            <el-button link type="primary" @click="copyText(currentStudent.hometown)">
+              <el-icon><CopyDocument /></el-icon>复制
+            </el-button>
+          </el-descriptions-item>
+          <el-descriptions-item label="本人电话">
+            {{ currentStudent.phone }}
+            <el-button link type="primary" @click="copyText(currentStudent.phone)">
+              <el-icon><CopyDocument /></el-icon>
+            </el-button>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="家庭电话">
+            {{ currentStudent.family_phone }}
+            <el-button link type="primary" @click="copyText(currentStudent.family_phone)">
+              <el-icon><CopyDocument /></el-icon>
+            </el-button>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="电子邮箱">
+            {{ currentStudent.email }}
+            <el-button link type="primary" @click="copyText(currentStudent.email)">
+              <el-icon><CopyDocument /></el-icon>
+            </el-button>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="QQ号码">
+            {{ currentStudent.qq }}
+            <el-button link type="primary" @click="copyText(currentStudent.qq)">
+              <el-icon><CopyDocument /></el-icon>
+            </el-button>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="家庭地址" :span="detailColumns">
+            {{ currentStudent.family_address }}
+            <el-button link type="primary" @click="copyText(currentStudent.family_address)">
+              <el-icon><CopyDocument /></el-icon>复制
+            </el-button>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="邮政编码">{{ currentStudent.postal_code }}</el-descriptions-item>
+          <!-- 宿舍本身可以看，床位属于隐藏字段 -->
+          <el-descriptions-item :label="currentStudent.sensitive_hidden ? '宿舍' : '宿舍/床位'">
+            <template v-if="currentStudent.sensitive_hidden">{{ currentStudent.dormitory }}</template>
+            <template v-else>{{ currentStudent.dormitory }} / {{ currentStudent.bed }}床</template>
+          </el-descriptions-item>
+          <el-descriptions-item label="班委职务">{{ currentStudent.class_position || '无' }}</el-descriptions-item>
+          <el-descriptions-item label="团学会职务">{{ currentStudent.league_position || '无' }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="考生号">{{ currentStudent.exam_no }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="身份证号">
+            {{ currentStudent.id_card }}
+            <el-button link type="primary" @click="copyText(currentStudent.id_card)">
+              <el-icon><CopyDocument /></el-icon>
+            </el-button>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="考生类别">{{ currentStudent.exam_category }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="科类">{{ currentStudent.subject_type }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="考试类型">{{ currentStudent.exam_type }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="录取批次">{{ currentStudent.admission_batch }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="高考总分" style="font-weight: bold; color: #409EFF;">
+            {{ currentStudent.gaokao_score }}分
+          </el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="毕业中学">{{ currentStudent.high_school }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="报到状态">{{ currentStudent.registration_status }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="报到时间">{{ formatDateTime(currentStudent.registration_time) }}</el-descriptions-item>
+          <el-descriptions-item v-if="!currentStudent.sensitive_hidden" label="是否贫困生">
+            <el-tag :type="currentStudent.is_poor === '是' ? 'warning' : 'info'">
+              {{ currentStudent.is_poor }}
+            </el-tag>
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <!-- 备注：独立一块，和照片资料平级 -->
+        <div class="remark-section">
+          <h4 class="section-title">
+            <el-icon><EditPen /></el-icon> 备注
+          </h4>
+          <div v-if="currentStudent.remark" class="markdown-body remark-detail-content" v-html="renderMarkdown(currentStudent.remark)"></div>
+          <div v-else style="color: var(--el-text-color-disabled);">暂无备注</div>
+
+          <!-- 备注附件列表 -->
+          <div v-if="currentStudent.remark_attachments?.length" class="remark-attach-section">
+            <div class="attach-title">
+              <el-icon><Paperclip /></el-icon>
+              附件（{{ currentStudent.remark_attachments.length }}）
+            </div>
+            <div class="attach-list">
+              <div
+                v-for="(att, idx) in currentStudent.remark_attachments"
+                :key="idx"
+                class="attach-item"
+                @click="downloadRemarkAttachment(currentStudent.id, idx, att.name)"
+              >
+                <el-icon><Document /></el-icon>
+                <span class="attach-name">{{ att.name }}</span>
+                <span class="attach-size">{{ formatFileSize(att.size) }}</span>
+                <el-icon class="attach-download"><Download /></el-icon>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 两个折叠节共用一组外框线：各自带边框的话，中间会叠成两条 -->
+        <div class="detail-collapses">
+        <!-- 考勤情况：和学生自己看到的口径一致；默认收起，展开才拉数据 -->
+        <el-collapse
+          v-model="attendanceOpen"
+          class="detail-collapse"
+          @change="handleAttendanceChange"
+        >
+          <el-collapse-item name="attendance">
+            <template #title>
+              <span class="section-title">
+                <el-icon><Calendar /></el-icon> 考勤情况
+              </span>
+            </template>
+            <div v-loading="attendanceLoading">
+              <el-table
+                v-if="attendanceList.length"
+                :data="attendancePageRows"
+                size="small"
+                stripe
+                border
+                style="width: 100%;"
+              >
+                <el-table-column label="考勤时间" width="150">
+                  <template #default="{ row }">
+                    {{ formatDateTime(row.occurred_at).slice(0, 16) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="title" label="考勤标题" min-width="160" show-overflow-tooltip align="left" />
+                <el-table-column prop="category" label="考勤类型" width="90" align="center" />
+                <el-table-column prop="scope" label="参与范围" width="100" align="center" />
+                <el-table-column label="出勤情况" width="100" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="attendanceTag(row.status)" size="small">
+                      {{ row.status_label }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty
+                v-if="!attendanceLoading && !attendanceList.length"
+                description="还没有考勤记录"
+                :image-size="60"
+              />
+              <el-pagination
+                v-if="attendanceList.length > ATTENDANCE_PAGE_SIZE"
+                v-model:current-page="attendancePage"
+                :page-size="ATTENDANCE_PAGE_SIZE"
+                :total="attendanceList.length"
+                layout="total, prev, pager, next"
+                small
+                class="attendance-pager"
+              />
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+
+        <!-- 办件记录：和学生自己「办件空间 → 我申请的」同源，简化成一行一条 -->
+        <el-collapse
+          v-model="caseOpen"
+          class="detail-collapse"
+          @change="handleCaseChange"
+        >
+          <el-collapse-item name="cases">
+            <template #title>
+              <span class="section-title">
+                <el-icon><Tickets /></el-icon> 办件记录
+              </span>
+            </template>
+            <div v-loading="caseLoading">
+              <el-table
+                v-if="caseList.length"
+                :data="casePageRows"
+                size="small"
+                stripe
+                border
+                style="width: 100%;"
+              >
+                <el-table-column label="提交时间" width="150">
+                  <template #default="{ row }">
+                    {{ formatDateTime(row.created_at).slice(0, 16) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="type_name" label="类型" width="120" />
+                <el-table-column prop="title" label="事项" min-width="180" show-overflow-tooltip align="left" />
+                <el-table-column label="状态" width="100" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="row.status_type" size="small">{{ row.status_label }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="reviewer_name" label="处理人" width="100" />
+                <el-table-column label="处理时间" width="150">
+                  <template #default="{ row }">
+                    {{ row.updated_at ? formatDateTime(row.updated_at).slice(0, 16) : '—' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="80" align="center">
+                  <template #default="{ row }">
+                    <el-button link type="primary" @click="goReviewTab(row)">详情</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty
+                v-if="!caseLoading && !caseList.length"
+                description="暂无办件记录"
+                :image-size="60"
+              />
+              <el-pagination
+                v-if="caseList.length > CASE_PAGE_SIZE"
+                v-model:current-page="casePage"
+                :page-size="CASE_PAGE_SIZE"
+                :total="caseList.length"
+                layout="total, prev, pager, next"
+                small
+                class="attendance-pager"
+              />
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+        </div>
+
+        <!-- 照片展示区 -->
+        <div class="photos-section" v-if="PHOTO_TYPES.some((p) => currentStudent[p.field])">
+          <h4 class="section-title">
+            <el-icon><Picture /></el-icon> 照片资料
+          </h4>
+          <div class="photos-row">
+            <template v-for="p in PHOTO_TYPES" :key="p.type">
+              <div
+                class="photo-item"
+                v-if="currentStudent[p.field]"
+                @click="openStudentPhotos(currentStudent, p.type)"
+              >
+                <img :src="getPhotoUrl(currentStudent, p.type)" class="photo-item-img" decoding="async" @error="handleImgError($event)" />
+                <span class="photo-label">{{ p.label }}</span>
+              </div>
+            </template>
+          </div>
+          <p class="photos-tip">点击照片可放大查看</p>
+        </div>
+      </template>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <!-- 完整档案申请：班委看别人、且敏感字段被隐藏时才出现。
+             管理员和本人不需要申请；状态由 /archive-views/status 给出 -->
+        <el-button
+          v-if="archiveButton"
+          :type="archiveButton.primary ? 'primary' : 'default'"
+          :loading="archiveSubmitting"
+          :disabled="archiveButton.disabled"
+          @click="handleArchiveClick"
+        >
+          {{ archiveButton.text }}
+        </el-button>
+        <!-- 签字图按钮：只有这学生**有**签字图时才出现（后端用 download_name 是否为空
+             告诉我们）。学生角色拉不到状态，自然什么都不渲染 —— 连「签字」两个字
+             都不出现在他眼前，这是用户明确要求的 -->
+        <el-button
+          v-if="signButton"
+          :type="signButton.primary ? 'primary' : 'default'"
+          :loading="signSubmitting"
+          :disabled="signButton.disabled"
+          @click="handleSignClick"
+        >
+          {{ signButton.text }}
+        </el-button>
+        <el-button type="primary" @click="handleEdit(currentStudent)">编辑信息</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 编辑 / 新增弹窗：同一个表单，靠 editForm.id 区分模式。
+         新增时只有学号、姓名必填，其余留空后补 -->
+    <el-dialog append-to-body
+      v-model="editVisible"
+      :title="editForm.id ? '编辑学生信息' : '添加学生'"
+      width="700px"
+      :close-on-click-modal="false"
+      @closed="resetEditForm"
+    >
+      <el-form :model="editForm" label-width="100px" v-if="editVisible">
+        <el-tabs v-model="activeTab">
+          <el-tab-pane label="基本信息" name="basic">
+            <el-row :gutter="20">
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="学号" required>
+                  <!-- 学号就是登录账号，建好之后不能改：改了这学生立刻登不上，
+                       请假/反馈里存的学号也对不上号。要换号只能删除后重新新增 -->
+                  <el-input
+                    v-model="editForm.student_no"
+                    :disabled="!!editForm.id"
+                    placeholder="登录账号，建好后不可修改"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="姓名" required>
+                  <el-input v-model="editForm.name" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="性别">
+                  <el-select v-model="editForm.gender" style="width: 100%">
+                    <el-option label="男" value="男" />
+                    <el-option label="女" value="女" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="民族">
+                  <el-input v-model="editForm.ethnicity" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="出生日期">
+                  <el-date-picker v-model="editForm.birth_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="政治面貌">
+                  <el-input v-model="editForm.political_status" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="班级">
+                  <el-input v-model="editForm.class_name" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="专业">
+                  <el-input v-model="editForm.major" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="24">
+                <el-form-item label="生源地">
+                  <el-input v-model="editForm.hometown" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="身份证号">
+                  <el-input v-model="editForm.id_card" />
+                </el-form-item>
+              </el-col>
+
+              <el-col :span="24">
+                <el-form-item label="照片">
+                  <div v-if="!editForm.id" style="color: var(--el-text-color-secondary); font-size: 13px;">
+                    先保存学生信息，之后就能在这里上传照片
+                  </div>
+                  <div v-else class="edit-photos">
+                    <div v-for="p in PHOTO_TYPES" :key="p.type" class="edit-photo">
+                      <div class="edit-photo-box" @click="editForm[p.field] && openPhotoViewer(editForm, p.type)">
+                        <img
+                          v-if="editForm[p.field]"
+                          :src="getPhotoUrl(editForm, p.type)"
+                          class="edit-photo-img"
+                          decoding="async"
+                          @error="handleImgError($event)"
+                        />
+                        <div v-else class="edit-photo-empty">
+                          <el-icon style="font-size: 24px;"><Avatar /></el-icon>
+                        </div>
+                      </div>
+                      <div class="edit-photo-label">{{ p.label }}</div>
+                      <div>
+                        <el-button
+                          size="small"
+                          :loading="photoUploading === p.type"
+                          @click="pickPhoto(p.type)"
+                        >
+                          <!-- 照片上限 10MB，慢网络下把上传进度显示出来 -->
+                          {{ photoUploading === p.type && photoUploadProgress
+                            ? `上传中 ${photoUploadProgress}%` : '选择图片' }}
+                        </el-button>
+                        <!-- 只有现场采集的那张需要开相机。必须是 link 样式：带边框的按钮
+                             会把这一格撑得比另外两个照片框宽，三格就对不齐了。
+                             上传中锁住 —— 开相机会把页面切到后台，可能挂起正在传的那张 -->
+                        <el-button
+                          v-if="p.camera"
+                          size="small"
+                          link
+                          type="primary"
+                          :disabled="!!photoUploading"
+                          @click="pickPhoto(p.type, true)"
+                        >
+                          拍照
+                        </el-button>
+                        <el-button
+                          v-if="editForm[p.field]"
+                          size="small"
+                          link
+                          type="danger"
+                          @click="handleDeletePhoto(p.type)"
+                        >
+                          删除
+                        </el-button>
+                      </div>
+                    </div>
+
+                    <!-- 签字图：**只有管理员**有这一格（班委要看必须走申请，见详情页那个按钮）。
+                         不复用上面 PHOTO_TYPES 那一套 —— 它走的是另一套接口，权限也完全不同，
+                         混进同一个循环里，以后谁读这段都会以为签字就是第四张照片 -->
+                    <div v-if="userStore.isAdmin" class="edit-photo">
+                      <div
+                        class="edit-photo-box"
+                        @click="signEdit.has && openSignEditViewer()"
+                      >
+                        <img
+                          v-if="signEdit.has"
+                          :src="editSignUrl"
+                          class="edit-photo-img"
+                          decoding="async"
+                          @error="handleImgError($event)"
+                        />
+                        <div v-else class="edit-photo-empty">
+                          <el-icon style="font-size: 24px;"><EditPen /></el-icon>
+                        </div>
+                      </div>
+                      <div class="edit-photo-label">签字</div>
+                      <div>
+                        <el-button
+                          size="small"
+                          :loading="signEdit.uploading"
+                          @click="pickSignImage"
+                        >
+                          {{ signEdit.uploading && photoUploadProgress
+                            ? `上传中 ${photoUploadProgress}%` : '选择图片' }}
+                        </el-button>
+                        <el-button
+                          v-if="signEdit.has"
+                          size="small"
+                          link
+                          type="danger"
+                          @click="handleDeleteSign"
+                        >
+                          删除
+                        </el-button>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 隐藏的原生文件选择框：选完即传，不需要额外的「上传」按钮。
+                       两个框共用 handlePhotoPicked —— 换哪一张由 pickPhoto 写进 photoPicking。
+                       第二个框靠 capture 唤起系统相机（手机）；桌面浏览器忽略它，退化成选文件 -->
+                  <input
+                    ref="photoInput"
+                    type="file"
+                    accept="image/*"
+                    style="display: none"
+                    @change="handlePhotoPicked"
+                  />
+                  <input
+                    ref="cameraInput"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    style="display: none"
+                    @change="handlePhotoPicked"
+                  />
+                  <!-- 签字图的第三个文件框：它走的是另一套接口（sign-photos），
+                       所以不和上面两个共用 handlePhotoPicked -->
+                  <input
+                    ref="signInput"
+                    type="file"
+                    accept="image/*"
+                    style="display: none"
+                    @change="handleSignPicked"
+                  />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-tab-pane>
+
+          <el-tab-pane label="联系方式" name="contact">
+            <el-row :gutter="20">
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="本人电话">
+                  <el-input v-model="editForm.phone" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="家庭电话">
+                  <el-input v-model="editForm.family_phone" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="电子邮箱">
+                  <el-input v-model="editForm.email" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="QQ号码">
+                  <el-input v-model="editForm.qq" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="24">
+                <el-form-item label="家庭地址">
+                  <el-input v-model="editForm.family_address" type="textarea" :rows="2" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="邮政编码">
+                  <el-input v-model="editForm.postal_code" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-tab-pane>
+
+          <el-tab-pane label="入学信息" name="enrollment">
+            <el-row :gutter="20">
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="高考总分">
+                  <el-input-number v-model="editForm.gaokao_score" :min="0" :max="750" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="毕业中学">
+                  <el-input v-model="editForm.high_school" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="考生号">
+                  <el-input v-model="editForm.exam_no" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="考生类别">
+                  <el-input v-model="editForm.exam_category" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="科类">
+                  <el-input v-model="editForm.subject_type" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="考试类型">
+                  <el-input v-model="editForm.exam_type" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="录取批次">
+                  <el-input v-model="editForm.admission_batch" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="报到状态">
+                  <el-input v-model="editForm.registration_status" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="报到时间">
+                  <el-date-picker
+                    v-model="editForm.registration_time"
+                    type="datetime"
+                    style="width: 100%"
+                    value-format="YYYY-MM-DD HH:mm:ss"
+                    placeholder="选择报到时间"
+                  />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-tab-pane>
+
+          <el-tab-pane label="在校情况" name="school">
+            <el-row :gutter="20">
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="在校状态">
+                  <el-input v-model="editForm.school_status" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="宿舍">
+                  <el-input v-model="editForm.dormitory" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="床位">
+                  <el-input v-model="editForm.bed" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="班委职务">
+                  <el-input v-model="editForm.class_position" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="团学会职务">
+                  <el-input v-model="editForm.league_position" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="是否贫困生">
+                  <el-select v-model="editForm.is_poor" style="width: 100%">
+                    <el-option label="是" value="是" />
+                    <el-option label="否" value="否" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-tab-pane>
+
+          <el-tab-pane label="备注" name="remark">
+            <el-row :gutter="20">
+              <el-col :span="24">
+                <el-form-item label="备注内容">
+                  <el-input
+                    v-model="editForm.remark"
+                    type="textarea"
+                    :rows="10"
+                    placeholder="支持 Markdown；仅班委可见"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="24">
+                <el-form-item label="附件">
+                  <div class="upload-area">
+                    <!-- 已有附件 -->
+                    <div v-if="editAttachments.length" class="existing-attachments">
+                      <div
+                        v-for="(att, idx) in editAttachments"
+                        :key="'edit-old-' + idx"
+                        class="attach-row"
+                      >
+                        <el-icon><Document /></el-icon>
+                        <span class="attach-name">{{ att.name }}</span>
+                        <span class="attach-size">{{ formatFileSize(att.size) }}</span>
+                        <el-button
+                          type="danger"
+                          link
+                          size="small"
+                          @click="removeEditAttachment(idx)"
+                        >移除</el-button>
+                      </div>
+                    </div>
+                    <!-- 新上传的文件 -->
+                    <div v-if="editNewAttachments.length" class="existing-attachments">
+                      <div
+                        v-for="(file, idx) in editNewAttachments"
+                        :key="'edit-new-' + idx"
+                        class="attach-row"
+                      >
+                        <el-icon><Document /></el-icon>
+                        <span class="attach-name">{{ file.name }}</span>
+                        <span class="attach-size">{{ formatFileSize(file.size) }}</span>
+                        <el-button
+                          type="danger"
+                          link
+                          size="small"
+                          @click="removeEditNewAttachment(idx)"
+                        >移除</el-button>
+                      </div>
+                    </div>
+                    <el-upload
+                      class="remark-upload"
+                      :auto-upload="false"
+                      :show-file-list="false"
+                      :on-change="handleEditAttachChange"
+                      :accept="REMARK_ALLOWED_EXTS"
+                      multiple
+                    >
+                      <el-button :disabled="editAttachments.length + editNewAttachments.length >= REMARK_MAX_TOTAL_ATTACHMENTS">
+                        <el-icon><Upload /></el-icon>
+                        上传附件
+                      </el-button>
+                    </el-upload>
+                    <div class="upload-tip">
+                      每次最多上传 {{ REMARK_MAX_NEW_ATTACHMENTS }} 个，每个 {{ REMARK_MAX_ATTACH_SIZE / 1024 / 1024 }}MB；
+                      总共最多 {{ REMARK_MAX_TOTAL_ATTACHMENTS }} 个附件
+                    </div>
+                  </div>
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-tab-pane>
+        </el-tabs>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSave" :loading="saving">
+          {{ editForm.id ? '保存' : '添加' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 备注编辑弹窗：班委及以上都能改，是班委唯一可编辑的学生字段 -->
+    <el-dialog append-to-body
+      v-model="remarkVisible"
+      :title="`编辑备注 - ${remarkForm.name || ''}`"
+      width="640px"
+      :close-on-click-modal="false"
+    >
+      <el-form :model="remarkForm" label-width="70px">
+        <el-form-item label="备注">
+          <el-input
+            v-model="remarkForm.remark"
+            type="textarea"
+            :rows="10"
+            placeholder="支持 Markdown 格式：# 标题、**加粗**、- 列表 等；班委内部记录，普通学生看不到"
+          />
+        </el-form-item>
+        <el-form-item label="附件">
+          <div class="upload-area">
+            <!-- 已有附件 -->
+            <div v-if="remarkAttachments.length" class="existing-attachments">
+              <div
+                v-for="(att, idx) in remarkAttachments"
+                :key="'old-' + idx"
+                class="attach-row"
+              >
+                <el-icon><Document /></el-icon>
+                <span class="attach-name">{{ att.name }}</span>
+                <span class="attach-size">{{ formatFileSize(att.size) }}</span>
+                <el-button
+                  type="danger"
+                  link
+                  size="small"
+                  @click="removeRemarkAttachment(idx)"
+                >移除</el-button>
+              </div>
+            </div>
+            <!-- 新上传的文件 -->
+            <div v-if="remarkNewAttachments.length" class="existing-attachments">
+              <div
+                v-for="(file, idx) in remarkNewAttachments"
+                :key="'new-' + idx"
+                class="attach-row"
+              >
+                <el-icon><Document /></el-icon>
+                <span class="attach-name">{{ file.name }}</span>
+                <span class="attach-size">{{ formatFileSize(file.size) }}</span>
+                <el-button
+                  type="danger"
+                  link
+                  size="small"
+                  @click="removeNewRemarkAttachment(idx)"
+                >移除</el-button>
+              </div>
+            </div>
+            <!-- 上传按钮 -->
+            <el-upload
+              class="remark-upload"
+              :auto-upload="false"
+              :show-file-list="false"
+              :on-change="handleRemarkAttachChange"
+              :accept="REMARK_ALLOWED_EXTS"
+              multiple
+            >
+              <el-button :disabled="remarkAttachments.length + remarkNewAttachments.length >= REMARK_MAX_TOTAL_ATTACHMENTS">
+                <el-icon><Upload /></el-icon>
+                上传附件
+              </el-button>
+            </el-upload>
+            <div class="upload-tip">
+              每次最多上传 {{ REMARK_MAX_NEW_ATTACHMENTS }} 个，每个 {{ REMARK_MAX_ATTACH_SIZE / 1024 / 1024 }}MB；
+              总共最多 {{ REMARK_MAX_TOTAL_ATTACHMENTS }} 个附件
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="remarkVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSaveRemark">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 照片查看器。
+         teleported：查看器自己是 position:fixed，但挂在页面根节点下，
+         而根节点带进场上浮动画（transform），在 Safari 里会变成 fixed 的
+         包含块 —— 于是遮罩和图片都按页面容器而不是浏览器视口铺开，
+         看着就是「大图被裁掉一截」。teleport 到 body 后与容器彻底解耦 -->
+    <el-image-viewer
+      v-if="viewerVisible"
+      teleported
+      :url-list="viewerList"
+      :initial-index="viewerIndex"
+      @close="viewerVisible = false"
+    />
+
+    <!-- 签字图预览：用 FileViewer 而不是上面那个 el-image-viewer —— 后者只有缩放旋转、
+         没有下载，而需求明确要能下载。file-name 由后端拼好（「姓名_签字.png」），
+         前端不碰库里那个 uuid 文件名，也靠后缀判出这是图片 -->
+    <FileViewer
+      v-model="signViewer.visible"
+      :file-url="signViewer.url"
+      :file-name="signViewer.fileName"
+      :title="`${signViewer.studentName} 的签字`"
+      :download-name="signViewer.fileName"
+    />
+
+    <!-- 导入 Excel 弹框（与初始化浮层共用同一个组件） -->
+    <StudentImportDialog ref="importDialogRef" @done="fetchData" />
+
+    <!-- 导出弹框 -->
+    <el-dialog append-to-body
+      v-model="exportDialogVisible"
+      title="导出学生信息"
+      width="560px"
+      @open="onExportDialogOpen"
+    >
+      <el-tabs v-model="exportTab" @tab-change="handleExportTabChange">
+        <!-- 新建申请 -->
+        <el-tab-pane label="新建申请" name="new">
+          <el-form label-position="top">
+            <el-form-item label="导出类型">
+              <el-radio-group v-model="exportForm.export_type">
+                <el-radio value="excel_list">名单 Excel</el-radio>
+                <el-radio value="pdf_individual">个人信息表 PDF</el-radio>
+              </el-radio-group>
+              <div style="font-size: 12px; color: var(--el-text-color-secondary); margin-top: 10px;">
+                <template v-if="exportForm.export_type === 'excel_list'">
+                  一张 Excel 表，可选导出哪些列
+                </template>
+                <template v-else>
+                  每人一份一页完整信息 PDF，打包成 zip 下载
+                </template>
+              </div>
+            </el-form-item>
+
+            <el-form-item label="学生范围">
+              <el-radio-group v-model="exportForm.scope_type">
+                <el-radio value="all">全部学生</el-radio>
+                <el-radio value="filtered">当前筛选结果</el-radio>
+                <el-radio value="selected">手动勾选</el-radio>
+                <el-radio value="id_range">学号范围</el-radio>
+              </el-radio-group>
+
+              <div v-if="exportForm.scope_type === 'selected'" style="font-size: 13px; color: var(--el-text-color-regular); margin-top: 10px;">
+                已选中 <b>{{ selectedStudents.length }}</b> 人
+                <el-button size="small" link type="primary" @click="exportDialogVisible = false">
+                  去表格里勾选
+                </el-button>
+              </div>
+
+              <div v-if="exportForm.scope_type === 'id_range'" style="display: flex; gap: 8px; margin-top: 10px;">
+                <el-input
+                  v-model="exportForm.start_no"
+                  placeholder="起始学号"
+                  style="flex: 1;"
+                />
+                <span style="align-self: center; color: var(--el-text-color-secondary);">至</span>
+                <el-input
+                  v-model="exportForm.end_no"
+                  placeholder="结束学号"
+                  style="flex: 1;"
+                />
+              </div>
+            </el-form-item>
+
+            <!-- 仅 Excel 导出显示字段选择 -->
+            <el-form-item v-if="exportForm.export_type === 'excel_list'" label="导出字段">
+              <div class="export-field-groups">
+                <div v-for="g in fieldGroups" :key="g.key" class="field-group">
+                  <div class="field-group-title">{{ g.label }}</div>
+                  <el-checkbox-group v-model="exportForm.fields">
+                    <el-checkbox
+                      v-for="f in g.fields"
+                      :key="f.prop"
+                      :value="f.prop"
+                      :label="f.prop"
+                    >
+                      {{ f.label }}
+                    </el-checkbox>
+                  </el-checkbox-group>
+                </div>
+              </div>
+              <div style="margin-top: 8px;">
+                <el-button
+                  size="small"
+                  link
+                  type="primary"
+                  @click="exportForm.fields = defaultFields"
+                >
+                  恢复默认
+                </el-button>
+                <el-button
+                  size="small"
+                  link
+                  type="primary"
+                  @click="exportForm.fields = fieldGroups.flatMap(g => g.fields.map(f => f.prop))"
+                >
+                  全选
+                </el-button>
+                <el-button
+                  size="small"
+                  link
+                  type="primary"
+                  @click="exportForm.fields = []"
+                >
+                  清空
+                </el-button>
+              </div>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
+        <!-- 我的申请 -->
+        <el-tab-pane label="我的申请" name="history">
+          <el-table :data="myRequests" v-loading="myRequestsLoading" stripe size="small">
+            <el-table-column prop="created_at" label="申请时间" min-width="160">
+              <template #default="{ row }">
+                {{ new Date(row.created_at).toLocaleString() }}
+              </template>
+            </el-table-column>
+            <el-table-column label="类型" min-width="130">
+              <template #default="{ row }">{{ typeLabel(row.export_type) }}</template>
+            </el-table-column>
+            <el-table-column label="状态" min-width="100">
+              <template #default="{ row }">
+                <el-tag :type="statusTagType(row.status)" size="small">
+                  {{ statusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" min-width="100">
+              <template #default="{ row }">
+                <el-button
+                  v-if="row.status === 'generated' || row.status === 'approved'"
+                  type="primary"
+                  size="small"
+                  link
+                  :loading="downloadProgress?.reqId === row.id"
+                  @click="handleDownload(row)"
+                >
+                  <!-- 导出的 zip 可能几十 MB，把进度写在按钮上：
+                       网络差的时候看着数字涨，总比一个转圈转到人以为卡死了强 -->
+                  {{ downloadProgress?.reqId === row.id && downloadPercent
+                      ? downloadPercent + '%' : '下载' }}
+                </el-button>
+                <span v-else-if="row.status === 'rejected'" style="font-size: 12px; color: var(--el-text-color-secondary);">
+                  {{ row.reject_reason }}
+                </span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
+
+      <template #footer>
+        <el-button @click="exportDialogVisible = false">取消</el-button>
+        <el-button
+          v-if="exportTab === 'new'"
+          type="primary"
+          :loading="submitting"
+          @click="handleSubmitExport"
+        >
+          提交申请
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <PhotoImportDialog ref="photoImportRef" @done="fetchData" />
+
+    <!-- 批量签字：勾了人就默认盖勾选范围，没勾人则默认补缺 -->
+    <BatchSignDialog ref="batchSignRef" @done="fetchData" />
+
+    <!-- 抽签弹窗。勾选要实时反映到「从表格里选（N）」上，所以走 prop 而不是 open 传参 -->
+    <DrawDialog ref="drawRef" :selected="selectedStudents" />
+
+    <!-- 整页水印：记录「谁在什么时候看的」，防止名单被截图外传 -->
+    <Watermark :text="watermarkText" />
+  </div>
+</template>
+
+<script setup>
+import ListFeedback from '@/components/ListFeedback.vue'
+import { useLatestRequest } from '@/composables/useLatestRequest'
+import { usePageState } from '@/composables/usePageState'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  getStudentList,
+  getStudent,
+  getFilterOptions,
+  createStudent,
+  updateStudent,
+  deleteStudent,
+  uploadStudentPhoto,
+  deleteStudentPhoto,
+  batchDeleteStudents
+} from '@/api/student'
+import {
+  createExportRequest,
+  getMyExportRequests,
+  getExportFieldGroups,
+  downloadExportFile
+} from '@/api/export'
+import {
+  getSignStatus,
+  requestSignView,
+  signImageUrl,
+  uploadSignImage,
+  deleteSignImage
+} from '@/api/signPhoto'
+import {
+  getArchiveStatus,
+  requestArchiveView
+} from '@/api/archiveView'
+import { useUserStore } from '@/store/user'
+import Watermark from '@/components/Watermark.vue'
+import FileViewer from '@/components/FileViewer.vue'
+import DrawDialog from '@/components/DrawDialog.vue'
+import PhotoImportDialog from '@/components/PhotoImportDialog.vue'
+import BatchSignDialog from '@/components/BatchSignDialog.vue'
+import StudentImportDialog from '@/components/StudentImportDialog.vue'
+import { useWatermark } from '@/composables/useWatermark'
+import { useIsMobile } from '@/composables/useIsMobile'
+import { copyText } from '@/utils/clipboard'
+import { renderMarkdown, stripMarkdown, formatFileSize } from '@/utils/markdown'
+import { downloadFile } from '@/utils/download'
+import { compressImage } from '@/utils/imageCompress'
+import { getStudentAttendance } from '@/api/attendance'
+import { getStudentSubmitted } from '@/api/workspace'
+
+// 选完图到压完之间有个空档：这期间点了保存，得等它们压完再提交，
+// 不然传上去的还是原图。压完就从这个集合里删掉
+const compressTasks = new Set()
+function trackCompress(raw) {
+  const task = compressImage(raw).finally(() => compressTasks.delete(task))
+  compressTasks.add(task)
+  return task
+}
+
+// 备注附件限制（与后端对应）
+const REMARK_MAX_NEW_ATTACHMENTS = 3
+const REMARK_MAX_TOTAL_ATTACHMENTS = 15
+const REMARK_MAX_ATTACH_SIZE = 20 * 1024 * 1024
+const REMARK_ALLOWED_EXTS =
+  '.jpg,.jpeg,.png,.gif,.bmp,.webp,.heic,.heif,.mp4,.mov,.m4v,.avi,.mkv,.webm,.mp3,.m4a,.wav,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md,.wps,.et,.dps,.zip,.rar,.7z'
+
+const userStore = useUserStore()
+  userStore.info = { student_no: '2024000009', name: '乙', role: 'committee', is_external: false }
+// 读 ?open= 用（见 openFromQuery）
+const route = useRoute()
+const router = useRouter()
+
+// 抽签弹窗（独立组件，靠 ref 调它的 open()）
+const drawRef = ref(null)
+const photoImportRef = ref(null)
+const batchSignRef = ref(null)
+const importDialogRef = ref(null)
+
+// 满页个人信息，盖一层「谁在看」的水印
+const watermarkText = useWatermark()
+
+// 详情弹窗在手机上只有 92% 宽，两列会把标签挤成竖排，收成一列
+const isMobile = useIsMobile()
+const detailColumns = computed(() => (isMobile.value ? 1 : 2))
+
+const tableData = ref([])
+const total = ref(0)
+const loading = ref(false)
+const loadError = ref('')
+const listRequest = useLatestRequest()
+const currentPage = ref(1)
+const pageSize = ref(20)
+const filterOptions = ref(null)
+
+const filterForm = reactive({
+  keyword: '',
+  gender: '',
+  ethnicity: '',
+  political_status: '',
+  dormitory: '',
+  is_poor: ''
+})
+
+const sortBy = ref('')
+const sortOrder = ref('asc')
+
+// 近期生日筛选
+const birthdayDays = ref(7)
+const birthdayFilter = ref(false)
+usePageState('StudentList', { currentPage, pageSize, filterForm, sortBy, sortOrder, birthdayDays, birthdayFilter }, loading)
+// 近期生日的输入框收在弹窗里（入口在「更多」下拉里）
+const birthdayDialogVisible = ref(false)
+
+const detailVisible = ref(true)
+const currentStudent = ref({ id: 7, student_no: '2024000004', name: '丁' })
+
+// 学生详情里的「考勤情况」：默认收起，展开时才拉数据；一次拿全再在本页分页
+const attendanceOpen = ref([])
+const attendanceLoading = ref(false)
+const attendanceList = ref([])
+const attendancePage = ref(1)
+const ATTENDANCE_PAGE_SIZE = 10
+const attendancePageRows = computed(() => {
+  const start = (attendancePage.value - 1) * ATTENDANCE_PAGE_SIZE
+  return attendanceList.value.slice(start, start + ATTENDANCE_PAGE_SIZE)
+})
+
+// 学生详情里的「办件记录」：同样默认收起、展开才拉、本页分页
+const caseOpen = ref([])
+const caseLoading = ref(false)
+const caseList = ref([])
+const casePage = ref(1)
+const CASE_PAGE_SIZE = 10
+const casePageRows = computed(() => {
+  const start = (casePage.value - 1) * CASE_PAGE_SIZE
+  return caseList.value.slice(start, start + CASE_PAGE_SIZE)
+})
+
+const editVisible = ref(false)
+const editForm = reactive({})
+const saving = ref(false)
+const activeTab = ref('basic')
+// 管理员弹窗里的备注附件
+const editAttachments = ref([])     // 保留的原附件
+const editNewAttachments = ref([])  // 本次新上传的附件
+
+// 弹窗里的三种照片。type 与后端 ?type= 的取值一致，field 是 students 表里对应的列
+const PHOTO_TYPES = [
+  { type: 'gaokao', field: 'gaokao_photo', label: '高考照片' },
+  { type: 'on_site', field: 'on_site_photo', label: '实地采集', camera: true },
+  { type: 'id', field: 'id_photo', label: '自备证件照' }
+]
+// type → 照片配置的查找表，替代各处 type === 'on_site' 的二元判断
+const PHOTO_TYPE_MAP = Object.fromEntries(PHOTO_TYPES.map((p) => [p.type, p]))
+const photoInput = ref(null)
+// 第二个隐藏文件框：带 capture，手机上直接开相机（桌面浏览器忽略它，等同选文件）
+const cameraInput = ref(null)
+const photoUploading = ref('') // 正在上传的那张照片的 type，用来显示按钮 loading
+// 照片上传进度百分比（算不出总大小时为 0，就不显示数字）
+const photoUploadProgress = ref(0)
+let photoPicking = '' // 这次点「选择图片」是想换哪一张
+
+// ---------- 签字图 ----------
+// 它和上面三张照片不是一条链路：照片是「能看这个学生就能看」，签字得管理员批过、
+// 而且只有申请人本人、只有一小时。所以状态单独问后端（/sign-photos/status/{id}）。
+const signStatus = ref({ status: 'none', expires_at: null, download_name: '丁_签字.png' })
+const signSubmitting = ref(false)
+// 编辑弹窗里那一格（只有管理员会有）
+const signInput = ref(null)
+const signEdit = ref({ has: false, uploading: false, fileName: '' })
+// 预览弹窗的参数。存成一份快照：详情弹窗关掉之后 currentStudent 会变，
+// 预览框还开着的话标题和图会串到下一个学生身上
+const signViewer = ref({
+  visible: false, url: '', fileName: '', studentName: ''
+})
+
+// ---------- 完整档案申请 ----------
+// 敏感字段被后端裁剪之后，班委可以在详情页申请完整档案；批准后一小时内有效。
+// 状态接口和签字那条一样单独问，管理员 / 本人不渲染按钮。
+const archiveStatus = ref({ status: 'none', expires_at: null })
+const archiveSubmitting = ref(false)
+
+/** 详情页「申请查看完整档案」按钮的四态；不该出现的角色返回 null */
+const archiveButton = computed(() => {
+  if (!userStore.isCommittee || userStore.isAdmin) return null
+  const selfNo = userStore.info?.student_no
+  if (selfNo && currentStudent.value?.student_no === selfNo) return null
+  switch (archiveStatus.value.status) {
+    case 'pending':
+      return { text: '档案申请待审核', disabled: true, primary: false }
+    case 'approved':
+      return { text: '完整档案已开放', disabled: true, primary: false }
+    case 'expired':
+      return { text: '重新申请完整档案', disabled: false, primary: false }
+    default:
+      return { text: '申请查看完整档案', disabled: false, primary: false }
+  }
+})
+
+/**
+ * 详情页那个按钮的三态。没图就返回 null（整个按钮不渲染）
+ *
+ * 判据是「后端给没给 download_name」，不是状态字符串 —— 没有签字图时状态也是
+ * none，只看状态会把「有图但没申请」和「根本没图」混成一个样子。
+ */
+const signButton = computed(() => {
+  if (!userStore.isCommittee || !signStatus.value.download_name) return null
+  switch (signStatus.value.status) {
+    case 'pending':
+      return { text: '申请待审核', disabled: true, primary: false }
+    case 'approved':
+      return { text: '查看签字', disabled: false, primary: true }
+    case 'expired':
+      return { text: '重新申请', disabled: false, primary: false }
+    default:
+      return { text: '申请签署', disabled: false, primary: false }
+  }
+})
+
+/** 编辑弹窗里那张签字图的地址。v 用下载名：换图后名字也是新的，绕开任何中间缓存 */
+const editSignUrl = computed(() => {
+  if (!editForm.id || !signEdit.value.has) return ''
+  return signImageUrl(editForm.id, signEdit.value.fileName)
+})
+
+// 备注单独一个弹窗：班委只能改备注，没必要给他们开全字段的表单
+const remarkVisible = ref(false)
+const remarkForm = reactive({ id: null, name: '', remark: '' })
+const remarkAttachments = ref([])     // 保留的原附件（按原下标，可能不连续）
+const remarkNewAttachments = ref([])  // 本次新上传的附件文件
+
+// 照片查看器
+const viewerVisible = ref(false)
+const viewerList = ref([])
+const viewerIndex = ref(0)
+
+/**
+ * 照片地址：走带鉴权的接口，不再直连静态目录
+ *
+ * v 参数是照片文件名，后端不用它 —— 纯粹当版本号：换了照片文件名就变，
+ * 地址跟着变，浏览器不会拿缓存里那张旧图接着显示
+ * @param {object} student 学生对象（需要 id）
+ * @param {string} type gaokao=高考照片，on_site=实地采集，id=自备证件照
+ */
+function getPhotoUrl(student, type) {
+  if (!student?.id) return ''
+  const fileName = student[PHOTO_TYPE_MAP[type]?.field]
+  return `/api/students/${student.id}/photo?type=${type}&v=${encodeURIComponent(fileName || '')}`
+}
+
+/** 组装某学生可用的照片列表 [{ type, url }] */
+function studentPhotos(student) {
+  return PHOTO_TYPES
+    .filter((p) => student?.[p.field])
+    .map((p) => ({ type: p.type, url: getPhotoUrl(student, p.type) }))
+}
+
+/**
+ * 列表里那张缩略图：**进了视口才开始下载**（v-photo-src）
+ *
+ * 为什么不用原生的 loading="lazy"：它的预加载距离有好几屏，一页 20 行等于 20 张
+ * 原图（每张 60KB 上下，这个项目没有缩略图）一起开跑，把浏览器对本站的并发连接
+ * 和服务器上行全占了。而被挤在后面的正是点名/抽签要拉的名单 —— 用户看到的是
+ * 「点下去半天不出东西」，还以为按钮坏了。
+ *
+ * 这里只认真正的可见：没滚到的行一个字节都不下载。
+ * 浏览器没有 IntersectionObserver 时退化成直接加载 —— 功能不受影响，只是失去优化。
+ */
+let photoObserver = null
+
+function loadPhotoWhenVisible(entries) {
+  for (const entry of entries) {
+    if (!entry.isIntersecting) continue
+    entry.target.src = entry.target.dataset.photoSrc || ''
+    photoObserver.unobserve(entry.target)
+  }
+}
+
+const vPhotoSrc = {
+  // 服务端渲染时 mounted 不会跑，得在这里把 src 直接写出来，
+  // 否则渲染出来的 <img> 没有 src（渲染测试就是靠 SSR 跑模板的）
+  getSSRProps(binding) {
+    return { src: binding.value }
+  },
+  mounted(el, binding) {
+    el.dataset.photoSrc = binding.value
+    if (typeof IntersectionObserver === 'undefined') {
+      el.src = binding.value
+      return
+    }
+    // rootMargin 给一点点提前量，滚到位时图已经在了；再大就又回到「一屏外也在下」
+    photoObserver ||= new IntersectionObserver(loadPhotoWhenVisible, { rootMargin: '120px' })
+    photoObserver.observe(el)
+  },
+  updated(el, binding) {
+    // 换页、换排序时行会被复用，地址跟着变 —— 这时得重新观察一次
+    if (binding.value === binding.oldValue) return
+    el.dataset.photoSrc = binding.value
+    if (photoObserver) photoObserver.observe(el)
+    else el.src = binding.value
+  },
+  unmounted(el) {
+    photoObserver?.unobserve(el)
+  }
+}
+
+function handleImgError(e) {
+  // 图片加载失败时显示占位
+  e.target.style.display = 'none'
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-'
+  return dateStr
+}
+
+function formatDateTime(dtStr) {
+  if (!dtStr) return '-'
+  return String(dtStr).replace('T', ' ').replace(/\.\d+$/, '')
+}
+
+/**
+ * 打开照片查看器
+ * @param {object} student 学生对象
+ * @param {string} activeType 需要定位显示的照片类型
+ */
+function openPhotoViewer(student, activeType = 'gaokao') {
+  const photos = studentPhotos(student)
+  if (!photos.length) return
+  viewerList.value = photos.map((p) => p.url)
+  const index = photos.findIndex((p) => p.type === activeType)
+  viewerIndex.value = index >= 0 ? index : 0
+  viewerVisible.value = true
+}
+
+// 名单缩略图和详情大头照用哪一张：与顶栏头像同一口径
+// （自备证件照 > 高考照片 > 实地采集），都没有才算「暂无照片」
+const PRIMARY_PHOTO_ORDER = ['id', 'gaokao', 'on_site']
+
+function primaryPhoto(student) {
+  const type = PRIMARY_PHOTO_ORDER.find((t) => student?.[`${t}_photo`])
+  return type ? { type, fileName: student[`${type}_photo`] } : null
+}
+
+// 名单表格中点击某行的缩略图
+function openRowPhotos(row) {
+  openPhotoViewer(row, primaryPhoto(row)?.type || 'gaokao')
+}
+
+// 详情弹窗中点击照片
+function openStudentPhotos(student, photoType) {
+  openPhotoViewer(student, photoType || primaryPhoto(student)?.type || 'gaokao')
+}
+
+async function fetchData() {
+  const requestId = listRequest.start()
+  loadError.value = ''
+  loading.value = true
+  try {
+    const params = {
+      page: currentPage.value,
+      page_size: pageSize.value,
+      keyword: filterForm.keyword || undefined,
+      gender: filterForm.gender || undefined,
+      ethnicity: filterForm.ethnicity || undefined,
+      political_status: filterForm.political_status || undefined,
+      dormitory: filterForm.dormitory || undefined,
+      is_poor: filterForm.is_poor || undefined,
+      sort_by: sortBy.value || undefined,
+      sort_order: sortOrder.value,
+      birthday_days: birthdayFilter.value ? birthdayDays.value : undefined
+    }
+    const res = await getStudentList(params)
+    if (!listRequest.isCurrent(requestId)) return
+    tableData.value = res.items
+    total.value = res.total
+  } catch (e) {
+    if (listRequest.isCurrent(requestId)) loadError.value = '学生列表加载失败'
+  } finally {
+    if (listRequest.isCurrent(requestId)) loading.value = false
+  }
+}
+
+async function fetchFilterOptions() {
+  filterOptions.value = await getFilterOptions()
+}
+
+function handleSearch() {
+  currentPage.value = 1
+  fetchData()
+}
+
+function handleReset() {
+  Object.keys(filterForm).forEach(key => { filterForm[key] = '' })
+  birthdayFilter.value = false
+  sortBy.value = ''
+  sortOrder.value = 'asc'
+  currentPage.value = 1
+  fetchData()
+}
+
+function handleSort(command) {
+  const parts = command.split('_')
+  const order = parts.pop()
+  const field = parts.join('_')
+  sortBy.value = field
+  sortOrder.value = order
+  fetchData()
+}
+
+function applyBirthday() {
+  birthdayFilter.value = true
+  birthdayDialogVisible.value = false
+  currentPage.value = 1
+  fetchData()
+}
+
+function clearBirthday() {
+  birthdayFilter.value = false
+  birthdayDialogVisible.value = false
+  currentPage.value = 1
+  fetchData()
+}
+
+function handleSizeChange(size) {
+  pageSize.value = size
+  currentPage.value = 1
+  fetchData()
+}
+
+function handleCurrentChange(page) {
+  currentPage.value = page
+  fetchData()
+}
+
+/** 出勤状态的颜色，与「我的信息 → 考勤情况」保持一致 */
+function attendanceTag(status) {
+  if (status === 'present') return 'success'
+  if (status === 'late') return 'primary'
+  if (status === 'leave') return 'warning'
+  if (status === 'absent') return 'danger'
+  return 'info'
+}
+
+async function loadStudentAttendance() {
+  if (!currentStudent.value) return
+  attendanceLoading.value = true
+  try {
+    const data = await getStudentAttendance(currentStudent.value.id)
+    attendanceList.value = data?.items || []
+    attendancePage.value = 1
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '加载考勤情况失败')
+  } finally {
+    attendanceLoading.value = false
+  }
+}
+
+/** 展开才拉数据：默认收起时不必为每个学生多跑一次请求 */
+function handleAttendanceChange(names) {
+  const open = Array.isArray(names) ? names.includes('attendance') : names === 'attendance'
+  if (open) loadStudentAttendance()
+}
+
+async function loadStudentCases() {
+  if (!currentStudent.value) return
+  caseLoading.value = true
+  try {
+    caseList.value = (await getStudentSubmitted(currentStudent.value.id)) || []
+    casePage.value = 1
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '加载办件记录失败')
+  } finally {
+    caseLoading.value = false
+  }
+}
+
+function handleCaseChange(names) {
+  const open = Array.isArray(names) ? names.includes('cases') : names === 'cases'
+  if (open) loadStudentCases()
+}
+
+/** 「详情」跳到审核审批页对应的 tab（各类办件的 tab 名与类型同名） */
+function goReviewTab(row) {
+  detailVisible.value = false
+  const tab = ['change', 'leave', 'evpass', 'certificate', 'export', 'feedback']
+    .includes(row.type) ? row.type : 'change'
+  router.push({ path: '/review', query: { tab } })
+}
+
+async function handleView(row) {
+  // 列表数据本就是完整的学生信息，先用它打开弹窗，交互零等待；
+  // 再后台请求详情接口静默刷新（差网络下也不阻塞弹窗操作）
+  currentStudent.value = row
+  detailVisible.value = true
+  // 每个学生重新从收起状态开始，别把上一个学生的考勤留在下面
+  attendanceOpen.value = []
+  attendanceList.value = []
+  attendancePage.value = 1
+  caseOpen.value = []
+  caseList.value = []
+  casePage.value = 1
+  loadSignStatus(row.id) // 不 await：签字那个按钮晚一步出现，不该拖住弹窗
+  loadArchiveStatus(row.id) // 同上：完整档案按钮也晚一步出现
+  try {
+    currentStudent.value = await getStudent(row.id)
+  } catch (e) {
+    // 弹窗已经打开，不必打断用户；详情与列表数据一致，失败也无实质影响
+    console.error('详情刷新失败', e)
+  }
+}
+
+/**
+ * 清空编辑表单
+ *
+ * 不能用 `editForm = {}` —— `<script setup>` 里的绑定是只读的，
+ * 那样写等于什么都没做（Vue 只会打一条警告），上一个学生的数据会漏进下一个表单。
+ * 新增和编辑每次打开弹窗都先调一次。
+ */
+function resetEditForm() {
+  Object.keys(editForm).forEach((key) => delete editForm[key])
+  editAttachments.value = []
+  editNewAttachments.value = []
+  signEdit.value = { has: false, uploading: false, fileName: '' }
+}
+
+/** 「更多」下拉：管理员那三个低频操作 */
+function handleMore(command) {
+  if (command === 'birthday') birthdayDialogVisible.value = true
+  else if (command === 'export') exportDialogVisible.value = true
+  else if (command === 'import') importDialogRef.value?.open()
+  else if (command === 'photo-import') photoImportRef.value?.open()
+  else if (command === 'batch-sign') batchSignRef.value?.open(selectedStudents.value)
+  else if (command === 'create') handleCreate()
+  else if (command === 'batch-delete') handleBatchDelete()
+}
+
+// 新增：空表单，只预填两个默认值（与后端 schema 的默认值一致）
+function handleCreate() {
+  resetEditForm()
+  Object.assign(editForm, { school_status: '正常', is_poor: '否' })
+  activeTab.value = 'basic'
+  editVisible.value = true
+}
+
+// 编辑入口按角色分流：管理员开全字段弹窗，班委只开备注弹窗
+function handleEdit(row) {
+  detailVisible.value = false
+  if (userStore.isAdmin) {
+    resetEditForm()
+    Object.assign(editForm, row)
+    // 备注附件初始化
+    editAttachments.value = (row.remark_attachments || []).map(a => ({ ...a }))
+    editNewAttachments.value = []
+    loadSignEdit(row.id) // 同上：不 await，别拖住弹窗
+    editVisible.value = true
+    activeTab.value = 'basic'
+  } else {
+    remarkForm.id = row.id
+    remarkForm.name = row.name
+    remarkForm.remark = row.remark || ''
+    // 原附件深拷贝一份（避免直接修改列表数据）
+    remarkAttachments.value = (row.remark_attachments || []).map(a => ({ ...a }))
+    remarkNewAttachments.value = []
+    remarkVisible.value = true
+  }
+}
+
+async function handleSave() {
+  if (!editForm.name || !editForm.student_no) {
+    ElMessage.warning('姓名和学号不能为空')
+    return
+  }
+  // 刚选进来的图可能还在压，等它们落地再提交
+  await Promise.all([...compressTasks])
+  saving.value = true
+  try {
+    if (editForm.id) {
+      // 编辑：备注附件也一起提交
+      const keepIndices = editAttachments.value.map(a => a.index)
+      await updateStudent(
+        editForm.id,
+        editForm,
+        {
+          remarkNewAttachments: editNewAttachments.value,
+          remarkKeepAttachments: keepIndices,
+        }
+      )
+      ElMessage.success('保存成功')
+    } else {
+      // 新增：先创建学生（新增时不带附件，附件等编辑时再加）
+      const res = await createStudent(editForm)
+      showCreateResult(res)
+    }
+    editVisible.value = false
+    fetchData()
+    userStore.refreshTotal()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+// 管理员弹窗：移除已有附件
+function removeEditAttachment(idx) {
+  editAttachments.value.splice(idx, 1)
+}
+
+// 管理员弹窗：移除新上传的附件
+function removeEditNewAttachment(idx) {
+  editNewAttachments.value.splice(idx, 1)
+}
+
+// 管理员弹窗：上传文件变更
+async function handleEditAttachChange(file) {
+  if (!file.raw) return
+  // 备注附件里的照片、截图也先压小（规则见 utils/imageCompress.js）。
+  // 校验放在压完之后：大图压小了可能就合格了；检查与 push 之间不留 await，
+  // 几份文件同时选进来也不会一起越过数量上限
+  const raw = await trackCompress(file.raw)
+  const total = editAttachments.value.length + editNewAttachments.value.length + 1
+  if (total > REMARK_MAX_TOTAL_ATTACHMENTS) {
+    ElMessage.warning(`备注附件总共最多 ${REMARK_MAX_TOTAL_ATTACHMENTS} 个`)
+    return
+  }
+  if (editNewAttachments.value.length >= REMARK_MAX_NEW_ATTACHMENTS) {
+    ElMessage.warning(`每次最多上传 ${REMARK_MAX_NEW_ATTACHMENTS} 个新附件`)
+    return
+  }
+  if (raw.size > REMARK_MAX_ATTACH_SIZE) {
+    ElMessage.warning(`文件「${raw.name}」超过 ${REMARK_MAX_ATTACH_SIZE / 1024 / 1024}MB`)
+    return
+  }
+  editNewAttachments.value.push(raw)
+}
+
+/** 新增成功后交代初始密码：没有身份证号的那批要管理员单独去说一声 */
+function showCreateResult(res) {
+  if (!res.fallback) {
+    // 有身份证号：密码是身份证后 6 位，属于隐私，不在界面上回显
+    ElMessage.success(`${res.message}，初始密码为身份证号后 6 位`)
+    return
+  }
+  ElMessageBox.alert(
+    `${res.message}。该生还没有身份证号，初始密码为【学号后 6 位】：${res.password}。` +
+      '学号本身不是秘密，请单独告知本人，并让他首次登录后立即改成自己的密码。',
+    '新增成功，请转告初始密码',
+    { confirmButtonText: '知道了' }
+  )
+}
+
+// 删除学生：账号和照片一起清掉，历史请假/反馈记录保留
+async function handleDelete(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除「${row.name}（${row.student_no}）」吗？他的登录账号和照片文件会一并删除，` +
+        '此操作不可恢复；已经审核过的请假、反馈记录会保留。',
+      '删除学生',
+      { type: 'warning', confirmButtonText: '删除' }
+    )
+  } catch (e) {
+    return // 取消
+  }
+  try {
+    await deleteStudent(row.id)
+    ElMessage.success('已删除')
+    fetchData()
+    userStore.refreshTotal()
+  } catch (e) {
+    // 后端会挡住「删自己」和「还有待审核记录」两种情况，理由要原样告诉管理员
+    ElMessageBox.alert(e?.response?.data?.detail || '删除失败', '无法删除', {
+      type: 'warning',
+      confirmButtonText: '知道了'
+    })
+  }
+}
+
+// 批量删除：能删则删，失败的单列理由
+async function handleBatchDelete() {
+  const n = selectedStudents.value.length
+  if (!n) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${n} 名学生吗？账号和照片一并删除，不可恢复。`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: '删除' }
+    )
+  } catch (e) {
+    return // 取消
+  }
+  try {
+    const ids = selectedStudents.value.map(s => s.id)
+    const result = await batchDeleteStudents(ids)
+    // 勾选是跨页保留的，不清掉的话删掉的人会留在选中集里，下次「删除 N 人」会带上幽灵行。
+    // 部分失败时也清空：没删掉的人已经在结果弹窗里列出来了，重新勾比留着幽灵安全
+    clearSelection()
+    fetchData()
+    userStore.refreshTotal()
+
+    // 全部成功：一条提示即可；有失败的，弹窗列出每个人的原因
+    if (!result.failed?.length) {
+      ElMessage.success(result.message)
+    } else {
+      // ElMessageBox 的 message 按 HTML 渲染，所以文本要先转义再拼：
+      // 学号/姓名是可写字段，不转义就是存储型 XSS（一个管理员植入、另一个删除时触发）。
+      // 换行靠 \n + customClass 的 white-space: pre-wrap 保留
+      const esc = (s) => String(s).replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      const lines = result.failed.map((f) => {
+        const who = f.student_no ? `${f.student_no} ${f.name}` : '（选中项不存在）'
+        return `${esc(who)}：${esc(f.reason)}`
+      })
+      ElMessageBox.alert(
+        `${esc(result.message)}\n\n${lines.join('\n')}`,
+        '删除结果',
+        { type: 'warning', confirmButtonText: '知道了', customClass: 'batch-delete-result' }
+      )
+    }
+  } catch (e) {
+    ElMessageBox.alert(
+      e?.response?.data?.detail || '删除失败',
+      '删除失败',
+      { type: 'warning', confirmButtonText: '知道了' }
+    )
+  }
+}
+
+// ---------- 照片 ----------
+
+/** 点「选择图片」/「拍照」：记下要换的是哪一张，再转交给对应的隐藏 input。
+ *  useCamera=true 走带 capture 的那个：手机上直接开相机，桌面上退化成选文件 */
+function pickPhoto(type, useCamera = false) {
+  photoPicking = type
+  const input = useCamera ? cameraInput : photoInput
+  input.value?.click()
+}
+
+async function handlePhotoPicked(e) {
+  const raw = e.target.files?.[0]
+  // 一定要清空：不清的话连着选同一个文件不会再触发 change
+  e.target.value = ''
+  if (!raw || !photoPicking) return
+  // 要换哪一张在 await 之前记下：压缩期间用户可能又点了别的照片
+  const type = photoPicking
+  // 手机拍的照片动辄几 MB，先压小再传（规则见 utils/imageCompress.js）
+  const file = await compressImage(raw)
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.warning('照片不能超过 10MB')
+    return
+  }
+
+  photoUploading.value = type
+  photoUploadProgress.value = 0
+  try {
+    // 照片上限 10MB，手机上慢网络传得久，进度回填到百分比 ref
+    const res = await uploadStudentPhoto(editForm.id, type, file, (loaded, total) => {
+      photoUploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+    })
+    editForm[PHOTO_TYPE_MAP[type].field] = res.photo // 地址里的 v 参数跟着变，立刻显示新图
+    ElMessage.success('照片已更新')
+    fetchData()
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || '上传失败')
+  } finally {
+    photoUploading.value = ''
+  }
+}
+
+async function handleDeletePhoto(type) {
+  const label = PHOTO_TYPES.find((p) => p.type === type)?.label || '照片'
+  try {
+    await ElMessageBox.confirm(`确定删除这张${label}吗？`, '删除照片', { type: 'warning' })
+  } catch (e) {
+    return // 取消
+  }
+  try {
+    await deleteStudentPhoto(editForm.id, type)
+    editForm[PHOTO_TYPE_MAP[type].field] = null
+    ElMessage.success('照片已删除')
+    fetchData()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
+  }
+}
+
+// ---------- 签字图 ----------
+
+/** 拉某学生的签字状态（详情页按钮用）。**只对班委及以上发这个请求** ——
+ *  学生角色打过去是 403，弹到他脸上反而是告诉他「有这么个东西」 */
+async function loadSignStatus(studentId) {
+  signStatus.value = { status: 'none', expires_at: null, download_name: '' }
+  if (!userStore.isCommittee || !studentId) return
+  try {
+    signStatus.value = await getSignStatus(studentId)
+  } catch (e) {
+    // 拉不到就当没有：按钮不渲染，总好过给一个点开必然失败的按钮
+  }
+}
+
+/** 拉某学生的完整档案状态（详情页按钮用）。学生角色不请求，避免白发一个 403 */
+async function loadArchiveStatus(studentId) {
+  archiveStatus.value = { status: 'none', expires_at: null }
+  if (!userStore.isCommittee || userStore.isAdmin || !studentId) return
+  try {
+    archiveStatus.value = await getArchiveStatus(studentId)
+  } catch (e) {
+    // 拉不到就当没申请过：按钮最差是让用户点一下再看到错误
+  }
+}
+
+/** 详情页「申请查看完整档案」：提交后直接置为待审核，省一次往返 */
+async function handleArchiveClick() {
+  if (archiveStatus.value.status === 'approved') return
+  archiveSubmitting.value = true
+  try {
+    await requestArchiveView(currentStudent.value.id)
+    archiveStatus.value = { ...archiveStatus.value, status: 'pending' }
+    ElMessage.success('申请已提交，管理员同意后就能查看完整档案')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '申请失败')
+  } finally {
+    archiveSubmitting.value = false
+  }
+}
+
+/** 详情页那个按钮：能看就打开预览，否则提交申请 */
+async function handleSignClick() {
+  if (signStatus.value.status === 'approved') {
+    openSignViewer(currentStudent.value)
+    return
+  }
+  signSubmitting.value = true
+  try {
+    await requestSignView(currentStudent.value.id)
+    // 不重拉状态：后端已经把它变成 pending 了，这里跟着改就不用多跑一趟
+    signStatus.value = { ...signStatus.value, status: 'pending' }
+    ElMessage.success('申请已提交，管理员同意后就能查看')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '申请失败')
+  } finally {
+    signSubmitting.value = false
+  }
+}
+
+/** 打开签字预览。fileName 用后端拼的名字（含后缀），预览组件靠后缀判类型 */
+function openSignViewer(student) {
+  if (!student) return
+  signViewer.value = {
+    visible: true,
+    url: signImageUrl(student.id, signStatus.value.download_name || signEdit.value.fileName),
+    fileName: signStatus.value.download_name || signEdit.value.fileName,
+    studentName: student.name
+  }
+}
+
+/** 编辑弹窗里点那张签字图 */
+function openSignEditViewer() {
+  openSignViewer({ id: editForm.id, name: editForm.name })
+}
+
+/** 编辑弹窗打开时问一次签字状态（管理员才问） */
+async function loadSignEdit(studentId) {
+  signEdit.value = { has: false, uploading: false, fileName: '' }
+  if (!userStore.isAdmin || !studentId) return
+  try {
+    const s = await getSignStatus(studentId)
+    signEdit.value = { has: !!s.download_name, uploading: false, fileName: s.download_name }
+  } catch (e) {
+    /* 静默：拉不到就当没传过，管理员重新传一次即可 */
+  }
+}
+
+function pickSignImage() {
+  signInput.value?.click()
+}
+
+async function handleSignPicked(e) {
+  const raw = e.target.files?.[0]
+  // 一定要清空：不清的话连着选同一个文件不会再触发 change
+  e.target.value = ''
+  if (!raw) return
+  // 签字图多是手机拍的，先压小再传（规则见 utils/imageCompress.js）
+  const file = await compressImage(raw)
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.warning('签字图片不能超过 10MB')
+    return
+  }
+
+  signEdit.value = { ...signEdit.value, uploading: true }
+  photoUploadProgress.value = 0
+  try {
+    await uploadSignImage(editForm.id, file, (loaded, total) => {
+      photoUploadProgress.value = total ? Math.round((loaded / total) * 100) : 0
+    })
+    // 上传接口只回一句 message，图的新名字得重新问一次（也要靠它刷新预览地址）
+    await loadSignEdit(editForm.id)
+    ElMessage.success('签字图片已更新')
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || '上传失败')
+  } finally {
+    signEdit.value = { ...signEdit.value, uploading: false }
+  }
+}
+
+async function handleDeleteSign() {
+  try {
+    await ElMessageBox.confirm('确定删除这个学生的签字图片吗？', '删除签字图', {
+      type: 'warning'
+    })
+  } catch (e) {
+    return // 取消
+  }
+  try {
+    await deleteSignImage(editForm.id)
+    signEdit.value = { has: false, uploading: false, fileName: '' }
+    ElMessage.success('签字图片已删除')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
+  }
+}
+
+// 班委改备注：提交 remark + 附件（后端也只放行这两个字段）
+async function handleSaveRemark() {
+  // 刚选进来的图可能还在压，等它们落地再提交
+  await Promise.all([...compressTasks])
+  saving.value = true
+  try {
+    // 保留的旧附件下标（remarkAttachments 里的每一项都保留，它们的原始 index 存在 index 字段里）
+    const keepIndices = remarkAttachments.value.map(a => a.index)
+    await updateStudent(
+      remarkForm.id,
+      { remark: remarkForm.remark },
+      {
+        remarkNewAttachments: remarkNewAttachments.value,
+        remarkKeepAttachments: keepIndices,
+      }
+    )
+    ElMessage.success('备注已保存')
+    remarkVisible.value = false
+    fetchData()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    console.error(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+// 备注附件：移除已有附件
+function removeRemarkAttachment(idx) {
+  remarkAttachments.value.splice(idx, 1)
+}
+
+// 备注附件：移除新上传的附件
+function removeNewRemarkAttachment(idx) {
+  remarkNewAttachments.value.splice(idx, 1)
+}
+
+// 备注附件：上传文件变更
+async function handleRemarkAttachChange(file) {
+  if (!file.raw) return
+  // 同编辑弹窗：图片先压小，再校验（规则见 utils/imageCompress.js）
+  const raw = await trackCompress(file.raw)
+  // 已保留的 + 新上传的 总数检查
+  const total = remarkAttachments.value.length + remarkNewAttachments.value.length + 1
+  if (total > REMARK_MAX_TOTAL_ATTACHMENTS) {
+    ElMessage.warning(`备注附件总共最多 ${REMARK_MAX_TOTAL_ATTACHMENTS} 个`)
+    return
+  }
+  // 本次新增数检查
+  if (remarkNewAttachments.value.length >= REMARK_MAX_NEW_ATTACHMENTS) {
+    ElMessage.warning(`每次最多上传 ${REMARK_MAX_NEW_ATTACHMENTS} 个新附件`)
+    return
+  }
+  // 大小检查
+  if (raw.size > REMARK_MAX_ATTACH_SIZE) {
+    ElMessage.warning(`文件「${raw.name}」超过 ${REMARK_MAX_ATTACH_SIZE / 1024 / 1024}MB`)
+    return
+  }
+  remarkNewAttachments.value.push(raw)
+}
+
+// 下载备注附件
+async function downloadRemarkAttachment(studentId, index, name) {
+  try {
+    await downloadFile(`/api/students/${studentId}/remark-attachments/${index}`, name)
+  } catch (e) {
+    ElMessage.error('下载失败')
+  }
+}
+
+// ==================== 导出 ====================
+
+const tableRef = ref(null)
+const selectedStudents = ref([])
+const exportDialogVisible = ref(false)
+const exportTab = ref('new') // new / history
+const submitting = ref(false)
+// 正在下载的那条：按钮转圈 + 显示百分比。一次只可能有一个（按钮上带了 loading，
+// 下着的时候点不动）。后端的 zip 带 Content-Length，所以百分比是准的
+const downloadProgress = ref(null)
+const downloadPercent = computed(() => {
+  const p = downloadProgress.value
+  return p && p.total ? Math.round((p.loaded / p.total) * 100) : 0
+})
+const myRequests = ref([])
+const myRequestsLoading = ref(false)
+
+// 导出表单
+const exportForm = reactive({
+  export_type: 'excel_list', // excel_list / pdf_individual
+  scope_type: 'all', // all / filtered / selected / id_range
+  start_no: '',
+  end_no: '',
+  fields: [] // 选中的字段（excel 用）
+})
+
+// 字段分组（从后端拿）
+const fieldGroups = ref([])
+const defaultFields = ref([])
+
+function handleSelectionChange(selection) {
+  selectedStudents.value = selection
+}
+
+/** 清空勾选。「已选 N 人」标签上的 × 和批量删除成功之后都走这里 */
+function clearSelection() {
+  tableRef.value?.clearSelection()
+  // clearSelection 会触发 selection-change，但别指望它 —— 表格还没挂载时啥也不会发生
+  selectedStudents.value = []
+}
+
+async function loadFieldGroups() {
+  if (fieldGroups.value.length) return
+  try {
+    const res = await getExportFieldGroups()
+    fieldGroups.value = res.groups
+    defaultFields.value = res.default_fields
+    if (!exportForm.fields.length) {
+      exportForm.fields = [...res.default_fields]
+    }
+  } catch (e) {
+    console.error('加载导出字段失败', e)
+  }
+}
+
+async function loadMyRequests() {
+  myRequestsLoading.value = true
+  try {
+    const res = await getMyExportRequests({ page: 1, page_size: 20 })
+    myRequests.value = res.items
+  } catch (e) {
+    console.error('加载我的申请失败', e)
+  } finally {
+    myRequestsLoading.value = false
+  }
+}
+
+// 当用户切到「我的申请」tab 时加载
+function handleExportTabChange(tab) {
+  if (tab === 'history') {
+    loadMyRequests()
+  }
+}
+
+// 构造 scope_param
+function buildScopeParam() {
+  const t = exportForm.scope_type
+  if (t === 'all') return null
+  if (t === 'selected') {
+    return { ids: selectedStudents.value.map(s => s.id) }
+  }
+  if (t === 'id_range') {
+    return { start_no: exportForm.start_no, end_no: exportForm.end_no }
+  }
+  if (t === 'filtered') {
+    // 当前筛选条件
+    return {
+      keyword: filterForm.keyword,
+      gender: filterForm.gender,
+      ethnicity: filterForm.ethnicity,
+      political_status: filterForm.political_status,
+      dormitory: filterForm.dormitory,
+      is_poor: filterForm.is_poor,
+      sort_by: sortBy.value,
+      sort_order: sortOrder.value
+    }
+  }
+  return null
+}
+
+async function handleSubmitExport() {
+  // 校验
+  if (exportForm.scope_type === 'selected' && !selectedStudents.value.length) {
+    ElMessage.warning('请先在表格里勾选要导出的学生')
+    return
+  }
+  if (exportForm.scope_type === 'id_range' && !exportForm.start_no && !exportForm.end_no) {
+    ElMessage.warning('请输入至少一个学号边界')
+    return
+  }
+  if (exportForm.export_type === 'excel_list' && !exportForm.fields.length) {
+    ElMessage.warning('请至少选择一个导出字段')
+    return
+  }
+
+  submitting.value = true
+  try {
+    const body = {
+      export_type: exportForm.export_type,
+      scope_type: exportForm.scope_type,
+      scope_param: buildScopeParam(),
+      fields: exportForm.export_type === 'excel_list' ? exportForm.fields : null
+    }
+    await createExportRequest(body)
+    ElMessageBox.alert(
+      '申请已提交，管理员正在审核中。\n审核通过后，请在本弹窗的「我的申请」页签下载文件。',
+      '提交成功',
+      {
+        confirmButtonText: '查看我的申请',
+        type: 'success'
+      }
+    ).then(() => {
+      exportTab.value = 'history'
+      loadMyRequests()
+    })
+  } catch (e) {
+    ElMessage.error('提交失败：' + (e.message || '未知错误'))
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function handleDownload(req) {
+  downloadProgress.value = { reqId: req.id, loaded: 0, total: 0 }
+  let abortCtrl = null
+  try {
+    abortCtrl = new AbortController()
+    const blob = await downloadExportFile(
+      req.id,
+      (loaded, total) => {
+        downloadProgress.value = { reqId: req.id, loaded, total }
+      },
+      abortCtrl.signal
+    )
+    // 保存文件
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    // 从 Content-Disposition 拿文件名太麻烦，直接用展示名 + 后缀
+    const ext = req.export_type === 'excel_list' ? 'xlsx' : 'zip'
+    a.download = `${req.file_original_name || ('学生信息导出.' + ext)}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    ElMessage.success('下载完成')
+  } catch (e) {
+    if (e?.code !== 'ERR_CANCELED' && e?.name !== 'CanceledError') {
+      ElMessage.error('下载失败：' + (e.message || '未知错误'))
+    }
+  } finally {
+    downloadProgress.value = null
+  }
+}
+
+// 弹框打开时加载字段分组
+function onExportDialogOpen() {
+  loadFieldGroups()
+  // 重置表单
+  exportForm.export_type = 'excel_list'
+  exportForm.scope_type = 'all'
+  exportForm.start_no = ''
+  exportForm.end_no = ''
+  exportForm.fields = defaultFields.value.length ? [...defaultFields.value] : []
+  exportTab.value = 'new'
+}
+
+// 状态 tag 颜色
+function statusTagType(status) {
+  return {
+    pending: 'warning',
+    approved: 'success',
+    generated: 'success',
+    rejected: 'danger',
+    failed: 'info'
+  }[status] || 'info'
+}
+
+function statusLabel(status) {
+  return {
+    pending: '待审核',
+    approved: '已通过',
+    generated: '已生成',
+    rejected: '已驳回',
+    failed: '生成失败'
+  }[status] || status
+}
+
+function typeLabel(t) {
+  return { excel_list: '名单 Excel', pdf_individual: '个人信息表 PDF' }[t] || t
+}
+
+/**
+ * 别的页面点「查看学生」跳过来时带着 `?open=<学生 id>`，进来直接把详情弹开。
+ *
+ * 按 id 精确打开，**不走搜索框**：详情弹窗只用到 id，而按学号去搜会把
+ * 「2026012」这种前缀相同的一串人都搜出来。
+ *
+ * 打开后立刻把 query 抹掉：否则在同一个页面再点一次同一个学生（组件复用、
+ * onMounted 不重跑）没反应，而且刷新页面会莫名其妙又弹一次。
+ */
+function openFromQuery() {
+  const id = Number(route.query.open)
+  if (!id) return
+  handleView({ id })
+  router.replace({ query: {} })
+}
+
+onMounted(() => {
+  fetchData()
+  fetchFilterOptions()
+  openFromQuery()
+})
+
+// 已经在这个页面上时，别处再点「查看」只会改 query，onMounted 不会重跑
+watch(() => route.query.open, openFromQuery)
+</script>
+
+<style scoped>
+.student-gender {
+  margin-left: 5px;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+}
+
+.row-subtext {
+  margin-top: 2px;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mobile-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobile-name-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-name-line {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.mobile-name-cell :deep(.el-dropdown) {
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .table-tools { gap: 8px; }
+  .table-tools :deep(.el-button) { padding-inline: 10px; }
+
+  :deep(.col-select .cell),
+  :deep(.col-photo .cell) {
+    padding: 2px;
+  }
+
+  .thumb-photo,
+  .thumb-img,
+  .thumb-placeholder {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+.student-list {
+  padding: 0;
+  /* 整页水印以它为定位基准铺满 */
+  position: relative;
+}
+
+/* 卡片标题下面是筛选表单，再往下是「共 N 人 / 排序 / 点名」那一条工具行。
+   去掉表格标题后只剩工具组，所以靠右对齐、并和上面的筛选拉开一点距离 */
+.table-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 4px;
+}
+
+/* 用 gap 统一间距。以前靠每个按钮自己 style="margin-left: 8px" 顶开，
+   一换行行首就多出一块空白 —— 按钮多了之后这是最先难看的地方 */
+.table-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tools-count {
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
+}
+
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+/* 序号列：整列就是几个数字居中，不需要 Element 默认的那圈内边距。
+   不收窄的话 40px 里只剩 16px 可用，两位数一挤就折行（表头「序号」同理） */
+:deep(.col-index .cell) {
+  padding: 0 2px;
+  white-space: nowrap;
+}
+
+.thumb-photo {
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto;
+}
+
+.thumb-img {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.thumb-placeholder {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--el-fill-color-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--el-text-color-disabled);
+}
+
+.detail-photo-img {
+  width: 120px;
+  height: 160px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+}
+
+/* 编辑弹窗里的照片：两张并排放，各自带上传/删除 */
+.edit-photos {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.edit-photo {
+  text-align: center;
+}
+
+.edit-photo-box {
+  width: 100px;
+  height: 130px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--el-fill-color-light);
+  cursor: zoom-in;
+}
+
+.edit-photo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.edit-photo-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--el-text-color-disabled);
+}
+
+.edit-photo-label {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  margin: 6px 0 4px;
+}
+
+.photo-item-img {
+  /* 缩小显示，contain 保证原比例完整展示、不裁切 */
+  width: 100%;
+  height: 150px;
+  object-fit: contain;
+  display: block;
+  background: var(--el-fill-color-light);
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.photos-tip {
+  text-align: center;
+  font-size: 12px;
+  color: var(--el-text-color-disabled);
+  margin: 8px 0 0 0;
+}
+
+.detail-header {
+  display: flex;
+  gap: 24px;
+  padding: 16px;
+  /* 走主题色浅色档：深色模式下会跟着变深，里面的字才不至于浅底白字 */
+  background: linear-gradient(135deg, var(--el-color-primary-light-9) 0%, var(--el-color-primary-light-8) 100%);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+/* 深色下光靠 primary 浅档还不够：弹窗底本身就是深靛，浅档叠上去只差一档灰，
+   整条信息条仍然「看不见」。这里显式换一组更浓的靛蓝渐变，并补一道主题色描边，
+   让照片、姓名、学号这块在深色里也像浅色下那样自成一区 */
+.dark .detail-header {
+  background: linear-gradient(135deg, #252a4e 0%, #2f3565 100%);
+  border: 1px solid rgba(129, 140, 248, 0.22);
+}
+
+.detail-photo {
+  cursor: zoom-in;
+  flex-shrink: 0;
+}
+
+.no-photo {
+  width: 120px;
+  height: 160px;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--el-text-color-disabled);
+  font-size: 14px;
+  gap: 8px;
+}
+
+.detail-info {
+  flex: 1;
+  padding-top: 4px;
+}
+
+.detail-collapses {
+  margin-top: 20px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+/* 每块自己不带上下框线，只在两块之间补一条，避免中间出现两条线 */
+.detail-collapse {
+  border-top: 0;
+  border-bottom: 0;
+}
+
+.detail-collapse + .detail-collapse {
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+/* 折叠面板的标题已经在 header 里垂直居中，去掉 section-title 自带的外边距 */
+.detail-collapse .section-title {
+  margin: 0;
+}
+
+.attendance-pager {
+  margin-top: 10px;
+  justify-content: flex-end;
+}
+
+.photos-section {
+  margin-top: 20px;
+}
+
+.photos-row {
+  display: flex;
+  gap: 20px;
+}
+
+.photo-item {
+  flex: 1;
+  position: relative;
+  cursor: zoom-in;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+.photo-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  text-align: center;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+/* .detail-dialog 的正文留白收在全局（弹窗 append-to-body 之后，scoped 里
+   带祖先的选择器匹配不到），见 styles/main.css 的 .el-dialog.detail-dialog */
+
+/* 工具栏按钮不少（人数/排序/近期生日/点名/抽签/导出/更多），手机上不换行会被顶出
+   横向滚动条。收成「标题一行、工具栏一行」并左对齐 —— 右对齐换行后行首参差不齐 */
+@media (max-width: 768px) {
+  .table-header {
+    flex-direction: column;
+    align-items: flex-start;
+    row-gap: 10px;
+  }
+
+  .table-tools {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  /* 筛选区：控件宽度都是写死的（关键词 240px、几个下拉 100~130px），375px 的屏上
+     放不下两个，于是一行一个地把半屏占满。这里改成两列自适应 —— 关键词和按钮各占
+     一整行（一个要宽、一个本来就窄），中间那五个下拉两两一行；控件宽度一律交给容器
+     （行内的 style="width: 240px" 压过样式表，得 !important 才盖得住） */
+  /* 表单项自己是块级盒子，不把表单变成 flex 容器的话，设了 50% 也还是一行一个 */
+  .page-card :deep(.el-form--inline) {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 10px;
+    align-items: flex-start;
+  }
+  .page-card :deep(.el-form--inline .el-form-item) {
+    display: flex;
+    width: calc(50% - 5px);
+    margin-right: 0;
+    margin-bottom: 10px;
+  }
+  .page-card :deep(.el-form--inline .el-form-item:first-child),
+  .page-card :deep(.el-form--inline .el-form-item:last-child) {
+    width: 100%;
+  }
+  /* 标签占一列、跟控件并排，比压在控件上方省一整行高度；固定宽度让两列对得齐 */
+  .page-card :deep(.el-form--inline .el-form-item__label) {
+    width: 68px;
+    padding-right: 8px;
+    flex-shrink: 0;
+    justify-content: flex-start;
+  }
+  .page-card :deep(.el-form-item__content) {
+    flex: 1;
+    min-width: 0;
+  }
+  .page-card :deep(.el-input),
+  .page-card :deep(.el-select) {
+    width: 100% !important;
+  }
+}
+
+/* 导出弹框：字段分组 */
+.export-field-groups {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  padding: 12px 16px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.field-group + .field-group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--el-border-color-lighter);
+}
+.field-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-regular);
+  margin-bottom: 8px;
+}
+.field-group .el-checkbox {
+  margin-right: 16px;
+  margin-bottom: 6px;
+}
+
+/* 详情里的独立 section 标题（与照片资料那一节风格一致） */
+.section-title {
+  margin: 20px 0 12px 0;
+  color: var(--el-text-color-primary);
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 备注内容区 */
+.remark-detail-content {
+  padding: 12px 16px;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
+  min-height: 48px;
+}
+
+/* 备注附件 */
+.remark-attach-section {
+  margin: 8px 0 4px;
+  padding: 10px 14px;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+}
+
+.attach-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-regular);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attach-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--el-bg-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.attach-item:hover {
+  background: var(--el-color-primary-light-9);
+}
+
+.attach-item .attach-name {
+  flex: 1;
+  font-size: 13px;
+  color: #409eff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attach-item .attach-size {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+
+.attach-item .attach-download {
+  font-size: 14px;
+  color: #409eff;
+  flex-shrink: 0;
+}
+
+/* 弹窗里的上传区 */
+.upload-area {
+  width: 100%;
+}
+
+.existing-attachments {
+  margin-bottom: 8px;
+}
+
+.attach-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.attach-row .attach-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attach-row .attach-size {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+
+.upload-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+</style>
+
+<!-- 非 scoped：批量删除结果弹窗挂在 body 上，scoped 样式选不到 -->
+<style>
+.batch-delete-result .el-message-box__message p {
+  white-space: pre-wrap;
+}
+
+/* Markdown 元素样式统一在 styles/main.css 的 .markdown-body 里 */
+</style>

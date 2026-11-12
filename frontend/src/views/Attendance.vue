@@ -12,6 +12,12 @@
           <el-button type="primary" @click="createRef?.open()">
             <el-icon><Plus /></el-icon>发布签到
           </el-button>
+          <el-button @click="fullAttendanceVisible = true">
+            <el-icon><CircleCheck /></el-icon>全勤
+          </el-button>
+          <el-button @click="importVisible = true">
+            <el-icon><Upload /></el-icon>导入
+          </el-button>
           <el-button @click="openExport">
             <el-icon><Download /></el-icon>导出
           </el-button>
@@ -78,11 +84,11 @@
         <el-table-column label="类型" width="70">
           <template #default="{ row }">
             <el-tag
-              :type="row.type === 'checkin' ? 'success' : 'primary'"
+              :type="row.type === 'checkin' ? 'success' : row.type === 'import' ? 'warning' : 'primary'"
               size="small"
               effect="plain"
             >
-              {{ row.type === 'checkin' ? '签到' : '点名' }}
+              {{ row.type === 'checkin' ? '签到' : row.type === 'import' ? '导入' : '点名' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -104,7 +110,7 @@
             <!-- 点名，以及结算后的签到：标准计数。签到结算后本行直接换成
                  这个格式，不再另生成一条「点名」行。
                  实到 = 到 + 迟到（迟到的人确实到了），迟到再单独列出来 -->
-            <template v-if="row.type === 'attendance' || row.status === 'ended'">
+            <template v-if="row.type === 'attendance' || row.type === 'import' || row.status === 'ended'">
               <span>应到 {{ row.total }}</span>
               <span class="at-sep">·</span>
               <span>实到 {{ row.present + (row.late || 0) }}</span>
@@ -249,6 +255,9 @@
     <!-- 点名弹窗：点完上报成功就刷新列表，新记录当场可见 -->
     <RollCallDialog ref="rollCallRef" @saved="() => fetchList()" />
 
+    <FullAttendanceDialog v-model="fullAttendanceVisible" />
+    <AttendanceImportDialog v-model="importVisible" @imported="fetchList()" />
+
     <!-- 导出：要么导勾选的，要么导当前筛选结果。两者含的记录不同，先说清楚条数 -->
     <el-dialog append-to-body v-model="exportVisible" title="导出考勤与签到" width="480px">
       <el-radio-group v-model="exportMode" class="at-export-modes">
@@ -277,6 +286,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CheckinCreateDialog from '@/components/CheckinCreateDialog.vue'
 import CheckinDetailDialog from '@/components/CheckinDetailDialog.vue'
+import FullAttendanceDialog from '@/components/FullAttendanceDialog.vue'
+import AttendanceImportDialog from '@/components/AttendanceImportDialog.vue'
 import RollCallDialog from '@/components/RollCallDialog.vue'
 import {
   attendanceDetailExportUrl,
@@ -334,6 +345,8 @@ const userStore = useUserStore()
 
 const exportVisible = ref(false)
 const exportMode = ref('filtered')
+const fullAttendanceVisible = ref(false)
+const importVisible = ref(false)
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -341,11 +354,11 @@ const detailSaving = ref(false)
 const detailExporting = ref(false)
 const detail = ref({ items: [], call_date: '', scope: '' })
 
-const detailTitle = computed(() =>
-  detail.value.id
-    ? `${detail.value.call_date} ${detail.value.scope_label || detail.value.scope} 点名明细`
-    : '点名明细'
-)
+const detailTitle = computed(() => {
+  if (!detail.value.id) return '点名明细'
+  if (detail.value.scope_label === '导入') return `${detail.value.call_date} 导入明细`
+  return `${detail.value.call_date} ${detail.value.scope_label || detail.value.scope} 点名明细`
+})
 
 /**
  * 这一场是不是「我」能管理的
@@ -374,7 +387,7 @@ function rowOps(row) {
   // 只读入口（明细 / 链接）人人有；写操作只留给管理员或发起者。
   // 催促和改标题不在这个列表里 —— 它们不改变考勤结果，仍然所有班委可用
   const manage = canManage(row)
-  if (row.type === 'attendance') {
+  if (row.type === 'attendance' || row.type === 'import') {
     const ops = [
       { label: '明细', type: 'primary', run: () => openDetail(row) },
       { label: '标题', type: 'primary', run: () => handleRemark(row) }
@@ -629,7 +642,9 @@ async function handleBatchDelete() {
   ).length
   try {
     const res = await batchDeleteAttendance({
-      recordIds: selection.value.filter((r) => r.type === 'attendance').map((r) => r.id),
+      recordIds: selection.value
+        .filter((r) => r.type === 'attendance' || r.type === 'import')
+        .map((r) => r.id),
       checkinIds: selection.value.filter((r) => r.type === 'checkin').map((r) => r.id)
     })
     ElMessage.success(`已删除 ${res.deleted} 条记录`)
@@ -734,7 +749,9 @@ async function doExport() {
   let filename
   if (exportMode.value === 'selected' && selection.value.length) {
     url = attendanceExportUrl({
-      recordIds: selection.value.filter((r) => r.type === 'attendance').map((r) => r.id),
+      recordIds: selection.value
+        .filter((r) => r.type === 'attendance' || r.type === 'import')
+        .map((r) => r.id),
       checkinIds: selection.value.filter((r) => r.type === 'checkin').map((r) => r.id)
     })
     filename = `考勤与签到_选中${selection.value.length}条.xlsx`
@@ -786,16 +803,21 @@ onBeforeUnmount(() => {
 .at-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-wrap: nowrap;
+  gap: 6px;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
-/* 工具栏四个按钮统一宽高；主按钮只保留内高光，别让外发光看起来比旁边大一圈 */
+/* 五个按钮排一行：宽度跟内容走，不再用 112px 的固定宽把第五个挤下去 */
 .at-actions :deep(.el-button) {
-  min-width: 112px;
-  height: 36px;
-  padding: 0 14px;
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
   justify-content: center;
+  white-space: nowrap;
 }
 
 .at-actions :deep(.el-button .el-icon) {
@@ -827,13 +849,25 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 640px) {
-  .at-search,
-  .at-range {
+  /* 搜索自己占一行；日期和查询 / 重置挤在同一行 */
+  .at-filter {
+    gap: 6px;
+  }
+
+  .at-search {
     width: 100%;
   }
 
+  .at-range {
+    flex: 1 1 110px;
+    width: auto;
+    min-width: 110px;
+  }
+
   .at-filter .el-button {
-    flex: 1;
+    flex: 0 0 auto;
+    margin-left: 0;
+    padding: 0 8px;
   }
 }
 

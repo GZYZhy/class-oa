@@ -57,6 +57,7 @@ NEW_COLUMNS = [
     ("resources", "download_count", "INTEGER NOT NULL DEFAULT 0"),
     # 签到的暂停时刻。可空：补列前发布过的签到一律视为没暂停
     ("checkins", "paused_at", "DATETIME"),
+    ("attendance_records", "import_batch_id", "INTEGER"),
     # 批量操作涉及的多个学号（JSON 数组）。用于被操作记录反查：
     # 一次导出涉及几十人，每个人查被操作记录时都能找到这条
     ("operation_logs", "target_student_nos", "TEXT DEFAULT ''"),

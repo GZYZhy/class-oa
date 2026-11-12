@@ -35,6 +35,25 @@ class AttendanceRecord(Base):
     # 全班共用一句；空串 = 没写
     remark = Column(String(200), default="", comment="备注")
 
+    # 导入批次：普通点名 / 签到结算为空；Excel 导入的记录指向同一批次
+    import_batch_id = Column(Integer, index=True, comment="导入批次 ID，可空")
+
+
+class AttendanceImportBatch(Base):
+    """一次 Excel 考勤导入的批次记录
+
+    只用于让同一批导入的记录可追溯，接口和页面都不暴露批次概念。
+    """
+    __tablename__ = "attendance_import_batches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    filename = Column(String(200), default="", comment="上传文件名")
+    operator_no = Column(String(20), default="", comment="导入人学号")
+    operator_name = Column(String(50), default="", comment="导入人姓名")
+    created_at = Column(DateTime, default=datetime.now, comment="导入时刻")
+    record_count = Column(Integer, default=0, comment="生成的场次数")
+    item_count = Column(Integer, default=0, comment="生成的明细条数")
+
 
 class AttendanceItem(Base):
     """一次点名里某个人的状态

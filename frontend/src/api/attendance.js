@@ -1,5 +1,31 @@
 import request from '@/utils/request'
 
+/** 统计周期内的全勤名单（班委及以上） */
+export function getFullAttendance(params) {
+  return request({ url: '/attendance/full-attendance', method: 'get', params })
+}
+
+/** 解析考勤 Excel（班委及以上） */
+export function previewAttendanceImport(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request({
+    url: '/attendance/import/preview',
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+/** 确认导入考勤（班委及以上） */
+export function confirmAttendanceImport(data) {
+  return request({
+    url: '/attendance/import/confirm',
+    method: 'post',
+    data
+  })
+}
+
 /** 考勤详情，带每个人的状态（改状态的对话框用） */
 export function getAttendance(id) {
   return request({ url: `/attendance/${id}`, method: 'get' })

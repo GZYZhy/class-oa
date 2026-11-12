@@ -64,13 +64,65 @@ class AttendanceListResponse(BaseModel):
     items: list[AttendanceRecordResponse]
 
 
+class FullAttendanceStudent(BaseModel):
+    student_no: str
+    name: str
+    late_count: int = 0
+    leave_count: int = 0
+
+
+class FullAttendanceResponse(BaseModel):
+    start_date: date | None = None
+    end_date: date | None = None
+    total_records: int = 0
+    checked_students: int = 0
+    items: list[FullAttendanceStudent] = Field(default_factory=list)
+
+
+class AttendanceImportSessionPreview(BaseModel):
+    key: str
+    title: str
+
+
+class AttendanceImportRowPreview(BaseModel):
+    row: int
+    student_no: str
+    name: str
+    values: dict[str, str]
+
+
+class AttendanceImportPreviewResponse(BaseModel):
+    token: str
+    filename: str
+    sheet_name: str
+    sessions: list[AttendanceImportSessionPreview]
+    rows: list[AttendanceImportRowPreview]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AttendanceImportSessionTime(BaseModel):
+    key: str
+    occurred_at: datetime
+
+
+class AttendanceImportConfirm(BaseModel):
+    token: str
+    sessions: list[AttendanceImportSessionTime]
+
+
+class AttendanceImportResult(BaseModel):
+    records_created: int
+    items_created: int
+    skipped_sessions: int
+
+
 class AttendanceOverviewItem(BaseModel):
     """点名与签到合在一张列表里的一行
 
-    `type` 区分两种记录：attendance = 点名记录，checkin = 签到。
-    两边的字段放在同一个模型里，前端只按 type 取自己那几列。
+    `type` 区分三种记录：attendance = 点名记录，import = Excel 导入，
+    checkin = 签到。两边的字段放在同一个模型里，前端只按 type 取自己那几列。
     """
-    type: str = Field(..., description="attendance / checkin")
+    type: str = Field(..., description="attendance / import / checkin")
     id: int
     date: date
     # 点名时刻；签到是截止或提前结束的时刻

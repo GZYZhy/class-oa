@@ -22,7 +22,7 @@ from .birthday import BirthdaySettings
 from .about_setting import AboutSettings
 from .weather_notify import WeatherNotifySettings
 from .weather_banner import WeatherBannerSettings
-from .attendance import AttendanceRecord, AttendanceItem
+from .attendance import AttendanceImportBatch, AttendanceRecord, AttendanceItem
 from .checkin import Checkin, CheckinTarget
 from .inbox_message import InboxMessage
 from .poll import Poll, PollAnswer, PollQuestion, PollTarget

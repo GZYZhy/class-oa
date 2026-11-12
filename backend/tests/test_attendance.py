@@ -399,3 +399,135 @@ def test_overview_scope_uses_standard_short_names(b):
     scopes = {i["scope"] for i in mine}
     assert "团员" in scopes, scopes
     assert "1人" in scopes, scopes
+
+
+# ---------- 全勤小工具 ----------
+
+def test_full_attendance_respects_late_and_leave_options(b):
+    from datetime import date
+    rid = make_record(b)
+    day = date.today().isoformat()
+
+    r = b.client.patch(
+        f"/api/attendance/{rid}/items/{ROSTER[1][0]}", json={"status": "late"}
+    )
+    assert r.status_code < 300, r.text
+
+    r = b.client.get("/api/attendance/full-attendance", params={
+        "start": day, "end": day, "late_counts": True, "leave_counts": False,
+    })
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["total_records"] == 1
+    assert [row["student_no"] for row in data["items"]] == [ADMIN_NO, ROSTER[1][0]]
+    assert data["items"][1]["late_count"] == 1
+
+    r = b.client.get("/api/attendance/full-attendance", params={
+        "start": day, "end": day, "late_counts": False, "leave_counts": False,
+    })
+    assert [row["student_no"] for row in r.json()["items"]] == [ADMIN_NO]
+
+    assert b.client.patch(
+        f"/api/attendance/{rid}/items/{ROSTER[1][0]}", json={"status": "leave"}
+    ).status_code < 300
+    r = b.client.get("/api/attendance/full-attendance", params={
+        "start": day, "end": day, "late_counts": True, "leave_counts": True,
+    })
+    assert [row["student_no"] for row in r.json()["items"]] == [ADMIN_NO, ROSTER[1][0]]
+
+    c = as_student(b, 1)
+    assert c.get("/api/attendance/full-attendance", params={
+        "start": day, "end": day,
+    }).status_code == 403
+
+
+def _attendance_xlsx():
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "考勤"
+    ws.append(["学号", "姓名", "序号", "性别", "第一次", "第二次"])
+    ws.append([ADMIN_NO, "甲", 1, "男", "到", "迟到"])
+    ws.append([ROSTER[1][0], "乙", 2, "女", "无应答", "请假"])
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_attendance_excel_import_preview_and_confirm(b):
+    student = as_student(b, 1)
+    denied = student.post(
+        "/api/attendance/import/preview",
+        files={"file": ("考勤.xlsx", _attendance_xlsx(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert denied.status_code == 403, denied.text
+
+    r = b.client.post(
+        "/api/attendance/import/preview",
+        files={"file": ("考勤.xlsx", _attendance_xlsx(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200, r.text
+    preview = r.json()
+    assert [s["title"] for s in preview["sessions"]] == ["第一次", "第二次"]
+    assert len(preview["rows"]) == 2
+    assert preview["rows"][0]["values"] == {"4": "present", "5": "late"}
+    assert preview["rows"][1]["values"] == {"4": "absent", "5": "leave"}
+
+    r = b.client.post("/api/attendance/import/confirm", json={
+        "token": preview["token"],
+        "sessions": [
+            {"key": "4", "occurred_at": "2026-11-01 08:00:00"},
+            {"key": "5", "occurred_at": "2026-11-02 09:00:00"},
+        ],
+    })
+    assert r.status_code == 200, r.text
+    assert r.json() == {"records_created": 2, "items_created": 4, "skipped_sessions": 0}
+
+    rows = b.rows("SELECT import_batch_id, scope, remark FROM attendance_records ORDER BY id")
+    assert len(rows) == 2 and all(row[0] and row[1] == "导入" for row in rows)
+    assert [row[2] for row in rows] == ["第一次", "第二次"]
+    assert b.rows("SELECT COUNT(*) FROM attendance_import_batches")[0][0] == 1
+
+    overview = b.client.get("/api/attendance/overview", params={
+        "start": "2026-11-01", "end": "2026-11-02",
+    }).json()["items"]
+    assert {row["type"] for row in overview} == {"import"}
+    assert {row["title"] for row in overview} == {"第一次", "第二次"}
+
+    full = b.client.get("/api/attendance/full-attendance", params={
+        "start": "2026-11-01", "end": "2026-11-02",
+        "late_counts": True, "leave_counts": False,
+    }).json()
+    assert [row["student_no"] for row in full["items"]] == [ADMIN_NO]
+
+
+def test_attendance_import_status_aliases():
+    from openpyxl import Workbook
+    from app.services.attendance_import_service import parse_excel
+
+    wb = Workbook()
+    ws = wb.active
+    headers = ["学号", "到", "迟到", "无应答", "缺勤", "未出勤", "未到", "旷课",
+               "请假", "病假", "事假", "公假", "空白", "无", "-", "--", "/",
+               "勾1", "勾2", "勾3", "勾4", "勾5", "叉1", "叉2", "叉3", "叉4"]
+    ws.append(headers)
+    ws.append([ADMIN_NO, "到", "迟到", "无应答", "缺勤", "未出勤", "未到", "旷课",
+               "请假", "病假", "事假", "公假", "", "无", "-", "--", "/",
+               "✓", "✔", "√", "☑", "✅", "X", "x", "✗", "✘"])
+    buf = BytesIO()
+    wb.save(buf)
+    parsed = parse_excel(buf.getvalue(), "状态.xlsx")
+    values = parsed["rows"][0]["values"]
+    keys = {session["title"]: session["key"] for session in parsed["sessions"]}
+    assert values[keys["到"]] == "present"
+    assert values[keys["迟到"]] == "late"
+    for title in ("无应答", "缺勤", "未出勤", "未到", "旷课"):
+        assert values[keys[title]] == "absent"
+    for title in ("请假", "病假", "事假", "公假"):
+        assert values[keys[title]] == "leave"
+    for title in ("勾1", "勾2", "勾3", "勾4", "勾5"):
+        assert values[keys[title]] == "present"
+    for title in ("叉1", "叉2", "叉3", "叉4"):
+        assert values[keys[title]] == "absent"
+    for title in ("空白", "无", "-", "--", "/"):
+        assert keys[title] not in values

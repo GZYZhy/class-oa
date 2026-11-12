@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import quote
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import (
+    AttendanceImportBatch,
     AttendanceItem,
     AttendanceRecord,
     Checkin,
@@ -33,16 +34,21 @@ from ..models import (
 from ..schemas import (
     AttendanceBatchDelete,
     AttendanceCreate,
+    AttendanceImportConfirm,
+    AttendanceImportPreviewResponse,
+    AttendanceImportResult,
     AttendanceItemUpdate,
     AttendanceListResponse,
     AttendanceOverviewItem,
     AttendanceOverviewResponse,
     AttendanceRecordResponse,
     AttendanceRemarkUpdate,
+    FullAttendanceResponse,
     MyAttendanceItem,
     MyAttendanceListResponse,
 )
 from ..services import display_name, log_operation
+from ..services import attendance_import_service as ais
 from ..services.checkin_service import (
     CHECKIN_DIR,
     CHECKIN_ENDED,
@@ -153,11 +159,14 @@ def _to_response(
 ) -> AttendanceRecordResponse:
     """组装一条记录。列表接口不传 items（只给聚合计数），详情接口才传"""
     data = _counts(items or [])
+    label = "导入" if record.import_batch_id else _manual_scope_label(
+        record.scope, len(items or [])
+    )
     return AttendanceRecordResponse(
         id=record.id,
         call_date=record.call_date,
         scope=record.scope or "",
-        scope_label=_manual_scope_label(record.scope, len(items or [])),
+        scope_label=label,
         called_at=record.called_at,
         operator_no=record.operator_no or "",
         operator_name=record.operator_name or "",
@@ -214,6 +223,249 @@ def _summary_detail(scope: str, items: list[AttendanceItem]) -> str:
 
 # ---------- 固定路径必须定义在 /{record_id} 之前 ----------
 # 否则 /export 会先撞上 /{record_id} 被当成 record_id 解析，直接 422（本项目已踩过）
+@router.get(
+    "/full-attendance",
+    response_model=FullAttendanceResponse,
+    summary="统计周期内全勤名单（班委及以上）",
+)
+def full_attendance(
+    start: date | None = Query(None, description="起始日期，含当天"),
+    end: date | None = Query(None, description="结束日期，含当天"),
+    late_counts: bool = Query(True, description="迟到是否算全勤"),
+    leave_counts: bool = Query(False, description="请假是否算全勤"),
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    """按周期汇总全勤人员
+
+    只统计已经落在考勤明细里的记录；签到在结算后同样会生成考勤明细，
+    未结算的签到不参与。一个人只要在周期内被点到过，且每次状态都在
+    「到 / 迟到（可选）/ 请假（可选）」范围内，就算全勤。
+    """
+    if start and end and end < start:
+        raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
+    finalize_due(db)
+    records = _date_range(db.query(AttendanceRecord), start, end).all()
+    record_ids = [record.id for record in records]
+    if not record_ids:
+        return {
+            "start_date": start,
+            "end_date": end,
+            "total_records": 0,
+            "checked_students": 0,
+            "items": [],
+        }
+
+    rows = (
+        db.query(AttendanceItem)
+        .filter(AttendanceItem.record_id.in_(record_ids))
+        .all()
+    )
+    statuses: dict[str, list[str]] = {}
+    names: dict[str, str] = {}
+    for item in rows:
+        number = item.student_no or ""
+        if not number:
+            continue
+        statuses.setdefault(number, []).append(item.status or "")
+        if item.student_name:
+            names[number] = item.student_name
+
+    student_names = dict(
+        db.query(Student.student_no, Student.name)
+        .filter(Student.student_no.in_(statuses.keys()))
+        .all()
+    )
+    names.update({number: name for number, name in student_names.items() if name})
+
+    items = []
+    for number, values in statuses.items():
+        allowed = all(
+            value == "present"
+            or (late_counts and value == "late")
+            or (leave_counts and value == "leave")
+            for value in values
+        )
+        if not allowed:
+            continue
+        items.append(
+            {
+                "student_no": number,
+                "name": names.get(number, number),
+                "late_count": values.count("late"),
+                "leave_count": values.count("leave"),
+            }
+        )
+    items.sort(key=lambda item: item["student_no"])
+
+    return {
+        "start_date": start,
+        "end_date": end,
+        "total_records": len(records),
+        "checked_students": len(statuses),
+        "items": items,
+    }
+
+
+@router.post(
+    "/import/preview",
+    response_model=AttendanceImportPreviewResponse,
+    summary="解析考勤 Excel（班委及以上）",
+)
+async def preview_attendance_import(
+    file: UploadFile = File(...),
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    filename = file.filename or "考勤.xlsx"
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="只支持 .xlsx 文件")
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="文件不能超过 5MB")
+
+    try:
+        parsed = ais.parse_excel(content, filename)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"Excel 解析失败：{error}")
+
+    students = db.query(Student).all()
+    by_no = {student.student_no: student for student in students}
+    by_name: dict[str, list[Student]] = {}
+    for student in students:
+        if student.name:
+            by_name.setdefault(student.name, []).append(student)
+
+    warnings = list(parsed["warnings"])
+    matched = []
+    for row in parsed["rows"]:
+        number = row["student_no"].strip()
+        name = row["name"].strip()
+        student = by_no.get(number) if number else None
+        if not student and not number and name:
+            candidates = by_name.get(name, [])
+            if len(candidates) == 1:
+                student = candidates[0]
+            elif len(candidates) > 1:
+                warnings.append(f"第 {row['row']} 行姓名「{name}」重名，已跳过")
+        if not student:
+            warnings.append(
+                f"第 {row['row']} 行「{name or number}」不在学生名单里，已跳过"
+            )
+            continue
+        matched.append({
+            "row": row["row"],
+            "student_no": student.student_no,
+            "name": student.name or student.student_no,
+            "values": row["values"],
+        })
+
+    if not matched:
+        raise HTTPException(status_code=400, detail="没有匹配到任何学生")
+
+    token = ais.save_preview({
+        "filename": filename,
+        "sheet_name": parsed["sheet_name"],
+        "sessions": parsed["sessions"],
+        "rows": matched,
+        "warnings": warnings,
+    })
+    return {
+        "token": token,
+        "filename": filename,
+        "sheet_name": parsed["sheet_name"],
+        "sessions": parsed["sessions"],
+        "rows": matched,
+        "warnings": warnings,
+    }
+
+
+@router.post(
+    "/import/confirm",
+    response_model=AttendanceImportResult,
+    summary="确认导入考勤（班委及以上）",
+)
+def confirm_attendance_import(
+    data: AttendanceImportConfirm,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    preview = ais.load_preview(data.token)
+    if not preview:
+        raise HTTPException(status_code=400, detail="预览已过期，请重新上传文件")
+    times = {item.key: item.occurred_at for item in data.sessions}
+    missing = [s["title"] for s in preview["sessions"] if not times.get(s["key"])]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"还没有选择发生时间：{'、'.join(missing)}")
+
+    operator_name = display_name(db, user)
+    batch = AttendanceImportBatch(
+        filename=preview["filename"],
+        operator_no=user.student_no,
+        operator_name=operator_name,
+        record_count=0,
+        item_count=0,
+    )
+    db.add(batch)
+    db.flush()
+
+    records_created = 0
+    items_created = 0
+    skipped_sessions = 0
+    for session in preview["sessions"]:
+        occurred_at = times[session["key"]]
+        rows = [
+            row for row in preview["rows"]
+            if row["values"].get(session["key"])
+        ]
+        if not rows:
+            skipped_sessions += 1
+            continue
+        record = AttendanceRecord(
+            call_date=occurred_at.date(),
+            called_at=occurred_at,
+            scope="导入",
+            remark=session["title"],
+            operator_no=user.student_no,
+            operator_name=operator_name,
+            import_batch_id=batch.id,
+        )
+        db.add(record)
+        db.flush()
+        records_created += 1
+        for row in rows:
+            db.add(AttendanceItem(
+                record_id=record.id,
+                student_no=row["student_no"],
+                student_name=row["name"],
+                status=row["values"][session["key"]],
+            ))
+            items_created += 1
+
+    if not records_created:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="所有场次都没有范围内的学生，未导入")
+
+    batch.record_count = records_created
+    batch.item_count = items_created
+    log_operation(
+        db,
+        user,
+        action="导入考勤",
+        target=preview["filename"],
+        detail=f"导入 {records_created} 场、{items_created} 条明细",
+        ip=get_client_ip(request),
+    )
+    db.commit()
+    ais.drop_preview(data.token)
+    return {
+        "records_created": records_created,
+        "items_created": items_created,
+        "skipped_sessions": skipped_sessions,
+    }
+
+
 @router.get("/export", summary="导出考勤记录（班委及以上）")
 def export_attendance(
     start: date | None = Query(None, description="起始日期，含当天"),
@@ -661,14 +913,17 @@ def overview_attendance(
     items: list[AttendanceOverviewItem] = []
     for record in records:
         counts = by_record.get(record.id, {})
+        imported = bool(record.import_batch_id)
         items.append(
             AttendanceOverviewItem(
-                type="attendance",
+                type="import" if imported else "attendance",
                 id=record.id,
                 date=record.call_date,
                 time=record.called_at,
-                title=record.scope or "",
-                scope_label=_manual_scope_label(record.scope, sum(counts.values())),
+                title=(record.remark if imported else record.scope) or "",
+                scope_label="导入" if imported else _manual_scope_label(
+                    record.scope, sum(counts.values())
+                ),
                 operator_no=record.operator_no or "",
                 operator_name=record.operator_name or "",
                 remark=record.remark or "",
@@ -995,6 +1250,8 @@ def _manual_scope_label(scope: str, total: int | None = None) -> str:
     页面上的「范围」列只认这四个标准说法。给了 total 时，其余范围一律
     写成「N人」；没给 total 的老调用方保持原样（只归一「团员」）。
     """
+    if (scope or "").strip() == "导入":
+        return "导入"
     value = (scope or "").strip()
     if value == "全班":
         return "全班"

@@ -5339,6 +5339,22 @@ console.log('\n▶ 标题行与搜索：投票、学生、考勤、成绩、审�
   check(/keyword_like\(keyword, Poll\.title\)/.test(pollsPy), '投票按 Poll.title 过滤')
 
   // ---------- 考勤：全局搜索（两类记录都搜列表里的「标题」列） ----------
+  const attendanceViewSrc = readFileSync(`${ROOT}/src/views/Attendance.vue`, 'utf8')
+  const fullAttendanceSrc = readFileSync(`${ROOT}/src/components/FullAttendanceDialog.vue`, 'utf8')
+  check(attendanceViewSrc.includes('fullAttendanceVisible = true') &&
+    attendanceViewSrc.includes('<FullAttendanceDialog'), '考勤页有「全勤」小工具入口')
+  check(fullAttendanceSrc.includes('lateCounts = ref(true)') &&
+    fullAttendanceSrc.includes('leaveCounts = ref(false)'), '全勤默认迟到算、请假不算')
+  check(fullAttendanceSrc.includes('getFullAttendance') && fullAttendanceSrc.includes('copyText'),
+    '全勤名单走统计接口并可复制')
+  const importDialogSrc = readFileSync(`${ROOT}/src/components/AttendanceImportDialog.vue`, 'utf8')
+  check(attendanceViewSrc.includes('importVisible = true') &&
+    attendanceViewSrc.includes('<AttendanceImportDialog'), '考勤页有 Excel 导入入口')
+  check(attendanceViewSrc.includes("row.type === 'import'") &&
+    attendanceViewSrc.includes('? \'导入\''), '导入记录在列表里显示为「导入」类型')
+  check(importDialogSrc.includes('previewAttendanceImport') &&
+    importDialogSrc.includes('confirmAttendanceImport') &&
+    importDialogSrc.includes('type="datetime"'), '导入支持预览并逐场指定发生时间')
   const { html: attendanceHtml } = await render('/src/views/Attendance.vue')
   check(stripComments(attendanceHtml).includes('搜索标题'),
     '考勤页的搜索框搜两类记录的标题')
@@ -5620,7 +5636,7 @@ console.log('\n▶ 签到：点名与签到合成一张列表')
   // 结算生成的考勤不再单独成行，签到那一行自己换成标准格式
   check(attendancePy.includes('AttendanceRecord.id.notin_(settled_ids)'),
     '签到结算生成的那条考勤不单独出现在列表里')
-  check(pageSrc.includes("row.type === 'attendance' || row.status === 'ended'")
+  check(pageSrc.includes("row.type === 'attendance' || row.type === 'import' || row.status === 'ended'")
     && pageSrc.includes('已签 {{ row.signed_count }} / {{ row.target_count }}'),
     '签到结算后本行显示应到/实到/迟到/请假/无应答，进行中才显示已签人数')
   check(/record_ids: list\[int\] = Query\(default=\[\]/.test(attendancePy)
