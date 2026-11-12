@@ -297,6 +297,8 @@ console.log('\n▶ 多端布局与弱网反馈')
   check(stem.includes('<br>') && stem.includes('target="_blank"') &&
     stem.includes('<img') && !stem.includes('<script>'),
   '题干支持多行、链接和图片，同时转义 HTML')
+  check(md.renderQuestionStem('[bbb](baidu.com)').includes('href="https://baidu.com"'),
+    '题干里不带协议的域名会补成 https 链接')
   check(!md.renderQuestionStem('[坏链接](javascript:alert(1))').includes('href='),
     '题干里的 javascript: 链接不会生成 href')
   check(md.renderMarkdown('[官网](https://example.com)').includes('target="_blank"'),

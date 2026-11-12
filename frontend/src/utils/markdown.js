@@ -51,7 +51,11 @@ function escapeHtml(text) {
 function safeUrl(raw) {
   const url = String(raw || '').trim()
   // 只放行常见链接和站内相对地址，挡住 javascript: / data: 这类可执行协议
-  if (/^(https?:\/\/|\/|#|\.{1,2}\/)/i.test(url)) return url
+  if (/^(https?:\/\/|\/\/|\/|#|\.{1,2}\/)/i.test(url)) return url
+  // 题干里常有人直接写 baidu.com，补上 https 再输出
+  if (/^[\w.-]+\.[a-z]{2,}(?::\d+)?(?:[/?#].*)?$/i.test(url)) {
+    return `https://${url}`
+  }
   return ''
 }
 
