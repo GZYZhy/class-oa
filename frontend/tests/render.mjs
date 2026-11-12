@@ -1028,10 +1028,14 @@ console.log('\n▶ 域外账号：我的信息与共享日程（只读 / 分配�
   const reportSrc = readFileSync(`${ROOT}/src/components/ScheduleReportDialog.vue`, 'utf8')
   check(reportSrc.includes('仅统计系统内日程，数据仅供参考娱乐'),
     '报告注明数据仅供参考娱乐')
-  check(reportSrc.includes('最早 {{ formatClock(report.earliest_start) }}') &&
-    reportSrc.includes('最晚 {{ formatClock(report.latest_end) }}') &&
+  check(reportSrc.includes('最早 {{ formatTime(report.earliest_time) }}') &&
+    reportSrc.includes('最晚 {{ formatTime(report.latest_time) }}') &&
     reportSrc.includes('辛苦了') && !reportSrc.includes('呼吸的缝隙'),
-  '最早/最晚分两行对齐，评语只赞美不评判忙闲')
+  '最早/最晚取当天时刻并分两行对齐，评语只赞美不评判忙闲')
+  check(reportSrc.includes('report.off_hours_events') &&
+    reportSrc.includes('offHoursText') &&
+    reportSrc.includes('8:00–11:30、13:30–17:00 之外'),
+  '报告显示非工作时间日程数与时长')
   check(reportSrc.includes('最常去的地方') && reportSrc.includes('report.collective') &&
     reportSrc.includes('集体生活') && reportSrc.includes('collective.breakdown'),
   '报告显示最常去地点，并把集体生活按工作/会议/活动展开')

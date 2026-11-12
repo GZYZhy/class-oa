@@ -1283,6 +1283,9 @@ def student_report(
     active_days = set()
     weekday_counts = [0] * 7
     hour_counts = [0] * 24
+    off_hours_events = 0
+    off_hours_minutes = 0
+    work_ranges = ((8 * 60, 11 * 60 + 30), (13 * 60 + 30, 17 * 60))
 
     def type_name(raw: str) -> str:
         return (raw or "").strip() or "未分类"
@@ -1311,6 +1314,18 @@ def student_report(
         weekday_counts[item["start_time"].weekday()] += 1
         hour_counts[item["start_time"].hour] += 1
 
+        start_minute = item["start_time"].hour * 60 + item["start_time"].minute
+        end_minute = item["end_time"].hour * 60 + item["end_time"].minute
+        if end_minute > start_minute:
+            overlap = sum(
+                max(0, min(end_minute, work_end) - max(start_minute, work_start))
+                for work_start, work_end in work_ranges
+            )
+            outside = max(0, duration - overlap)
+            if outside:
+                off_hours_events += 1
+                off_hours_minutes += outside
+
     types = sorted(type_map.values(), key=lambda row: (-row["count"], row["name"]))
     total = len(instances)
     for entry in types:
@@ -1331,8 +1346,8 @@ def student_report(
         top_location = sorted(location_map.items(), key=lambda row: (-row[1], row[0]))[0][0]
         top_location_count = location_map[top_location]
 
-    earliest = min((item["start_time"] for item in timed), default=None)
-    latest = max((item["end_time"] for item in timed), default=None)
+    earliest = min((item["start_time"].time() for item in timed), default=None)
+    latest = max((item["end_time"].time() for item in timed), default=None)
     peak_weekday = max(range(7), key=lambda index: weekday_counts[index]) if timed else None
     peak_hour = max(range(24), key=lambda index: hour_counts[index]) if timed else None
 
@@ -1373,10 +1388,12 @@ def student_report(
         "types": types,
         "weekday_counts": weekday_counts,
         "hour_counts": hour_counts,
-        "earliest_start": earliest,
-        "latest_end": latest,
+        "earliest_time": earliest,
+        "latest_time": latest,
         "peak_weekday": peak_weekday,
         "peak_hour": peak_hour,
+        "off_hours_events": off_hours_events,
+        "off_hours_minutes": off_hours_minutes,
         "top_location": top_location,
         "top_location_count": top_location_count,
         "collective": collective,

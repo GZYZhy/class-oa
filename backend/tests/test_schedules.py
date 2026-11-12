@@ -2475,15 +2475,19 @@ def test_my_report_and_view_as_report(b):
         title="复习", event_type="学习", location="教学楼",
         start="2026-10-13T10:00:00", end="2026-10-13T11:30:00",
     )).status_code == 200
+    assert b.client.post("/api/schedules", json=_make_schedule(
+        title="晚自习", event_type="学习", location="教学楼",
+        start="2026-10-13T19:00:00", end="2026-10-13T20:00:00",
+    )).status_code == 200
 
     r = b.client.get("/api/schedules/report", params={
         "start_date": "2026-10-12", "end_date": "2026-10-18",
     })
     assert r.status_code == 200, r.text
     data = r.json()
-    assert data["total_events"] == 3
-    assert data["total_minutes"] == 210
-    assert data["timed_events"] == 3
+    assert data["total_events"] == 4
+    assert data["total_minutes"] == 270
+    assert data["timed_events"] == 4
     assert data["active_days"] == 2
     type_names = {row["name"] for row in data["types"]}
     assert {"工作", "会议", "学习"} <= type_names
@@ -2493,8 +2497,10 @@ def test_my_report_and_view_as_report(b):
         {"name": "工作", "count": 1, "minutes": 60},
     ]
     assert data["top_location"] == "图书馆" and data["top_location_count"] == 2
-    assert data["earliest_start"].endswith("08:00:00")
-    assert data["latest_end"].endswith("11:30:00")
+    assert data["earliest_time"] == "08:00:00"
+    assert data["latest_time"] == "20:00:00"
+    assert data["off_hours_events"] == 1
+    assert data["off_hours_minutes"] == 60
     assert data["class_size"] == 3
     assert data["busy_top_percent"] is not None
 

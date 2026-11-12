@@ -101,8 +101,8 @@
             <div>
               <p class="sr-label">最早 / 最晚</p>
               <strong class="sr-extremes">
-                <span>最早 {{ formatClock(report.earliest_start) }}</span>
-                <span>最晚 {{ formatClock(report.latest_end) }}</span>
+                <span>最早 {{ formatTime(report.earliest_time) }}</span>
+                <span>最晚 {{ formatTime(report.latest_time) }}</span>
               </strong>
             </div>
             <div>
@@ -115,6 +115,17 @@
               <div class="sr-week-bar" :style="{ height: item.height }" />
               <span>{{ item.label }}</span>
             </div>
+          </div>
+          <div class="sr-offhours">
+            <div>
+              <p class="sr-label">非工作时间日程</p>
+              <strong>{{ report.off_hours_events }} 个</strong>
+            </div>
+            <div>
+              <p class="sr-label">非工作时间时长</p>
+              <strong>{{ offHoursText }}</strong>
+            </div>
+            <span class="sr-offhours-note">8:00–11:30、13:30–17:00 之外</span>
           </div>
         </section>
 
@@ -184,6 +195,10 @@ const topLocationText = computed(() => {
   const count = report.value?.top_location_count
   return count ? `${location}（${count} 次）` : location
 })
+const offHoursText = computed(() => {
+  const value = report.value?.off_hours_minutes || 0
+  return `${Math.round(value / 60 * 10) / 10} 小时`
+})
 const weekBars = computed(() => {
   const counts = report.value?.weekday_counts || []
   const max = Math.max(...counts, 1)
@@ -241,9 +256,9 @@ function pickPreset(key) {
   }
 }
 
-function formatClock(value) {
+function formatTime(value) {
   if (!value) return '—'
-  return String(value).slice(0, 16).replace('T', ' ')
+  return String(value).slice(0, 5)
 }
 
 function collectivePercent(item) {
@@ -390,6 +405,24 @@ watch(range, () => {
 }
 .sr-extremes span {
   white-space: nowrap;
+}
+.sr-offhours {
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+}
+.sr-offhours strong {
+  font-size: 15px;
+}
+.sr-offhours-note {
+  margin-left: auto;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 .sr-week {
   display: flex;

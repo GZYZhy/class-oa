@@ -6,7 +6,7 @@ request.js 的 errText 遇到非字符串只会退回兜底文案，所以「标
 「结束时间在不在开始之前」都得在接口里判，好回一句能直接显示给用户的中文。
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -163,10 +163,12 @@ class ScheduleReportResponse(BaseModel):
     types: list[ScheduleReportType]
     weekday_counts: list[int]
     hour_counts: list[int]
-    earliest_start: Optional[datetime] = None
-    latest_end: Optional[datetime] = None
+    earliest_time: Optional[time] = None
+    latest_time: Optional[time] = None
     peak_weekday: Optional[int] = None
     peak_hour: Optional[int] = None
+    off_hours_events: int = 0
+    off_hours_minutes: int = 0
     top_location: str = ""
     top_location_count: int = 0
     collective: Optional[ScheduleReportCollective] = None
