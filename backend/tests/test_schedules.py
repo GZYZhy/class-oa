@@ -2457,3 +2457,67 @@ def test_committee_can_view_a_student_full_schedule(b):
     assert b.client.get("/api/schedules/view/9999", params={
         "start_date": "2026-10-12", "end_date": "2026-10-18",
     }).status_code == 404
+
+
+# ---------- 日程报告 ----------
+
+def test_my_report_and_view_as_report(b):
+    """自己报告统计条数/类型/时长，班委能看某学生的报告"""
+    assert b.client.post("/api/schedules", json=_make_schedule(
+        title="值班", event_type="工作", location="图书馆",
+        start="2026-10-12T08:00:00", end="2026-10-12T09:00:00",
+    )).status_code == 200
+    assert b.client.post("/api/schedules", json=_make_schedule(
+        title="组会", event_type="会议", location="图书馆",
+        start="2026-10-12T09:00:00", end="2026-10-12T10:00:00",
+    )).status_code == 200
+    assert b.client.post("/api/schedules", json=_make_schedule(
+        title="复习", event_type="学习", location="教学楼",
+        start="2026-10-13T10:00:00", end="2026-10-13T11:30:00",
+    )).status_code == 200
+
+    r = b.client.get("/api/schedules/report", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    })
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["total_events"] == 3
+    assert data["total_minutes"] == 210
+    assert data["timed_events"] == 3
+    assert data["active_days"] == 2
+    type_names = {row["name"] for row in data["types"]}
+    assert {"工作", "会议", "学习"} <= type_names
+    assert data["collective"]["count"] == 2
+    assert data["collective"]["breakdown"] == [
+        {"name": "会议", "count": 1, "minutes": 60},
+        {"name": "工作", "count": 1, "minutes": 60},
+    ]
+    assert data["top_location"] == "图书馆" and data["top_location_count"] == 2
+    assert data["earliest_start"].endswith("08:00:00")
+    assert data["latest_end"].endswith("11:30:00")
+    assert data["class_size"] == 3
+    assert data["busy_top_percent"] is not None
+
+    sid = b.rows("SELECT id FROM students WHERE student_no = ?", ROSTER[1][0])[0][0]
+    r = b.client.get(f"/api/schedules/view/{sid}/report", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["student_no"] == ROSTER[1][0]
+
+    student = as_student(b, 1)
+    assert student.get("/api/schedules/report", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    }).status_code == 200
+    assert student.get(f"/api/schedules/view/{sid}/report", params={
+        "start_date": "2026-10-12", "end_date": "2026-10-18",
+    }).status_code == 403
+
+
+def test_report_rejects_bad_ranges(b):
+    assert b.client.get("/api/schedules/report", params={
+        "start_date": "2026-10-18", "end_date": "2026-10-12",
+    }).status_code == 400
+    assert b.client.get("/api/schedules/report", params={
+        "start_date": "2025-01-01", "end_date": "2026-10-12",
+    }).status_code == 400

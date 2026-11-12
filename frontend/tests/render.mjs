@@ -1013,6 +1013,28 @@ console.log('\n▶ 域外账号：我的信息与共享日程（只读 / 分配�
     scheduleApiView.includes("url: `/schedules/view/${studentId}/search`") &&
     scheduleApiView.includes("url: `/schedules/view/${studentId}/semester`"),
   '视角接口：列表 / 搜索 / 周次')
+  check(scheduleSrc.includes('@click="handleAllDayClick(day.date)"') &&
+    scheduleSrc.includes('function handleAllDayClick') &&
+    scheduleSrc.includes('editForm.value.all_day = true'),
+  '全天格点击后打开全天日程表单')
+  check(scheduleSrc.includes('if (isExternal.value && !userStore.isCommittee) return') &&
+    scheduleSrc.includes('if (viewAs.value) return'),
+  '全天格与普通格一样挡住域外等效学生和视角只读')
+  check(scheduleSrc.includes(':student-id="viewAs?.id || null"') &&
+    scheduleSrc.includes('<ScheduleReportDialog') &&
+    scheduleApiView.includes("url: '/schedules/report'") &&
+    scheduleApiView.includes("url: `/schedules/view/${studentId}/report`"),
+  '自己视角和替学生视角都能打开报告')
+  const reportSrc = readFileSync(`${ROOT}/src/components/ScheduleReportDialog.vue`, 'utf8')
+  check(reportSrc.includes('仅统计系统内日程，数据仅供参考娱乐'),
+    '报告注明数据仅供参考娱乐')
+  check(reportSrc.includes('最早 {{ formatClock(report.earliest_start) }}') &&
+    reportSrc.includes('最晚 {{ formatClock(report.latest_end) }}') &&
+    reportSrc.includes('辛苦了') && !reportSrc.includes('呼吸的缝隙'),
+  '最早/最晚分两行对齐，评语只赞美不评判忙闲')
+  check(reportSrc.includes('最常去的地方') && reportSrc.includes('report.collective') &&
+    reportSrc.includes('集体生活') && reportSrc.includes('collective.breakdown'),
+  '报告显示最常去地点，并把集体生活按工作/会议/活动展开')
 }
 
 console.log('\n▶ 我的日程：点卡片先看详情，详情里才能改')

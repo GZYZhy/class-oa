@@ -48,6 +48,7 @@ from ..schemas import (
     ScheduleImportConfirm,
     ScheduleImportResultResponse,
     ScheduleImportPreviewResponse,
+    ScheduleReportResponse,
     ScheduleResponse,
     ScheduleUpdate,
     SemesterInfoResponse,
@@ -207,6 +208,40 @@ def search_view_student(
 ):
     _view_target(db, student_id)
     return ss.search_by_title(db, student_id, keyword)
+
+
+def _check_report_range(start_date: date, end_date: date) -> None:
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
+    if (end_date - start_date).days > 366:
+        raise HTTPException(status_code=400, detail="统计周期不能超过一年")
+
+
+@router.get("/report", response_model=ScheduleReportResponse)
+def get_my_report(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _check_report_range(start_date, end_date)
+    student = db.query(Student).filter(Student.student_no == user.student_no).first()
+    if not student:
+        raise HTTPException(status_code=403, detail="域外账号没有个人日程报告")
+    return ss.student_report(db, student, start_date, end_date)
+
+
+@router.get("/view/{student_id}/report", response_model=ScheduleReportResponse)
+def get_student_report(
+    student_id: int,
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    _: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    _check_report_range(start_date, end_date)
+    student = _view_target(db, student_id)
+    return ss.student_report(db, student, start_date, end_date)
 
 
 @router.get("/view/{student_id}/semester", response_model=SemesterInfoResponse)

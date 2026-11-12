@@ -67,6 +67,22 @@ export function getStudentSemesterInfo(studentId) {
   })
 }
 
+export function getMyScheduleReport(startDate, endDate) {
+  return request({
+    url: '/schedules/report',
+    method: 'get',
+    params: { start_date: startDate, end_date: endDate }
+  })
+}
+
+export function getStudentScheduleReport(studentId, startDate, endDate) {
+  return request({
+    url: `/schedules/view/${studentId}/report`,
+    method: 'get',
+    params: { start_date: startDate, end_date: endDate }
+  })
+}
+
 /**
  * 获取单条日程详情
  * @param {number} id - 日程 ID

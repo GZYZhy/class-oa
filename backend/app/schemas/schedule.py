@@ -131,6 +131,51 @@ class ScheduleResponse(BaseModel):
         from_attributes = True
 
 
+class ScheduleReportType(BaseModel):
+    name: str
+    count: int
+    minutes: int
+    percent: int
+
+
+class ScheduleReportCollectiveItem(BaseModel):
+    name: str
+    count: int
+    minutes: int
+
+
+class ScheduleReportCollective(BaseModel):
+    count: int
+    minutes: int
+    breakdown: list[ScheduleReportCollectiveItem]
+
+
+class ScheduleReportResponse(BaseModel):
+    student_no: str
+    student_name: str
+    start_date: date
+    end_date: date
+    total_events: int
+    timed_events: int
+    all_day_events: int
+    total_minutes: int
+    active_days: int
+    types: list[ScheduleReportType]
+    weekday_counts: list[int]
+    hour_counts: list[int]
+    earliest_start: Optional[datetime] = None
+    latest_end: Optional[datetime] = None
+    peak_weekday: Optional[int] = None
+    peak_hour: Optional[int] = None
+    top_location: str = ""
+    top_location_count: int = 0
+    collective: Optional[ScheduleReportCollective] = None
+    busy_minutes: int
+    class_size: int
+    busy_rank: int
+    busy_top_percent: Optional[int] = None
+
+
 # ---------- 导入 ----------
 
 class ScheduleImportPreviewItem(BaseModel):

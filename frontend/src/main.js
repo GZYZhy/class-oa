@@ -36,7 +36,7 @@ import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import {
   Aim, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Avatar, Bell,
   BellFilled, Bottom, Calendar, ChatDotRound, Checked, CircleCheck,
-  Close, Cloudy, CopyDocument, Delete, Document, Download, Drizzling, EditPen, Female,
+  Close, Cloudy, CopyDocument, DataAnalysis, Delete, Document, Download, Drizzling, EditPen, Female,
   Files, FolderOpened, Grid, Histogram, HomeFilled, InfoFilled,
   Key, Lightning, Link, List, Loading, Lock, Male,
   Medal, Menu, Message, Monitor, Moon, MoreFilled, Notification, Paperclip,
@@ -71,7 +71,7 @@ const app = createApp(App)
 const ICONS = {
   Aim, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Avatar, Bell,
   BellFilled, Bottom, Calendar, ChatDotRound, Checked, CircleCheck,
-  Close, Cloudy, CopyDocument, Delete, Document, Download, Drizzling, EditPen, Female,
+  Close, Cloudy, CopyDocument, DataAnalysis, Delete, Document, Download, Drizzling, EditPen, Female,
   Files, FolderOpened, Grid, Histogram, HomeFilled, InfoFilled,
   Key, Lightning, Link, List, Loading, Lock, Male,
   Medal, Menu, Message, Monitor, Moon, MoreFilled, Notification, Paperclip,

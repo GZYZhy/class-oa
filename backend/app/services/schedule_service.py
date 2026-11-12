@@ -1263,3 +1263,125 @@ def list_upcoming_notifications(
                 occ = _next_occurrence(tpl, occ + timedelta(days=1), periods)
 
     return results
+
+
+# ---------- 我的报告 ----------
+
+COLLECTIVE_TYPES = {"工作", "会议", "活动"}
+
+
+def student_report(
+    db: Session, student: Student, start_date: date, end_date: date
+) -> dict:
+    """统计一个学生在指定周期内的日程，并算出班级繁忙度排名"""
+    instances = list_by_range(db, student.id, start_date, end_date)
+    timed = [item for item in instances if not item["all_day"]]
+    minutes = 0
+    type_map: dict[str, dict] = {}
+    collective_map: dict[str, dict] = {}
+    location_map: dict[str, int] = {}
+    active_days = set()
+    weekday_counts = [0] * 7
+    hour_counts = [0] * 24
+
+    def type_name(raw: str) -> str:
+        return (raw or "").strip() or "未分类"
+
+    for item in instances:
+        active_days.add(item["start_time"].date())
+        raw = (item["event_type"] or "").strip()
+        name = type_name(raw)
+        entry = type_map.setdefault(name, {"name": name, "count": 0, "minutes": 0})
+        entry["count"] += 1
+        if raw in COLLECTIVE_TYPES:
+            row = collective_map.setdefault(raw, {"name": raw, "count": 0, "minutes": 0})
+            row["count"] += 1
+        location = (item["location"] or "").strip()
+        if location:
+            location_map[location] = location_map.get(location, 0) + 1
+
+    for item in timed:
+        duration = max(0, int((item["end_time"] - item["start_time"]).total_seconds() // 60))
+        minutes += duration
+        raw = (item["event_type"] or "").strip()
+        name = type_name(raw)
+        type_map[name]["minutes"] += duration
+        if raw in COLLECTIVE_TYPES:
+            collective_map[raw]["minutes"] += duration
+        weekday_counts[item["start_time"].weekday()] += 1
+        hour_counts[item["start_time"].hour] += 1
+
+    types = sorted(type_map.values(), key=lambda row: (-row["count"], row["name"]))
+    total = len(instances)
+    for entry in types:
+        entry["percent"] = round(entry["count"] * 100 / total) if total else 0
+
+    collective_breakdown = sorted(
+        collective_map.values(), key=lambda row: (-row["count"], row["name"])
+    )
+    collective = {
+        "count": sum(row["count"] for row in collective_breakdown),
+        "minutes": sum(row["minutes"] for row in collective_breakdown),
+        "breakdown": collective_breakdown,
+    } if collective_breakdown else None
+
+    top_location = ""
+    top_location_count = 0
+    if location_map:
+        top_location = sorted(location_map.items(), key=lambda row: (-row[1], row[0]))[0][0]
+        top_location_count = location_map[top_location]
+
+    earliest = min((item["start_time"] for item in timed), default=None)
+    latest = max((item["end_time"] for item in timed), default=None)
+    peak_weekday = max(range(7), key=lambda index: weekday_counts[index]) if timed else None
+    peak_hour = max(range(24), key=lambda index: hour_counts[index]) if timed else None
+
+    active_students = (
+        db.query(Student)
+        .filter(Student.school_status == "正常")
+        .all()
+    )
+    if student.id not in {row.id for row in active_students}:
+        active_students.append(student)
+    busy_by_student = {}
+    for row in active_students:
+        rows = list_by_range(db, row.id, start_date, end_date)
+        busy_by_student[row.id] = sum(
+            max(0, int((item["end_time"] - item["start_time"]).total_seconds() // 60))
+            for item in rows
+            if not item["all_day"]
+        )
+    class_size = len(busy_by_student)
+    busy_minutes = busy_by_student.get(student.id, minutes)
+    busy_rank = 1 + sum(1 for value in busy_by_student.values() if value > busy_minutes)
+    busy_top_percent = (
+        max(1, round(busy_rank * 100 / class_size))
+        if class_size >= 3
+        else None
+    )
+
+    return {
+        "student_no": student.student_no,
+        "student_name": student.name or student.student_no,
+        "start_date": start_date,
+        "end_date": end_date,
+        "total_events": total,
+        "timed_events": len(timed),
+        "all_day_events": total - len(timed),
+        "total_minutes": minutes,
+        "active_days": len(active_days),
+        "types": types,
+        "weekday_counts": weekday_counts,
+        "hour_counts": hour_counts,
+        "earliest_start": earliest,
+        "latest_end": latest,
+        "peak_weekday": peak_weekday,
+        "peak_hour": peak_hour,
+        "top_location": top_location,
+        "top_location_count": top_location_count,
+        "collective": collective,
+        "busy_minutes": busy_minutes,
+        "class_size": class_size,
+        "busy_rank": busy_rank,
+        "busy_top_percent": busy_top_percent,
+    }

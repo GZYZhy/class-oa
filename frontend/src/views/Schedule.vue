@@ -39,6 +39,14 @@
         >
           <span class="nav-extra">视角</span>
         </el-button>
+        <el-button
+          v-if="!isExternal || viewAs"
+          :icon="DataAnalysis"
+          title="查看日程报告"
+          @click="reportDialog = true"
+        >
+          报告
+        </el-button>
         <el-button v-if="!isExternal && !viewAs" @click="subscribeDialog.open = true">
           <el-icon><Link /></el-icon>订阅
         </el-button>
@@ -105,7 +113,16 @@
              一条。高度随条数增长，见 allDayHeight -->
         <div class="cal-row cal-allday" :style="{ minHeight: allDayHeight }">
           <div class="cal-time-col">全天</div>
-          <div v-for="(day, idx) in weekDays" :key="idx" class="cal-day-col"></div>
+          <div
+            v-for="(day, idx) in weekDays"
+            :key="idx"
+            class="cal-day-col"
+            role="button"
+            tabindex="0"
+            title="点击新建全天日程"
+            @click="handleAllDayClick(day.date)"
+            @keydown.enter="handleAllDayClick(day.date)"
+          ></div>
           <div class="cal-allday-overlay">
             <div
               v-for="bar in allDayBars"
@@ -233,7 +250,22 @@
           <el-input v-model="editForm.title" maxlength="200" placeholder="请输入日程标题" />
         </el-form-item>
         <el-form-item label="类型">
-          <el-input v-model="editForm.event_type" maxlength="20" placeholder="如 课程 / 体育 / 网络课 / 会议（可不填）" />
+          <el-select
+            v-model="editForm.event_type"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            placeholder="选择或输入类型"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="type in EVENT_TYPE_PRESETS"
+              :key="type"
+              :label="type"
+              :value="type"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item :label="editForm.all_day ? '开始日期' : '日期'" required>
           <el-date-picker
@@ -428,6 +460,12 @@
         <el-button type="primary" @click="studentPicker.open = false">确定</el-button>
       </template>
     </el-dialog>
+
+    <ScheduleReportDialog
+      v-model="reportDialog"
+      :student-id="viewAs?.id || null"
+      :student-name="viewAs?.name || ''"
+    />
 
     <el-dialog append-to-body v-model="viewPicker.open" title="以学生视角查看" width="420px">
       <el-select
@@ -750,7 +788,7 @@ import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Plus, Upload, Link, Bell, Search,
-  UploadFilled, Refresh, Warning, CopyDocument, View, Tickets
+  UploadFilled, Refresh, Warning, CopyDocument, View, Tickets, DataAnalysis
 } from '@element-plus/icons-vue'
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, searchSchedules,
@@ -763,6 +801,7 @@ import {
 import { getStudentList } from '@/api/student'
 import ScheduleBatchPanel from '@/components/ScheduleBatchPanel.vue'
 import StudentBatchInput from '@/components/StudentBatchInput.vue'
+import ScheduleReportDialog from '@/components/ScheduleReportDialog.vue'
 // 选人快捷范围的判据（班委/团员/团学成员），和点名、投票出卷、分类统计共用一份
 import { COMMITTEE_FIELD, LEAGUE_OFFICER_FIELD, hasPosition, isLeagueMember } from '@/utils/roster'
 import { daysInRange, centerScrollLeft, columnizeDay } from '@/utils/schedule'
@@ -1355,6 +1394,13 @@ function handleCellClick(date, time) {
   openCreate(date, time)
 }
 
+function handleAllDayClick(date) {
+  if (viewAs.value) return
+  if (isExternal.value && !userStore.isCommittee) return
+  openCreate(date)
+  editForm.value.all_day = true
+}
+
 // ---------- 详情弹窗 ----------
 // 点卡片先看内容，要改再点「编辑」—— 在这之前是直接弹编辑表单，
 // 想看一眼「这节什么课、在哪个教室」也得先进到表单里
@@ -1836,6 +1882,7 @@ function EMPTY_IMPORT_PREVIEW() {
 
 // 批次管理弹窗。班委没有系统管理页，撤销批次的入口放在日程页
 const batchDialog = ref(false)
+const reportDialog = ref(false)
 
 const importDialog = ref({ open: false })
 const importStep = ref(0)
@@ -2011,13 +2058,16 @@ function repeatLabel(t) {
 // 会议、活动、工作是学生自己新建日程时常用的几种。
 // Element 的调色板只有五个色位，紫和黄在 CSS 里自己写（.theme-purple / .theme-yellow，
 // 深色模式也各写了一份）；灰专门留给「认不出来的类型」和「没填类型」的
+const EVENT_TYPE_PRESETS = ['课程', '体育', '网络课', '会议', '活动', '工作', '考试']
+
 const TYPE_THEME = {
   '课程': 'primary',
   '体育': 'success',
   '网络课': 'warning',
   '会议': 'danger',
   '活动': 'yellow',
-  '工作': 'purple'
+  '工作': 'purple',
+  '考试': 'danger'
 }
 
 function evtTheme(type) {
