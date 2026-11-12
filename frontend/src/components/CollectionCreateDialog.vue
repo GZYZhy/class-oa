@@ -136,6 +136,7 @@
           <el-button size="small" @click="selectLeague">仅团员</el-button>
           <el-button size="small" @click="form.targets = []">全不选</el-button>
         </div>
+        <StudentBatchInput v-model="form.targets" :rows="roster" />
         <div v-loading="rosterLoading" class="cc-roster">
           <el-checkbox-group v-model="form.targets">
             <el-checkbox
@@ -301,6 +302,7 @@ import {
   questionsFromCollection
 } from '@/utils/collection'
 import { isLeagueMember, scopeFromRows } from '@/utils/roster'
+import StudentBatchInput from '@/components/StudentBatchInput.vue'
 import { errText } from '@/utils/request'
 
 const emit = defineEmits(['saved'])

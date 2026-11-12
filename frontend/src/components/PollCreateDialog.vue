@@ -111,6 +111,7 @@
         <div v-if="iAmOutOfScope" class="pc-tip pc-warn">
           你自己不在这次投票的表决范围内（只出卷、不投票）
         </div>
+        <StudentBatchInput v-model="form.targets" :rows="roster" />
         <div v-loading="rosterLoading" class="pc-roster">
           <el-checkbox-group v-model="form.targets">
             <el-checkbox v-for="s in roster" :key="s.student_no" :value="s.student_no">
@@ -272,6 +273,7 @@ import {
 } from '@/utils/poll'
 // 「仅团员」的判据与点名、分类统计共用一份，见 utils/roster.js
 import { isLeagueMember, scopeFromRows } from '@/utils/roster'
+import StudentBatchInput from '@/components/StudentBatchInput.vue'
 import { useUserStore } from '@/store/user'
 
 // 出卷和编辑都发这个：父组件一律重拉列表，不用分两种情况

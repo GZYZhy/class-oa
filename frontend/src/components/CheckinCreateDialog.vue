@@ -114,6 +114,7 @@
       <div v-if="iAmOutOfScope" class="cc-tip cc-warn">
         你不在本次签到范围内，仅发布
       </div>
+      <StudentBatchInput v-model="form.targets" :rows="roster" />
       <div v-loading="rosterLoading" class="cc-roster">
         <el-checkbox-group v-model="form.targets">
           <el-checkbox v-for="s in roster" :key="s.student_no" :value="s.student_no">
@@ -183,6 +184,7 @@ import { getRoster } from '@/api/vote'
 import { copyText } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/format'
 import { isLeagueMember } from '@/utils/roster'
+import StudentBatchInput from '@/components/StudentBatchInput.vue'
 import { errText } from '@/utils/request'
 import { useUserStore } from '@/store/user'
 import { SITE } from '@/utils/site'

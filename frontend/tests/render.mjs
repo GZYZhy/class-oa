@@ -310,6 +310,39 @@ console.log('\n▶ 多端布局与弱网反馈')
   '题干输入框支持多行文本')
 }
 
+console.log('\n▶ 按名单勾选人员')
+{
+  const { parseStudentInput } = await server.ssrLoadModule('/src/utils/studentInput.js')
+  const rows = [
+    { id: 1, student_no: '2024000001', name: '张三' },
+    { id: 2, student_no: '2024000002', name: '李四' },
+    { id: 3, student_no: '2024000003', name: '王五' }
+  ]
+  const byNo = parseStudentInput('2024000001\n李四\n2024000003 王五\n查无此人', rows, 'id')
+  check(byNo.values.join() === '1,2,3', '学号、姓名、学号+姓名混排都能解析')
+  check(byNo.unknown.join() === '查无此人', '未匹配的行单独返回，不静默丢掉')
+  check(parseStudentInput('2024000001\n2024000001', rows).values.join() === '2024000001',
+    '重复输入不会重复勾选')
+
+  const pickerFiles = [
+    '/src/components/PollCreateDialog.vue',
+    '/src/components/CollectionCreateDialog.vue',
+    '/src/components/CheckinCreateDialog.vue',
+    '/src/views/Schedule.vue'
+  ]
+  for (const file of pickerFiles) {
+    const source = readFileSync(`${ROOT}${file}`, 'utf8')
+    check(source.includes('<StudentBatchInput') && source.includes('StudentBatchInput.vue'),
+      `${file} 接入按名单勾选`)
+  }
+  const scheduleSource = readFileSync(`${ROOT}/src/views/Schedule.vue`, 'utf8')
+  check((scheduleSource.match(/value-key="id"/g) || []).length === 2,
+    '日程两个选人弹窗都按学生 id 勾选')
+  const inputSrc = readFileSync(`${ROOT}/src/components/StudentBatchInput.vue`, 'utf8')
+  check(inputSrc.includes('每行一个学号') && inputSrc.includes('会替换当前勾选'),
+    '输入组件说明了格式和替换行为')
+}
+
 console.log('\n▶ 签到页首屏不下载整站布局（弱网也要快）')
 {
   const app = readFileSync(`${ROOT}/src/App.vue`, 'utf8')

@@ -402,6 +402,11 @@
     <!-- 学生选择器（简化版：输入框 + 搜索，后续可优化） -->
     <el-dialog append-to-body v-model="studentPicker.open" title="选择学生" width="600px">
       <el-input v-model="studentPicker.keyword" placeholder="搜索学生姓名/学号" clearable style="margin-bottom: 12px" />
+      <StudentBatchInput
+        v-model="selectedStudents"
+        :rows="allStudents"
+        value-key="id"
+      />
       <!-- 快捷范围：一键把某类人全选上。点一次是替换当前选择，不是往上加 -->
       <div class="picker-scopes">
         <el-button size="small" @click="studentScopes.committee">仅班委</el-button>
@@ -607,6 +612,11 @@
     <!-- 导入学生选择器 -->
     <el-dialog append-to-body v-model="importStudentPicker.open" title="选择学生" width="600px">
       <el-input v-model="importStudentPicker.keyword" placeholder="搜索" clearable style="margin-bottom: 12px" />
+      <StudentBatchInput
+        v-model="importSelectedStudents"
+        :rows="allStudents"
+        value-key="id"
+      />
       <!-- 快捷范围，与上面新建日程那个选人弹窗同一套 -->
       <div class="picker-scopes">
         <el-button size="small" @click="importScopes.committee">仅班委</el-button>
@@ -752,6 +762,7 @@ import {
 } from '@/api/schedule'
 import { getStudentList } from '@/api/student'
 import ScheduleBatchPanel from '@/components/ScheduleBatchPanel.vue'
+import StudentBatchInput from '@/components/StudentBatchInput.vue'
 // 选人快捷范围的判据（班委/团员/团学成员），和点名、投票出卷、分类统计共用一份
 import { COMMITTEE_FIELD, LEAGUE_OFFICER_FIELD, hasPosition, isLeagueMember } from '@/utils/roster'
 import { daysInRange, centerScrollLeft, columnizeDay } from '@/utils/schedule'
