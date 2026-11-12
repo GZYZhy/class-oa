@@ -217,7 +217,9 @@
 
             <div v-for="(item, index) in statistics.items" :key="item.question_id" class="cr-stat">
               <div class="cr-stat-title">
-                <span>{{ index + 1 }}. {{ item.title }}</span>
+                <span class="question-stem">
+                  {{ index + 1 }}. <span v-html="renderQuestionStem(item.title)"></span>
+                </span>
                 <el-tag size="small" type="info" effect="plain">
                   {{ QUESTION_TYPE_LABEL[item.qtype] || item.qtype }}
                 </el-tag>
@@ -253,6 +255,12 @@
                     class="cr-stat-bar"
                   />
                   <span class="cr-stat-num">{{ item.distribution?.[String(value)] || 0 }} 份</span>
+                </div>
+              </template>
+
+              <template v-else-if="item.qtype === 'confirm'">
+                <div class="cr-sub">
+                  已确认 {{ item.confirm_count || 0 }} / {{ item.answered_count }} 份
                 </div>
               </template>
 
@@ -335,6 +343,7 @@ import {
 } from '@/utils/collection'
 import { formatDateTime, formatDuration } from '@/utils/format'
 import { POLL_LETTERS as letters } from '@/utils/poll'
+import { renderQuestionStem } from '@/utils/markdown'
 import { blobErrorDetail, fetchBlob, saveBlob } from '@/utils/download'
 import { errText } from '@/utils/request'
 import { useUserStore } from '@/store/user'

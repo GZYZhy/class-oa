@@ -11,14 +11,22 @@
   <div class="ca">
     <div v-for="(question, index) in questions" :key="question.id" class="ca-q">
       <div class="ca-title">
-        <span>{{ index + 1 }}. {{ question.title }}</span>
+        <span class="question-stem">
+          {{ index + 1 }}. <span v-html="renderQuestionStem(question.title)"></span>
+        </span>
         <el-tag size="small" type="info" effect="plain">
           {{ QUESTION_TYPE_LABEL[question.qtype] || question.qtype }}
         </el-tag>
         <el-tag v-if="question.required" size="small" type="danger" effect="plain">必答</el-tag>
       </div>
 
-      <template v-if="CHOICE_TYPES.has(question.qtype)">
+      <template v-if="question.qtype === 'confirm'">
+        <div class="ca-line">
+          {{ (answerOf(question)?.choices || [])[0] === 0 ? '已确认' : '未确认' }}
+        </div>
+      </template>
+
+      <template v-else-if="CHOICE_TYPES.has(question.qtype)">
         <div
           v-for="picked in choiceTexts(question)"
           :key="picked"
@@ -73,6 +81,7 @@ import { computed, reactive } from 'vue'
 import FileViewer from '@/components/FileViewer.vue'
 import { CHOICE_TYPES, QUESTION_TYPE_LABEL, UPLOAD_TYPES } from '@/utils/collection'
 import { POLL_LETTERS as letters } from '@/utils/poll'
+import { renderQuestionStem } from '@/utils/markdown'
 
 const props = defineProps({
   questions: { type: Array, default: () => [] },

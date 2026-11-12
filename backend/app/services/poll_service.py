@@ -367,18 +367,30 @@ def detail(db: Session, poll: Poll, student_no: str, admin: bool) -> dict:
             PollAnswer.poll_id == poll.id, PollAnswer.student_no == student_no
         )
     }
+    confirmed = {}
+    if data["results_visible"]:
+        for answer in db.query(PollAnswer).filter(PollAnswer.poll_id == poll.id).all():
+            if read_choices(answer) == [0]:
+                confirmed[answer.question_id] = confirmed.get(answer.question_id, 0) + 1
 
     data["questions"] = [
         {
             "id": question.id,
             "sort": question.sort or 0,
             "title": question.title or "",
+            "qtype": question.qtype or ("multiple" if question.multiple else "single"),
+            "required": bool(question.required),
             "multiple": bool(question.multiple),
             "max_choices": question.max_choices or (2 if question.multiple else 1),
             "options": question_options(question),
             "my_choices": mine.get(question.id, []),
             # tallies 为空（不可见）时这里自然拿到 None
             "tallies": tallies.get(question.id),
+            "confirmed_count": (
+                confirmed.get(question.id, 0)
+                if (question.qtype or "") == "confirm" and data["results_visible"]
+                else None
+            ),
         }
         for question in questions
     ]

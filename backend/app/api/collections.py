@@ -85,6 +85,7 @@ from ..services.collection_service import (
     QTYPE_FILE,
     QTYPE_IMAGE,
     QTYPE_MULTIPLE,
+    QTYPE_CONFIRM,
     QTYPE_RATING,
     QTYPE_SINGLE,
     QUESTION_TYPES,
@@ -829,6 +830,8 @@ def _answer_is_empty(qtype: str, answer: CollectionAnswerIn | None) -> bool:
         return True
     if qtype in CHOICE_TYPES:
         return not answer.choices
+    if qtype == QTYPE_CONFIRM:
+        return not answer.choices
     if qtype in TEXT_TYPES:
         return not (answer.text or "").strip()
     if qtype in UPLOAD_TYPES:
@@ -919,11 +922,23 @@ def submit_response(
         if empty:
             if question.required:
                 raise HTTPException(status_code=400, detail=f"第 {index} 题是必答题")
+            if qtype == QTYPE_CONFIRM:
+                # 选答确认题不勾也是一份明确作答：留下 choices=[]，别让整卷变成零回答
+                prepared.append(
+                    {"question": question, "choices": [], "text": "", "rating": None, "files": []}
+                )
+                any_answered = True
             continue
         any_answered = True
         options = question_options(question)
 
-        if qtype == QTYPE_SINGLE:
+        if qtype == QTYPE_CONFIRM:
+            if answer.choices != [0]:
+                raise HTTPException(status_code=400, detail=f"第 {index} 题确认内容不合法")
+            prepared.append(
+                {"question": question, "choices": [0], "text": "", "rating": None, "files": []}
+            )
+        elif qtype == QTYPE_SINGLE:
             choices = answer.choices
             if len(choices) != 1:
                 raise HTTPException(status_code=400, detail=f"第 {index} 题是单选题，只能选一项")
@@ -1662,6 +1677,8 @@ def _answer_text(question, answer: dict | None) -> str:
             for index in picked
             if 0 <= index < len(options)
         )
+    if qtype == QTYPE_CONFIRM:
+        return "已确认" if (answer.get("choices") or []) == [0] else "未确认"
     if qtype in TEXT_TYPES:
         return answer.get("text") or ""
     if qtype == QTYPE_RATING:

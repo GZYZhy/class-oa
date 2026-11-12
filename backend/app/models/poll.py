@@ -118,12 +118,20 @@ class PollQuestion(Base):
     sort = Column(Integer, comment="题号（前端写 0..n-1，排序用 (sort, id)）")
 
     title = Column(String(500), comment="题干")
+    qtype = Column(
+        String(20), nullable=False, default="single", server_default=text("'single'"),
+        comment="single/multiple/confirm",
+    )
+    required = Column(
+        Boolean, nullable=False, default=True, server_default=text("1"),
+        comment="确认题是否必答；其他题型恒为必答",
+    )
     multiple = Column(
         Boolean, nullable=False, default=False, server_default=text("0"),
-        comment="单选还是多选",
+        comment="单选还是多选（兼容旧字段）",
     )
-    max_choices = Column(Integer, comment="多选时最多选几项；单选恒为 1")
-    options = Column(Text, default="", comment="选项文案（JSON 数组）")
+    max_choices = Column(Integer, comment="多选时最多选几项；单选/确认恒为 1")
+    options = Column(Text, default="", comment="选项文案（JSON 数组）；确认题为空")
 
 
 class PollAnswer(Base):

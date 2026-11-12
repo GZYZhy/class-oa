@@ -134,6 +134,8 @@ export function tallyOrder(question, sorted) {
 export function blankQuestion(multiple = false) {
   return {
     title: '',
+    qtype: multiple ? 'multiple' : 'single',
+    required: true,
     multiple,
     max_choices: multiple ? 2 : 1,
     options: ['', ''],
@@ -171,13 +173,18 @@ export function hasQuestionContent(questions = []) {
 
 /** 详情里的一道题 → 表单里的一道题 */
 function toFormQuestion(q) {
-  const options = (q.options || []).length ? [...q.options] : ['', '']
+  const qtype = q.qtype || (q.multiple ? 'multiple' : 'single')
+  const options = qtype === 'confirm'
+    ? []
+    : (q.options || []).length ? [...q.options] : ['', '']
   // 单选在库里 max_choices 恒为 1；多选至少 2，越界就夹回选项数（与组件里 removeOption 同口径）
-  const max = Math.min(Math.max(q.max_choices || 2, 2), options.length)
+  const max = Math.min(Math.max(q.max_choices || 2, 2), options.length || 2)
   return {
     title: q.title || '',
-    multiple: !!q.multiple,
-    max_choices: q.multiple ? max : 1,
+    qtype,
+    required: q.required !== false,
+    multiple: qtype === 'multiple',
+    max_choices: qtype === 'multiple' ? max : 1,
     options,
     lastMax: max
   }

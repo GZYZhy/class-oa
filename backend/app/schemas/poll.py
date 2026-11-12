@@ -17,9 +17,11 @@ from pydantic import BaseModel, Field
 class PollQuestionIn(BaseModel):
     """出卷时写的一道题"""
     title: str = Field(..., max_length=500, description="题干")
-    multiple: bool = Field(False, description="单选还是多选")
-    max_choices: int = Field(1, ge=1, description="多选时最多选几项；单选由接口强制成 1")
-    options: list[str] = Field(..., min_length=2, max_length=20, description="选项文案")
+    qtype: str | None = Field(None, description="single/multiple/confirm；不传按 multiple 兼容旧客户端")
+    required: bool = Field(True, description="确认题是否必答；其他题型恒为必答")
+    multiple: bool = Field(False, description="兼容旧字段：是否多选")
+    max_choices: int = Field(1, ge=1, description="多选时最多选几项；单选/确认恒为 1")
+    options: list[str] = Field(default_factory=list, max_length=20, description="选项文案")
 
 
 class PollCreate(BaseModel):
@@ -108,13 +110,16 @@ class PollQuestionResponse(BaseModel):
     id: int
     sort: int
     title: str
+    qtype: str = "single"
+    required: bool = True
     multiple: bool
     max_choices: int
-    options: list[str] = Field(default_factory=list, description="选项文案")
+    options: list[str] = Field(default_factory=list, description="选项文案；确认题为空")
     my_choices: list[int] = Field(default_factory=list, description="我选中的下标；没投过是空数组")
     tallies: list[int] | None = Field(
         None, description="每个选项的票数，下标与 options 对齐；结果不可见时为 None"
     )
+    confirmed_count: int | None = Field(None, description="确认题：已确认人数，结果不可见时为 None")
 
 
 class PollListItem(BaseModel):

@@ -289,6 +289,25 @@ console.log('\n▶ 多端布局与弱网反馈')
     '统计失败给一句实话，并且能只重试这一路')
   check(readFileSync(`${ROOT}/src/utils/markdown.js`, 'utf8').includes('loading="lazy"'),
     '正文图片懒加载，不为了下面一张图堵住整篇')
+
+  const md = await server.ssrLoadModule('/src/utils/markdown.js')
+  const stem = md.renderQuestionStem(
+    '第一行\n[官网](https://example.com)\n![示例](https://example.com/a.png)\n<script>alert(1)</script>'
+  )
+  check(stem.includes('<br>') && stem.includes('target="_blank"') &&
+    stem.includes('<img') && !stem.includes('<script>'),
+  '题干支持多行、链接和图片，同时转义 HTML')
+  check(!md.renderQuestionStem('[坏链接](javascript:alert(1))').includes('href='),
+    '题干里的 javascript: 链接不会生成 href')
+  check(md.renderMarkdown('[官网](https://example.com)').includes('target="_blank"'),
+    '所有 Markdown 链接都新标签打开')
+  check(/\.question-stem img\s*\{[^}]*max-height:\s*200px/.test(css),
+    '题干图片限高，不能把卡片撑破')
+  const pollCreate = readFileSync(`${ROOT}/src/components/PollCreateDialog.vue`, 'utf8')
+  const collectCreate = readFileSync(`${ROOT}/src/components/CollectionCreateDialog.vue`, 'utf8')
+  check(/type="textarea"[\s\S]{0,120}?maxlength="500"/.test(pollCreate) &&
+    /type="textarea"[\s\S]{0,120}?maxlength="500"/.test(collectCreate),
+  '题干输入框支持多行文本')
 }
 
 console.log('\n▶ 签到页首屏不下载整站布局（弱网也要快）')
@@ -3001,7 +3020,7 @@ console.log('\n▶ 投票能编辑：标题描述随时改，题目只在没开�
 
   /** 某个 placeholder 的输入框那一整个标签（要按属性名判 disabled 就只能看整条） */
   function inputTag(html, placeholder) {
-    return (html.match(/<input[^>]*>/g) || [])
+    return (html.match(/<(?:input|textarea)[^>]*>/g) || [])
       .find((t) => t.includes(`placeholder="${placeholder}"`)) || ''
   }
 
@@ -3714,7 +3733,7 @@ console.log('\n▶ 结果页的「按得票排序」：只是换个看的顺序�
 
   // ---------- 接线 ----------
   const voteSrc = src('/src/views/Vote.vue')
-  check(/v-for="j in tallyOrder\(q, tallySorted\)"/.test(voteSrc),
+  check(/v-for="j in q\.qtype === 'confirm' \? \[\] : tallyOrder\(q, tallySorted\)"/.test(voteSrc),
     '结果页的选项行照 tallyOrder 给的次序渲染')
   check(/class="vt-opt-letter">\{\{ letters\[j\] \}\}\.<\/span> \{\{ q\.options\[j\] \}\}/.test(voteSrc),
     '字母和选项名按同一个下标取 —— 排完序每一行还是原来那个选项')

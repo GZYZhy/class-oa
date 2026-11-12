@@ -26,23 +26,28 @@
     />
 
     <p v-if="canVote" class="vb-hint">
-      每题都必须作答（要弃权就选「弃权」那一项）；提交后不能改票，请确认无误再提交
+      必答题必须作答（要弃权就选「弃权」那一项）；提交后不能改票，请确认无误再提交
     </p>
 
     <div v-for="(q, i) in poll.questions" :key="q.id" class="vb-q">
       <div class="vb-q-title">
-        <span>{{ i + 1 }}. {{ q.title }}</span>
+        <span class="question-stem">
+          {{ i + 1 }}. <span v-html="renderQuestionStem(q.title)"></span>
+        </span>
         <el-tag size="small" type="info" effect="plain">
-          {{ q.multiple ? `多选，最多 ${q.max_choices} 项` : '单选' }}
+          {{ q.qtype === 'confirm' ? '确认题' : q.multiple ? `多选，最多 ${q.max_choices} 项` : '单选' }}
         </el-tag>
       </div>
 
       <!-- 能投：真正的作答控件 -->
       <template v-if="canVote">
+        <el-checkbox v-if="q.qtype === 'confirm'" v-model="draft[q.id]">
+          我确认上述内容
+        </el-checkbox>
         <!-- el-radio-group 的 v-model 要的是单个值，而 draft 里统一存数组，
              所以单选走 :model-value + @change 手工回写，两种题型的数据形状保持一致 -->
         <el-radio-group
-          v-if="!q.multiple"
+          v-else-if="!q.multiple"
           :model-value="draft[q.id]?.[0]"
           @change="(value) => (draft[q.id] = [value])"
         >
@@ -59,8 +64,13 @@
 
       <!-- 投过 / 不能投：只读回显 -->
       <template v-else>
+        <div v-if="q.qtype === 'confirm'" class="vb-ro" :class="{ 'vb-picked': picked(q, 0) }">
+          <el-icon v-if="picked(q, 0)"><Select /></el-icon>
+          <span v-else class="vb-ro-dot"></span>
+          {{ picked(q, 0) ? '已确认' : '未确认' }}
+        </div>
         <div
-          v-for="(opt, j) in q.options"
+          v-for="(opt, j) in q.qtype === 'confirm' ? [] : q.options"
           :key="j"
           class="vb-ro"
           :class="{ 'vb-picked': picked(q, j) }"
@@ -86,6 +96,7 @@
 import { computed, reactive, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { POLL_LETTERS as letters, voteBlockReason } from '@/utils/poll'
+import { renderQuestionStem } from '@/utils/markdown'
 
 const props = defineProps({
   poll: { type: Object, required: true },
@@ -105,7 +116,7 @@ const blockReason = computed(() => voteBlockReason(props.poll))
 function fill(detail) {
   Object.keys(draft).forEach((key) => delete draft[key])
   ;(detail?.questions || []).forEach((q) => {
-    draft[q.id] = []
+    draft[q.id] = q.qtype === 'confirm' ? false : []
   })
 }
 
@@ -120,8 +131,14 @@ async function handleSubmit() {
   for (let i = 0; i < questions.length; i += 1) {
     const q = questions[i]
     const chosen = draft[q.id] || []
-    // 空选也拦下：后端要求每题必答，「已投」的判定才不含糊
-    if (!chosen.length) return ElMessage.warning(`第 ${i + 1} 题还没作答，每题都必须作答`)
+    if (q.qtype === 'confirm') {
+      if (q.required !== false && !chosen) {
+        return ElMessage.warning(`第 ${i + 1} 题需要确认`)
+      }
+      continue
+    }
+    // 空选也拦下：必答题不答，「已投」的判定才不含糊
+    if (!chosen.length) return ElMessage.warning(`第 ${i + 1} 题还没作答，必答题不能空着`)
     if (q.multiple && chosen.length > q.max_choices) {
       return ElMessage.warning(`第 ${i + 1} 题最多选 ${q.max_choices} 项`)
     }
@@ -141,7 +158,9 @@ async function handleSubmit() {
     'submit',
     questions.map((q) => ({
       question_id: q.id,
-      choices: [...(draft[q.id] || [])].sort((a, b) => a - b)
+      choices: q.qtype === 'confirm'
+        ? (draft[q.id] ? [0] : [])
+        : [...(draft[q.id] || [])].sort((a, b) => a - b)
     }))
   )
 }

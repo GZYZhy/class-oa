@@ -415,6 +415,35 @@ def test_create_submit_all_question_types_and_export(cb):
     assert values[11] == 4
 
 
+def test_confirm_question_respects_required(cb):
+    """确认题：必答不勾不能交，选答不勾也能交；勾了记 choices=[0]"""
+    collection = _create(cb, questions=[
+        _q("confirm", "我确认以上信息真实", required=True),
+    ])
+    cid = collection["id"]
+    qid = collection["questions"][0]["id"]
+    optional = _create(cb, questions=[
+        _q("confirm", "可选确认", required=False),
+    ])
+    od = optional["id"]
+    oq = optional["questions"][0]["id"]
+
+    _login(cb, VOTER, VOTER_PW)
+    assert _submit(cb, cid, [{"question_id": qid, "choices": []}]).status_code == 400
+
+    r = _submit(cb, cid, [{"question_id": qid, "choices": [0]}])
+    assert r.status_code == 200, r.text
+
+    _login(cb, VOTER, VOTER_PW)
+    r = _submit(cb, od, [{"question_id": oq, "choices": []}])
+    assert r.status_code == 200, r.text
+
+    _login(cb, CREATOR, CREATOR_PW)
+    stats = cb.client.get(f"/api/collections/{od}/statistics").json()
+    item = next(row for row in stats["items"] if row["question_id"] == oq)
+    assert item["qtype"] == "confirm" and item["confirm_count"] == 0
+
+
 def test_file_question_limits(cb):
     """附件题：白名单外的类型不收；图片题的凭证交到附件题可以，反过来不行
 

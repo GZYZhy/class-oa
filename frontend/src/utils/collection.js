@@ -10,6 +10,7 @@ import { statusLabel, statusTag } from './poll'
 export const QUESTION_TYPES = [
   { value: 'single', label: '单选' },
   { value: 'multiple', label: '多选' },
+  { value: 'confirm', label: '确认题' },
   { value: 'short_text', label: '短文本' },
   { value: 'long_text', label: '长文本' },
   { value: 'image', label: '图片' },
@@ -56,7 +57,7 @@ export function blankQuestion(type = 'single') {
     title: '',
     qtype: type,
     required: true,
-    options: ['', ''],
+    options: type === 'confirm' ? [] : ['', ''],
     max_choices: 2
   }
 }
@@ -86,7 +87,7 @@ export function questionsFromCollection(collection) {
     required: question.required !== false,
     options: CHOICE_TYPES.has(question.qtype)
       ? [...(question.options || [])]
-      : ['', ''],
+      : question.qtype === 'confirm' ? [] : ['', ''],
     max_choices: question.max_choices || 2
   }))
   return questions.length ? questions : [blankQuestion()]
@@ -130,6 +131,7 @@ export function hasQuestionContent(question) {
 /** 答卷里一道题的初始值 */
 export function blankAnswer(question) {
   if (CHOICE_TYPES.has(question.qtype)) return []
+  if (question.qtype === 'confirm') return false
   if (TEXT_TYPES.has(question.qtype)) return ''
   if (question.qtype === 'rating') return null
   if (UPLOAD_TYPES.has(question.qtype)) return []

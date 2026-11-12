@@ -10,7 +10,9 @@
   <div class="cb">
     <div v-for="(q, index) in collection.questions" :key="q.id" class="cb-q">
       <div class="cb-q-title">
-        <span>{{ index + 1 }}. {{ q.title }}</span>
+        <span class="question-stem">
+          {{ index + 1 }}. <span v-html="renderQuestionStem(q.title)"></span>
+        </span>
         <el-tag size="small" type="info" effect="plain">
           {{ QUESTION_TYPE_LABEL[q.qtype] || q.qtype }}
         </el-tag>
@@ -36,6 +38,11 @@
           <span class="cb-letter">{{ letters[oi] }}.</span> {{ option }}
         </el-checkbox>
       </el-checkbox-group>
+
+      <!-- 确认题 -->
+      <el-checkbox v-else-if="q.qtype === 'confirm'" v-model="draft[q.id]">
+        我已阅读并确认上述内容
+      </el-checkbox>
 
       <!-- 短文本 / 长文本 -->
       <el-input
@@ -156,6 +163,7 @@ import {
   UPLOAD_TYPES
 } from '@/utils/collection'
 import { POLL_LETTERS as letters } from '@/utils/poll'
+import { renderQuestionStem } from '@/utils/markdown'
 import { errText } from '@/utils/request'
 
 const props = defineProps({
@@ -177,6 +185,7 @@ let entrySeq = 0
 function blankValue(question) {
   if (question.qtype === 'single') return null
   if (question.qtype === 'multiple') return []
+  if (question.qtype === 'confirm') return false
   if (UPLOAD_TYPES.has(question.qtype)) return []
   if (question.qtype === 'rating') return null
   return ''
@@ -347,6 +356,7 @@ function removeFile(question, index) {
 
 function isEmpty(question, value) {
   if (question.qtype === 'multiple') return !value.length
+  if (question.qtype === 'confirm') return !value
   if (UPLOAD_TYPES.has(question.qtype)) return !value.length
   if (question.qtype === 'rating' || question.qtype === 'single') return value == null || value === ''
   return !String(value || '').trim()
@@ -357,7 +367,9 @@ function buildAnswers() {
   for (const question of props.collection.questions) {
     const value = draft[question.id]
     if (isEmpty(question, value)) continue
-    if (question.qtype === 'single' || question.qtype === 'multiple') {
+    if (question.qtype === 'confirm') {
+      answers.push({ question_id: question.id, choices: value ? [0] : [] })
+    } else if (question.qtype === 'single' || question.qtype === 'multiple') {
       answers.push({
         question_id: question.id,
         choices: (Array.isArray(value) ? [...value] : [value]).sort((a, b) => a - b)

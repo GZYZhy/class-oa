@@ -56,6 +56,7 @@ def collection_status(collection: Collection, now: datetime | None = None) -> st
 
 QTYPE_SINGLE = "single"
 QTYPE_MULTIPLE = "multiple"
+QTYPE_CONFIRM = "confirm"
 QTYPE_SHORT_TEXT = "short_text"
 QTYPE_LONG_TEXT = "long_text"
 QTYPE_IMAGE = "image"
@@ -65,6 +66,7 @@ QTYPE_RATING = "rating"
 QUESTION_TYPES = (
     QTYPE_SINGLE,
     QTYPE_MULTIPLE,
+    QTYPE_CONFIRM,
     QTYPE_SHORT_TEXT,
     QTYPE_LONG_TEXT,
     QTYPE_IMAGE,
@@ -693,6 +695,10 @@ def statistics(db: Session, collection: Collection) -> list[dict]:
                         counts[index] += 1
             entry["options"] = options
             entry["counts"] = counts
+        elif qtype == QTYPE_CONFIRM:
+            entry["confirm_count"] = sum(
+                1 for answer in items if read_choices(answer) == [0]
+            )
         elif qtype == QTYPE_RATING:
             distribution = {str(value): 0 for value in range(RATING_MIN, RATING_MAX + 1)}
             total = 0

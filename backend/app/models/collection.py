@@ -110,6 +110,7 @@ class CollectionQuestion(Base):
 
     题型（qtype）：
       single / multiple        选择题，options 存 JSON 数组，作答存下标
+      confirm                  确认题，只有一个复选框；作答 choices=[0] 表示已确认
       short_text / long_text   文本，长度上限是常量（200 / 2000）
       image                    图片，每题最多 3 张、单张 10MB
       rating                   评分，固定 1–5
@@ -126,7 +127,7 @@ class CollectionQuestion(Base):
     title = Column(String(500), comment="题干")
     qtype = Column(
         String(20), nullable=False, default="single", server_default=text("'single'"),
-        comment="single/multiple/short_text/long_text/image/rating",
+        comment="single/multiple/confirm/short_text/long_text/image/file/rating",
     )
     required = Column(
         Boolean, nullable=False, default=True, server_default=text("1"),

@@ -196,12 +196,18 @@
               </div>
               <div v-for="(q, i) in resultPoll.questions" :key="q.id" class="vt-rq">
                 <div class="vt-q-title">
-                  <span>{{ i + 1 }}. {{ q.title }}</span>
-                  <el-tag v-if="q.multiple" size="small" type="info" effect="plain">多选</el-tag>
-                  <span class="vt-sub">共 {{ sumOf(q) }} 项选择</span>
+                  <span class="question-stem">
+                    {{ i + 1 }}. <span v-html="renderQuestionStem(q.title)"></span>
+                  </span>
+                  <el-tag v-if="q.qtype === 'confirm'" size="small" type="info" effect="plain">确认题</el-tag>
+                  <el-tag v-else-if="q.multiple" size="small" type="info" effect="plain">多选</el-tag>
+                  <span v-if="q.qtype !== 'confirm'" class="vt-sub">共 {{ sumOf(q) }} 项选择</span>
+                </div>
+                <div v-if="q.qtype === 'confirm'" class="vt-sub">
+                  已确认 {{ q.confirmed_count ?? 0 }} 人
                 </div>
                 <!-- j 是**选项的原始下标**：排了序也只是行的先后变了，字母、票数、进度条都还各就各位 -->
-                <div v-for="j in tallyOrder(q, tallySorted)" :key="j" class="vt-opt">
+                <div v-for="j in q.qtype === 'confirm' ? [] : tallyOrder(q, tallySorted)" :key="j" class="vt-opt">
                   <span class="vt-opt-name">
                     <span class="vt-opt-letter">{{ letters[j] }}.</span> {{ q.options[j] }}
                   </span>
@@ -274,6 +280,7 @@
 import ListFeedback from '@/components/ListFeedback.vue'
 import { useLatestRequest } from '@/composables/useLatestRequest'
 import { usePageState } from '@/composables/usePageState'
+import { renderQuestionStem } from '@/utils/markdown'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

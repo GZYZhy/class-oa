@@ -285,6 +285,44 @@ def test_questions_can_be_replaced_before_start(pe):
     assert r.status_code < 300, r.text
 
 
+def test_confirm_question_required_and_optional(pe):
+    """确认题：必答必须勾，选答可空；空白确认也会留下已投记录"""
+    body = _body(start=-1, end=2)
+    body["questions"] = [{
+        "title": "确认已阅读", "qtype": "confirm", "required": True,
+        "multiple": False, "max_choices": 1, "options": [],
+    }]
+    r = pe.client.post("/api/polls", json=body)
+    assert r.status_code == 200, r.text
+    pid = r.json()["id"]
+
+    body = _body(start=-1, end=2, title="可选确认")
+    body["questions"] = [{
+        "title": "可选确认", "qtype": "confirm", "required": False,
+        "multiple": False, "max_choices": 1, "options": [],
+    }]
+    r = pe.client.post("/api/polls", json=body)
+    assert r.status_code == 200, r.text
+    optional_pid = r.json()["id"]
+
+    pe.logout()
+    assert pe.login(student_no=VOTER, password=VOTER_PW).status_code == 200
+    detail = pe.client.get(f"/api/polls/{pid}").json()
+    qid = detail["questions"][0]["id"]
+    r = pe.client.post(f"/api/polls/{pid}/vote", json={
+        "answers": [{"question_id": qid, "choices": []}],
+    })
+    assert r.status_code == 400, r.text
+
+    detail = pe.client.get(f"/api/polls/{optional_pid}").json()
+    qid = detail["questions"][0]["id"]
+    r = pe.client.post(f"/api/polls/{optional_pid}/vote", json={
+        "answers": [{"question_id": qid, "choices": []}],
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["has_voted"] is True
+
+
 def test_questions_are_frozen_once_started(pe):
     """已经开始就不能换题目了 —— 中文原因，不是 422 的数组"""
     pid = _create(pe, start=-1, end=1)  # start_at 在过去 = 进行中

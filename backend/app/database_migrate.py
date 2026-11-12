@@ -113,6 +113,9 @@ NEW_COLUMNS = [
     # operator_user_id 可空：老批次没有这个信息，也不影响学生端
     ("schedule_batches", "target_all", "BOOLEAN NOT NULL DEFAULT 0"),
     ("schedule_batches", "operator_user_id", "INTEGER"),
+    # 投票确认题：旧行按 multiple 回填 qtype，required 默认必答
+    ("poll_questions", "qtype", "VARCHAR(20) NOT NULL DEFAULT 'single'"),
+    ("poll_questions", "required", "BOOLEAN NOT NULL DEFAULT 1"),
     # ---------- 天气卡地点：从 .env 迁到管理员配置 ----------
     # 三列都有安全默认：老库补列后天气卡先显示「未配置」，由管理员在后台填；
     # 上线时会用现有 .env 的值把这一行补齐，用户无感
@@ -493,6 +496,7 @@ def run_migrations() -> None:
     view_count_added = False
     webhook_enabled_added = False
     poll_start_notified_added = False
+    poll_qtype_added = False
     checkin_start_notified_added = False
     weather_interval_added = False
     with engine.begin() as conn:
@@ -510,6 +514,8 @@ def run_migrations() -> None:
                 webhook_enabled_added = True
             if table == "polls" and column == "start_notified_at":
                 poll_start_notified_added = True
+            if table == "poll_questions" and column == "qtype":
+                poll_qtype_added = True
             if table == "checkins" and column == "start_notified_at":
                 checkin_start_notified_added = True
             if table == "weather_banner_settings" and column == "notify_interval_minutes":
@@ -526,6 +532,12 @@ def run_migrations() -> None:
 
         if poll_start_notified_added:
             _backfill_poll_start_notified(conn)
+
+        if poll_qtype_added:
+            conn.execute(text(
+                "UPDATE poll_questions SET qtype = 'multiple' "
+                "WHERE multiple = 1 AND qtype = 'single'"
+            ))
 
         if checkin_start_notified_added:
             _backfill_checkin_start_notified(conn)

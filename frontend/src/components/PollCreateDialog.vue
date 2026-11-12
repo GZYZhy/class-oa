@@ -159,20 +159,21 @@
         <div class="pc-q-head">
           <span class="pc-q-no">第 {{ i + 1 }} 题</span>
           <el-radio-group
-            v-model="q.multiple"
+            v-model="q.qtype"
             size="small"
             :disabled="startedLocked"
-            @change="onMultipleChange(q)"
+            @change="onTypeChange(q)"
           >
-            <el-radio-button :value="false">单选</el-radio-button>
-            <el-radio-button :value="true">多选</el-radio-button>
+            <el-radio-button value="single">单选</el-radio-button>
+            <el-radio-button value="multiple">多选</el-radio-button>
+            <el-radio-button value="confirm">确认题</el-radio-button>
           </el-radio-group>
-          <span v-if="q.multiple" class="pc-max">
+          <span v-if="q.qtype === 'multiple'" class="pc-max">
             最多选
             <el-input-number
               v-model="q.max_choices"
               :min="2"
-              :max="q.options.length"
+              :max="Math.max(2, q.options.length)"
               size="small"
               controls-position="right"
               style="width: 92px;"
@@ -180,6 +181,11 @@
             />
             项
           </span>
+          <el-checkbox
+            v-if="q.qtype === 'confirm'"
+            v-model="q.required"
+            :disabled="startedLocked"
+          >必答</el-checkbox>
           <el-button
             class="pc-q-del"
             link
@@ -191,37 +197,44 @@
 
         <el-input
           v-model="q.title"
+          type="textarea"
+          :autosize="{ minRows: 2, maxRows: 5 }"
           maxlength="500"
-          placeholder="题干，例如：你赞成哪一款班服？"
+          :placeholder="q.qtype === 'confirm' ? '需要确认的表述' : '题干，例如：你赞成哪一款班服？'"
           class="pc-q-title"
           :disabled="startedLocked"
         />
 
-        <div v-for="(opt, j) in q.options" :key="j" class="pc-opt">
-          <span class="pc-opt-label">{{ letters[j] }}</span>
-          <el-input
-            v-model="q.options[j]"
-            maxlength="200"
-            :placeholder="`选项 ${j + 1}`"
-            :disabled="startedLocked"
-          />
-          <el-button
-            link
-            type="danger"
-            :disabled="startedLocked || q.options.length <= 2"
-            @click="removeOption(q, j)"
-          >删除</el-button>
-        </div>
+        <template v-if="q.qtype !== 'confirm'">
+          <div v-for="(opt, j) in q.options" :key="j" class="pc-opt">
+            <span class="pc-opt-label">{{ letters[j] }}</span>
+            <el-input
+              v-model="q.options[j]"
+              maxlength="200"
+              :placeholder="`选项 ${j + 1}`"
+              :disabled="startedLocked"
+            />
+            <el-button
+              link
+              type="danger"
+              :disabled="startedLocked || q.options.length <= 2"
+              @click="removeOption(q, j)"
+            >删除</el-button>
+          </div>
 
-        <el-button
-          size="small"
-          :disabled="startedLocked || q.options.length >= 20"
-          @click="q.options.push('')"
-        >
-          添加选项
-        </el-button>
-        <span class="pc-tip pc-tip-inline">
-          选项最多 20 个。要「弃权」就单独列成一个选项 —— 每题都必须作答
+          <el-button
+            size="small"
+            :disabled="startedLocked || q.options.length >= 20"
+            @click="q.options.push('')"
+          >
+            添加选项
+          </el-button>
+          <span class="pc-tip pc-tip-inline">
+            选项最多 20 个。要「弃权」就单独列成一个选项 —— 每题都必须作答
+          </span>
+        </template>
+        <span v-else class="pc-tip pc-tip-inline">
+          只有一个复选框；题干写清要确认的内容。设成必答时，不勾选不能提交
         </span>
       </div>
 
@@ -483,7 +496,13 @@ function removeOption(q, index) {
   if (q.lastMax > q.options.length) q.lastMax = q.options.length
 }
 
-function onMultipleChange(q) {
+function onTypeChange(q) {
+  q.multiple = q.qtype === 'multiple'
+  if (q.qtype === 'confirm') {
+    q.max_choices = 1
+    return
+  }
+  if (!q.options.length) q.options = ['', '']
   if (q.multiple) {
     q.max_choices = Math.min(Math.max(q.lastMax || 2, 2), q.options.length)
   } else {
@@ -533,6 +552,7 @@ function questionsError() {
     const q = form.questions[i]
     const no = i + 1
     if (!q.title.trim()) return `第 ${no} 题的题干不能为空`
+    if (q.qtype === 'confirm') continue
     const options = q.options.map((o) => o.trim())
     if (options.some((o) => !o)) return `第 ${no} 题有空白选项`
     if (new Set(options).size !== options.length) return `第 ${no} 题有重复的选项`
@@ -547,9 +567,11 @@ function questionsError() {
 function buildQuestions() {
   return form.questions.map((q) => ({
     title: q.title.trim(),
+    qtype: q.qtype,
+    required: q.qtype === 'confirm' ? q.required : true,
     multiple: q.multiple,
     max_choices: q.multiple ? q.max_choices : 1,
-    options: q.options.map((o) => o.trim())
+    options: q.qtype === 'confirm' ? [] : q.options.map((o) => o.trim())
   }))
 }
 

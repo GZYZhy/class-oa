@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 class CollectionQuestionIn(BaseModel):
     title: str = Field(..., max_length=500, description="题干")
     qtype: str = Field(
-        ..., description="single/multiple/short_text/long_text/image/file/rating"
+        ..., description="single/multiple/confirm/short_text/long_text/image/file/rating"
     )
     required: bool = Field(True, description="是否必答")
     options: list[str] = Field(default_factory=list, description="选择题选项")

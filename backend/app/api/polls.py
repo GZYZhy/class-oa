@@ -149,25 +149,36 @@ def _check_questions(questions: list) -> list[dict]:
         title = (question.title or "").strip()
         if not title:
             raise HTTPException(status_code=400, detail=f"第 {index} 题的题干不能为空")
-        options = [option.strip() for option in question.options]
-        if any(not option for option in options):
-            raise HTTPException(status_code=400, detail=f"第 {index} 题有空白选项")
-        if len(set(options)) != len(options):
-            raise HTTPException(status_code=400, detail=f"第 {index} 题有重复的选项")
-
-        if question.multiple:
-            if not 2 <= question.max_choices <= len(options):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"第 {index} 题「最多选几项」要在 2 到 {len(options)} 之间",
-                )
-            max_choices = question.max_choices
-        else:
+        qtype = (question.qtype or "").strip()
+        if qtype not in ("single", "multiple", "confirm"):
+            qtype = "multiple" if question.multiple else "single"
+        if qtype == "confirm":
+            options = []
             max_choices = 1
+        else:
+            options = [option.strip() for option in question.options]
+            if len(options) < 2:
+                raise HTTPException(status_code=400, detail=f"第 {index} 题至少要有两个选项")
+            if any(not option for option in options):
+                raise HTTPException(status_code=400, detail=f"第 {index} 题有空白选项")
+            if len(set(options)) != len(options):
+                raise HTTPException(status_code=400, detail=f"第 {index} 题有重复的选项")
+
+            if qtype == "multiple":
+                if not 2 <= question.max_choices <= len(options):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"第 {index} 题「最多选几项」要在 2 到 {len(options)} 之间",
+                    )
+                max_choices = question.max_choices
+            else:
+                max_choices = 1
         normalized.append(
             {
                 "title": title,
-                "multiple": bool(question.multiple),
+                "qtype": qtype,
+                "required": bool(question.required) if qtype == "confirm" else True,
+                "multiple": qtype == "multiple",
                 "max_choices": max_choices,
                 "options": options,
             }
@@ -188,17 +199,27 @@ def _check_answers(questions: list[PollQuestion], answers: list) -> list[tuple]:
             raise HTTPException(status_code=400, detail="同一道题提交了两次")
         submitted[answer.question_id] = answer
 
-    # 交上来的题目必须**正好**是这张卷子上的那些。别图省事只比条数：
-    # 漏一题、掺一题别场的进来，条数照样相等，下面按 id 取就会 KeyError（500）
+    # 交上来的题目必须属于本场；确认题可以选答，漏交按「未确认」处理
     question_ids = {question.id for question in questions}
     if set(submitted) - question_ids:
         raise HTTPException(status_code=400, detail="提交了不属于本场投票的题目")
-    if question_ids - set(submitted):
-        raise HTTPException(status_code=400, detail="每题都要作答，不能有漏答")
+    missing = question_ids - set(submitted)
+    for question_id in missing:
+        question = next(item for item in questions if item.id == question_id)
+        if (question.qtype or "single") != "confirm" or question.required:
+            raise HTTPException(status_code=400, detail="每题都要作答，不能有漏答")
 
     result = []
     for question in questions:
-        choices = submitted[question.id].choices
+        qtype = question.qtype or ("multiple" if question.multiple else "single")
+        choices = submitted[question.id].choices if question.id in submitted else []
+        if qtype == "confirm":
+            if choices not in ([], [0]):
+                raise HTTPException(status_code=400, detail=f"「{question.title}」确认内容不合法")
+            if question.required and choices != [0]:
+                raise HTTPException(status_code=400, detail=f"「{question.title}」需要确认")
+            result.append((question, choices))
+            continue
         options = question_options(question)
         # 显式拦负数：Python 的 [-1] 是最后一个选项，放过去就等于让人投了他没选的那个
         if any(index < 0 or index >= len(options) for index in choices):
@@ -468,6 +489,8 @@ def create_poll(
                 poll_id=poll.id,
                 sort=index,
                 title=question["title"],
+                qtype=question["qtype"],
+                required=question["required"],
                 multiple=question["multiple"],
                 max_choices=question["max_choices"],
                 options=json.dumps(question["options"], ensure_ascii=False),
@@ -585,6 +608,8 @@ def update_poll(
                     poll_id=poll.id,
                     sort=index,
                     title=question["title"],
+                    qtype=question["qtype"],
+                    required=question["required"],
                     multiple=question["multiple"],
                     max_choices=question["max_choices"],
                     options=json.dumps(question["options"], ensure_ascii=False),

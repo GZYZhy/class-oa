@@ -185,6 +185,8 @@
           <span class="cc-q-index">第 {{ index + 1 }} 题</span>
           <el-input
             v-model="question.title"
+            type="textarea"
+            :autosize="{ minRows: 2, maxRows: 5 }"
             maxlength="500"
             placeholder="题干"
             :disabled="structuralLocked"
@@ -486,6 +488,7 @@ function onTypeChange(question) {
 }
 
 function typeHint(qtype) {
+  if (qtype === 'confirm') return '确认题：只有一个复选框，题干就是需要确认的表述'
   if (qtype === 'short_text') return '短文本：最多 200 字'
   if (qtype === 'long_text') return '长文本：最多 2000 字'
   if (qtype === 'image') return '图片：每题最多 3 张，单张 10MB，前端会自动压缩'

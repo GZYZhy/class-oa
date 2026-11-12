@@ -549,6 +549,28 @@ html .el-textarea__inner:focus {
   border-radius: 8px;
 }
 
+/* 投票/收集题干：允许换行、链接和图片，图片不能撑破卡片 */
+.question-stem {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.question-stem img {
+  display: block;
+  max-width: 100%;
+  max-height: 200px;
+  width: auto;
+  height: auto;
+  margin: 6px 0;
+  border-radius: 6px;
+}
+
+.question-stem a {
+  color: var(--el-color-primary);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
 .el-table {
   /* 格线走 --app-line 而不是 outline：后者太淡，淡紫底上几乎看不见 */
   --el-table-border-color: var(--app-line);
