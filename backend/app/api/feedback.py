@@ -20,6 +20,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
+from ..utils.attachments import MAX_ATTACHMENT_BYTES
 from ..database import get_db
 from ..models import Feedback, Student, User
 from ..schemas import FeedbackReply, FeedbackResponse
@@ -59,7 +60,7 @@ ALLOWED_ATTACHMENT_EXTENSIONS = {
 }
 
 # 单个附件大小上限（不是 3 个合计），和请假证明取同一个值
-MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
+MAX_ATTACHMENT_SIZE = MAX_ATTACHMENT_BYTES
 
 # 一条反馈最多带几个附件
 MAX_ATTACHMENTS = 3

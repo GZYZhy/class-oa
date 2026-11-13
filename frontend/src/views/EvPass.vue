@@ -5,7 +5,7 @@
         intro="校内电动自行车通行证补办。"
         deadline="7 个工作日（仅供参考）"
         :notice="'本站仅生成信息表，报送需自行完成。\n办理前请先与班委联系。'"
-        submitted="行驶证（图片或 PDF），≤20MB，必填"
+        submitted="行驶证（图片或 PDF），≤50MB，必填"
         finished="通行证申请表与使用承诺书（两份 PDF），审批后可下载"
       />
 
@@ -44,10 +44,10 @@
                 </el-button>
                 <template #tip>
                   <div v-if="editingId" class="el-upload__tip">
-                    只支持图片或 PDF，大小不超过 20MB；超过 1MB 的图片会自动压缩。不重选就沿用当前那张
+                    只支持图片或 PDF，大小不超过 50MB；超过 1MB 的图片会自动压缩。不重选就沿用当前那张
                   </div>
                   <div v-else class="el-upload__tip">
-                    只支持图片或 PDF，大小不超过 20MB，必填；超过 1MB 的图片会自动压缩
+                    只支持图片或 PDF，大小不超过 50MB，必填；超过 1MB 的图片会自动压缩
                   </div>
                 </template>
               </el-upload>
@@ -256,8 +256,8 @@ async function handleFileChange(file) {
   // 再校验一遍大小和类型（和请假证明一致）
   const raw = file.raw
   if (raw) {
-    if (raw.size > 20 * 1024 * 1024) {
-      ElMessage.error('文件不能超过 20MB')
+    if (raw.size > 50 * 1024 * 1024) {
+      ElMessage.error('文件不能超过 50MB')
       form.license = null
       return
     }

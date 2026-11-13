@@ -359,7 +359,7 @@ for i in 1 2 3 4 5; do docker compose pull && break; sleep 5; done
 应当返回 401；如果返回 200，说明响应被缓存了。
 
 **上传大附件失败**
-宿主机 nginx 与容器内的 `client_max_body_size` 都要够大（默认 70M）。
+宿主机 nginx 与容器内的 `client_max_body_size` 都要够大（默认 170M）。
 超时类错误同时检查 `proxy_read_timeout`。
 
 **时间不对**

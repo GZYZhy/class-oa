@@ -26,9 +26,9 @@ ALLOWED_ATTACHMENT_EXTENSIONS = frozenset({
 })
 
 # 单个附件的大小上限（不是几个合计）
-MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
-# 一次最多带几个（通知是「一条最多几个附件」，收集是「一道附件题最多几个」）
+# 通知每条最多附件数，收集题未指定数量时也使用这个默认值
 MAX_ATTACHMENTS = 3
 
 # 提示文案里那句「支持什么」，前后端各写一遍容易走样，收在这里

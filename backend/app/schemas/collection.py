@@ -19,6 +19,7 @@ class CollectionQuestionIn(BaseModel):
     required: bool = Field(True, description="是否必答")
     options: list[str] = Field(default_factory=list, description="选择题选项")
     max_choices: int | None = Field(None, ge=1, description="多选题最多选几项")
+    max_files: int | None = Field(None, ge=1, description="图片/附件题最大上传数量，默认 3")
 
 
 class CollectionCreate(BaseModel):

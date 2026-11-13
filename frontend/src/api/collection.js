@@ -118,7 +118,7 @@ export function getCollectionShareInfo(token) {
 /**
  * 上传答卷图片 / 附件，返回 { token, name, size }
  *
- * kind：'image' = 图片题（JPG/PNG/WEBP，10MB），'file' = 附件题（20MB，
+ * kind：'image' = 图片题（JPG/PNG/WEBP，10MB），'file' = 附件题（50MB，
  * 图片 / 视频 / 音频 / 文档 / 压缩包）。后端按它选白名单和大小上限。
  */
 export function uploadCollectionFile(id, file, onProgress, studentNo, kind = 'image') {

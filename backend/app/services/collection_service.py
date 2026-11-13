@@ -87,9 +87,7 @@ IMAGE_MAX_FILES = 3
 # 图片上传的后缀白名单（和签到照片一致）
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
-# 附件题：**直接复用通知公告附件的那套限制**（见 utils/attachments.py）——
-# 白名单、单件 20MB、每题最多 3 个。收集只是换个地方收材料，没理由另立一套，
-# 而且前端提示和后端校验必须说的是同一件事
+# 附件题复用附件白名单和单文件大小；每题数量单独保存，旧题默认 3 个。
 FILE_MAX_FILES = MAX_ATTACHMENTS
 FILE_MAX_BYTES = MAX_ATTACHMENT_BYTES
 FILE_SUFFIXES = set(ALLOWED_ATTACHMENT_EXTENSIONS)
@@ -281,6 +279,11 @@ def read_files(answer: CollectionAnswer | None) -> list[dict]:
     return result
 
 
+def question_file_limit(question: CollectionQuestion) -> int:
+    """旧题未保存数量时沿用原来的三份限制。"""
+    return question.max_files or (IMAGE_MAX_FILES if question.qtype == QTYPE_IMAGE else FILE_MAX_FILES)
+
+
 def question_payload(question: CollectionQuestion) -> dict:
     """题目的公开/作答定义：前端按 qtype 渲染、后端按同一份校验"""
     qtype = question.qtype or QTYPE_SINGLE
@@ -295,11 +298,7 @@ def question_payload(question: CollectionQuestion) -> dict:
         "text_limit": TEXT_LIMITS.get(qtype),
         "rating_min": RATING_MIN if qtype == QTYPE_RATING else None,
         "rating_max": RATING_MAX if qtype == QTYPE_RATING else None,
-        "max_files": (
-            IMAGE_MAX_FILES
-            if qtype == QTYPE_IMAGE
-            else FILE_MAX_FILES if qtype == QTYPE_FILE else None
-        ),
+        "max_files": question_file_limit(question) if qtype in UPLOAD_TYPES else None,
     }
 
 

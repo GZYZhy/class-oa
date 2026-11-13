@@ -5021,7 +5021,7 @@ console.log('\n▶ 投票收集：双 Tab、七种题型、本人答卷与撤回
     '编辑时把撤回设置一起提交')
   check(/question\.qtype === 'multiple'/.test(dlgSrc) && /typeHint\('image'\)|qtype === 'image'/.test(dlgSrc),
     '多选上限和图片提示都在出卷里')
-  check(dlgSrc.includes("qtype === 'file'") && dlgSrc.includes('每题最多 3 个，单个 20MB'),
+  check(dlgSrc.includes("qtype === 'file'") && dlgSrc.includes('单个 50MB') && dlgSrc.includes('v-model="question.max_files"'),
     '附件题在出卷里有提示，并写清上限')
 
   // ---------- 复用旧卷：收集也要能复制题目和范围 ----------
@@ -5063,8 +5063,8 @@ console.log('\n▶ 投票收集：双 Tab、七种题型、本人答卷与撤回
       { id: 2, title: '多选题', qtype: 'multiple', required: false, options: ['甲', '乙', '丙'], max_choices: 2 },
       { id: 3, title: '短文本题', qtype: 'short_text', required: true, text_limit: 200 },
       { id: 4, title: '长文本题', qtype: 'long_text', required: false, text_limit: 2000 },
-      { id: 5, title: '图片题', qtype: 'image', required: false, max_files: 3 },
-      { id: 6, title: '附件题', qtype: 'file', required: false, max_files: 3 },
+      { id: 5, title: '图片题', qtype: 'image', required: false, max_files: 5 },
+      { id: 6, title: '附件题', qtype: 'file', required: false, max_files: 7 },
       { id: 7, title: '评分题', qtype: 'rating', required: true, rating_min: 1, rating_max: 5 }
     ]
   }
@@ -5072,10 +5072,10 @@ console.log('\n▶ 投票收集：双 Tab、七种题型、本人答卷与撤回
   const ballotText = stripComments(ballotHtml)
   check(ballotText.includes('单选题') && ballotText.includes('甲'), '单选渲染选项')
   check(ballotText.includes('最多选 2 项'), '多选写出最多选几项')
-  check(ballotText.includes('图片题') && ballotText.includes('添加图片（0/3）'), '图片题最多三张')
-  check(ballotText.includes('附件题') && ballotText.includes('添加附件（0/3）'),
-    '附件题也能传三个')
-  check(ballotText.includes('单个 ≤20MB') && ballotText.includes('压缩包'),
+  check(ballotText.includes('图片题') && ballotText.includes('添加图片（0/5）'), '图片题使用出题人指定的五张上限')
+  check(ballotText.includes('附件题') && ballotText.includes('添加附件（0/7）'),
+    '附件题使用出题人指定的七个上限')
+  check(ballotText.includes('单个 ≤50MB') && ballotText.includes('压缩包'),
     '附件题写清大小和允许的类型')
   check(['1 分', '2 分', '3 分', '4 分', '5 分'].every((t) => ballotText.includes(t)),
     '评分固定 1–5')

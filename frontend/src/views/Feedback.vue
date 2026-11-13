@@ -40,7 +40,7 @@
                 <el-button>选择文件</el-button>
                 <template #tip>
                   <div class="el-upload__tip">
-                    最多 {{ maxCount }} 个，单个不超过 20MB；支持图片 / 视频 / 音频 / 文档。超过 1MB 的图片会自动压缩
+                    最多 {{ maxCount }} 个，单个不超过 50MB；支持图片 / 视频 / 音频 / 文档。超过 1MB 的图片会自动压缩
                   </div>
                 </template>
               </el-upload>
@@ -48,7 +48,7 @@
 
             <el-form-item>
               <el-button type="primary" :loading="submitting" @click="handleSubmit">
-                <!-- 附件单个上限 20MB、最多 3 个，慢网络下把进度显示出来 -->
+                <!-- 附件单个上限 50MB、最多 3 个，慢网络下把进度显示出来 -->
                 提交反馈{{ submitting && uploadProgress ? ` ${uploadProgress}%` : '' }}
               </el-button>
             </el-form-item>
@@ -152,7 +152,7 @@ const allowedExts = [
   '.pdf', '.txt', '.md', '.wps', '.et', '.dps'
 ]
 const acceptTypes = allowedExts.join(',')
-const maxSize = 20 * 1024 * 1024
+const maxSize = 50 * 1024 * 1024
 const maxCount = 3
 
 const activeTab = ref('submit')
@@ -209,7 +209,7 @@ function handleFileChange(file) {
     if (!allowedExts.includes(ext)) {
       reason = '格式不支持，仅支持图片 / 视频 / 音频 / 文档'
     } else if ((file.size || 0) > maxSize) {
-      reason = '超过 20MB'
+      reason = '超过 50MB'
     }
     if (!reason) return
 

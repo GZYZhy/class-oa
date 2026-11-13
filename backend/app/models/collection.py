@@ -115,7 +115,7 @@ class CollectionQuestion(Base):
       single / multiple        选择题，options 存 JSON 数组，作答存下标
       confirm                  确认题，只有一个复选框；作答 choices=[0] 表示已确认
       short_text / long_text   文本，长度上限是常量（200 / 2000）
-      image                    图片，每题最多 3 张、单张 10MB
+      image / file             图片或附件，每题最大上传数量由出题人指定
       rating                   评分，固定 1–5
 
     有答卷之后题目结构锁定（api/collections.py 的 update_collection），
@@ -139,6 +139,7 @@ class CollectionQuestion(Base):
     # 仅选择题使用；文本/图片/评分题为空
     options = Column(Text, default="", comment="选项文案（JSON 数组）")
     max_choices = Column(Integer, nullable=True, comment="多选题最多选几项")
+    max_files = Column(Integer, nullable=True, default=3, comment="图片/附件题最大上传数量")
 
 
 class CollectionSubmission(Base):

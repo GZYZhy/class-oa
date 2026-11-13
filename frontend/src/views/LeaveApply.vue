@@ -7,7 +7,7 @@
         intro="因病因事无法参加课程或集体活动时提交。"
         deadline="3 个工作日（仅供参考）"
         notice="本服务仅简化流程，是否准假由学校决定。"
-        submitted="请假证明（病假条、诊断证明等），PDF 或图片，单个 ≤20MB，建议上传，可后补"
+        submitted="请假证明（病假条、诊断证明等），PDF 或图片，单个 ≤50MB，建议上传，可后补"
         finished="请假审批表（PDF），审批后可下载"
       />
 
@@ -96,10 +96,10 @@
                 <el-button>选择文件</el-button>
                 <template #tip>
                   <div v-if="editingId" class="el-upload__tip">
-                    支持 PDF / 图片，最大 20MB。超过 1MB 的图片会自动压缩；不重选就沿用当前那份
+                    支持 PDF / 图片，最大 50MB。超过 1MB 的图片会自动压缩；不重选就沿用当前那份
                   </div>
                   <div v-else class="el-upload__tip">
-                    支持 PDF / 图片，最大 20MB。建议上传；暂时没有可以先提交，之后可由管理员补录。
+                    支持 PDF / 图片，最大 50MB。建议上传；暂时没有可以先提交，之后可由管理员补录。
                     超过 1MB 的图片会自动压缩
                   </div>
                 </template>

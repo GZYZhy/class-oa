@@ -1418,7 +1418,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | 名称 | 位置 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
 | `leave_id` | path | 是 | integer |  |
-| `proof` | formData | 是 | string | 请假辅助证明（图片或 PDF，最大 20MB） |
+| `proof` | formData | 是 | string | 请假辅助证明（图片或 PDF，最大 50MB） |
 
 **响应**
 
@@ -3485,6 +3485,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
   - `required`：boolean；确认题设为 false 时可不勾选提交
   - `options`：string[]；确认题为空数组
   - `max_choices`：integer（≥1），可空
+  - `max_files`：integer（≥1），图片题与附件题的最大上传数量，默认 3
 
 **响应**
 
@@ -3711,6 +3712,8 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 - `200` `CollectionSubmitResponse` — 成功
   - 字段：`id`、`seq_no`、`submitted_at`、`duration_seconds`、`my_submitted_count`、`my_remaining`、`can_submit`
 
+图片题与附件题的 `max_files` 为出题人设置的正整数，创建与编辑题目时提交，省略时默认 3。详情返回实际限制，提交答卷时再次校验数量。
+
 ### 上传答卷图片 / 附件（返回提交凭证）
 
 `POST /api/collections/{collection_id}/files`
@@ -3727,7 +3730,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | --- | --- | --- | --- |
 | `file` | string | 是 |  |
 | `student_no` | string，可空 | 否 | 管理员代填时目标学号；凭证绑到这个人 |
-| `kind` | string | 否 | `image`（默认）= 图片题，JPG/PNG/WEBP、10MB；`file` = 附件题，白名单见下、20MB |
+| `kind` | string | 否 | `image`（默认）= 图片题，JPG/PNG/WEBP、10MB；`file` = 附件题，白名单见下、50MB |
 
 附件题白名单与通知公告附件一致：图片（含 heic/heif）/ 视频 / 音频 / 文档 / 压缩包，不收 svg/html/js 和带宏的 Office 文件。上传接口只按 `kind` 收，提交答卷时还会**按题型再验一次**后缀（pdf 的凭证交不进图片题）。
 

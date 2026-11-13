@@ -1026,3 +1026,61 @@ def test_full_collection_notifies_creator_without_closing(cb):
     assert row[1] is None, "收集满不能自动结束"
     titles = [r[0] for r in cb.rows("SELECT title FROM inbox_messages")]
     assert any("收集已满" in title for title in titles)
+
+
+@pytest.mark.parametrize("kind,limit", [("image", 1), ("image", 4), ("file", 1), ("file", 4)])
+def test_question_upload_count_is_configured_per_question(cb, kind, limit):
+    question = dict(_q(kind, "材料"), max_files=limit)
+    collection = _create(cb, questions=[question])
+    cid = collection['id']
+    qid = collection['questions'][0]['id']
+    assert collection['questions'][0]['max_files'] == limit
+    _login(cb, VOTER, VOTER_PW)
+    tokens = []
+    for i in range(limit + 1):
+        response = cb.client.post(f'/api/collections/{cid}/files', data={'kind': kind},
+            files={'file': (f'材料{i}.png', PNG, 'image/png')})
+        assert response.status_code == 200, response.text
+        tokens.append(response.json()['token'])
+    bad = _submit(cb, cid, [{'question_id': qid, 'files': tokens}])
+    assert bad.status_code == 400
+    assert f'最多 {limit}' in bad.json()['detail']
+    good = _submit(cb, cid, [{'question_id': qid, 'files': tokens[:limit]}])
+    assert good.status_code == 200, good.text
+
+
+def test_attachment_size_50mb_and_invalid_question_limits(cb):
+    collection = _create(cb, questions=[_q('file')])
+    assert collection['questions'][0]['max_files'] == 3
+    for invalid in (0, -1, 1.5):
+        response = cb.client.post('/api/collections', json=_body(
+            questions=[dict(_q('file'), max_files=invalid)]))
+        assert response.status_code == 422
+    _login(cb, VOTER, VOTER_PW)
+    endpoint = f'/api/collections/{collection["id"]}/files'
+    accepted = cb.client.post(endpoint, data={'kind': 'file'}, files={
+        'file': ('大附件.pdf', b'%PDF' + b'x' * (50 * 1024 * 1024 - 4), 'application/pdf')})
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()['size'] == 50 * 1024 * 1024
+    rejected = cb.client.post(endpoint, data={'kind': 'file'}, files={
+        'file': ('超限.pdf', b'x' * (50 * 1024 * 1024 + 1), 'application/pdf')})
+    assert rejected.status_code == 400
+    assert '50MB' in rejected.json()['detail']
+
+
+def test_upload_limits_survive_edit_and_legacy_upgrade(cb, backend):
+    import sqlite3
+
+    collection = _create(cb, start_at=_stamp(2), questions=[dict(_q('image'), max_files=5)])
+    response = cb.client.patch(f'/api/collections/{collection["id"]}', json={
+        'title': collection['title'], 'questions': [dict(_q('file'), max_files=7)]})
+    assert response.status_code == 200, response.text
+    assert response.json()['questions'][0]['max_files'] == 7
+    old_db = cb.db.parent / 'old-collection-upload.db'
+    with sqlite3.connect(cb.db) as source, sqlite3.connect(old_db) as target:
+        source.backup(target)
+        target.execute('ALTER TABLE collection_questions DROP COLUMN max_files')
+    upgraded = backend(db=old_db.name)
+    assert upgraded.login(CREATOR, CREATOR_PW).status_code == 200
+    item = upgraded.client.get(f'/api/collections/{collection["id"]}').json()
+    assert item['questions'][0]['max_files'] == 3

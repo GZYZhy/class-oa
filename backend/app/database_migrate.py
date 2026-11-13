@@ -17,6 +17,7 @@ from .database import SessionLocal, engine
 
 # 需要补的列：(表名, 列名, 列定义)。新库由 create_all 直接建全，这里只服务老库
 NEW_COLUMNS = [
+    ("collection_questions", "max_files", "INTEGER DEFAULT 3"),
     ("schedules", "related_items", "JSON"),
     ("users", "role", "VARCHAR(20) NOT NULL DEFAULT 'student'"),
     ("announcements", "publisher", "VARCHAR(50) DEFAULT ''"),
@@ -494,11 +495,19 @@ def run_migrations() -> None:
         if "related_items" not in columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE schedules ADD COLUMN related_items JSON"))
+        question_columns = {
+            column["name"] for column in inspect(engine).get_columns("collection_questions")
+        }
+        if "max_files" not in question_columns:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE collection_questions ADD COLUMN max_files INTEGER DEFAULT 3"
+                ))
         # 全新安装时这里**正常就该跳过**：库是 create_all 刚建的，列一个不缺。
         # 所以不能说成「请手工补列」——那会让运维以为哪里做错了。
         # 真正的例外只有一种：把别处的老 SQLite 库搬进 MySQL，那才需要自己补
         print(
-            f"[迁移] {engine.dialect.name} 日程关联列已检查，其余历史补列跳过",
+            f"[迁移] {engine.dialect.name} 日程关联列及收集上传数量已检查，其余历史补列跳过",
             flush=True,
         )
         return

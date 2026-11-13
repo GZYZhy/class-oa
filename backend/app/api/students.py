@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
 
+from ..utils.attachments import MAX_ATTACHMENT_BYTES
 from ..database import get_db
 from ..models import (
     ArchiveViewRequest,
@@ -118,7 +119,7 @@ ALLOWED_REMARK_ATTACH_EXTENSIONS = {
     ".zip", ".rar", ".7z",
 }
 
-MAX_REMARK_ATTACH_SIZE = 20 * 1024 * 1024   # 单文件 20MB
+MAX_REMARK_ATTACH_SIZE = MAX_ATTACHMENT_BYTES   # 单文件 50MB
 MAX_REMARK_NEW_ATTACHMENTS = 3               # 单次编辑最多新增几个
 MAX_REMARK_ATTACHMENTS_TOTAL = 15            # 每个学生备注总附件数上限
 
@@ -836,8 +837,8 @@ def delete_student_photo(
 
 # ---------- Excel 批量导入（仅管理员） ----------
 
-# 单文件大小上限（跟通知附件取同一个值：20MB）
-# nginx 的 client_max_body_size 是 70MB，这里 20MB 在它之内
+# Excel 导入单文件大小上限 20MB
+# Excel 导入使用独立的 20MB 上限
 _MAX_IMPORT_SIZE = 20 * 1024 * 1024
 _ALLOWED_IMPORT_EXT = {".xlsx"}
 
@@ -943,7 +944,7 @@ def import_excel_confirm(
 # ---------- 照片批量导入（zip，仅管理员） ----------
 
 # zip 包大小上限。单张照片 10MB 封顶、一个班几十人，正常远到不了这个数；
-# 真到了说明该分几次传。nginx 的 client_max_body_size 是 70MB，取 60MB 留在它之内
+# 真到了说明该分几次传。照片压缩包使用独立的 60MB 上限
 _MAX_PHOTO_ZIP_SIZE = 60 * 1024 * 1024
 
 

@@ -23,6 +23,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
+from ..utils.attachments import MAX_ATTACHMENT_BYTES
 from ..database import get_db
 from ..models import LeaveRequest, Student, User
 from ..schemas import (
@@ -79,8 +80,8 @@ LEAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 # 允许的辅助证明文件类型
 ALLOWED_PROOF_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
-# 单个文件大小上限 20MB
-MAX_PROOF_SIZE = 20 * 1024 * 1024
+# 单个文件大小上限 50MB
+MAX_PROOF_SIZE = MAX_ATTACHMENT_BYTES
 
 # 可选的请假类型
 LEAVE_TYPES = ("病假", "事假", "公假")
@@ -114,7 +115,7 @@ async def _save_proof(proof: UploadFile) -> str:
     proof_name = _safe_name(proof.filename)
     content = await proof.read()
     if len(content) > MAX_PROOF_SIZE:
-        raise HTTPException(status_code=400, detail="证明文件大小不能超过 20MB")
+        raise HTTPException(status_code=400, detail="证明文件大小不能超过 50MB")
     with open(LEAVE_DIR / proof_name, "wb") as f:
         f.write(content)
     return proof_name

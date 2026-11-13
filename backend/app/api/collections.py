@@ -80,8 +80,8 @@ from ..services.collection_service import (
     duration_stats,
     FILE_MAX_BYTES,
     FILE_MAX_FILES,
+    question_file_limit,
     FILE_SUFFIXES,
-    IMAGE_MAX_FILES,
     IMAGE_SUFFIXES,
     QTYPE_FILE,
     QTYPE_IMAGE,
@@ -228,7 +228,7 @@ def _check_questions(items: list[CollectionQuestionIn]) -> list[dict]:
     """按题型校验并归一化
 
     - 选择题：至少 2 个选项、非空、不重复；多选 2..选项数
-    - 文本/图片/评分：不需要选项；长度、张数、分值范围是常量（见 collection_service）
+    - 文本/图片/评分：不需要选项；文本长度和分值范围是常量，上传数量按题目配置（见 collection_service）
     """
     normalized = []
     for index, item in enumerate(items, start=1):
@@ -267,6 +267,7 @@ def _check_questions(items: list[CollectionQuestionIn]) -> list[dict]:
                 "required": bool(item.required),
                 "options": options,
                 "max_choices": max_choices,
+                "max_files": (item.max_files or FILE_MAX_FILES) if qtype in UPLOAD_TYPES else None,
             }
         )
     return normalized
@@ -572,6 +573,7 @@ def create_collection(
                 required=question["required"],
                 options=json.dumps(question["options"], ensure_ascii=False),
                 max_choices=question["max_choices"],
+                max_files=question["max_files"],
             )
             for index, question in enumerate(questions)
         ]
@@ -698,6 +700,7 @@ def update_collection(
                     required=question["required"],
                     options=json.dumps(question["options"], ensure_ascii=False),
                     max_choices=question["max_choices"],
+                    max_files=question["max_files"],
                 )
                 for index, question in enumerate(questions)
             ]
@@ -1034,7 +1037,7 @@ def submit_response(
             # **白名单必须在这里再判一次**：上传接口只按前端说的 kind 收，
             # 拿一张 pdf 的凭证来交图片题的话，upload 那步是不会拦的
             is_image = qtype == QTYPE_IMAGE
-            max_files = IMAGE_MAX_FILES if is_image else FILE_MAX_FILES
+            max_files = question_file_limit(question)
             allowed = IMAGE_SUFFIXES if is_image else FILE_SUFFIXES
             unit = "张图片" if is_image else "个附件"
             thing = "图片" if is_image else "附件"
@@ -1217,7 +1220,7 @@ def upload_file(
     collection_id: int,
     file: UploadFile = File(...),
     student_no: str | None = Form(None),
-    # 题目类型：image=图片题（JPG/PNG/WEBP，10MB），file=附件题（20MB，见白名单）。
+    # 题目类型：image=图片题（JPG/PNG/WEBP，10MB），file=附件题（50MB，见白名单）。
     # 不传按 image 处理，老前端一行不用改
     kind: str = Form("image"),
     user: User = Depends(get_current_user),

@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR
+from ..utils.attachments import MAX_ATTACHMENT_BYTES
 from ..database import get_db
 from ..models import CertificateRequest, Student, User
 from ..schemas import (
@@ -70,12 +71,12 @@ ALLOWED_ATTACH_EXTENSIONS = {
     ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",
     ".doc", ".docx",
 }
-MAX_ATTACH_SIZE = 20 * 1024 * 1024  # 20MB
+MAX_ATTACH_SIZE = MAX_ATTACHMENT_BYTES  # 50MB
 MAX_ATTACHMENTS = 3
 
 # 成品 PDF 允许的后缀
 ALLOWED_RESULT_EXTENSIONS = {".pdf"}
-MAX_RESULT_SIZE = 20 * 1024 * 1024
+MAX_RESULT_SIZE = MAX_ATTACHMENT_BYTES
 
 
 def _safe_attach_name(original: str) -> str:

@@ -219,6 +219,13 @@
           </el-button>
         </div>
 
+        <div v-if="UPLOAD_TYPES.has(question.qtype)" class="cc-opt-actions">
+          <label :for="`upload-limit-${index}`">最多上传数量</label>
+          <el-input-number :id="`upload-limit-${index}`" v-model="question.max_files"
+            :min="1" :step="1" :precision="0" :disabled="structuralLocked" />
+          <span>{{ question.qtype === 'image' ? '张图片' : '个附件' }}</span>
+        </div>
+
         <template v-if="CHOICE_TYPES.has(question.qtype)">
           <div v-for="(option, oi) in question.options" :key="oi" class="cc-opt">
             <span class="cc-letter">{{ letters[oi] }}.</span>
@@ -257,7 +264,7 @@
             </template>
           </div>
         </template>
-        <div v-else class="cc-tip">{{ typeHint(question.qtype) }}</div>
+        <div v-else class="cc-tip">{{ typeHint(question) }}</div>
       </div>
       <el-button
         :disabled="structuralLocked || form.questions.length >= 30"
@@ -294,6 +301,7 @@ import { getRoster } from '@/api/vote'
 import { canEditTimes, POLL_LETTERS as letters } from '@/utils/poll'
 import {
   CHOICE_TYPES,
+  UPLOAD_TYPES,
   QUESTION_TYPES,
   blankForm,
   blankQuestion,
@@ -489,13 +497,14 @@ function onTypeChange(question) {
   }
 }
 
-function typeHint(qtype) {
+function typeHint(question) {
+  const qtype = question.qtype
   if (qtype === 'confirm') return '确认题：只有一个复选框，题干就是需要确认的表述'
   if (qtype === 'short_text') return '短文本：最多 200 字'
   if (qtype === 'long_text') return '长文本：最多 2000 字'
-  if (qtype === 'image') return '图片：每题最多 3 张，单张 10MB，前端会自动压缩'
+  if (qtype === 'image') return `图片：每题最多 ${question.max_files || 3} 张，单张 10MB，前端会自动压缩`
   if (qtype === 'file') {
-    return '附件：每题最多 3 个，单个 20MB，支持图片 / 视频 / 音频 / 文档 / 压缩包'
+    return `附件：每题最多 ${question.max_files || 3} 个，单个 50MB，支持图片 / 视频 / 音频 / 文档 / 压缩包`
   }
   if (qtype === 'rating') return '评分：1–5 分'
   return ''
@@ -508,6 +517,7 @@ function buildQuestions() {
       title: question.title.trim(),
       qtype: question.qtype,
       required: question.required,
+      max_files: UPLOAD_TYPES.has(question.qtype) ? question.max_files : null,
       options: choice ? question.options.map((option) => option.trim()) : [],
       max_choices:
         question.qtype === 'multiple'
@@ -528,6 +538,9 @@ function firstError() {
   if (!form.questions.length) return '至少一道题'
   for (let i = 0; i < form.questions.length; i += 1) {
     const question = form.questions[i]
+    if (UPLOAD_TYPES.has(question.qtype) && (!Number.isInteger(question.max_files) || question.max_files < 1)) {
+      return `第 ${i + 1} 题的最大上传数量须为正整数`
+    }
     if (!question.title.trim()) return `第 ${i + 1} 题还没写题干`
     if (CHOICE_TYPES.has(question.qtype)) {
       const options = question.options.map((option) => option.trim())

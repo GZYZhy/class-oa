@@ -49,7 +49,7 @@ export const ATTACH_SUFFIXES = [
 ]
 export const ATTACH_ACCEPT = ATTACH_SUFFIXES.join(',')
 export const FILE_MAX_FILES = 3
-export const FILE_MAX_MB = 20
+export const FILE_MAX_MB = 50
 
 /** 出卷时的一道空题 */
 export function blankQuestion(type = 'single') {
@@ -58,7 +58,8 @@ export function blankQuestion(type = 'single') {
     qtype: type,
     required: true,
     options: type === 'confirm' ? [] : ['', ''],
-    max_choices: 2
+    max_choices: 2,
+    max_files: 3
   }
 }
 
@@ -88,7 +89,8 @@ export function questionsFromCollection(collection) {
     options: CHOICE_TYPES.has(question.qtype)
       ? [...(question.options || [])]
       : question.qtype === 'confirm' ? [] : ['', ''],
-    max_choices: question.max_choices || 2
+    max_choices: question.max_choices || 2,
+    max_files: question.max_files || 3
   }))
   return questions.length ? questions : [blankQuestion()]
 }

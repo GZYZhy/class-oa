@@ -1013,7 +1013,7 @@
           <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
           <div class="el-upload__text">将 PDF 文件拖到此处，或<em>点击选择</em></div>
           <template #tip>
-            <div class="el-upload__tip">仅支持 PDF 格式，大小不超过 20MB</div>
+            <div class="el-upload__tip">仅支持 PDF 格式，大小不超过 50MB</div>
           </template>
         </el-upload>
       </div>
@@ -1396,8 +1396,8 @@ async function handleLeaveProofPicked(event) {
   const row = leaveProofRow.value
   leaveProofRow.value = null
   if (!file || !row) return
-  if (file.size > 20 * 1024 * 1024) {
-    return ElMessage.warning('证明文件不能超过 20MB')
+  if (file.size > 50 * 1024 * 1024) {
+    return ElMessage.warning('证明文件不能超过 50MB')
   }
   leaveProofUploading.value = row.id
   try {
@@ -1941,8 +1941,8 @@ const certResultUploadProgress = ref(0)
 function handleCertResultFileChange(file) {
   const raw = file.raw
   if (!raw) return
-  if (raw.size > 20 * 1024 * 1024) {
-    ElMessage.error('文件不能超过 20MB')
+  if (raw.size > 50 * 1024 * 1024) {
+    ElMessage.error('文件不能超过 50MB')
     return
   }
   certResultFile.value = raw

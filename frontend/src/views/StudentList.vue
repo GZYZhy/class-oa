@@ -1447,7 +1447,7 @@ function trackCompress(raw) {
 // 备注附件限制（与后端对应）
 const REMARK_MAX_NEW_ATTACHMENTS = 3
 const REMARK_MAX_TOTAL_ATTACHMENTS = 15
-const REMARK_MAX_ATTACH_SIZE = 20 * 1024 * 1024
+const REMARK_MAX_ATTACH_SIZE = 50 * 1024 * 1024
 const REMARK_ALLOWED_EXTS =
   '.jpg,.jpeg,.png,.gif,.bmp,.webp,.heic,.heif,.mp4,.mov,.m4v,.avi,.mkv,.webm,.mp3,.m4a,.wav,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md,.wps,.et,.dps,.zip,.rar,.7z'
 

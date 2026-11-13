@@ -7,7 +7,7 @@ export function getMyFeedback() {
 
 /** 提交反馈（form-data：正文和附件一起发）
  *
- * 单个附件可达 20MB，超时不用在这里写：request.js 的拦截器看到 FormData
+ * 单个附件可达 50MB，超时不用在这里写：request.js 的拦截器看到 FormData
  * 会放宽到文件传输的时长（原先这里单独写死 120 秒，是全项目唯一一处这么干的，
  * 结果别处的上传都还在用 15 秒）
  *

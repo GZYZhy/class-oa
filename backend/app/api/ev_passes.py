@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import BASE_DIR, settings
+from ..utils.attachments import MAX_ATTACHMENT_BYTES
 from ..database import get_db
 from ..models import EvPassRequest, Student, User
 from ..schemas import (
@@ -81,7 +82,7 @@ EV_PASS_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_LICENSE_EXTENSIONS = {
     ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",
 }
-MAX_LICENSE_SIZE = 20 * 1024 * 1024  # 20MB
+MAX_LICENSE_SIZE = MAX_ATTACHMENT_BYTES  # 50MB
 
 
 def _safe_license_name(original: str) -> str:

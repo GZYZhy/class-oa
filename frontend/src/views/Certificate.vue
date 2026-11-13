@@ -5,7 +5,7 @@
         intro="开具在读证明、实习介绍信等文书。"
         deadline="7 个工作日（仅供参考）"
         :notice="'仅限班委出具的文书；学院或学校证明请另行办理。\n提交前请先与班委联系。'"
-        submitted="依据材料，PDF / 图片 / Word，单个 ≤20MB，最多 3 个，必填"
+        submitted="依据材料，PDF / 图片 / Word，单个 ≤50MB，最多 3 个，必填"
         finished="班委上传的成品（PDF），审批后可下载"
       />
 
@@ -64,10 +64,10 @@
                 </el-button>
                 <template #tip>
                   <div v-if="editingId" class="el-upload__tip">
-                    支持 PDF / 图片 / Word，每个文件不超过 20MB，最多 3 个。超过 1MB 的图片会自动压缩；不重选就沿用当前那批
+                    支持 PDF / 图片 / Word，每个文件不超过 50MB，最多 3 个。超过 1MB 的图片会自动压缩；不重选就沿用当前那批
                   </div>
                   <div v-else class="el-upload__tip">
-                    支持 PDF / 图片 / Word，每个文件不超过 20MB，最多 3 个。超过 1MB 的图片会自动压缩
+                    支持 PDF / 图片 / Word，每个文件不超过 50MB，最多 3 个。超过 1MB 的图片会自动压缩
                   </div>
                 </template>
               </el-upload>
@@ -267,8 +267,8 @@ function handleFileChange(file) {
   })()
 
   file.__compressTask.then(() => {
-    if (file.raw.size > 20 * 1024 * 1024) {
-      ElMessage.error(`文件「${file.name}」超过 20MB`)
+    if (file.raw.size > 50 * 1024 * 1024) {
+      ElMessage.error(`文件「${file.name}」超过 50MB`)
       // 从 fileList 里移除
       fileList.value = fileList.value.filter(f => f.uid !== file.uid)
       return

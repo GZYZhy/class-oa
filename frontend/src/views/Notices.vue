@@ -255,7 +255,7 @@
                   @change="handleAttachChange"
                 />
                 <div class="upload-tip">
-                  最多 {{ maxAttachments }} 个，支持图片 / 视频 / 音频 / 文档 / 压缩包，单文件不超过 20MB。超过 1MB 的图片会自动压缩
+                  最多 {{ maxAttachments }} 个，支持图片 / 视频 / 音频 / 文档 / 压缩包，单文件不超过 50MB。超过 1MB 的图片会自动压缩
                 </div>
               </div>
             </el-form-item>
@@ -397,7 +397,7 @@ import { useBadgeStore } from '@/store/badge'
 const ALLOWED_ATTACHMENT_EXTS =
   '.jpg,.jpeg,.png,.gif,.bmp,.webp,.heic,.heif,.mp4,.mov,.m4v,.avi,.mkv,.webm,.mp3,.m4a,.wav,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md,.wps,.et,.dps,.zip,.rar,.7z'
 const MAX_ATTACHMENTS = 3
-const MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
+const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024
 
 const router = useRouter()
 const route = useRoute()
@@ -627,7 +627,7 @@ async function handleAttachChange(e) {
     }
     // 校验大小
     if (f.size > MAX_ATTACHMENT_SIZE) {
-      ElMessage.warning(`「${f.name}」超过 20MB，已跳过`)
+      ElMessage.warning(`「${f.name}」超过 50MB，已跳过`)
       continue
     }
     // 校验后缀（压缩后的图片后缀是 .jpg）
