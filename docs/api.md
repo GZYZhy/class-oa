@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 2.15.0，共 307 个接口。
+> 版本 2.15.0，共 329 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -3124,7 +3124,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `GET /api/polls`
 
-只列我该看得见的：管理员和发起人看全部，其他人在表决名单里才看得见 status 传了别的值就当没传（前端只会传这三个或空）。
+只列我该看得见的：管理员、发起人和共同管理人看全部，其他人在表决名单里才看得见 status 传了别的值就当没传（前端只会传这三个或空）。
 
 **参数**
 
@@ -3161,15 +3161,17 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `questions` 的字段：
 
-  - `title`：string（必填）
-  - `multiple`：boolean
+  - `title`：string（必填，支持多行与 `[文字](链接)`、`![说明](图片)`）
+  - `qtype`：string，`single` / `multiple` / `confirm`
+  - `required`：boolean，仅确认题可设为选答
+  - `multiple`：boolean，兼容旧字段
   - `max_choices`：integer（≥1，默认 1）
-  - `options`：string[]（必填）
+  - `options`：string[]；确认题为空数组
 
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`manager_nos`、`can_edit_managers`、`results_published_at`、`results_pending`、`questions`
 
 ### 出卷可选的学生名单（班委及以上）
 
@@ -3203,7 +3205,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `GET /api/polls/{poll_id}`
 
-题目 + 我的作答 + 结果（看不到结果时 tallies 是 None）+ can_vote 记名投票**不额外标注**，不记名才标出来（用户口径）：anonymous 字段就够了。
+题目 + 我的作答 + 结果（看不到结果时 tallies 是 None）+ can_vote。题目带 qtype / required；确认题带 confirmed_count（已确认人数，结果不可见时为 null）。 记名投票**不额外标注**，不记名才标出来（用户口径）：anonymous 字段就够了。
 
 **参数**
 
@@ -3214,7 +3216,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`manager_nos`、`can_edit_managers`、`results_published_at`、`results_pending`、`questions`
 
 ### 编辑投票（发起人/管理员）
 
@@ -3243,7 +3245,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`manager_nos`、`can_edit_managers`、`results_published_at`、`results_pending`、`questions`
 
 ### 删除投票（发起人/管理员）
 
@@ -3265,7 +3267,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `POST /api/polls/{poll_id}/vote`
 
-一人一卷、整卷一次提交，**投过就不能再投**（不许改票） 下面三个判断合起来就是 poll_service.can_vote，拆开写只是为了让每种情况都回一句 说得清楚的话（can_vote 那边是个布尔，够 detail 用）。
+一人一卷、整卷一次提交，**投过就不能再投**（不许改票）。表决名单内所有人投完后，只给发起人发一次站内信和推送，不会自动结束。确认题未标记必答时允许不确认提交。 下面三个判断合起来就是 poll_service.can_vote，拆开写只是为了让每种情况都回一句 说得清楚的话（can_vote 那边是个布尔，够 detail 用）。
 
 **参数**
 
@@ -3287,7 +3289,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`manager_nos`、`can_edit_managers`、`results_published_at`、`results_pending`、`questions`
 
 ### 投票名单与记名明细（发起人/管理员）
 
@@ -3327,7 +3329,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `POST /api/polls/{poll_id}/close`
 
-手动结束：把 closed_at 记成此刻。**重复调用幂等** 幂等不只是「不报错」：已经结束就不再改写 closed_at（否则「什么时候结束的」会 被每次点击往后推），也不再记日志（否则操作日志里会出现一串假记录）。 写 closed_at 而不是改 end_at —— 改了就再也看不出这场原本打算什么时候截止。
+手动结束：把 closed_at 记成此刻。**重复调用幂等** 幂等不只是「不报错」：已经结束就不再改写 closed_at（否则「什么时候结束的」会 被每次点击往后推），也不再记日志（否则操作日志里会出现一串假记录）。 写 closed_at 而不是改 end_at —— 改了就再也看不出这场原本打算什么时候截止。结束后结果进入「待发布」，参与人暂时看不到票数，需要管理者调用发布结果接口。
 
 **参数**
 
@@ -3339,6 +3341,47 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 - `200` `PollCloseResponse` — 成功
   - 字段：`status`、`voted_count`
+
+### 设置共同管理人（发起人/管理员）
+
+`PUT /api/polls/{poll_id}/managers`
+
+发起人或管理员指定其他班委/管理员共同管理本场投票；传空数组即撤回全部授权。
+共同管理人可以查看、催票、暂停/恢复、结束、删除和发布结果，但不能修改管理授权；
+系统管理员始终可管理。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `poll_id` | path | 是 | integer |  |
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `manager_nos` | string[] | 是 | 共同管理人学号；只能是班委或管理员 |
+
+**响应**
+
+- `200` `PollDetailResponse` — 成功
+
+### 发布投票结果（发起人/共同管理人/管理员）
+
+`POST /api/polls/{poll_id}/publish-results`
+
+投票结束后结果默认对参与人隐藏。有管理权的人调用本接口发布后，参与人才可查看票数；
+重复调用幂等。投票未结束时返回 400。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `poll_id` | path | 是 | integer |  |
+
+**响应**
+
+- `200` `PollDetailResponse` — 成功
 
 ### 延长投票截止时间 5 分钟（发起人/管理员）
 
@@ -3355,7 +3398,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`manager_nos`、`can_edit_managers`、`results_published_at`、`results_pending`、`questions`
 
 ### 暂停投票（发起人/管理员）
 
@@ -3372,7 +3415,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`manager_nos`、`can_edit_managers`、`results_published_at`、`results_pending`、`questions`
 
 ### 恢复投票（发起人/管理员）
 
@@ -3389,7 +3432,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `PollDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`status`、`start_at`、`end_at`、`closed_at`、`creator_no`、`creator_name`、`created_at`、`notify_on_start`、`start_notified_at`、`question_count`、`scope_label`、`target_count`、`voted_count`、`is_target`、`has_voted`、`results_visible`、`can_manage`、`can_vote`、`manager_nos`、`can_edit_managers`、`results_published_at`、`results_pending`、`questions`
 
 ## 投票收集
 
@@ -3397,7 +3440,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 
 `GET /api/collections`
 
-只列我该看得见的；搜索和状态筛选都在 SQL 里，分页才对
+只列我该看得见的：管理员、发起人和共同管理人看全部，其他人在填写范围内才看得见；搜索和状态筛选都在 SQL 里，分页才对
 
 **参数**
 
@@ -3438,15 +3481,15 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 `questions` 的字段：
 
   - `title`：string（必填）
-  - `qtype`：string（必填）—— `single` / `multiple` / `short_text` / `long_text` / `image` / `file` / `rating`
-  - `required`：boolean
-  - `options`：string[]
+  - `qtype`：string（必填）—— `single` / `multiple` / `confirm` / `short_text` / `long_text` / `image` / `file` / `rating`
+  - `required`：boolean；确认题设为 false 时可不勾选提交
+  - `options`：string[]；确认题为空数组
   - `max_choices`：integer（≥1），可空
 
 **响应**
 
 - `200` `CollectionDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`manager_nos`、`can_edit_managers`、`questions`
 
 ### 收集分享页公开信息（无需登录）
 
@@ -3478,7 +3521,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CollectionDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`manager_nos`、`can_edit_managers`、`questions`
 
 ### 编辑收集（发起人/管理员）
 
@@ -3510,7 +3553,30 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CollectionDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`manager_nos`、`can_edit_managers`、`questions`
+
+### 设置共同管理人（发起人/管理员）
+
+`PUT /api/collections/{collection_id}/managers`
+
+发起人或管理员指定其他班委/管理员共同管理本场收集；传空数组即撤回全部授权。
+共同管理人可查看答卷、提醒、导出、暂停/恢复、结束和删除；管理员始终可管理。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `collection_id` | path | 是 | integer |  |
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `manager_nos` | string[] | 是 | 共同管理人学号；只能是班委或管理员 |
+
+**响应**
+
+- `200` `CollectionDetailResponse` — 成功
 
 ### 删除收集（发起人/管理员）
 
@@ -3556,7 +3622,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CollectionDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`manager_nos`、`can_edit_managers`、`questions`
 
 ### 恢复收集（发起人/管理员）
 
@@ -3573,7 +3639,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CollectionDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`manager_nos`、`can_edit_managers`、`questions`
 
 ### 延长收集截止时间 5 分钟（发起人/管理员）
 
@@ -3590,7 +3656,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `CollectionDetailResponse` — 成功
-  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`questions`
+  - 字段：`id`、`share_token`、`title`、`description`、`anonymous`、`allow_withdraw`、`status`、`start_at`、`end_at`、`closed_at`、`creator_name`、`created_at`、`question_count`、`target_count`、`submitted_count`、`submitted_people`、`completed_count`、`scope_label`、`submit_quota`、`max_responses`、`response_count`、`remaining_slots`、`cap_reached`、`my_submitted_count`、`my_remaining`、`quota_reached`、`is_target`、`can_manage`、`can_submit`、`notify_on_start`、`start_notified_at`、`manager_nos`、`can_edit_managers`、`questions`
 
 ### 答卷列表（发起人/管理员，按提交时间排序）
 
@@ -3622,11 +3688,13 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | --- | --- | --- | --- | --- |
 | `collection_id` | path | 是 | integer |  |
 
+竞争名额满，或范围内每人填满份数后，只给发起人发一次站内信和推送，不会自动结束。
+
 **请求体**（`application/json`，JSON）
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `answers` | CollectionAnswerIn[] | 是 |  |
+| `answers` | CollectionAnswerIn[] | 是 | 确认题用 `choices=[0]` 表示已确认，`[]` 表示未确认 |
 | `duration_seconds` | integer（≥0，≤86400），可空 | 否 |  |
 | `on_behalf_of` | string，可空（≤20） | 否 | 管理员代填的目标学号；普通用户传了会被拒绝 |
 
