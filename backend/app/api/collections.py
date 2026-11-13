@@ -62,6 +62,7 @@ from ..schemas import (
     CollectionDetailResponse,
     CollectionFileResponse,
     CollectionListResponse,
+    CollectionManagersUpdate,
     CollectionPendingResponse,
     CollectionQuestionIn,
     CollectionResponseList,
@@ -105,6 +106,7 @@ from ..services.collection_service import (
     collection_status,
     detail as collection_detail,
     filter_visible,
+    is_full as collection_is_full,
     has_submissions,
     is_target,
     list_items,
@@ -168,11 +170,56 @@ def _load_visible(
 def _load_manageable(
     db: Session, collection_id: int, user: User, admin: bool
 ) -> Collection:
-    """看详情 / 提醒 / 导出 / 关闭：发起人和管理员"""
+    """看详情 / 提醒 / 导出 / 关闭：发起人、共同管理人、管理员"""
     collection = _get_collection(db, collection_id)
     if not can_manage(collection, user.student_no, admin):
         raise HTTPException(status_code=404, detail="收集不存在")
     return collection
+
+
+def _clean_manager_nos(db: Session, manager_nos: list[str]) -> list[str]:
+    unique = list(dict.fromkeys(
+        str(no).strip() for no in manager_nos if str(no).strip()
+    ))
+    if not unique:
+        return []
+    users = db.query(User).filter(User.student_no.in_(unique)).all()
+    by_no = {user.student_no: user for user in users}
+    invalid = [
+        no for no in unique
+        if no not in by_no or by_no[no].role not in ("committee", "admin")
+    ]
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"只能指定班委或管理员共同管理：{'、'.join(invalid)}",
+        )
+    return unique
+
+
+@router.put(
+    "/{collection_id}/managers",
+    response_model=CollectionDetailResponse,
+    summary="设置共同管理人",
+)
+def update_managers(
+    collection_id: int,
+    data: CollectionManagersUpdate,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    admin = is_admin(user)
+    collection = _load_visible(db, collection_id, user, admin)
+    if not (admin or collection.creator_no == user.student_no):
+        raise HTTPException(status_code=403, detail="只有发起人或管理员可以修改管理授权")
+    manager_nos = _clean_manager_nos(db, data.manager_nos)
+    collection.manager_nos = json.dumps(manager_nos, ensure_ascii=False)
+    log_operation(
+        db, user, action="收集管理授权", target=collection.title,
+        detail=f"共同管理人 {len(manager_nos)} 人",
+    )
+    db.commit()
+    return collection_detail(db, collection, user.student_no, admin)
 
 
 # ---------- 出卷校验 ----------
@@ -849,6 +896,7 @@ def _answer_is_empty(qtype: str, answer: CollectionAnswerIn | None) -> bool:
 def submit_response(
     collection_id: int,
     data: CollectionSubmitIn,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     ip: str = Depends(get_client_ip),
@@ -1124,6 +1172,27 @@ def submit_response(
     # 交完这一份，这场收集的「开始 / 提醒填写」对 target_no 就不再是待办。
     # 代填时清的是被代填同学的（target_no），当前管理员自己的消息不动
     settle_topic(db, f"collection:{collection.id}", student_no=target_no)
+
+    # 收集满只通知发起人，不自动结束；full_notified_at 防止重复推送
+    db.refresh(collection)
+    if collection.full_notified_at is None and collection_is_full(db, collection):
+        collection.full_notified_at = datetime.now()
+        reason = (
+            "竞争名额已满"
+            if cap_reached(collection)
+            else "范围内的同学已经全部填满"
+        )
+        notify(
+            db,
+            background,
+            recipients(db, only_no=collection.creator_no),
+            f"收集已满：{collection.title}",
+            f"{reason}；收集不会自动结束，可以继续查看答卷或手动结束。",
+            level="active",
+            page=share_path("collect", collection_share_token(collection.id)),
+            topic=f"collection:{collection.id}",
+        )
+        db.commit()
 
     db.refresh(collection)
     my_count = count + 1

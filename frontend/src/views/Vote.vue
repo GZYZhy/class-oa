@@ -75,6 +75,7 @@
         <el-table-column label="状态" width="96">
           <template #default="{ row }">
             <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+            <div v-if="row.results_pending" class="vt-sub">结果待发布</div>
           </template>
         </el-table-column>
         <el-table-column label="题数" width="70" align="center">
@@ -118,6 +119,9 @@
                   <el-dropdown-menu>
                     <el-dropdown-item command="edit">编辑</el-dropdown-item>
                     <el-dropdown-item command="roster">投票名单</el-dropdown-item>
+                    <el-dropdown-item v-if="row.can_edit_managers" command="managers">
+                      管理授权
+                    </el-dropdown-item>
                     <!-- 管理入口走弹窗后，仍要从这里去到统一的投票页（自己也要投的时候用） -->
                     <el-dropdown-item command="openSharePage">
                       {{ row.can_vote ? '去投票' : '打开投票页' }}
@@ -176,6 +180,7 @@
             {{ statusLabel(resultPoll.status) }}
           </el-tag>
           <el-tag v-if="resultPoll.anonymous" type="warning" size="small">不记名</el-tag>
+          <el-tag v-if="resultPoll.results_pending" type="info" size="small">结果待发布</el-tag>
           <span class="vt-sub">
             {{ formatDateTime(resultPoll.start_at) }} 起，{{ formatDateTime(resultPoll.end_at) }} 截止
           </span>
@@ -221,7 +226,11 @@
                 </div>
               </div>
             </template>
-            <el-empty v-else description="投票结束后才能看到结果" :image-size="80" />
+            <el-empty
+              v-else
+              :description="resultPoll.status === 'closed' ? '结果待发起人发布' : '投票结束后才能看到结果'"
+              :image-size="80"
+            />
           </el-tab-pane>
 
           <el-tab-pane v-if="resultPoll.can_manage" label="投票名单" name="roster">
@@ -268,9 +277,25 @@
       </div>
       <template #footer>
         <el-button @click="resultVisible = false">关闭</el-button>
+        <el-button
+          v-if="resultPoll.can_manage && resultPoll.status === 'closed' && !resultPoll.results_published_at"
+          type="primary"
+          :loading="publishing"
+          @click="handlePublishResults"
+        >
+          发布结果
+        </el-button>
       </template>
     </el-dialog>
 
+    <ManagerGrantDialog
+      v-if="managerDialog.row"
+      v-model="managerDialog.open"
+      kind="poll"
+      :id="managerDialog.row.id"
+      :manager-nos="managerDialog.row.manager_nos || []"
+      @saved="fetchList"
+    />
     <PollCreateDialog ref="createRef" @saved="handleSaved" />
     <VoteShareDialog v-model="shareVisible" :link="shareLink" :poll="sharePoll" />
   </div>
@@ -285,6 +310,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PollCreateDialog from '@/components/PollCreateDialog.vue'
+import ManagerGrantDialog from '@/components/ManagerGrantDialog.vue'
 import VoteShareDialog from '@/components/VoteShareDialog.vue'
 import Watermark from '@/components/Watermark.vue'
 import CollectPanel from '@/views/CollectPanel.vue'
@@ -296,6 +322,7 @@ import {
   getPoll,
   getPolls,
   lockPoll,
+  publishPollResults,
   remindPoll,
   unlockPoll
 } from '@/api/vote'
@@ -356,6 +383,8 @@ const resultVisible = ref(false)
 const resultLoading = ref(false)
 const resultPoll = ref({})
 const resultTab = ref('tally')
+const publishing = ref(false)
+const managerDialog = ref({ open: false, row: null })
 /** 票数页是不是按得票从多到少排。只是个看的习惯，换一场投票不用重设 */
 const tallySorted = ref(false)
 const ballots = ref({ total: 0, voted_count: 0, rows: [] })
@@ -591,6 +620,10 @@ function handleCommand(command, row) {
   if (command === 'share') return openShare(row)
   if (command === 'openSharePage') return openSharePage(row)
   if (command === 'edit') return handleEdit(row)
+  if (command === 'managers') {
+    managerDialog.value = { open: true, row }
+    return
+  }
   if (command === 'roster') return openDetail(row, 'roster')
   if (command === 'toggleLock') return handleToggleLock(row)
   if (command === 'extend') return handleExtend(row)
@@ -663,7 +696,7 @@ async function handleExtend(row) {
 
 async function handleClose(row) {  try {
     await ElMessageBox.confirm(
-      '结束后所有人立刻能看到结果，还没投的人也不能再投。确定现在结束吗？',
+      '结束后不能再投，结果会先进入待发布；发布后参与人才能看到。确定现在结束吗？',
       '立即结束',
       { type: 'warning', confirmButtonText: '结束投票', cancelButtonText: '取消' }
     )
@@ -680,6 +713,20 @@ async function handleClose(row) {  try {
     }
   } catch (e) {
     ElMessage.error(errText(e, '结束失败'))
+  }
+}
+
+async function handlePublishResults() {
+  publishing.value = true
+  try {
+    await publishPollResults(resultPoll.value.id)
+    ElMessage.success('结果已发布')
+    await refreshResult()
+    fetchList()
+  } catch (e) {
+    ElMessage.error(errText(e, '发布失败'))
+  } finally {
+    publishing.value = false
   }
 }
 

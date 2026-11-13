@@ -30,6 +30,7 @@ from ..schemas import (
     PollCreate,
     PollDetailResponse,
     PollListResponse,
+    PollManagersUpdate,
     PollRemindResponse,
     PollRosterResponse,
     PollShareResponse,
@@ -655,10 +656,80 @@ def get_poll(
     return detail(db, poll, user.student_no, is_admin(user))
 
 
+def _clean_manager_nos(db: Session, manager_nos: list[str]) -> list[str]:
+    """只允许把其他班委/管理员加为共同管理人"""
+    unique = list(dict.fromkeys(
+        str(no).strip() for no in manager_nos if str(no).strip()
+    ))
+    if not unique:
+        return []
+    users = db.query(User).filter(User.student_no.in_(unique)).all()
+    by_no = {user.student_no: user for user in users}
+    invalid = [
+        no for no in unique
+        if no not in by_no or by_no[no].role not in ("committee", "admin")
+    ]
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"只能指定班委或管理员共同管理：{'、'.join(invalid)}",
+        )
+    return unique
+
+
+@router.put("/{poll_id}/managers", response_model=PollDetailResponse, summary="设置共同管理人")
+def update_managers(
+    poll_id: int,
+    data: PollManagersUpdate,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    admin = is_admin(user)
+    poll = _load_visible(db, poll_id, user, admin)
+    if not (admin or poll.creator_no == user.student_no):
+        raise HTTPException(status_code=403, detail="只有发起人或管理员可以修改管理授权")
+    manager_nos = _clean_manager_nos(db, data.manager_nos)
+    poll.manager_nos = json.dumps(manager_nos, ensure_ascii=False)
+    log_operation(
+        db, user, action="投票管理授权", target=poll.title,
+        detail=f"共同管理人 {len(manager_nos)} 人",
+        ip=get_client_ip(request),
+    )
+    db.commit()
+    return detail(db, poll, user.student_no, admin)
+
+
+@router.post(
+    "/{poll_id}/publish-results",
+    response_model=PollDetailResponse,
+    summary="发布投票结果",
+)
+def publish_results(
+    poll_id: int,
+    request: Request,
+    user: User = Depends(committee_required),
+    db: Session = Depends(get_db),
+):
+    admin = is_admin(user)
+    poll = _load_manageable(db, poll_id, user, admin)
+    if poll_status(poll) != STATUS_CLOSED:
+        raise HTTPException(status_code=400, detail="投票结束后才能发布结果")
+    if poll.results_published_at is None:
+        poll.results_published_at = datetime.now()
+        log_operation(
+            db, user, action="发布投票结果", target=poll.title,
+            detail="结果对参与人可见", ip=get_client_ip(request),
+        )
+        db.commit()
+    return detail(db, poll, user.student_no, admin)
+
+
 @router.post("/{poll_id}/vote", response_model=PollDetailResponse, summary="投票（整卷一次提交）")
 def vote(
     poll_id: int,
     data: PollVoteIn,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -713,6 +784,26 @@ def vote(
 
     # 投完这一票，这场投票的「开始 / 催票」对他就自动算已读（只清他自己的）
     settle_topic(db, f"poll:{poll.id}", student_no=user.student_no)
+
+    # 投满只通知发起人，不自动结束；并发下可能多人同时看到「满了」，
+    # full_notified_at 保证只发一次
+    if poll.full_notified_at is None:
+        target_count = (
+            db.query(PollTarget).filter(PollTarget.poll_id == poll.id).count()
+        )
+        if target_count and voted_count(db, poll.id) >= target_count:
+            poll.full_notified_at = datetime.now()
+            notify(
+                db,
+                background,
+                recipients(db, only_no=poll.creator_no),
+                f"投票已满：{poll.title}",
+                f"{target_count} 位表决人已全部投票；投票不会自动结束，可以继续查看或手动结束。",
+                level="active",
+                page=share_path("vote", poll_share_token(poll.id)),
+                topic=f"poll:{poll.id}",
+            )
+            db.commit()
 
     # 投票本身**不写操作日志**：一次投票一人一条，几十条会把日志淹掉。
     # 「谁投了什么」由 ballots 接口负责（记名时），那里才是该看的地方

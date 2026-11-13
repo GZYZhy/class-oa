@@ -76,6 +76,9 @@ class Collection(Base):
         DateTime, nullable=True, comment="开始提醒已发送的时刻，空=还没发",
     )
 
+    manager_nos = Column(Text, default="", comment="共同管理人学号 JSON 数组")
+    full_notified_at = Column(DateTime, nullable=True, comment="收集满通知已发送的时刻")
+
     submit_quota = Column(
         Integer, nullable=False, default=1, server_default=text("1"),
         comment="每人最多可填几份",

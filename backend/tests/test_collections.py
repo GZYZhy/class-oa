@@ -975,3 +975,54 @@ def test_withdraw_releases_competitive_slot(cb):
 
     _login(cb, OTHER, OTHER_PW)
     assert _submit(cb, cid, [{"question_id": qid, "text": "补位"}]).status_code == 200
+
+
+def test_collection_manager_grant_and_revoke(cb):
+    candidate = OTHER
+    cb.logout()
+    assert cb.login(student_no=ADMIN, password=ADMIN_PW).status_code == 200
+    assert cb.client.put(f"/api/admin/users/{candidate}/role", json={
+        "role": "committee",
+    }).status_code < 300
+    cb.logout()
+    assert cb.login(student_no=CREATOR, password=CREATOR_PW).status_code == 200
+
+    collection = _create(cb)
+    cid = collection["id"]
+    r = cb.client.put(f"/api/collections/{cid}/managers", json={
+        "manager_nos": [candidate],
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["manager_nos"] == [candidate]
+
+    cb.logout()
+    assert cb.login(student_no=candidate, password=OTHER_PW).status_code == 200
+    detail = cb.client.get(f"/api/collections/{cid}").json()
+    assert detail["can_manage"] is True
+
+    _login(cb, CREATOR, CREATOR_PW)
+    assert cb.client.put(f"/api/collections/{cid}/managers", json={
+        "manager_nos": [],
+    }).status_code == 200
+    _login(cb, candidate, OTHER_PW)
+    assert cb.client.get(f"/api/collections/{cid}").status_code == 404
+
+    _login(cb, ADMIN, ADMIN_PW)
+    assert cb.client.get(f"/api/collections/{cid}").status_code == 200
+
+
+def test_full_collection_notifies_creator_without_closing(cb):
+    collection = _create(cb)
+    cid = collection["id"]
+    qid = collection["questions"][0]["id"]
+    _login(cb, VOTER, VOTER_PW)
+    r = _submit(cb, cid, [{"question_id": qid, "text": "完成"}])
+    assert r.status_code == 200, r.text
+
+    row = cb.rows(
+        "SELECT full_notified_at, closed_at FROM collections WHERE id = ?", cid
+    )[0]
+    assert row[0] is not None
+    assert row[1] is None, "收集满不能自动结束"
+    titles = [r[0] for r in cb.rows("SELECT title FROM inbox_messages")]
+    assert any("收集已满" in title for title in titles)

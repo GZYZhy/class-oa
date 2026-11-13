@@ -111,6 +111,15 @@
             </div>
           </div>
         </div>
+
+        <el-alert
+          v-if="poll.in_scope && poll.status === 'closed' && !poll.results_visible"
+          type="info"
+          :closable="false"
+          show-icon
+          title="投票已结束，结果待发起人发布"
+          class="sv-pending"
+        />
       </div>
     </template>
   </ShareLayout>
@@ -321,6 +330,10 @@ onUnmounted(() => {
 
 .sv-alert {
   margin-bottom: 12px;
+}
+
+.sv-pending {
+  margin-top: 16px;
 }
 
 .sv-results {

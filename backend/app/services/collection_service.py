@@ -141,18 +141,34 @@ def is_target(db: Session, collection_id: int, student_no: str) -> bool:
     )
 
 
+def manager_nos(collection: Collection) -> list[str]:
+    """共同管理人学号；坏 JSON 当没有"""
+    try:
+        value = json.loads(collection.manager_nos or "[]")
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
 def can_manage(collection: Collection, student_no: str, admin: bool) -> bool:
-    """看详情、提醒、导出、关闭：发起人和管理员"""
-    return admin or collection.creator_no == student_no
+    """看详情、提醒、导出、关闭：发起人、共同管理人、管理员"""
+    return (
+        admin
+        or collection.creator_no == student_no
+        or student_no in manager_nos(collection)
+    )
 
 
 def filter_visible(db: Session, query, student_no: str, admin: bool):
-    """列表收窄：管理员看全部；其他人只看自己发起或自己在范围内的"""
+    """列表收窄：管理员看全部；其他人只看自己发起/共同管理或自己在范围内的"""
     if admin:
         return query
     return query.filter(
         or_(
             Collection.creator_no == student_no,
+            Collection.manager_nos.like(f'%"{student_no}"%'),
             Collection.id.in_(
                 db.query(CollectionTarget.collection_id).filter(
                     CollectionTarget.student_no == student_no
@@ -160,6 +176,27 @@ def filter_visible(db: Session, query, student_no: str, admin: bool):
             ),
         )
     )
+
+
+def is_full(db: Session, collection: Collection) -> bool:
+    """收集是否已完成：竞争名额满，或范围内每个人都填满了自己的份数"""
+    if cap_reached(collection):
+        return True
+    target_nos = {
+        no
+        for (no,) in db.query(CollectionTarget.student_no).filter(
+            CollectionTarget.collection_id == collection.id
+        )
+    }
+    if not target_nos:
+        return False
+    counts = dict(
+        db.query(CollectionSubmission.student_no, func.count())
+        .filter(CollectionSubmission.collection_id == collection.id)
+        .group_by(CollectionSubmission.student_no)
+        .all()
+    )
+    return all(counts.get(no, 0) >= collection.submit_quota for no in target_nos)
 
 
 def cap_reached(collection: Collection) -> bool:
@@ -417,6 +454,10 @@ def list_items(
                 "created_at": collection.created_at,
                 "notify_on_start": bool(collection.notify_on_start),
                 "start_notified_at": collection.start_notified_at,
+                "manager_nos": manager_nos(collection),
+                "can_edit_managers": bool(
+                    admin or (student_no and collection.creator_no == student_no)
+                ),
                 "question_count": counts["questions"].get(collection.id, 0),
                 "target_count": counts["targets"].get(collection.id, 0),
                 "submitted_count": counts["submissions"].get(collection.id, 0),

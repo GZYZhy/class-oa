@@ -6644,3 +6644,29 @@ await server.close()
 console.log(`\n${'='.repeat(46)}`)
 console.log(failed ? `失败 ${failed} 条` : '全部通过')
 process.exit(failed ? 1 : 0)
+
+console.log('\n▶ 投票/收集：共同管理人、投满通知、结果发布')
+{
+  const voteSrc = readFileSync(`${ROOT}src/views/Vote.vue`, 'utf8')
+  const collectSrc = readFileSync(`${ROOT}src/views/CollectPanel.vue`, 'utf8')
+  const managerSrc = readFileSync(`${ROOT}src/components/ManagerGrantDialog.vue`, 'utf8')
+  check(voteSrc.includes('ManagerGrantDialog') && collectSrc.includes('ManagerGrantDialog') &&
+    managerSrc.includes('updatePollManagers') && managerSrc.includes('updateCollectionManagers'),
+  '投票和收集都能指定/撤回共同管理人')
+  check(voteSrc.includes("command=\"managers\"") && collectSrc.includes("command=\"managers\""),
+    '管理授权入口在管理菜单里')
+  check(voteSrc.includes('publishPollResults') && voteSrc.includes('results_pending') &&
+    voteSrc.includes('发布结果'), '投票结果结束后待发布，可由管理者点击发布')
+  const voteApiSrc = readFileSync(`${ROOT}src/api/vote.js`, 'utf8')
+  const collectApiSrc = readFileSync(`${ROOT}src/api/collection.js`, 'utf8')
+  check(voteApiSrc.includes("`/polls/${id}/managers`") &&
+    voteApiSrc.includes("`/polls/${id}/publish-results`") &&
+    collectApiSrc.includes("`/collections/${id}/managers`"),
+  '共同管理与结果发布接口已接入')
+}
+
+console.log('\n▶ 投票结果待发布：分享页提示')
+{
+  const src = readFileSync(`${ROOT}src/views/share/ShareVote.vue`, 'utf8')
+  check(src.includes('结果待发起人发布'), '参与者在结果发布前看到明确提示')
+}

@@ -94,6 +94,10 @@ class PollAnswerIn(BaseModel):
     choices: list[int] = Field(..., description="选中选项的**下标**")
 
 
+class PollManagersUpdate(BaseModel):
+    manager_nos: list[str] = Field(default_factory=list, max_length=50)
+
+
 class PollVoteIn(BaseModel):
     """整卷一次提交，每题一条
 
@@ -152,6 +156,10 @@ class PollListItem(BaseModel):
     # 开始提醒：出卷人指定；start_notified_at 非空表示已经发过，不能再改
     notify_on_start: bool = True
     start_notified_at: datetime | None = None
+    manager_nos: list[str] = Field(default_factory=list)
+    can_edit_managers: bool = False
+    results_published_at: datetime | None = None
+    results_pending: bool = False
 
     question_count: int = 0
     scope_label: str = Field("", description="全班 / 班委 / 团员 / 定向 N 人")

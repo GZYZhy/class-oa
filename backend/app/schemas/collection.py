@@ -147,6 +147,12 @@ class CollectionListItem(BaseModel):
 
     notify_on_start: bool = True
     start_notified_at: datetime | None = None
+    manager_nos: list[str] = Field(default_factory=list)
+    can_edit_managers: bool = False
+
+
+class CollectionManagersUpdate(BaseModel):
+    manager_nos: list[str] = Field(default_factory=list, max_length=50)
 
 
 class CollectionDetailResponse(CollectionListItem):

@@ -74,6 +74,15 @@ class Poll(Base):
         DateTime, nullable=True, comment="开始提醒已发送的时刻，空=还没发",
     )
 
+    # 发起人指定的共同管理人学号（JSON 数组）。管理员始终可管理，不写进这里
+    manager_nos = Column(Text, default="", comment="共同管理人学号 JSON 数组")
+    # 投满的推送已经发过的时刻，空=还没发
+    full_notified_at = Column(DateTime, nullable=True, comment="投满通知已发送的时刻")
+    # 结束后结果默认待发布；有管理权的人发布后参与者才看得到
+    results_published_at = Column(
+        DateTime, nullable=True, comment="结果发布时刻，空=待发布（仅对管理者可见）"
+    )
+
 
 class PollTarget(Base):
     """谁有权表决（一人一行）

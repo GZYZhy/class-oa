@@ -117,6 +117,11 @@ NEW_COLUMNS = [
     # 投票确认题：旧行按 multiple 回填 qtype，required 默认必答
     ("poll_questions", "qtype", "VARCHAR(20) NOT NULL DEFAULT 'single'"),
     ("poll_questions", "required", "BOOLEAN NOT NULL DEFAULT 1"),
+    ("polls", "manager_nos", "TEXT DEFAULT ''"),
+    ("polls", "full_notified_at", "DATETIME"),
+    ("polls", "results_published_at", "DATETIME"),
+    ("collections", "manager_nos", "TEXT DEFAULT ''"),
+    ("collections", "full_notified_at", "DATETIME"),
     # ---------- 天气卡地点：从 .env 迁到管理员配置 ----------
     # 三列都有安全默认：老库补列后天气卡先显示「未配置」，由管理员在后台填；
     # 上线时会用现有 .env 的值把这一行补齐，用户无感
@@ -498,6 +503,7 @@ def run_migrations() -> None:
     webhook_enabled_added = False
     poll_start_notified_added = False
     poll_qtype_added = False
+    poll_results_publish_added = False
     checkin_start_notified_added = False
     weather_interval_added = False
     with engine.begin() as conn:
@@ -517,6 +523,8 @@ def run_migrations() -> None:
                 poll_start_notified_added = True
             if table == "poll_questions" and column == "qtype":
                 poll_qtype_added = True
+            if table == "polls" and column == "results_published_at":
+                poll_results_publish_added = True
             if table == "checkins" and column == "start_notified_at":
                 checkin_start_notified_added = True
             if table == "weather_banner_settings" and column == "notify_interval_minutes":
@@ -539,6 +547,19 @@ def run_migrations() -> None:
                 "UPDATE poll_questions SET qtype = 'multiple' "
                 "WHERE multiple = 1 AND qtype = 'single'"
             ))
+
+        if poll_results_publish_added:
+            # 老版本没有「结果发布」这一步，历史投票一结束就等于公开；
+            # 补列时把这些旧结果标成已发布，避免升级后整批变成待发布。
+            conn.execute(
+                text(
+                    "UPDATE polls SET results_published_at = "
+                    "COALESCE(closed_at, end_at, created_at) "
+                    "WHERE results_published_at IS NULL "
+                    "AND (closed_at IS NOT NULL OR end_at < :now)"
+                ),
+                {"now": datetime.now()},
+            )
 
         if checkin_start_notified_added:
             _backfill_checkin_start_notified(conn)

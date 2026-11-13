@@ -130,3 +130,17 @@ export function unlockPoll(id) {
 export function deletePoll(id) {
   return request({ url: `/polls/${id}`, method: 'delete' })
 }
+
+/** 设置共同管理人（发起人或管理员） */
+export function updatePollManagers(id, managerNos) {
+  return request({
+    url: `/polls/${id}/managers`,
+    method: 'put',
+    data: { manager_nos: managerNos }
+  })
+}
+
+/** 发布投票结果（仅结束后；发起人、共同管理人、管理员） */
+export function publishPollResults(id) {
+  return request({ url: `/polls/${id}/publish-results`, method: 'post' })
+}

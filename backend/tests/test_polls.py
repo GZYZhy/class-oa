@@ -944,3 +944,78 @@ def test_migration_adds_locked_at(backend):
     detail = b2.client.get(f"/api/polls/{pid}").json()
     assert detail["status"] == "open", "补列前就在进行的投票，不该凭空变成已暂停"
     assert b2.client.post(f"/api/polls/{pid}/lock").json()["status"] == "locked"
+
+
+def test_manager_grant_revoke_and_admin_always_manage(pe):
+    candidate = "2024000004"
+    # 提成班委
+    pe.logout()
+    assert pe.login(student_no=ADMIN, password=ADMIN_PW).status_code == 200
+    assert pe.client.put(f"/api/admin/users/{candidate}/role", json={
+        "role": "committee",
+    }).status_code < 300
+    pe.logout()
+    assert pe.login(student_no=CREATOR, password=CREATOR_PW).status_code == 200
+
+    pid = _create(pe, start=-1, end=2)
+    r = pe.client.put(f"/api/polls/{pid}/managers", json={
+        "manager_nos": [candidate],
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["manager_nos"] == [candidate]
+
+    # 共同管理人不是表决范围内的普通参与者，也能看到并管理
+    pe.logout()
+    assert pe.login(student_no=candidate, password="010004").status_code == 200
+    detail = pe.client.get(f"/api/polls/{pid}").json()
+    assert detail["is_target"] is False
+    assert detail["can_manage"] is True
+    assert pe.client.post(f"/api/polls/{pid}/close").status_code == 200
+
+    # 撤回授权后立即失去管理入口
+    _as_creator(pe)
+    assert pe.client.put(f"/api/polls/{pid}/managers", json={
+        "manager_nos": [],
+    }).status_code == 200
+    pe.logout()
+    assert pe.login(student_no=candidate, password="010004").status_code == 200
+    assert pe.client.get(f"/api/polls/{pid}").status_code == 404
+
+    # 管理员不依赖 manager_nos
+    pe.logout()
+    assert pe.login(student_no=ADMIN, password=ADMIN_PW).status_code == 200
+    assert pe.client.get(f"/api/polls/{pid}").status_code == 200
+
+
+def test_closed_poll_results_need_publish(pe):
+    pid = _create(pe, start=-1, end=2)
+    assert _vote_as(pe, VOTER, VOTER_PW, pid).status_code < 300
+    _as_creator(pe)
+    assert pe.client.post(f"/api/polls/{pid}/close").status_code == 200
+
+    creator_view = pe.client.get(f"/api/polls/{pid}").json()
+    assert creator_view["results_visible"] is True
+    assert creator_view["results_pending"] is True
+
+    pe.logout()
+    assert pe.login(student_no=VOTER, password=VOTER_PW).status_code == 200
+    voter_view = pe.client.get(f"/api/polls/{pid}").json()
+    assert voter_view["results_visible"] is False
+    assert voter_view["results_pending"] is True
+
+    _as_creator(pe)
+    assert pe.client.post(f"/api/polls/{pid}/publish-results").status_code == 200
+    pe.logout()
+    assert pe.login(student_no=VOTER, password=VOTER_PW).status_code == 200
+    assert pe.client.get(f"/api/polls/{pid}").json()["results_visible"] is True
+
+
+def test_full_poll_notifies_creator_without_closing(pe):
+    pid = _create(pe, start=-1, end=2)
+    assert _vote_as(pe, VOTER, VOTER_PW, pid).status_code < 300
+
+    row = pe.rows("SELECT full_notified_at, closed_at FROM polls WHERE id = ?", pid)[0]
+    assert row[0] is not None, "投满要记录已通知"
+    assert row[1] is None, "投满不能自动结束"
+    titles = [r[0] for r in pe.rows("SELECT title FROM inbox_messages")]
+    assert any("投票已满" in title for title in titles)

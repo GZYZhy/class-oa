@@ -108,21 +108,37 @@ def has_voted(db: Session, poll_id: int, student_no: str) -> bool:
     )
 
 
+def manager_nos(poll: Poll) -> list[str]:
+    """发起人指定的共同管理人学号；坏 JSON 当没有，不把详情接口打成 500"""
+    try:
+        value = json.loads(poll.manager_nos or "[]")
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
 def results_visible(poll: Poll, student_no: str, admin: bool) -> bool:
     """我能不能看票数
 
-    **发起人和管理员随时可见**（「实时查看结果」看的就是这个）；
-    **其他参与者一律等投票结束**（截止或手动结束）才看得到 —— 中途看得见就给了
-    「看一眼风向再投」的空间，何况本项目不许改票，投出去就只能认。
+    发起人、管理人和管理员随时可见；其他参与者要等投票结束，
+    并且要等有管理权的人把结果发布出去。
     """
-    if admin or poll.creator_no == student_no:
+    if can_manage(poll, student_no, admin):
         return True
-    return poll_status(poll) == STATUS_CLOSED
+    if poll_status(poll) != STATUS_CLOSED:
+        return False
+    return poll.results_published_at is not None
 
 
 def can_manage(poll: Poll, student_no: str, admin: bool) -> bool:
-    """我能不能结束 / 催票 / 删除这场投票：只有发起人和管理员"""
-    return admin or poll.creator_no == student_no
+    """我能不能结束 / 催票 / 删除 / 发布这场投票：发起人、共同管理人、管理员"""
+    return (
+        admin
+        or poll.creator_no == student_no
+        or student_no in manager_nos(poll)
+    )
 
 
 def can_vote(poll: Poll, in_target: bool, voted: bool, now: datetime | None = None) -> bool:
@@ -165,6 +181,7 @@ def filter_visible(db: Session, query, student_no: str, admin: bool):
     return query.filter(
         or_(
             Poll.creator_no == student_no,
+            Poll.manager_nos.like(f'%"{student_no}"%'),
             Poll.id.in_(
                 db.query(PollTarget.poll_id).filter(PollTarget.student_no == student_no)
             ),
@@ -335,6 +352,12 @@ def list_items(db: Session, polls: list[Poll], student_no: str, admin: bool) -> 
                 "created_at": poll.created_at,
                 "notify_on_start": bool(poll.notify_on_start),
                 "start_notified_at": poll.start_notified_at,
+                "manager_nos": manager_nos(poll),
+                "can_edit_managers": admin or poll.creator_no == student_no,
+                "results_published_at": poll.results_published_at,
+                "results_pending": (
+                    status == STATUS_CLOSED and poll.results_published_at is None
+                ),
                 "question_count": counts["questions"].get(poll.id, 0),
                 "scope_label": scope_labels.get(poll.id, ""),
                 "target_count": counts["targets"].get(poll.id, 0) if visible else 0,

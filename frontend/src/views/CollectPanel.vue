@@ -119,6 +119,9 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                  <el-dropdown-item v-if="row.can_edit_managers" command="managers">
+                    管理授权
+                  </el-dropdown-item>
                   <!-- 管理入口走弹窗后，仍从这里去统一填写页（自己也要填的时候用） -->
                   <el-dropdown-item command="openFillPage">
                     {{ row.can_submit ? '去填写' : '打开填写页' }}
@@ -160,6 +163,14 @@
       @current-change="fetchList"
     />
 
+    <ManagerGrantDialog
+      v-if="managerDialog.row"
+      v-model="managerDialog.open"
+      kind="collection"
+      :id="managerDialog.row.id"
+      :manager-nos="managerDialog.row.manager_nos || []"
+      @saved="fetchList"
+    />
     <CollectionCreateDialog ref="createRef" @saved="fetchList" />
     <CollectionResponsesDialog
       v-model="responsesVisible"
@@ -183,6 +194,7 @@ import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Refresh, Search } from '@element-plus/icons-vue'
 import CollectionCreateDialog from '@/components/CollectionCreateDialog.vue'
+import ManagerGrantDialog from '@/components/ManagerGrantDialog.vue'
 import CollectionResponsesDialog from '@/components/CollectionResponsesDialog.vue'
 import ShareLinkDialog from '@/components/ShareLinkDialog.vue'
 import {
@@ -219,6 +231,7 @@ usePageState('CollectPanel', { currentPage, pageSize, status, keyword }, loading
 const createRef = ref(null)
 const responsesVisible = ref(false)
 const responsesCollection = ref({})
+const managerDialog = ref({ open: false, row: null })
 
 const shareVisible = ref(false)
 const shareTitle = ref('')
@@ -283,6 +296,10 @@ function openSharePage(row) {
 
 function handleCommand(command, row) {
   if (command === 'edit') return createRef.value?.openForEdit(row)
+  if (command === 'managers') {
+    managerDialog.value = { open: true, row }
+    return
+  }
   if (command === 'openFillPage') return openSharePage(row)
   if (command === 'share') return openShare(row)
   if (command === 'remind') return handleRemind(row)

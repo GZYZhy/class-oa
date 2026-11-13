@@ -140,3 +140,12 @@ export function uploadCollectionFile(id, file, onProgress, studentNo, kind = 'im
 export function collectionExportUrl(id, order = 'asc') {
   return `/api/collections/${id}/responses/export?order=${encodeURIComponent(order)}`
 }
+
+/** 设置共同管理人（发起人或管理员） */
+export function updateCollectionManagers(id, managerNos) {
+  return request({
+    url: `/collections/${id}/managers`,
+    method: 'put',
+    data: { manager_nos: managerNos }
+  })
+}
