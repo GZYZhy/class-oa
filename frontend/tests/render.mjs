@@ -6476,7 +6476,7 @@ console.log('\n▶ 数据体检：签字图、文件丢失与孤儿文件清理'
     check(fileHealth.includes(`Domain("${domain}"`), `扫描目录：${domain}`)
   }
   check(fileHealth.includes('recursive=True') &&
-    fileHealth.includes('rel=f"{collection_id}/'),
+    fileHealth.includes('f"{collection_id}/{_base_name(name)}"') && fileHealth.includes('collection_id=collection_id'),
   '收集附件按收集 ID 分子目录，相对路径参与比对')
   check(fileHealth.includes('_prune_empty_dirs'),
     '清理收集附件后连带收掉空子目录')

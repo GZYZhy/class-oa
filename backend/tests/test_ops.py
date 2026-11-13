@@ -280,3 +280,13 @@ def test_version_comparison_is_semantic():
     assert is_newer("2.9.0", "2.10.0") is False
     assert is_newer("2.3.0", "2.3.0") is False
     assert is_newer("2.3.0", "dev") is False, "解析不出来时不做判断"
+
+
+def test_automatic_orphan_cleanup_is_opt_in(b):
+    field = _field(b, 'orphan_cleanup_enabled')
+    assert field['kind'] == 'bool'
+    assert field['value'] == 'false'
+    assert _save(b, {'orphan_cleanup_enabled': 'true'}).status_code == 200
+    assert _field(b, 'orphan_cleanup_enabled')['value'] == 'true'
+    assert _save(b, {'orphan_cleanup_enabled': 'false'}).status_code == 200
+    assert _field(b, 'orphan_cleanup_enabled')['value'] == 'false'

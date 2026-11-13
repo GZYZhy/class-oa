@@ -38,6 +38,7 @@ from .services import (
 from .services.birthday_service import ensure_settings
 from .services.about_service import ensure_settings as ensure_about_settings
 from .services.scheduler import start as start_birthday_scheduler
+from .services.file_gc_service import start as start_file_gc_scheduler
 from .services.schedule_notify_service import start as start_schedule_notifier
 from .services.start_notify_service import start as start_poll_start_notifier
 from .utils.ip import parse_cidrs
@@ -366,6 +367,7 @@ purge_expired_file_access_logs()
 # 后端是单进程（Dockerfile 的 uvicorn 没带 --workers），所以进程内定时是安全的。
 # 必须放在 create_all 之后 —— 它要读写 birthday_settings 表。
 start_birthday_scheduler()
+start_file_gc_scheduler()
 
 # 日程提醒调度器：分钟级巡检，到点推送日程提醒。
 # 同样依赖单进程，避免重复推送。

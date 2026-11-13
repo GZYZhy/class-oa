@@ -210,6 +210,7 @@ class OrphanCleanupResponse(BaseModel):
     freed_bytes: int
     failed: int
     by_domain: list[OrphanCleanupDomain] = Field(default_factory=list)
+    skipped_domains: list[str] = Field(default_factory=list)
 
 
 class IpBanRequest(BaseModel):

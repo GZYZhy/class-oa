@@ -1486,6 +1486,7 @@ def cleanup_orphan_files(
         detail=(
             f"删除 {result['deleted']} 个文件，释放 {human_size(result['freed_bytes'])}"
             + (f"，{result['failed']} 个删除失败" if result["failed"] else "")
+            + (f"，{len(result['skipped_domains'])} 个目录因引用异常跳过" if result["skipped_domains"] else "")
         ),
         ip=ip,
     )

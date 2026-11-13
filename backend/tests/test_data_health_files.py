@@ -302,3 +302,42 @@ def test_student_cannot_cleanup(b):
 
     assert b.client.get("/api/admin/data-health").status_code == 403
     assert b.client.post("/api/admin/data-health/orphans/cleanup", json={}).status_code == 403
+
+
+def test_invalid_attachment_json_blocks_cleanup(b, tmp_path):
+    orphan = _old_file(tmp_path / 'remark_attachments' / 'uncertain.pdf')
+    b.run('UPDATE students SET remark_attachments=? WHERE student_no=?', '{broken', STUDENT_NO)
+    groups = _groups(b)
+    assert 'file_reference_invalid' in groups
+    assert not any(item['domain'] == 'remark_attachments' for item in groups.get('file_orphan', {}).get('items', []))
+    result = b.client.post('/api/admin/data-health/orphans/cleanup', json={}).json()
+    assert 'remark_attachments' in result['skipped_domains']
+    assert orphan.exists()
+    b.run('UPDATE students SET remark_attachments=? WHERE student_no=?', '[]', STUDENT_NO)
+    assert b.client.post('/api/admin/data-health/orphans/cleanup', json={}).status_code == 200
+    assert not orphan.exists()
+
+
+def test_active_collection_preserves_old_pending_uploads(b, tmp_path):
+    from datetime import datetime, timedelta
+
+    b.run('INSERT INTO collections (title,start_at,end_at,submit_quota,response_count) VALUES (?,?,?,?,?)',
+          '待提交收集', datetime.now().isoformat(sep=" "), (datetime.now() + timedelta(days=1)).isoformat(sep=" "), 1, 0)
+    cid = b.rows('SELECT id FROM collections ORDER BY id DESC LIMIT 1')[0][0]
+    pending = _old_file(tmp_path / 'collection_files' / str(cid) / 'tmp-pending.pdf')
+    result = b.client.post('/api/admin/data-health/orphans/cleanup', json={'domains': ['collection_files']})
+    assert result.status_code == 200, result.text
+    assert pending.exists()
+    b.run('UPDATE collections SET end_at=? WHERE id=?', (datetime.now() - timedelta(hours=2)).isoformat(sep=" "), cid)
+    assert b.client.post('/api/admin/data-health/orphans/cleanup', json={'domains': ['collection_files']}).status_code == 200
+    assert not pending.exists()
+
+
+def test_cleanup_skips_symlinks(b, tmp_path):
+    outside = _old_file(tmp_path / 'outside.txt')
+    link = tmp_path / 'photos' / 'external-link.txt'
+    link.parent.mkdir(exist_ok=True)
+    link.symlink_to(outside)
+    assert b.client.post('/api/admin/data-health/orphans/cleanup', json={}).status_code == 200
+    assert outside.exists()
+    assert link.is_symlink()

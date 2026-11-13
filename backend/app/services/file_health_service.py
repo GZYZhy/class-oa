@@ -17,6 +17,8 @@
 import json
 import os
 import time
+import threading
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +29,8 @@ from ..models import (
     Announcement,
     CertificateRequest,
     CheckinTarget,
+    Collection,
+    Checkin,
     CollectionAnswer,
     CollectionSubmission,
     EvPassRequest,
@@ -72,6 +76,7 @@ EXPORT_DIR = Path(os.environ.get("EXPORT_DIR") or (BASE_DIR / "data" / "exports"
 # 文件刚写完到入库之间有个毫秒级空档。小于这个年龄的文件不报孤儿、也不清理，
 # 否则体检正好撞上「正在上传」就会把人家刚传的文件删掉。
 ORPHAN_MIN_AGE_SECONDS = 3600
+_CLEANUP_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -119,33 +124,38 @@ _STUDENT_PHOTO_PROPS = (
 _SIGN_PHOTO = "sign_photo"
 _FILE_MISSING = "file_missing"
 _FILE_ORPHAN = "file_orphan"
+_FILE_REFERENCE_INVALID = "file_reference_invalid"
 
 _GROUP_LABELS = {
     _SIGN_PHOTO: "签字图",
     _FILE_MISSING: "文件丢失",
     _FILE_ORPHAN: "孤儿文件",
+    _FILE_REFERENCE_INVALID: "文件引用异常",
 }
 
 
-def _json_files(raw: str | None, key: str = "file") -> list[str]:
+def _json_files(raw: str | None, key: str = "file") -> list[str] | None:
     """附件 JSON（[{"file": "...", "name": "..."}]）→ 文件名列表
 
     收集答卷的图片用的是 `name` 键（见 CollectionAnswer.files），所以键名可传。
-    解析不了就当没有附件：体检不该因为一条历史脏 JSON 整页 500
+    解析失败返回 None，调用方保护整个目录并报告引用异常
     """
     if not raw:
         return []
     try:
         items = json.loads(raw)
     except (TypeError, ValueError):
-        return []
+        return None
     if not isinstance(items, list):
-        return []
-    return [
-        str(item.get(key) or "")
+        return None
+    if any(
+        not isinstance(item, dict)
+        or not isinstance(item.get(key), str)
+        or not item[key].strip()
         for item in items
-        if isinstance(item, dict) and item.get(key)
-    ]
+    ):
+        return None
+    return [item[key] for item in items]
 
 
 def _base_name(name: str | None) -> str:
@@ -161,8 +171,10 @@ def _user_label(user: User) -> str:
     return (user.display_name or user.student_no or "").strip()
 
 
-def _collect(db: Session) -> tuple[dict[str, set[str]], list[dict]]:
-    """扫一遍数据库，返回（各目录被引用的文件名, 登记项清单）
+def _collect(
+    db: Session, *, lock: bool = False
+) -> tuple[dict[str, set[str]], list[dict], list[dict]]:
+    """扫一遍数据库，返回（各目录被引用的文件名, 登记项清单, 引用异常）
 
     登记项用于「文件丢了」检查，字段：
       category      sign_photo / file_missing
@@ -172,8 +184,41 @@ def _collect(db: Session) -> tuple[dict[str, set[str]], list[dict]]:
       label         这是什么东西（高考照片 / 辅助证明 / 成品 PDF）
       report        False 表示缺失由别的卡片负责（学生三照由「照片」卡片报）
     """
+
+    def query(*entities):
+        rows = db.query(*entities)
+        return rows.with_for_update() if lock else rows
+
     refs: dict[str, set[str]] = {domain.key: set() for domain in DOMAINS}
     registry: list[dict] = []
+    invalid: list[dict] = []
+
+    def add_json(
+        domain: str,
+        raw: str | None,
+        subject: str,
+        label: str,
+        *,
+        key="file",
+        collection_id=None,
+    ):
+        names = _json_files(raw, key)
+        if names is None:
+            invalid.append(
+                {
+                    "domain": domain,
+                    "subject": subject,
+                    "reason": "附件引用记录无法完整解析，已跳过该目录的孤儿检查与清理",
+                }
+            )
+            return
+        for name in names:
+            rel = (
+                f"{collection_id}/{_base_name(name)}"
+                if collection_id is not None
+                else None
+            )
+            add(domain, name, subject, label, rel=rel)
 
     def add(
         domain: str,
@@ -195,97 +240,162 @@ def _collect(db: Session) -> tuple[dict[str, set[str]], list[dict]]:
             return
         relative = rel or _base_name(text)
         refs[domain].add(relative)
-        registry.append({
-            "category": category,
-            "domain": domain,
-            "file": relative,
-            "subject": subject,
-            "label": label,
-            "report": report,
-        })
+        registry.append(
+            {
+                "category": category,
+                "domain": domain,
+                "file": relative,
+                "subject": subject,
+                "label": label,
+                "report": report,
+            }
+        )
 
-    for student in db.query(Student).order_by(Student.student_no).all():
+    for student in query(Student).order_by(Student.student_no).all():
         subject = f"{student.name}（{student.student_no}）"
         for prop, label in _STUDENT_PHOTO_PROPS:
             add(
-                "photos", getattr(student, prop, None), subject, label,
+                "photos",
+                getattr(student, prop, None),
+                subject,
+                label,
                 report=False,  # 由「照片」卡片负责，避免重复
             )
         add(
-            "photos", student.sign_photo, subject, "签字图",
+            "photos",
+            student.sign_photo,
+            subject,
+            "签字图",
             category=_SIGN_PHOTO,
         )
-        for name in _json_files(student.remark_attachments):
-            add("remark_attachments", name, subject, "备注附件")
+        add_json("remark_attachments", student.remark_attachments, subject, "备注附件")
 
     # 域外账号：头像和签字图各在一个目录
-    for user in db.query(User).all():
+    for user in query(User).all():
         if not (user.avatar or user.sign_photo):
             continue
         subject = f"账号 {_user_label(user)}"
         add("avatars", user.avatar, subject, "头像")
         add(
-            "photos", user.sign_photo, subject, "签字图",
+            "photos",
+            user.sign_photo,
+            subject,
+            "签字图",
             category=_SIGN_PHOTO,
         )
 
-    for row in db.query(Announcement).all():
+    for row in query(Announcement).all():
         add("announcements", row.file_path, f"公告「{row.title}」", "PDF")
 
-    for row in db.query(Resource).all():
+    for row in query(Resource).all():
         add("resources", row.file_name, f"资料「{row.name}」", "文件")
 
-    for row in db.query(LeaveRequest).all():
+    for row in query(LeaveRequest).all():
         subject = f"请假申请 #{row.id}"
         add("leaves", row.proof_file, subject, "辅助证明")
         add("leaves", row.advisor_sign_file, subject, "班导师签字图")
 
-    for row in db.query(EvPassRequest).all():
+    for row in query(EvPassRequest).all():
         subject = f"电动车通行证 #{row.id}"
         add("ev_passes", row.license_file, subject, "行驶证")
         add("ev_passes", row.sign_file, subject, "经办班委签字图")
 
-    for row in db.query(CertificateRequest).all():
+    for row in query(CertificateRequest).all():
         subject = f"证明开具 #{row.id}"
-        for name in _json_files(row.attachments):
-            add("cert_attachments", name, subject, "申请附件")
+        add_json("cert_attachments", row.attachments, subject, "申请附件")
         add("cert_results", row.result_file, subject, "成品 PDF")
 
-    for row in db.query(CheckinTarget).all():
+    for row in query(CheckinTarget).all():
         add("checkins", row.photo_file, f"签到 #{row.checkin_id}", "签到照片")
 
-    for row in db.query(Notice).all():
+    for row in query(Notice).all():
         subject = f"通知「{row.title}」"
-        for name in _json_files(row.attachments):
-            add("notices", name, subject, "附件")
+        add_json("notices", row.attachments, subject, "附件")
 
-    for row in db.query(Feedback).all():
-        for name in _json_files(row.attachments):
-            add("feedbacks", name, f"意见反馈 #{row.id}", "附件")
+    for row in query(Feedback).all():
+        add_json("feedbacks", row.attachments, f"意见反馈 #{row.id}", "附件")
 
-    for row in db.query(ExportRequest).all():
+    for row in query(ExportRequest).all():
         add("exports", row.file_name, f"导出申请 #{row.id}", "导出文件")
 
     # 收集的答卷图片：目录是 collection_files/{collection_id}/，
     # 所以要顺着 answer → submission 拿到收集 ID，按相对路径比对
     collection_of_submission = {
-        row.id: row.collection_id for row in db.query(CollectionSubmission).all()
+        row.id: row.collection_id for row in query(CollectionSubmission).all()
     }
-    for answer in db.query(CollectionAnswer).all():
+    for answer in query(CollectionAnswer).all():
         collection_id = collection_of_submission.get(answer.submission_id)
         if collection_id is None:
+            if _json_files(answer.files, "name") != []:
+                invalid.append(
+                    {
+                        "domain": "collection_files",
+                        "subject": f"答卷附件 #{answer.id}",
+                        "reason": "附件所属答卷无法确定，已跳过收集目录的孤儿检查与清理",
+                    }
+                )
             continue
-        for name in _json_files(answer.files, "name"):
-            add(
-                "collection_files", name, f"收集 #{collection_id}", "答卷图片",
-                rel=f"{collection_id}/{_base_name(name)}",
+        add_json(
+            "collection_files",
+            answer.files,
+            f"收集 #{collection_id}",
+            "答卷附件",
+            key="name",
+            collection_id=collection_id,
+        )
+
+    # 上传凭证可一直等到活动结束。保护这些目录，覆盖先上传后提交和旧临时文件改名的窗口。
+    cutoff = datetime.now() - timedelta(seconds=ORPHAN_MIN_AGE_SECONDS)
+    active_collections = (
+        query(Collection.id)
+        .filter(
+            Collection.closed_at.is_(None),
+            Collection.end_at >= cutoff,
+        )
+        .all()
+    )
+    for (collection_id,) in active_collections:
+        directory = COLLECTION_FILE_DIR / str(collection_id)
+        if directory.is_dir() and not directory.is_symlink():
+            refs["collection_files"].update(
+                f"{collection_id}/{path.name}"
+                for path in directory.iterdir()
+                if path.is_file()
             )
+    # 签到临时照片的文件名没有场次信息，活动上传窗口内保护整个签到目录。
+    active_checkin = query(Checkin.id).filter(Checkin.end_at >= cutoff).first()
+    if active_checkin and CHECKIN_DIR.is_dir():
+        refs["checkins"].update(
+            path.name for path in CHECKIN_DIR.iterdir() if path.is_file()
+        )
 
-    return refs, registry
+    return refs, registry, invalid
 
 
-def _orphan_paths(domain: Domain, referenced: set[str]):
-    """这个目录里没人认领的文件，返回 (路径, 相对路径)
+def _protected_paths(refs: dict[str, set[str]]) -> set[Path]:
+    # 配置中若有共用目录，任何业务的引用都要保护同一物理文件。
+    return {
+        (DOMAIN_BY_KEY[key].directory / name).resolve()
+        for key, names in refs.items()
+        for name in names
+    }
+
+
+def _blocked_domains(invalid: list[dict]) -> set[str]:
+    roots = [DOMAIN_BY_KEY[item["domain"]].directory.resolve() for item in invalid]
+    return {
+        domain.key
+        for domain in DOMAINS
+        if any(
+            domain.directory.resolve().is_relative_to(root)
+            or root.is_relative_to(domain.directory.resolve())
+            for root in roots
+        )
+    }
+
+
+def _orphan_paths(domain: Domain, referenced: set[str], protected: set[Path]):
+    """这个目录里没人认领的文件，返回 (路径, 相对路径, 扫描时的文件状态)
 
     recursive 的域（收集附件）会往下扫子目录，相对路径形如 `12/x.jpg`；
     单层目录的相对路径就是文件名。跳过隐藏文件和太新的（可能正在上传）。
@@ -297,18 +407,25 @@ def _orphan_paths(domain: Domain, referenced: set[str]):
         domain.directory.rglob("*") if domain.recursive else domain.directory.iterdir()
     )
     for path in sorted(iterator):
-        if not path.is_file() or path.name.startswith("."):
+        if path.is_symlink() or not path.is_file() or path.name.startswith("."):
+            continue
+        if not path.resolve().is_relative_to(domain.directory.resolve()):
             continue
         rel = path.relative_to(domain.directory).as_posix()
-        if rel in referenced:
+        if any(
+            part.startswith(".") for part in path.relative_to(domain.directory).parts
+        ):
+            continue
+        if rel in referenced or path.resolve() in protected:
             continue
         try:
             # 刚写盘的文件先不动：可能正处在上传 → 入库之间的空档
-            if path.stat().st_mtime > cutoff:
+            snapshot = path.stat()
+            if snapshot.st_mtime > cutoff:
                 continue
         except OSError:
             continue
-        yield path, rel
+        yield path, rel, snapshot
 
 
 def _prune_empty_dirs(domain: Domain) -> None:
@@ -320,7 +437,11 @@ def _prune_empty_dirs(domain: Domain) -> None:
     if not domain.recursive or not domain.directory.exists():
         return
     for child in sorted(
-        (p for p in domain.directory.iterdir() if p.is_dir() and not p.name.startswith(".")),
+        (
+            p
+            for p in domain.directory.iterdir()
+            if p.is_dir() and not p.name.startswith(".")
+        ),
         reverse=True,
     ):
         try:
@@ -331,7 +452,9 @@ def _prune_empty_dirs(domain: Domain) -> None:
 
 def check_files(db: Session) -> list[dict]:
     """文件类体检，返回与 data_health 同形状的卡片列表"""
-    refs, registry = _collect(db)
+    refs, registry, invalid = _collect(db)
+    blocked = _blocked_domains(invalid)
+    protected = _protected_paths(refs)
     groups = {
         key: {
             "key": key,
@@ -343,6 +466,18 @@ def check_files(db: Session) -> list[dict]:
         for key, label in _GROUP_LABELS.items()
     }
 
+    for issue in invalid:
+        groups[_FILE_REFERENCE_INVALID]["items"].append(
+            {
+                "id": None,
+                "student_no": None,
+                "name": None,
+                "file": None,
+                "size": None,
+                **issue,
+            }
+        )
+
     for item in registry:
         if not item["report"]:
             continue
@@ -350,33 +485,39 @@ def check_files(db: Session) -> list[dict]:
         target = domain.directory / item["file"]
         if target.exists():
             continue
-        groups[item["category"]]["items"].append({
-            "id": None,
-            "student_no": None,
-            "name": None,
-            "subject": item["subject"],
-            "reason": f"{item['label']}在服务器上找不到（{item['file']}）",
-            "domain": item["domain"],
-            "file": item["file"],
-            "size": None,
-        })
+        groups[item["category"]]["items"].append(
+            {
+                "id": None,
+                "student_no": None,
+                "name": None,
+                "subject": item["subject"],
+                "reason": f"{item['label']}在服务器上找不到（{item['file']}）",
+                "domain": item["domain"],
+                "file": item["file"],
+                "size": None,
+            }
+        )
 
     for domain in DOMAINS:
-        for path, rel in _orphan_paths(domain, refs[domain.key]):
+        if domain.key in blocked:
+            continue
+        for path, rel, _snapshot in _orphan_paths(domain, refs[domain.key], protected):
             try:
                 size = path.stat().st_size
             except OSError:
                 size = 0
-            groups[_FILE_ORPHAN]["items"].append({
-                "id": None,
-                "student_no": None,
-                "name": None,
-                "subject": f"{domain.label}：{rel}",
-                "reason": f"磁盘上有这个文件，但没有任何记录指向它（{human_size(size)}）",
-                "domain": domain.key,
-                "file": rel,
-                "size": size,
-            })
+            groups[_FILE_ORPHAN]["items"].append(
+                {
+                    "id": None,
+                    "student_no": None,
+                    "name": None,
+                    "subject": f"{domain.label}：{rel}",
+                    "reason": f"磁盘上有这个文件，但没有任何记录指向它（{human_size(size)}）",
+                    "domain": domain.key,
+                    "file": rel,
+                    "size": size,
+                }
+            )
 
     groups[_SIGN_PHOTO]["items"].sort(key=lambda item: item["subject"] or "")
     groups[_FILE_MISSING]["items"].sort(key=lambda item: item["subject"] or "")
@@ -387,13 +528,24 @@ def check_files(db: Session) -> list[dict]:
 
 
 def cleanup_orphans(db: Session, domains: list[str] | None = None) -> dict:
+    # 手动与自动回收共用锁和判定，使用独立会话读取当前引用，避免请求会话的旧缓存。
+    with _CLEANUP_LOCK, Session(bind=db.get_bind()) as scan:
+        if scan.get_bind().dialect.name == "sqlite":
+            # 清理期间阻止新增或修改引用，消除扫描与删除之间的数据库竞态。
+            scan.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        return _cleanup_orphans(scan, domains)
+
+
+def _cleanup_orphans(db: Session, domains: list[str] | None = None) -> dict:
     """删掉孤儿文件，返回 {deleted, freed_bytes, failed, by_domain}
 
     **只删文件，不碰数据库。** 删之前重新算一遍引用：从体检到点「清理」之间
     可能刚有人上传并入库，拿前端的旧结果去删就是删活文件。
     domains 为空 = 所有目录；传了只处理名单里的（白名单之外的一律忽略）。
     """
-    refs, _ = _collect(db)
+    refs, _, invalid = _collect(db, lock=True)
+    blocked = _blocked_domains(invalid)
+    protected = _protected_paths(refs)
     wanted = set(domains) if domains else {domain.key for domain in DOMAINS}
 
     deleted = 0
@@ -402,13 +554,35 @@ def cleanup_orphans(db: Session, domains: list[str] | None = None) -> dict:
     by_domain: list[dict] = []
 
     for domain in DOMAINS:
-        if domain.key not in wanted:
+        if domain.key not in wanted or domain.key in blocked:
             continue
         count = 0
         bytes_freed = 0
-        for path, _rel in _orphan_paths(domain, refs[domain.key]):
+        for path, _rel, snapshot in _orphan_paths(domain, refs[domain.key], protected):
             try:
-                size = path.stat().st_size
+                # 扫描后被替换、重新上传或移出目录的路径不参与删除。
+                if path.is_symlink() or not path.resolve().is_relative_to(
+                    domain.directory.resolve()
+                ):
+                    continue
+                stat = path.stat()
+                if (
+                    stat.st_dev,
+                    stat.st_ino,
+                    stat.st_mtime_ns,
+                    stat.st_ctime_ns,
+                    stat.st_size,
+                ) != (
+                    snapshot.st_dev,
+                    snapshot.st_ino,
+                    snapshot.st_mtime_ns,
+                    snapshot.st_ctime_ns,
+                    snapshot.st_size,
+                ):
+                    continue
+                if stat.st_mtime > time.time() - ORPHAN_MIN_AGE_SECONDS:
+                    continue
+                size = stat.st_size
                 path.unlink()
             except OSError:
                 failed += 1
@@ -417,12 +591,14 @@ def cleanup_orphans(db: Session, domains: list[str] | None = None) -> dict:
             bytes_freed += size
         _prune_empty_dirs(domain)
         if count:
-            by_domain.append({
-                "domain": domain.key,
-                "label": domain.label,
-                "deleted": count,
-                "freed_bytes": bytes_freed,
-            })
+            by_domain.append(
+                {
+                    "domain": domain.key,
+                    "label": domain.label,
+                    "deleted": count,
+                    "freed_bytes": bytes_freed,
+                }
+            )
         deleted += count
         freed += bytes_freed
 
@@ -431,4 +607,5 @@ def cleanup_orphans(db: Session, domains: list[str] | None = None) -> dict:
         "freed_bytes": freed,
         "failed": failed,
         "by_domain": by_domain,
+        "skipped_domains": sorted(blocked & wanted),
     }

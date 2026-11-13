@@ -937,6 +937,7 @@
           />
 
           <!-- 一项问题都没有的那类不会出现在结果里（后端就不返回），所以这里直接顺序渲染 -->
+          <p class="ops-help">可在「运维 → 文件维护」开启每日凌晨 2 点自动垃圾回收，执行结果记入操作日志。</p>
           <div v-for="group in health.groups" :key="group.key" class="health-card">
             <div class="health-card-head">
               <el-tag :type="group.level === 'error' ? 'danger' : 'warning'" size="small">
@@ -2818,6 +2819,7 @@ async function handleCleanupOrphans(group) {
     const result = await cleanupOrphanFiles()
     ElMessage.success(
       `已删除 ${result.deleted} 个文件，释放 ${formatFileSize(result.freed_bytes)}`
+      + (result.skipped_domains?.length ? `，${result.skipped_domains.length} 个目录因引用异常跳过` : '')
     )
     await fetchHealth()
   } catch (e) {
