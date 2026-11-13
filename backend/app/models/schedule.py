@@ -18,6 +18,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    JSON,
     Column,
     Date,
     DateTime,
@@ -81,6 +82,7 @@ class Schedule(Base):
     lat = Column(Float, nullable=True, comment="纬度（GCJ-02），可空")
     lng = Column(Float, nullable=True, comment="经度（GCJ-02），可空")
     description = Column(Text, default="", comment="备注")
+    related_items = Column(JSON, nullable=True, default=list, comment="关联内容，按展示顺序保存类型和 ID")
 
     # 单次日程：就是具体那一次的起止
     # 重复日程：是第一次的起止（时间部分作为每天的起止模板）

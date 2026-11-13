@@ -7,7 +7,7 @@ request.js 的 errText 遇到非字符串只会退回兜底文案，所以「标
 """
 
 from datetime import date, datetime, time
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -36,6 +36,11 @@ class _LocalTime:
 
 # ---------- 日程基础 ----------
 
+class ScheduleRelatedItem(BaseModel):
+    kind: Literal["notice", "vote", "collect", "checkin", "resource"]
+    id: int = Field(..., gt=0)
+
+
 class ScheduleBase(_LocalTime, BaseModel):
     title: str = Field(..., max_length=200, description="日程标题")
     event_type: str = Field("", max_length=20, description="事件类型，如 课程/体育/网络课")
@@ -45,6 +50,7 @@ class ScheduleBase(_LocalTime, BaseModel):
     lat: Optional[float] = Field(None, description="纬度（GCJ-02），与 lng 同时给")
     lng: Optional[float] = Field(None, description="经度（GCJ-02），与 lat 同时给")
     description: str = Field("", description="备注")
+    related_items: list[ScheduleRelatedItem] = Field(default_factory=list, max_length=30)
     start_time: datetime = Field(..., description="开始时间")
     end_time: datetime = Field(..., description="结束时间")
     all_day: bool = False
@@ -86,6 +92,7 @@ class ScheduleUpdate(_LocalTime, BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
     description: Optional[str] = None
+    related_items: Optional[list[ScheduleRelatedItem]] = Field(None, max_length=30)
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     all_day: Optional[bool] = None
@@ -112,6 +119,7 @@ class ScheduleResponse(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
     description: str = ""
+    related_items: list[ScheduleRelatedItem] = Field(default_factory=list)
     start_time: datetime
     end_time: datetime
     all_day: bool = False

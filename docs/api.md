@@ -1,6 +1,6 @@
 # API 参考
 
-> 版本 2.15.0，共 329 个接口。
+> 版本 2.16.0，共 331 个接口。
 > 本文由 `scripts/gen_api_docs.py` 从 FastAPI 的 OpenAPI 描述自动生成，接口变动后重新运行该脚本即可。
 
 ## 通用约定
@@ -4180,6 +4180,7 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 | `lat` | number，可空 | 否 | 纬度（GCJ-02），与 lng 同时给 |
 | `lng` | number，可空 | 否 | 经度（GCJ-02），与 lat 同时给 |
 | `description` | string | 否 | 备注 |
+| `related_items` | object[] | 否 | 关联内容，`{kind,id}`，按展示顺序，最多 30 条；kind 为 notice/vote/collect/checkin/resource |
 | `start_time` | string（日期时间） | 是 | 开始时间 |
 | `end_time` | string（日期时间） | 是 | 结束时间 |
 | `all_day` | boolean | 否 |  |
@@ -4194,7 +4195,7 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 **响应**
 
 - `200` `ScheduleResponse` — 成功
-  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`lat`、`lng`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
+  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`lat`、`lng`、`description`、`related_items`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
 
 ### 域外账号的共享日程
 
@@ -4278,7 +4279,46 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 **响应**
 
 - `200` `ScheduleResponse` — 成功
-  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`lat`、`lng`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
+  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`lat`、`lng`、`description`、`related_items`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
+
+### 可关联的现有内容
+
+`GET /api/schedules/related/options`
+
+按标题搜索当前账号可见的通知、投票、收集、签到或资料，供日程编辑时选择。
+权限沿用原模块：投票/收集只返回可见或共同管理的内容，签到按班委/参与范围过滤。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `kind` | query | 是 | string | notice / vote / collect / checkin / resource |
+| `keyword` | query | 否 | string，可空 | 按标题模糊搜索，最多 200 字 |
+
+**响应**
+
+- `200` — 成功
+  - 字段：`items`（含 `kind`、`kind_label`、`title`、`hint`、`scope_label`、`end_at`、`progress`、`url`、`manage_url`、`unavailable` 等）、`has_more`
+
+### 日程关联内容及我的进度
+
+`GET /api/schedules/item/{schedule_id}/related`
+
+返回该日程保存的关联内容，按保存顺序展示个人完成状态、进度和原模块入口。
+只能查看自己的日程；班委及以上可通过 `view_student_id` 查看指定学生的日程。
+内容失效或当前账号无权查看时只返回 `unavailable`，不回显标题和链接。
+
+**参数**
+
+| 名称 | 位置 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `schedule_id` | path | 是 | integer | 日程实例 ID |
+| `view_student_id` | query | 否 | integer | 班委及以上以学生视角查看时传学生 ID |
+
+**响应**
+
+- `200` — 成功
+  - 字段：关联内容数组，每项含 `kind`、`id`、`kind_label`、`title`、`hint`、`progress`、`scope_warning` 等
 
 ### Update Schedule
 
@@ -4304,6 +4344,7 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 | `lat` | number，可空 | 否 |  |
 | `lng` | number，可空 | 否 |  |
 | `description` | string，可空 | 否 |  |
+| `related_items` | object[]，可空 | 否 | 关联内容；不传 = 不改，传空数组 = 清空 |
 | `start_time` | string（日期时间），可空 | 否 |  |
 | `end_time` | string（日期时间），可空 | 否 |  |
 | `all_day` | boolean，可空 | 否 |  |
@@ -4316,7 +4357,7 @@ upsert 一个格子：没有记录就新建，清空（空串）就删除 按 (�
 **响应**
 
 - `200` `ScheduleResponse` — 成功
-  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`lat`、`lng`、`description`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
+  - 字段：`id`、`template_id`、`title`、`event_type`、`location`、`lat`、`lng`、`description`、`related_items`、`start_time`、`end_time`、`all_day`、`repeat_type`、`repeat_end_date`、`notify_enabled`、`notify_minutes_before`、`source_type`、`source_batch_id`、`share_count`、`instance_date`
 
 ### Delete Schedule
 

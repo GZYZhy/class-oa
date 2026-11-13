@@ -5,18 +5,19 @@ SQLAlchemy 的 `Base.metadata.create_all` 只建「不存在的表」，**不会
 （本项目踩过一次：notices.updated_at 是靠手工 ALTER TABLE 补的）。
 
 本模块在 create_all 之后、任何查询之前运行：查出实际列，缺什么补什么。
-只用 SQLite 语法（PRAGMA），**补列这条路只服务 SQLite 老库**；其它数据库上
-只支持全新安装（新库由 create_all 一次建全，没有老库可补），见 run_migrations。
+历史补列使用 SQLite 的 PRAGMA。日程关联列额外支持 MySQL 老库补齐，
+具体分支见 run_migrations。
 """
 
 from datetime import datetime
 
-from sqlalchemy import insert, text
+from sqlalchemy import insert, inspect, text
 
 from .database import SessionLocal, engine
 
 # 需要补的列：(表名, 列名, 列定义)。新库由 create_all 直接建全，这里只服务老库
 NEW_COLUMNS = [
+    ("schedules", "related_items", "JSON"),
     ("users", "role", "VARCHAR(20) NOT NULL DEFAULT 'student'"),
     ("announcements", "publisher", "VARCHAR(50) DEFAULT ''"),
     # 默认 1：补列时老文件一律视为「已公开」，维持原有可见范围
@@ -488,12 +489,16 @@ def _backfill_schedule_batch_all(conn) -> None:
 def run_migrations() -> None:
     """补齐老库缺失的列；新库上什么都不做"""
     if engine.dialect.name != "sqlite":
+        # 本次新增列也支持已安装的 MySQL 实例升级。
+        columns = {column["name"] for column in inspect(engine).get_columns("schedules")}
+        if "related_items" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE schedules ADD COLUMN related_items JSON"))
         # 全新安装时这里**正常就该跳过**：库是 create_all 刚建的，列一个不缺。
         # 所以不能说成「请手工补列」——那会让运维以为哪里做错了。
         # 真正的例外只有一种：把别处的老 SQLite 库搬进 MySQL，那才需要自己补
         print(
-            f"[迁移] 跳过补列检查：{engine.dialect.name} 上只支持全新安装"
-            "（新库由 create_all 一次建全，没有老库要补列）",
+            f"[迁移] {engine.dialect.name} 日程关联列已检查，其余历史补列跳过",
             flush=True,
         )
         return

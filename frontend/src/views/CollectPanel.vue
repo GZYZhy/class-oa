@@ -201,6 +201,7 @@ import {
   closeCollection,
   deleteCollection,
   extendCollection,
+  getCollection,
   getCollections,
   pauseCollection,
   remindCollection,
@@ -422,7 +423,20 @@ function openCreate() {
   createRef.value?.open()
 }
 
-defineExpose({ openCreate, refresh: fetchList })
+async function openManagement(id) {
+  try {
+    const item = await getCollection(id)
+    if (!item.can_manage) {
+      ElMessage.warning('当前账号无权管理这份收集')
+      return
+    }
+    openResponses(item)
+  } catch (error) {
+    ElMessage.error(errText(error, '收集不存在或无权查看'))
+  }
+}
+
+defineExpose({ openCreate, openManagement, refresh: fetchList })
 
 onMounted(fetchList)
 </script>

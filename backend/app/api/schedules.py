@@ -55,6 +55,7 @@ from ..schemas import (
 )
 from ..services import account_name, log_operation, notify, recipients
 from ..utils.links import full_url
+from ..services import schedule_related_service as related
 from ..services import schedule_service as ss
 from ..services import schedule_import_service as sis
 from ..services import schedule_ical_service as sics
@@ -385,6 +386,7 @@ def create_external_schedule(
     if not data.all_day:
         _validate_times(data.start_time, data.end_time)
 
+    related.validate_items(db, [item.model_dump() for item in data.related_items], user)
     sched_data = data.model_dump(
         exclude={"target_all", "target_student_ids", "share_from"}
     )
@@ -440,6 +442,42 @@ def get_schedule(
     return ss._to_instance(tpl, instance_date, counts.get(tpl.source_series_id, 1))
 
 
+@router.get("/related/options", summary="可关联的现有内容")
+def related_options(
+    kind: str = Query(...),
+    keyword: str = Query("", max_length=200),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return related.search_items(db, kind, keyword, user)
+
+
+@router.get("/item/{schedule_id}/related", summary="日程关联内容及我的进度")
+def schedule_related(
+    schedule_id: int,
+    view_student_id: Optional[int] = Query(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    tpl = db.get(Schedule, schedule_id)
+    student = db.query(Student).filter(Student.student_no == user.student_no).first()
+    allowed = bool(tpl and student and tpl.student_id == student.id)
+    if tpl and view_student_id is not None and is_committee(user):
+        allowed = tpl.student_id == view_student_id
+    if tpl and user.is_external:
+        batch = db.get(ScheduleBatch, tpl.source_batch_id) if tpl.source_batch_id else None
+        allowed = bool(batch and (batch.target_all or batch.operator_user_id == user.id))
+    if not allowed:
+        raise HTTPException(404, "日程不存在")
+    # 即使班委在查看别人的日历，关联内容仍按当前账号权限下发。
+    items = related.resolve_items(db, tpl.related_items or [], user)
+    group = Schedule.source_series_id == tpl.source_series_id if tpl.source_series_id else Schedule.id == tpl.id
+    schedule_nos = {no for (no,) in db.query(Student.student_no).join(
+        Schedule, Schedule.student_id == Student.id).filter(group).distinct()}
+    related.mark_scope_differences(db, items, schedule_nos)
+    return items
+
+
 # ---------- 新建日程 ----------
 
 @router.post("", response_model=ScheduleResponse)
@@ -462,6 +500,7 @@ def create_schedule(
     if data.repeat_type != REPEAT_NONE and not data.repeat_end_date:
         raise HTTPException(status_code=400, detail="重复日程必须设置结束日期")
 
+    related.validate_items(db, [item.model_dump() for item in data.related_items], user)
     sched_data = data.model_dump(
         exclude={"target_all", "target_student_ids", "share_from"}
     )
@@ -643,6 +682,7 @@ def update_schedule(
     # 这里允许学生改自己的那份，包括 scope=all（只改自己的模板）
 
     update_data = data.model_dump(exclude={"scope"}, exclude_unset=True)
+    related.validate_items(db, update_data.get("related_items"), user, tpl.related_items)
 
     # 坐标校验看「改完之后」那一对：只传了一个（或另一个显式传 null）时，
     # 另一个取库里现在的 —— None 一律表示「不改」，和 service 层的写入口径一致。

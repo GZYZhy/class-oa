@@ -248,3 +248,15 @@ export function resetIcalToken() {
     method: 'post'
   })
 }
+
+/** 搜索当前账号可关联的现有内容。 */
+export function searchScheduleRelated(kind, keyword = '') {
+  return request({ url: '/schedules/related/options', params: { kind, keyword } })
+}
+
+export function getScheduleRelated(id, viewStudentId) {
+  return request({
+    url: `/schedules/item/${id}/related`,
+    params: viewStudentId ? { view_student_id: viewStudentId } : {}
+  })
+}

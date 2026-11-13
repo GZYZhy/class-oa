@@ -230,6 +230,9 @@
           {{ row.value }}
         </el-descriptions-item>
       </el-descriptions>
+      <ScheduleRelated v-if="detailDialog.visible" :key="detailDialog.evt?.id"
+        :model-value="detailDialog.evt?.related_items || []" :schedule-id="detailDialog.evt?.id"
+        :view-student-id="viewAs?.id" />
       <template #footer>
         <!-- 域外账号只有只读日历：详情里不给编辑/删除，避免点进去才吃 403 -->
         <el-button v-if="!isExternal && !viewAs" type="danger" @click="deleteFromDetail">删除</el-button>
@@ -422,6 +425,8 @@
             <el-radio :value="false">仅我自己的</el-radio>
           </el-radio-group>
         </el-form-item>
+        <ScheduleRelated v-if="editDialog.visible" :key="editDialog.currentId || 'new'"
+          v-model="editForm.related_items" editable :schedule-id="editDialog.currentId" />
       </el-form>
       <template #footer>
         <el-button v-if="editDialog.isEdit" type="danger" @click="handleDelete()">删除</el-button>
@@ -780,6 +785,7 @@
 </template>
 
 <script setup>
+import ScheduleRelated from '@/components/ScheduleRelated.vue'
 import ListFeedback from '@/components/ListFeedback.vue'
 import { useLatestRequest } from '@/composables/useLatestRequest'
 import { usePageState } from '@/composables/usePageState'
@@ -1325,15 +1331,17 @@ const allDayBars = computed(() => {
   const dayIdx = {}
   weekDays.value.forEach((d, i) => { dayIdx[d.date] = i })
 
-  // 先按标题归拢，每条记住落在第几列。同一天出现两次同名事件时，下面按顺序
+  // 按标题和关联内容归拢，防止相邻两天的不同事项被合并后遗漏。
+  // 每条记住落在第几列。同一天出现两次同名事件时，下面按顺序
   // 逐个消费，两条都会画出来，不会少一条
   const byTitle = new Map()
   for (const evt of schedules.value) {
     if (!evt.all_day) continue
     const i = dayIdx[evt.instance_date]
     if (i === undefined) continue   // 不在本周（查询就是按周取的，到不了这）
-    if (!byTitle.has(evt.title)) byTitle.set(evt.title, [])
-    byTitle.get(evt.title).push({ i, evt })
+    const key = JSON.stringify([evt.title, evt.related_items || []])
+    if (!byTitle.has(key)) byTitle.set(key, [])
+    byTitle.get(key).push({ i, evt })
   }
 
   const bars = []
@@ -1490,6 +1498,7 @@ const defaultForm = () => ({
   lat: null,
   lng: null,
   description: '',
+  related_items: [],
   repeat_type: 'none',
   repeat_end_date: '',
   notify_enabled: false,
@@ -1556,6 +1565,7 @@ function fillEditState(evt, records = null) {
     lat: evt.lat ?? null,
     lng: evt.lng ?? null,
     description: evt.description || '',
+    related_items: (evt.related_items || []).map((item) => ({ ...item })),
     repeat_type: evt.repeat_type,
     repeat_end_date: evt.repeat_end_date || '',
     notify_enabled: evt.notify_enabled,
@@ -1594,6 +1604,7 @@ function formFields() {
     lat: form.lat,
     lng: form.lng,
     description: form.description,
+    related_items: form.related_items,
     repeat_type: form.repeat_type,
     repeat_end_date: form.repeat_end_date || null,
     notify_enabled: form.notify_enabled,

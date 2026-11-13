@@ -6639,6 +6639,20 @@ console.log('\n▶ 加载失败时有重试入口，不能被当成空列表')
     '一言移到问候横幅里')
 }
 
+console.log('\n▶ 日程关联内容：编辑入口与空状态')
+{
+  const { html: empty } = await render('/src/components/ScheduleRelated.vue')
+  check(!empty.includes('关联内容'), '无关联内容的普通日程隐藏关联区域')
+  const { html: editor } = await render('/src/components/ScheduleRelated.vue', {}, {
+    editable: true,
+    modelValue: [{ kind: 'notice', id: 1 }, { kind: 'vote', id: 2 }]
+  })
+  check(editor.includes('关联内容（2）'), '编辑已有日程显示关联数量')
+  check(editor.includes('关联类型') && editor.includes('按标题搜索'), '关联内容可以按类型和标题查找')
+  check(editor.includes('上移') && editor.includes('下移') && editor.includes('移除'), '关联内容提供排序与移除操作')
+  check(editor.includes('原参与范围和权限'), '关联编辑提示核对参与范围与权限')
+}
+
 await server.close()
 
 console.log(`\n${'='.repeat(46)}`)

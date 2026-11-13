@@ -757,6 +757,24 @@ async function handleDelete(row) {
 /** 站内信里的旧「新投票」深链会带 ?id=：查到 token 后跳到统一的分享页
  *  （照 StudentList.vue 读 route.query.open 的做法） */
 async function openFromQuery() {
+  const manageId = Number(route.query.manage)
+  if (manageId) {
+    if (route.query.tab === 'collect') {
+      await collectRef.value?.openManagement(manageId)
+    } else {
+      try {
+        const item = await getPoll(manageId)
+        if (!item.can_manage) {
+          ElMessage.warning('当前账号无权管理这场投票')
+          return
+        }
+        await openDetail(item, 'roster')
+      } catch (error) {
+        ElMessage.error(errText(error, '投票不存在或无权查看'))
+      }
+    }
+    return
+  }
   const id = Number(route.query.id)
   if (!id) return
   try {
