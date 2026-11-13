@@ -21,13 +21,11 @@
       <el-table-column prop="name" label="批次名称" min-width="180" show-overflow-tooltip align="left" />
       <!-- 管理员看全站时要知道这批是谁建的；班委看自己的也顺带保留，信息一致 -->
       <el-table-column prop="operator_name" label="创建人" width="110" show-overflow-tooltip />
-      <el-table-column prop="target_count" label="目标人数" width="100" align="right" />
-      <!-- 「日程数」是**每人**几条（原来只叫「日程数」，看着像这一批一共几条，
-           36 人的生日批次显示成 4 很容易看岔），另给一列合计 -->
-      <el-table-column prop="schedule_count" label="每人日程数" width="110" align="right" />
-      <el-table-column label="合计" width="100" align="right">
-        <template #default="{ row }">{{ (row.target_count || 0) * (row.schedule_count || 0) }}</template>
+      <el-table-column prop="target_count" label="现存人数" width="100" align="right" />
+      <el-table-column label="每人现存条目" width="130" align="right">
+        <template #default="{ row }">{{ row.min_schedule_count === row.schedule_count ? row.schedule_count : `${row.min_schedule_count}–${row.schedule_count}` }}</template>
       </el-table-column>
+      <el-table-column prop="total_count" label="现存条目合计" width="130" align="right" />
       <el-table-column label="创建时间" width="180">
         <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
       </el-table-column>
@@ -99,12 +97,9 @@ function handleSizeChange(value) {
 }
 
 async function handleDelete(row) {
-  // 撤销是不可恢复的，先把「要删掉多少条」算给用户看：target_count × schedule_count
-  const total = (row.target_count || 0) * (row.schedule_count || 0)
   try {
     await ElMessageBox.confirm(
-      `撤销「${row.name}」？会从 ${row.target_count} 名学生的日程表里删掉各 ${row.schedule_count} 条日程`
-      + `（共 ${total} 条），不可恢复。`,
+      `撤销「${row.name}」？当前 ${row.target_count} 名学生共存有 ${row.total_count} 条日程，将一并删除，不可恢复。`,
       '撤销批次',
       { type: 'warning' }
     )

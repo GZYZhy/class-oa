@@ -1071,6 +1071,13 @@ def delete_batch(
     return count
 
 
+def prune_empty_batches(db: Session) -> int:
+    """删除没有任何现存日程的批次，兼容历史遗留的空记录。"""
+    db.flush()
+    has_schedules = db.query(Schedule.id).filter(Schedule.source_batch_id == ScheduleBatch.id).exists()
+    return db.query(ScheduleBatch).filter(~has_schedules).delete(synchronize_session=False)
+
+
 def list_batches(
     db: Session,
     operator_id: int,
@@ -1079,13 +1086,36 @@ def list_batches(
     page_size: int = 20,
     *,
     all_batches: bool = False,
-) -> tuple[list[ScheduleBatch], int]:
+) -> tuple[list[dict], int]:
     """查看批次列表（分页），返回 (当前页, 总数)
 
     默认只看自己创建/导入的（在册学生与域外账号同一套口径）；
     all_batches 只由管理员在「系统管理 → 日程批次」使用，列全站。
     """
-    query = db.query(ScheduleBatch)
+    # 先按学生计数，再汇总批次，兼容删除副本和重复日程拆分后的不均匀条目数。
+    per_student = (
+        db.query(
+            Schedule.source_batch_id.label("batch_id"),
+            Schedule.student_id,
+            func.count(Schedule.id).label("item_count"),
+        )
+        .filter(Schedule.source_batch_id.is_not(None))
+        .group_by(Schedule.source_batch_id, Schedule.student_id)
+        .subquery()
+    )
+    stats = (
+        db.query(
+            per_student.c.batch_id,
+            func.count().label("target_count"),
+            func.sum(per_student.c.item_count).label("total_count"),
+            func.min(per_student.c.item_count).label("min_schedule_count"),
+            func.max(per_student.c.item_count).label("schedule_count"),
+        )
+        .group_by(per_student.c.batch_id)
+        .subquery()
+    )
+    # 内连接只保留有现存条目的批次，过滤在分页和 total 计算之前完成。
+    query = db.query(ScheduleBatch, stats).join(stats, stats.c.batch_id == ScheduleBatch.id)
     if not all_batches:
         filters = [ScheduleBatch.operator_user_id == operator_user_id]
         if operator_id:
@@ -1105,7 +1135,19 @@ def list_batches(
         .limit(page_size)
         .all()
     )
-    return rows, total
+    return [
+        {
+            "id": row.ScheduleBatch.id,
+            "name": row.ScheduleBatch.name,
+            "operator_name": row.ScheduleBatch.operator_name or "",
+            "created_at": row.ScheduleBatch.created_at,
+            "target_count": row.target_count,
+            "schedule_count": row.schedule_count,
+            "min_schedule_count": row.min_schedule_count,
+            "total_count": row.total_count,
+        }
+        for row in rows
+    ], total
 
 
 # ---------- iCal token ----------

@@ -2527,3 +2527,38 @@ def test_report_rejects_bad_ranges(b):
     assert b.client.get("/api/schedules/report", params={
         "start_date": "2025-01-01", "end_date": "2026-10-12",
     }).status_code == 400
+
+
+def test_batch_counts_follow_partial_deletion_and_hide_empty(b):
+    created = b.client.post('/api/schedules', json=_make_schedule(target_all=True)).json()
+    batch_id = created['source_batch_id']
+    endpoint = '/api/schedules/batches'
+    row = b.client.get(endpoint).json()['items'][0]
+    assert (row['target_count'], row['total_count'], row['schedule_count']) == (3, 3, 1)
+    assert b.client.delete(f'/api/schedules/item/{created["id"]}', params={
+        'instance_date': created['instance_date']}).status_code == 200
+    row = b.client.get(endpoint).json()['items'][0]
+    assert (row['target_count'], row['total_count']) == (2, 2)
+    for idx in (1, 2):
+        client = as_student(b, idx)
+        try:
+            own = client.get('/api/schedules', params={'start_date': '2026-10-12', 'end_date': '2026-10-12'}).json()[0]
+            assert client.delete(f'/api/schedules/item/{own["id"]}', params={
+                'instance_date': own['instance_date']}).status_code == 200
+        finally:
+            client.close()
+    data = b.client.get(endpoint, params={'page_size': 1}).json()
+    assert data == {'total': 0, 'items': []}
+    assert b.client.get(endpoint, params={'all': True}).json()['total'] == 0
+    assert not b.rows('SELECT id FROM schedule_batches WHERE id=?', batch_id)
+
+
+def test_batch_counts_follow_repeat_split(b):
+    created = b.client.post('/api/schedules', json=_make_schedule(
+        target_all=True, repeat_type='weekly', repeat_end_date='2026-11-02')).json()
+    response = b.client.put(f'/api/schedules/item/{created["id"]}', params={
+        'instance_date': '2026-10-19'}, json={'title': '单次修改', 'scope': 'single'})
+    assert response.status_code == 200, response.text
+    row = b.client.get('/api/schedules/batches').json()['items'][0]
+    assert (row['target_count'], row['total_count']) == (3, 5)
+    assert (row['min_schedule_count'], row['schedule_count']) == (1, 3)

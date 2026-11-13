@@ -1132,20 +1132,19 @@ console.log('\n▶ 系统管理：日程批次面板')
 {
   // 表桩对每行跑 default 插槽，所以这里能真断到行里的内容（见文件头）
   const BATCHES = `batches.value = [
-    { id: 1, name: '秋季课表', target_count: 36, schedule_count: 42, created_at: '2026-10-07T10:00:00' },
-    { id: 2, name: '运动会安排', target_count: 3, schedule_count: 2, created_at: '2026-10-08T09:30:00' }
+    { id: 1, name: '秋季课表', target_count: 36, min_schedule_count: 42, schedule_count: 42, total_count: 1512, created_at: '2026-10-07T10:00:00' },
+    { id: 2, name: '运动会安排', target_count: 3, min_schedule_count: 1, schedule_count: 2, total_count: 5, created_at: '2026-10-08T09:30:00' }
   ]`
   const { html, warns } = await renderPatched(
     '/src/components/ScheduleBatchPanel.vue', 'onMounted(load)', BATCHES)
 
   check(html.includes('秋季课表') && html.includes('运动会安排'), '两条批次名都渲出来了')
   check(html.includes('>36<') && html.includes('>42<'), '目标人数 / 每人日程数各自成列')
-  // 合计 = 目标人数 × 每人日程数（36×42=1512、3×2=6）。少了这一列，36 人的
-  // 生日批次显示成「36 / 4」看着就像只有 4 条（用户报的就是这个）
-  check(html.includes('>1512<') && html.includes('>6<'), '「合计」列把总量算出来了')
+  check(html.includes('>1512<') && html.includes('>5<'), '合计展示后端实时条数')
+  check(html.includes('1–2'), '学生现存条目数不同时显示范围')
   const panelSrc = readFileSync(`${ROOT}src/components/ScheduleBatchPanel.vue`, 'utf-8')
-  check(panelSrc.includes('label="每人日程数"') && !panelSrc.includes('label="日程数"'),
-    '「日程数」改叫「每人日程数」—— 它是每人几条，不是这一批一共几条')
+  check(panelSrc.includes('label="每人现存条目"') && panelSrc.includes('prop="total_count"'),
+    '批次使用实时人数和条目数')
   check(!panelSrc.includes('没有学籍档案'), '不再按域外账号整块隐藏批次管理')
   check(panelSrc.includes('onMounted(load)') && !panelSrc.includes('!userStore.isExternal'),
     '域外账号也拉批次列表（后端已按 operator_user_id 支持）')

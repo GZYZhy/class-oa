@@ -254,6 +254,8 @@ class ScheduleBatchResponse(BaseModel):
     name: str
     target_count: int = 0
     schedule_count: int = 0
+    min_schedule_count: int = 0
+    total_count: int = 0
     operator_name: Optional[str] = ""
     created_at: datetime
 

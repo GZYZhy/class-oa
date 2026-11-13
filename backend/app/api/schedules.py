@@ -778,6 +778,7 @@ def delete_schedule(
     if count == 0:
         raise HTTPException(status_code=404, detail="日程不存在")
 
+    ss.prune_empty_batches(db)
     db.commit()
     log_operation(db, user, f"删除日程：{title}（{scope}{'，含他人' if share else ''}）")
     return {"ok": True, "deleted": count}
@@ -947,6 +948,8 @@ def list_batches(
     if all_batches and not is_admin(user):
         raise HTTPException(status_code=403, detail="只有管理员可以查看全部批次")
     student = db.query(Student).filter(Student.student_no == user.student_no).first()
+    ss.prune_empty_batches(db)
+    db.commit()
     batches, total = ss.list_batches(
         db,
         student.id if student else 0,
@@ -955,20 +958,7 @@ def list_batches(
         page_size=page_size,
         all_batches=all_batches,
     )
-    return {
-        "total": total,
-        "items": [
-            {
-                "id": b.id,
-                "name": b.name,
-                "target_count": b.target_count,
-                "schedule_count": b.schedule_count,
-                "operator_name": b.operator_name or "",
-                "created_at": b.created_at,
-            }
-            for b in batches
-        ],
-    }
+    return {"total": total, "items": batches}
 
 
 @router.delete("/batches/{batch_id}")
