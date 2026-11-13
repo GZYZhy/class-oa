@@ -95,6 +95,11 @@ request.interceptors.response.use(
     return response.data
   },
   (error) => {
+    if (error.response?.status === 502 && typeof window !== 'undefined' && window.location?.replace) {
+      const original = window.location.pathname + window.location.search + window.location.hash
+      window.location.replace(`/maintenance.html?return=${encodeURIComponent(original)}`)
+    }
+
     // 401 = 会话没了（过期、被冻结、被吊销），无论当前在不在公开页面都要回登录页 ——
     // 停在公开页面上装作没掉线，顶栏还挂着姓名头像，反而更让人摸不着头脑。
     //

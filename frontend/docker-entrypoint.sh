@@ -49,6 +49,18 @@ if [ -n "$NGINX_SSL_CERT" ] && [ -n "$NGINX_SSL_KEY" ]; then
     root /usr/share/nginx/html;
     index index.html;
 
+    proxy_intercept_errors on;
+    error_page 502 /maintenance.html;
+    location = /maintenance.html {
+        add_header Cache-Control \"no-store\" always;
+        add_header Retry-After \"60\" always;
+        include /etc/nginx/security-headers.conf;
+    }
+    location = /maintenance.js {
+        add_header Cache-Control \"no-cache\";
+        include /etc/nginx/security-headers.conf;
+    }
+
     location ^~ /api/ {
         proxy_pass http://backend:8000/api/;
         proxy_set_header Host \$host;

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta http-equiv="refresh" content="60">
+  <title>维护中</title>
+  <link rel="icon" href="/favicon.png">
+  <script src="/site-config.js" defer></script>
+  <script src="/maintenance.js" defer></script>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; color: #30334f; background: #f4f6fc; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100svh; display: grid; place-items: center; padding: 24px;
+      background: radial-gradient(ellipse at 10% 0%, #dce1ff 0%, transparent 55%), radial-gradient(ellipse at 100% 10%, #e9dffc 0%, transparent 55%), radial-gradient(ellipse at 50% 100%, #dff3fa 0%, transparent 60%); }
+    main { width: min(100%, 520px); padding: 40px; border: 1px solid #ffffffd9; border-radius: 24px; background: #ffffffbf; box-shadow: 0 20px 70px #5967aa12, inset 0 1px #fff; backdrop-filter: blur(20px); }
+    .brand { display: flex; align-items: center; gap: 12px; font-size: 15px; font-weight: 600; color: #6263a5; overflow-wrap: anywhere; }
+    .brand img { width: 40px; height: 40px; object-fit: contain; }
+    h1 { margin: 36px 0 14px; font-size: 32px; font-weight: 650; letter-spacing: .04em; }
+    p { margin: 0; font-size: 15px; line-height: 1.9; color: #626881; }
+    .retry { display: inline-flex; justify-content: center; margin-top: 28px; padding: 12px 24px; border: 1px solid #ffffff70; border-radius: 12px; background: linear-gradient(135deg, #7177e9, #8b77e6); color: white; font-weight: 600; font-size: 14px; text-decoration: none; box-shadow: 0 5px 14px #7773da25; }
+    .retry:hover { filter: brightness(1.07); }
+    .retry:focus-visible { outline: 3px solid #6067cc; outline-offset: 4px; }
+    .hint { margin-top: 24px; font-size: 12px; color: #737a92; }
+    @media (max-width: 480px) { main { padding: 30px 24px; } h1 { font-size: 28px; } }
+    @media (prefers-color-scheme: dark) {
+      :root { color: #eeeef9; background: #171b30; }
+      body { background: radial-gradient(ellipse at 0% 0%, #30335a 0%, transparent 60%), radial-gradient(ellipse at 100% 100%, #243c51 0%, transparent 60%); }
+      main { background: #252a43c9; border-color: #ffffff18; box-shadow: 0 20px 70px #0002, inset 0 1px #ffffff12; }
+      .brand { color: #b9b6f5; } p { color: #c2c6d9; } .hint { color: #a9b0c9; }
+    }
+  </style>
+</head>
+<body>
+  <main aria-labelledby="maintenance-title">
+    <div class="brand"><img id="site-logo" src="/logo.png" alt="校徽"><span id="site-name">班级信息管理系统</span></div>
+    <h1 id="maintenance-title">维护中</h1>
+    <p>系统正在更新或临时维护，请稍候再试。</p>
+    <a class="retry" id="retry" href="">立即重试</a>
+    <p class="hint">页面每 60 秒自动重试，恢复后返回原页面。</p>
+  </main>
+</body>
+</html>

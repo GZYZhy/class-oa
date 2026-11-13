@@ -34,6 +34,19 @@ server {
     include /etc/nginx/security-headers.conf;
     index  index.html;
 
+    # 后端更新期间直接由前端容器提供维护页，保留 502 状态。
+    proxy_intercept_errors on;
+    error_page 502 /maintenance.html;
+    location = /maintenance.html {
+        add_header Cache-Control "no-store" always;
+        add_header Retry-After "60" always;
+        include /etc/nginx/security-headers.conf;
+    }
+    location = /maintenance.js {
+        add_header Cache-Control "no-cache";
+        include /etc/nginx/security-headers.conf;
+    }
+
     # API 代理到后端服务
     # 必须用 ^~ 前缀：否则 /api/resources/file/校徽图片.png 这类带扩展名的地址
     # 会被下面的静态资源正则 location 抢先匹配，导致绕过后端鉴权
