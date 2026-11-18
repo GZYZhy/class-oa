@@ -550,3 +550,59 @@ def test_the_status_filter_has_a_closed_bucket(sp):
     assert ids("closed") == {made["approved"], made["rejected"], made["revoked"]}, \
         "已办结 = 已通过 + 已驳回 + 已撤销"
     assert ids("") == set(made.values()), "不传 status 就是全部"
+
+
+def college_row_of(b, lid):
+    return b.rows(
+        "SELECT college_opinion, college_sign_no, college_sign_name, college_sign_file"
+        " FROM leave_requests WHERE id = ?", lid,
+    )[0]
+
+
+def test_approve_college_opinion_and_college_signature(sp):
+    lid = submit(sp.applicant_client)
+    r = approve(
+        sp.b, lid,
+        advisor_opinion="班导师同意", advisor_sign_no=ADMIN,
+        college_opinion="学院同意", college_sign_no=ADMIN,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["has_college_sign"] is True
+    assert r.json()["college_sign_name"] == "甲"
+    opinion, sign_no, sign_name, sign_file = college_row_of(sp.b, lid)
+    assert (opinion, sign_no, sign_name) == ("学院同意", ADMIN, "甲")
+    assert sign_file and (sp.leaves / sign_file).exists()
+
+
+def test_college_opinion_can_be_saved_without_signature(sp):
+    lid = submit(sp.applicant_client)
+    r = approve(sp.b, lid, college_opinion="学院已阅")
+    assert r.status_code == 200, r.text
+    opinion, _, _, sign_file = college_row_of(sp.b, lid)
+    assert opinion == "学院已阅" and sign_file == ""
+    assert r.json()["has_college_sign"] is False
+
+
+def college_sign(b, lid, **body):
+    return b.client.post(f"/api/leaves/{lid}/college-sign", json=body)
+
+
+def test_college_opinion_and_signature_can_be_added_after_approval(sp):
+    lid = submit(sp.applicant_client)
+    assert approve(sp.b, lid).status_code == 200
+
+    r = college_sign(sp.b, lid, college_opinion="学院同意", college_sign_no=ADMIN)
+    assert r.status_code == 200, r.text
+    assert r.json()["has_college_sign"] is True
+    opinion, sign_no, sign_name, sign_file = college_row_of(sp.b, lid)
+    assert (opinion, sign_no, sign_name) == ("学院同意", ADMIN, "甲")
+    assert sign_file and (sp.leaves / sign_file).exists()
+
+    # 已有辅导员签字后不能再改
+    assert college_sign(sp.b, lid, college_sign_no=ADMIN).status_code == 400
+
+
+def test_college_signature_requires_opinion_or_signer(sp):
+    lid = submit(sp.applicant_client)
+    assert approve(sp.b, lid).status_code == 200
+    assert college_sign(sp.b, lid).status_code == 400

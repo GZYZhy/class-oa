@@ -1325,7 +1325,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `LeaveRequestResponse` — 成功
-  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`、`college_opinion`、`college_sign_no`、`college_sign_name`、`has_college_sign`
 
 ### 修改请假申请（未办结时）
 
@@ -1356,7 +1356,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `LeaveRequestResponse` — 成功
-  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`、`college_opinion`、`college_sign_no`、`college_sign_name`、`has_college_sign`
 
 ### 撤销请假申请（待受理时）
 
@@ -1453,7 +1453,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `LeaveRequestResponse` — 成功
-  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`、`college_opinion`、`college_sign_no`、`college_sign_name`、`has_college_sign`
 
 ### 撤回受理
 
@@ -1470,7 +1470,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `LeaveRequestResponse` — 成功
-  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`、`college_opinion`、`college_sign_no`、`college_sign_name`、`has_college_sign`
 
 ### 退回补正
 
@@ -1493,7 +1493,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `LeaveRequestResponse` — 成功
-  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`、`college_opinion`、`college_sign_no`、`college_sign_name`、`has_college_sign`
 
 ### 能当班导师签字人的账号（管理员）
 
@@ -1524,7 +1524,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `LeaveRequestResponse` — 成功
-  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`、`college_opinion`、`college_sign_no`、`college_sign_name`、`has_college_sign`
 
 ### 撤销已通过的请假申请
 
@@ -1541,7 +1541,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `LeaveRequestResponse` — 成功
-  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`、`college_opinion`、`college_sign_no`、`college_sign_name`、`has_college_sign`
 
 ### 补签字（批准时选了「暂不签字」之后）
 
@@ -1561,11 +1561,31 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 | --- | --- | --- | --- |
 | `advisor_opinion` | string | 否 | 班导师意见（选填） |
 | `advisor_sign_no` | string | 否 | 签字人的登录名，空串 = 暂不签字 |
+| `college_opinion` | string | 否 | 学院意见（选填；填写后 PDF 写日期） |
+| `college_sign_no` | string | 否 | 辅导员签字人登录名，空串 = 暂不签字 |
 
 **响应**
 
 - `200` `LeaveRequestResponse` — 成功
-  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`、`college_opinion`、`college_sign_no`、`college_sign_name`、`has_college_sign`
+
+### 补学院意见 / 辅导员签字（管理员）
+
+`POST /api/leaves/{leave_id}/college-sign`
+
+已批准但学院意见或辅导员签字没填时补录。学院意见和辅导员签字至少填一项；
+已有辅导员签字时返回 400，签字图按批准时快照复制，不覆盖历史表。
+
+**请求体**（`application/json`，JSON）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `college_opinion` | string | 否 | 学院意见（最多 200 字） |
+| `college_sign_no` | string | 否 | 辅导员签字人登录名；空串 = 不签字 |
+
+**响应**
+
+- `200` `LeaveRequestResponse` — 成功
 
 ### 驳回请假申请
 
@@ -1586,7 +1606,7 @@ u 参数仅用于前端绕过浏览器缓存（切换账号时 URL 不同），�
 **响应**
 
 - `200` `LeaveRequestResponse` — 成功
-  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`
+  - 字段：`id`、`student_id`、`student_no`、`student_name`、`leave_type`、`start_at`、`end_at`、`reason`、`travel_mode`、`travel_detail`、`destination`、`destination_phone`、`proof_original_name`、`status`、`reviewer_name`、`reject_reason`、`correction_reason`、`created_at`、`reviewed_at`、`advisor_opinion`、`advisor_sign_no`、`advisor_sign_name`、`has_advisor_sign`、`college_opinion`、`college_sign_no`、`college_sign_name`、`has_college_sign`
 
 ## 考勤记录
 

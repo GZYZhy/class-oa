@@ -189,6 +189,15 @@
               <span v-else style="color: var(--el-text-color-secondary);">暂不签字</span>
             </template>
           </el-table-column>
+          <el-table-column label="辅导员签字" width="120" align="center">
+            <template #default="{ row }">
+              <span v-if="row.status !== 'approved'" style="color: var(--el-text-color-disabled);">—</span>
+              <span v-else-if="row.has_college_sign" style="color: #67c23a;">
+                {{ row.college_sign_name }} 已签
+              </span>
+              <span v-else style="color: var(--el-text-color-secondary);">暂不签字</span>
+            </template>
+          </el-table-column>
           <el-table-column label="申请时间" width="150" align="center">
             <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
           </el-table-column>
@@ -239,6 +248,15 @@
                 @click="openLeaveDialog('sign', row)"
               >
                 补签字
+              </el-button>
+              <el-button
+                v-if="row.status === 'approved' && !row.has_college_sign && userStore.isAdmin"
+                size="small"
+                link
+                type="warning"
+                @click="openLeaveDialog('college', row)"
+              >
+                补学院意见
               </el-button>
               <!-- 撤销是终态：撤了就不再提供请假表、不能编辑。二次确认在 handler 里 -->
               <el-button
@@ -926,30 +944,59 @@
         </span>
       </div>
       <el-form label-width="92px">
-        <el-form-item label="班导师意见">
-          <el-input
-            v-model="leaveDialogForm.advisor_opinion"
-            type="textarea"
-            :rows="3"
-            maxlength="200"
-            show-word-limit
-            placeholder="选填"
-          />
-        </el-form-item>
-        <el-form-item label="班导师签字">
-          <el-select v-model="leaveDialogForm.advisor_sign_no" style="width: 100%;">
-            <el-option label="暂不签字" value="" />
-            <el-option
-              v-for="s in advisorSigners"
-              :key="s.student_no"
-              :label="s.is_external ? `${s.name}（域外账号）` : s.name"
-              :value="s.student_no"
+        <template v-if="leaveDialogMode !== 'college'">
+          <el-form-item label="班导师意见">
+            <el-input
+              v-model="leaveDialogForm.advisor_opinion"
+              type="textarea"
+              :rows="3"
+              maxlength="200"
+              show-word-limit
+              placeholder="选填"
             />
-          </el-select>
-          <div style="font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.5;">
-            签的是批准当时这张图，之后换图也不会改动已生成的表。
-          </div>
-        </el-form-item>
+          </el-form-item>
+          <el-form-item label="班导师签字">
+            <el-select v-model="leaveDialogForm.advisor_sign_no" style="width: 100%;">
+              <el-option label="暂不签字" value="" />
+              <el-option
+                v-for="s in advisorSigners"
+                :key="s.student_no"
+                :label="s.is_external ? `${s.name}（域外账号）` : s.name"
+                :value="s.student_no"
+              />
+            </el-select>
+            <div style="font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.5;">
+              签的是批准当时这张图，之后换图也不会改动已生成的表。
+            </div>
+          </el-form-item>
+        </template>
+        <template v-if="leaveDialogMode !== 'sign'">
+          <el-divider content-position="left">学院意见</el-divider>
+          <el-form-item label="学院意见">
+            <el-input
+              v-model="leaveDialogForm.college_opinion"
+              type="textarea"
+              :rows="3"
+              maxlength="200"
+              show-word-limit
+              placeholder="选填；填写后会在这张表上写上日期"
+            />
+          </el-form-item>
+          <el-form-item label="辅导员签字">
+            <el-select v-model="leaveDialogForm.college_sign_no" style="width: 100%;">
+              <el-option label="暂不签字" value="" />
+              <el-option
+                v-for="s in advisorSigners"
+                :key="s.student_no"
+                :label="s.is_external ? `${s.name}（域外账号）` : s.name"
+                :value="s.student_no"
+              />
+            </el-select>
+            <div style="font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.5;">
+              和班导师签字一样，保存的是批准当时的签字图快照。
+            </div>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="leaveDialogVisible = false">取消</el-button>
@@ -1055,6 +1102,7 @@ import {
   correctLeave,
   approveLeave,
   advisorSign,
+  collegeSign,
   rejectLeave,
   revokeLeave,
   downloadLeaveProof,
@@ -1431,13 +1479,20 @@ const leaveDialogVisible = ref(false)
 const leaveDialogMode = ref('approve')
 const leaveDialogRow = ref(null)
 const leaveDialogSubmitting = ref(false)
-const leaveDialogForm = ref({ advisor_opinion: '', advisor_sign_no: '' })
+const leaveDialogForm = ref({
+  advisor_opinion: '',
+  advisor_sign_no: '',
+  college_opinion: '',
+  college_sign_no: ''
+})
 // 能当签字人的管理员列表，第一次打开弹窗时拉一次就够了
 const advisorSigners = ref([])
 
-const leaveDialogTitle = computed(
-  () => (leaveDialogMode.value === 'sign' ? '补班导师签字' : '通过请假申请')
-)
+const leaveDialogTitle = computed(() => {
+  if (leaveDialogMode.value === 'sign') return '补班导师签字'
+  if (leaveDialogMode.value === 'college') return '补学院意见 / 辅导员签字'
+  return '通过请假申请'
+})
 
 async function openLeaveDialog(mode, row) {
   leaveDialogMode.value = mode
@@ -1445,7 +1500,9 @@ async function openLeaveDialog(mode, row) {
   // 补签字时把当初填过的意见带出来，方便接着改；批准时是空白
   leaveDialogForm.value = {
     advisor_opinion: (mode === 'sign' && row.advisor_opinion) || '',
-    advisor_sign_no: ''
+    advisor_sign_no: '',
+    college_opinion: (mode === 'college' && row.college_opinion) || '',
+    college_sign_no: ''
   }
   leaveDialogVisible.value = true
   if (!advisorSigners.value.length) {
@@ -1464,11 +1521,22 @@ async function doLeaveDialog() {
   try {
     const payload = {
       advisor_opinion: leaveDialogForm.value.advisor_opinion,
-      advisor_sign_no: leaveDialogForm.value.advisor_sign_no
+      advisor_sign_no: leaveDialogForm.value.advisor_sign_no,
+      college_opinion: leaveDialogForm.value.college_opinion,
+      college_sign_no: leaveDialogForm.value.college_sign_no
     }
     if (leaveDialogMode.value === 'sign') {
-      await advisorSign(row.id, payload)
+      await advisorSign(row.id, {
+        advisor_opinion: payload.advisor_opinion,
+        advisor_sign_no: payload.advisor_sign_no
+      })
       ElMessage.success('已补签字')
+    } else if (leaveDialogMode.value === 'college') {
+      await collegeSign(row.id, {
+        college_opinion: payload.college_opinion,
+        college_sign_no: payload.college_sign_no
+      })
+      ElMessage.success('学院意见已更新')
     } else {
       await approveLeave(row.id, payload)
       ElMessage.success('已通过')

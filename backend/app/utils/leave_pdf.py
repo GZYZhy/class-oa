@@ -107,7 +107,12 @@ def _fit_cell(text: str | None, width: float, limit: float, align=TA_CENTER):
 # ---------- 表格 ----------
 
 
-def _rows(student, leave, *, applicant_sign: Path | None, advisor_sign: Path | None) -> list:
+def _rows(
+    student, leave, *,
+    applicant_sign: Path | None,
+    advisor_sign: Path | None,
+    college_sign: Path | None,
+) -> list:
     """按 (行, 起列, 止列, 内容) 描述整张表；跨列的格只在左上角放东西，其余由 SPAN 合并
 
     行号列号与文字都照原来那份模板（backend/templates/请假审批表.docx，已删）的实际结构 ——
@@ -206,13 +211,31 @@ def _rows(student, leave, *, applicant_sign: Path | None, advisor_sign: Path | N
         c1_w, ROW_H[9] - 2 * CELL_PAD_Y,
     ))
 
-    # 行 10：学院意见 —— 系统不管，原样印出来给人手签（两个空格数都照模板抄）。
+    # 行 10：学院意见。默认仍是模板那张空白待签栏；填了意见才写正文和日期，
+    # 辅导员签字与班导师一样插在「辅导员签字:」后面。
     # 模板这一格是 `ind left=480 hanging=480`：**首行不缩进、续行缩进 24pt**。
-    # 少了 firstLineIndent=-24 就会连首行也缩进 24pt，可用宽变小，行尾那个「：」被挤到第二行
     put(10, 0, 0, _c("学院意见"))
-    put(10, 1, 5,
-        _p("辅导员签字:" + _sp(22) + "学院领导签字（盖章）：", leftIndent=24, firstLineIndent=-24),
-        _p(_sp(35) + "年" + _sp(2) + "月" + _sp(2) + "日", leftIndent=24))
+    college_opinion = getattr(leave, "college_opinion", "") or ""
+    if college_opinion:
+        put(10, 1, 5, *_shrink_to_fit(
+            lambda s: [
+                _p(college_opinion, size=s),
+                _sign_line("辅导员签字:", college_sign, inner_w=c1_w,
+                           boxes=(4.5 * cm, 1.1 * cm), spaces_after=2,
+                           tail="学院领导签字（盖章）：", size=s),
+                _p(_date_cn(getattr(leave, "reviewed_at", None)), align=TA_RIGHT),
+            ],
+            c1_w, ROW_H[10] - 2 * CELL_PAD_Y,
+        ))
+    else:
+        put(10, 1, 5,
+            _sign_line("辅导员签字:", college_sign, inner_w=c1_w,
+                       boxes=(4.5 * cm, 1.1 * cm), spaces_after=2,
+                       tail="学院领导签字（盖章）：")
+            if college_sign else
+            _p("辅导员签字:" + _sp(22) + "学院领导签字（盖章）：",
+               leftIndent=24, firstLineIndent=-24),
+            _p(_sp(35) + "年" + _sp(2) + "月" + _sp(2) + "日", leftIndent=24))
 
     # 行 11：销假记录 + 申请人签字（同一行）。销假的日期 = **假期结束日**（请到哪天就哪天销假）
     put(11, 0, 0, _c("销假记录"))
@@ -238,8 +261,13 @@ _SPANS = (
 )
 
 
-def _build_table(student, leave, *, applicant_sign, advisor_sign) -> Table:
-    cells = _rows(student, leave, applicant_sign=applicant_sign, advisor_sign=advisor_sign)
+def _build_table(student, leave, *, applicant_sign, advisor_sign, college_sign) -> Table:
+    cells = _rows(
+        student, leave,
+        applicant_sign=applicant_sign,
+        advisor_sign=advisor_sign,
+        college_sign=college_sign,
+    )
 
     # 网格：跨列的格只在左上角放内容，被合并掉的格子留空
     grid = [["" for _ in range(len(COL_W))] for _ in range(len(ROW_H))]
@@ -276,6 +304,7 @@ def generate_leave_pdf(
     *,
     applicant_sign: Path | None = None,
     advisor_sign: Path | None = None,
+    college_sign: Path | None = None,
 ) -> bytes:
     """根据学生信息和请假申请，生成填好的请假审批表 PDF（返回二进制内容）
 
@@ -288,7 +317,12 @@ def generate_leave_pdf(
     story = [
         _BoldParagraph(f"{settings.school}{TITLE_SUFFIX}", _style(TITLE_SIZE, 18, TA_CENTER)),
         _p(f"学院：{settings.college}"),
-        _build_table(student, leave, applicant_sign=applicant_sign, advisor_sign=advisor_sign),
+        _build_table(
+            student, leave,
+            applicant_sign=applicant_sign,
+            advisor_sign=advisor_sign,
+            college_sign=college_sign,
+        ),
     ]
     for left, first, text in NOTES:
         # 行距显式给 LINE_H：这三行备注虽说字号小，模板里也是压在 15.6pt 的行网格上的

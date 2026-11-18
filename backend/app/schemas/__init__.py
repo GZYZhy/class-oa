@@ -58,6 +58,7 @@ from .about import (
 )
 from .leave import (
     LeaveAdvisorSignature,
+    LeaveCollegeSignature,
     LeaveCorrectRequest,
     LeaveRejectRequest,
     LeaveRequestCreate,
@@ -316,6 +317,7 @@ __all__ = [
     "LeaveRejectRequest",
     "LeaveCorrectRequest",
     "LeaveAdvisorSignature",
+    "LeaveCollegeSignature",
     "FeedbackAttachment",
     "FeedbackReply",
     "FeedbackResponse",

@@ -36,7 +36,7 @@ def _sample():
         student_name="张三", start_at=datetime(2026, 10, 15, 8), end_at=datetime(2026, 10, 17, 18),
         leave_type="事假", reason="家里有事需要回去一趟", travel_mode="高铁",
         travel_detail="G123 次", destination="山东省济南市历下区解放路1号",
-        destination_phone="13700137000", advisor_opinion="",
+        destination_phone="13700137000", advisor_opinion="", college_opinion="",
         # 三处签名旁的日期就取这三个字段（见 test_signature_dates_come_from_the_right_day）
         created_at=datetime(2026, 10, 12, 9, 30), reviewed_at=datetime(2026, 10, 13, 14, 20),
     )
@@ -55,10 +55,13 @@ def _sign(path: Path, px_w: int, px_h: int) -> Path:
     return path
 
 
-def _page(student, leave, applicant=None, advisor=None):
+def _page(student, leave, applicant=None, advisor=None, college=None):
     from app.utils.leave_pdf import generate_leave_pdf
 
-    blob = generate_leave_pdf(student, leave, applicant_sign=applicant, advisor_sign=advisor)
+    blob = generate_leave_pdf(
+        student, leave,
+        applicant_sign=applicant, advisor_sign=advisor, college_sign=college,
+    )
     return pymupdf.open(stream=blob, filetype="pdf")
 
 
@@ -134,6 +137,31 @@ def test_no_signature_covers_any_text(tmp_path):
         box = pymupdf.Rect(info["bbox"])
         covered = [t for t in texts if box.intersects(t)]
         assert not covered, f"签字图压住了 {len(covered)} 处文字：{covered[:3]}"
+
+
+def test_college_opinion_and_signature(tmp_path):
+    """学院意见有字才写日期；辅导员签字和班导师一样插入签字图"""
+    student, leave = _sample()
+    leave.college_opinion = "同意，请按时返校。"
+    page = _page(student, leave, college=_sign(tmp_path / "college.png", 420, 120))[0]
+    text = page.get_text()
+    assert "同意，请按时返校。" in text
+    assert text.count("2026年10月13日") == 2, "班导师和学院两处日期"
+    assert any(
+        (info["width"], info["height"]) == (420, 120)
+        for info in page.get_image_info()
+    ), "辅导员签字没画出来"
+
+
+def test_college_without_opinion_keeps_blank_date(tmp_path):
+    """没有学院意见就不写日期；签字图本身仍可存在"""
+    student, leave = _sample()
+    page = _page(student, leave, college=_sign(tmp_path / "college.png", 420, 120))[0]
+    assert page.get_text().count("2026年10月13日") == 1, "只有班导师那处日期"
+    assert any(
+        (info["width"], info["height"]) == (420, 120)
+        for info in page.get_image_info()
+    )
 
 
 def test_row11_still_keeps_its_date(tmp_path):

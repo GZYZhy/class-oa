@@ -2074,6 +2074,7 @@ console.log('\n▶ 审核页：批准时填班导师意见、选谁的签字')
     id: 1, student_name: '丙', student_no: '2024000003', leave_type: '事假',
     start_at: '2026-10-15 08:00', end_at: '2026-10-17 18:00', reason: '家里有事',
     status: 'pending', has_advisor_sign: false, advisor_sign_name: '', advisor_opinion: '',
+    has_college_sign: false, college_sign_name: '', college_opinion: '',
     created_at: '2026-10-12 09:00', ...o
   })
   const who = (role) => `const userStore = useUserStore()
@@ -2106,7 +2107,8 @@ console.log('\n▶ 审核页：批准时填班导师意见、选谁的签字')
 
   const { html: deferred } = await renderPatchedMany(REVIEW,
     [['const userStore = useUserStore()', who('admin')], ...leaveTab(row({ status: 'approved' }))])
-  check(buttonTexts(deferred).includes('补签字'), '「暂不签字」的才给「补签字」')
+  check(buttonTexts(deferred).includes('补签字') && buttonTexts(deferred).includes('补学院意见'),
+    '「暂不签字」的才给补签和补学院意见')
   check(stripComments(deferred).includes('暂不签字'), '那一列写着「暂不签字」')
 
   // 班委：列表能看，但下载（别人的表）和签字都轮不到他
@@ -2122,7 +2124,8 @@ console.log('\n▶ 审核页：批准时填班导师意见、选谁的签字')
   check(src.includes("openLeaveDialog('approve', row)") && src.includes("openLeaveDialog('sign', row)"),
     '「通过」和「补签字」都走同一个弹窗')
   check(/await approveLeave\(row\.id, payload\)/.test(src), '通过时把意见和签字人一起提交')
-  check(/await advisorSign\(row\.id, payload\)/.test(src), '补签字走单独那个接口')
+  check(/await advisorSign\(row\.id, \{/.test(src), '补签字走单独那个接口')
+  check(/await collegeSign\(row\.id, \{/.test(src), '补学院意见走单独接口')
 
   // 弹窗正文在 SSR 下不渲染，得盖掉 el-dialog；顺便把候选人也灌进去
   const R = row({})
@@ -2140,12 +2143,14 @@ console.log('\n▶ 审核页：批准时填班导师意见、选谁的签字')
   ], { ElDialog: ElDialogStub })
   const dlg = stripComments(dialog)
   check(dlg.includes('班导师意见') && dlg.includes('班导师签字'), '意见和签字两个表单项都在')
+  check(dlg.includes('学院意见') && dlg.includes('辅导员签字'), '学院意见和辅导员签字表单项都在')
   check(/maxlength="200"/.test(dialog), '意见卡 200 字（上限是排版算出来的，改这里要重跑版式测试）')
   check(dlg.includes('签的是批准当时这张图'), '写明了签的是快照')
 
   // 下面三条只能看源码：标题是 :title 传进去的 prop（桩不渲染 prop），
   // 两个 option 在一段没展开的下拉里（SSR 下连真 Element 都不渲染它的正文）。
-  check(/\? '补班导师签字' : '通过请假申请'/.test(src), '弹窗标题按两种用途分')
+  check(src.includes("'补班导师签字'") && src.includes("'补学院意见 / 辅导员签字'") &&
+    src.includes("'通过请假申请'"), '弹窗标题按三种用途分')
   check(/<el-option label="暂不签字" value="" \/>/.test(src),
     '签字人那栏第一项固定是「暂不签字」（默认值就是它）')
   check(/s\.is_external \? `\$\{s\.name\}（域外账号）` : s\.name/.test(src),

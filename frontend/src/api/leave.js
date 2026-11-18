@@ -133,3 +133,8 @@ export function advisorSign(id, payload) {
 export function rejectLeave(id, reason) {
   return request({ url: `/leaves/${id}/reject`, method: 'post', data: { reason } })
 }
+
+/** 管理员：补学院意见 / 辅导员签字（批准时没填之后） */
+export function collegeSign(id, payload) {
+  return request({ url: `/leaves/${id}/college-sign`, method: 'post', data: payload })
+}

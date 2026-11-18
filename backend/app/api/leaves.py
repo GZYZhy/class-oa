@@ -28,6 +28,7 @@ from ..database import get_db
 from ..models import LeaveRequest, Student, User
 from ..schemas import (
     LeaveAdvisorSignature,
+    LeaveCollegeSignature,
     LeaveCorrectRequest,
     LeaveRequestCreate,
     LeaveRequestResponse,
@@ -126,6 +127,7 @@ def _to_response(leave: LeaveRequest) -> LeaveRequestResponse:
     # 派生字段：只要「签没签」。签字图副本的文件名不进响应 —— 前端拿不到它
     # 也就拼不出别的下载地址，需要看图时照旧走签字审批那条链
     resp.has_advisor_sign = bool(leave.advisor_sign_file)
+    resp.has_college_sign = bool(leave.college_sign_file)
     return resp
 
 
@@ -155,6 +157,26 @@ def _save_advisor_signature(
     leave.advisor_sign_no = sign_no
     leave.advisor_sign_name = signer_name
     leave.advisor_sign_file = dest.name
+    return dest
+
+
+def _save_college_signature(
+    db: Session, leave: LeaveRequest,
+    payload: LeaveAdvisorSignature | LeaveCollegeSignature | None,
+) -> Path | None:
+    """把学院意见与辅导员签字写进记录，规则和班导师那一套一致"""
+    payload = payload or LeaveAdvisorSignature()
+    opinion = payload.college_opinion.strip()
+    if opinion:
+        leave.college_opinion = opinion
+
+    sign_no = payload.college_sign_no.strip()
+    if not sign_no:
+        return None
+    dest, signer_name = copy_signature(db, sign_no, LEAVE_DIR, f"college_sign_{leave.id}")
+    leave.college_sign_no = sign_no
+    leave.college_sign_name = signer_name
+    leave.college_sign_file = dest.name
     return dest
 
 
@@ -461,10 +483,12 @@ def download_pdf(
     # 两处签字图：申请人自己的（两处都印）与班导师的（在行 9）。缺图不报错，
     # 表照常出 —— 少一个签字不该让申请人拿不到表
     advisor_sign = LEAVE_DIR / leave.advisor_sign_file if leave.advisor_sign_file else None
+    college_sign = LEAVE_DIR / leave.college_sign_file if leave.college_sign_file else None
     pdf_bytes = generate_leave_pdf(
         student, leave,
         applicant_sign=sign_photo_path(student),
         advisor_sign=advisor_sign,
+        college_sign=college_sign,
     )
 
     # 不可见溯源水印（复用公告/导出那套）。**不加访问日志**：学生和管理员下的是
@@ -693,30 +717,36 @@ def approve_leave(
     # 签字、覆盖掉当初那张，外加把已发出的通知再来一遍）。两条都在这一句里
     require_accepted(leave)
 
-    # 先把签字副本落盘再改状态：复制失败时这条还是 pending，管理员能重试；
-    # 反过来的话就会出现「状态已通过、签字丢了」的单子，而签字是批的时候才定的，
-    # 事后补就只能靠补签字了
-    snapshot = _save_advisor_signature(db, leave, payload)
-    leave.status = "approved"
-    leave.reviewed_at = datetime.now()
-    leave.reviewer_no = user.student_no
-    leave.reviewer_name = display_name(db, user)
-    log_operation(
-        db, user, "通过请假申请",
-        target=f"{leave.student_no} {leave.student_name}",
-        detail=(
-            f"{leave.leave_type}：{leave.start_at:%Y-%m-%d %H时} ~ {leave.end_at:%Y-%m-%d %H时}"
-            f"；班导师签字：{leave.advisor_sign_name or '暂不签字'}"
-        ),
-        ip=ip,
-    )
-    targets = recipients(db, only_no=leave.student_no)
+    # 先把两份签字副本落盘再改状态：复制失败时这条还是 accepted，管理员能重试。
+    # 任何一个快照失败或最终提交失败，都要把已落盘的副本删掉，别留孤儿文件。
+    snapshots: list[Path] = []
     try:
+        snapshot = _save_advisor_signature(db, leave, payload)
+        if snapshot:
+            snapshots.append(snapshot)
+        snapshot = _save_college_signature(db, leave, payload)
+        if snapshot:
+            snapshots.append(snapshot)
+        leave.status = "approved"
+        leave.reviewed_at = datetime.now()
+        leave.reviewer_no = user.student_no
+        leave.reviewer_name = display_name(db, user)
+        log_operation(
+            db, user, "通过请假申请",
+            target=f"{leave.student_no} {leave.student_name}",
+            detail=(
+                f"{leave.leave_type}：{leave.start_at:%Y-%m-%d %H时} ~ {leave.end_at:%Y-%m-%d %H时}"
+                f"；班导师签字：{leave.advisor_sign_name or '暂不签字'}"
+                f"；辅导员签字：{leave.college_sign_name or '暂不签字'}"
+            ),
+            ip=ip,
+        )
+        targets = recipients(db, only_no=leave.student_no)
         db.commit()
     except Exception:
-        # 提交失败 → 刚复制的副本没人引用了，删掉再抛，别留孤儿文件
-        if snapshot:
-            snapshot.unlink(missing_ok=True)
+        db.rollback()
+        for path in snapshots:
+            path.unlink(missing_ok=True)
         raise
     db.refresh(leave)
 
@@ -815,6 +845,47 @@ def advisor_sign_leave(
     try:
         db.commit()
     except Exception:
+        if snapshot:
+            snapshot.unlink(missing_ok=True)
+        raise
+    db.refresh(leave)
+    return _to_response(leave)
+
+
+@router.post(
+    "/{leave_id}/college-sign",
+    response_model=LeaveRequestResponse,
+    summary="补学院意见或辅导员签字",
+)
+def college_sign_leave(
+    leave_id: int,
+    payload: LeaveCollegeSignature,
+    user: User = Depends(admin_required),
+    db: Session = Depends(get_db),
+    ip: str = Depends(get_client_ip),
+):
+    leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=404, detail="请假记录不存在")
+    if leave.status != "approved":
+        raise HTTPException(status_code=400, detail="仅审核通过的申请可以补学院意见")
+    if leave.college_sign_file:
+        raise HTTPException(status_code=400, detail="该记录已有辅导员签字")
+    if not payload.college_opinion.strip() and not payload.college_sign_no.strip():
+        raise HTTPException(status_code=400, detail="请填写学院意见或选择签字人")
+
+    snapshot: Path | None = None
+    try:
+        snapshot = _save_college_signature(db, leave, payload)
+        log_operation(
+            db, user, "补学院意见",
+            target=f"{leave.student_no} {leave.student_name}",
+            detail=f"辅导员签字：{leave.college_sign_name or '暂不签字'}",
+            ip=ip,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
         if snapshot:
             snapshot.unlink(missing_ok=True)
         raise

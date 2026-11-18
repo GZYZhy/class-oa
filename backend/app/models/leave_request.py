@@ -61,5 +61,11 @@ class LeaveRequest(Base):
     advisor_sign_name = Column(String(50), default="", comment="班导师签字人姓名（快照）")
     advisor_sign_file = Column(String(100), default="", comment="班导师签字图副本名（非空即已签）")
 
+    # 学院意见与辅导员签字（同样在批准时填；默认全空，打印出来是空白待签栏）
+    college_opinion = Column(String(200), default="", comment="学院意见（选填）")
+    college_sign_no = Column(String(20), default="", comment="辅导员签字人登录名（快照）")
+    college_sign_name = Column(String(50), default="", comment="辅导员签字人姓名（快照）")
+    college_sign_file = Column(String(100), default="", comment="辅导员签字图副本名（非空即已签）")
+
     # 申请时间
     created_at = Column(DateTime, default=datetime.now, index=True, comment="申请时间")

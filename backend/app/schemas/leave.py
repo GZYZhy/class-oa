@@ -52,6 +52,10 @@ class LeaveRequestResponse(BaseModel):
     # 派生：签没签字。签字图**副本的文件名**本身不进响应 —— 前端只需要
     # 知道「已由张三签字」/「暂不签字」，拿不到副本名也就拼不出别的下载地址
     has_advisor_sign: bool = False
+    college_opinion: str = ""
+    college_sign_no: str = ""
+    college_sign_name: str = ""
+    has_college_sign: bool = False
 
     class Config:
         from_attributes = True
@@ -81,3 +85,12 @@ class LeaveAdvisorSignature(BaseModel):
     """
     advisor_opinion: str = Field("", max_length=200, description="班导师意见（选填）")
     advisor_sign_no: str = Field("", description="签字人的登录名，空串 = 暂不签字")
+    college_opinion: str = Field("", max_length=200, description="学院意见（选填）")
+    college_sign_no: str = Field("", description="辅导员签字人登录名，空串 = 暂不签字")
+
+
+class LeaveCollegeSignature(BaseModel):
+    """补学院意见 / 辅导员签字时单独收一次，避免误改班导师那三列"""
+
+    college_opinion: str = Field("", max_length=200, description="学院意见（选填）")
+    college_sign_no: str = Field("", description="辅导员签字人登录名，空串 = 暂不签字")
