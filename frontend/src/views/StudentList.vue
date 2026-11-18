@@ -1371,6 +1371,42 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="cameraDialog.open"
+      title="拍照"
+      width="min(720px, 92vw)"
+      append-to-body
+      destroy-on-close
+      @closed="stopCamera"
+    >
+      <div class="camera-panel">
+        <video
+          ref="cameraVideo"
+          class="camera-video"
+          autoplay
+          playsinline
+          muted
+        ></video>
+        <div v-if="cameraDialog.loading" class="camera-tip">正在打开摄像头…</div>
+        <div v-else-if="cameraDialog.error" class="camera-tip camera-error">
+          {{ cameraDialog.error }}
+          <div class="camera-fallback">
+            <el-button size="small" @click="usePhotoInputInstead">改用选择图片</el-button>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="cameraDialog.open = false">取消</el-button>
+        <el-button
+          type="primary"
+          :disabled="cameraDialog.loading || !!cameraDialog.error"
+          @click="captureCameraPhoto"
+        >
+          拍摄
+        </el-button>
+      </template>
+    </el-dialog>
+
     <PhotoImportDialog ref="photoImportRef" @done="fetchData" />
 
     <!-- 批量签字：勾了人就默认盖勾选范围，没勾人则默认补缺 -->
@@ -1388,7 +1424,7 @@
 import ListFeedback from '@/components/ListFeedback.vue'
 import { useLatestRequest } from '@/composables/useLatestRequest'
 import { usePageState } from '@/composables/usePageState'
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -1542,6 +1578,9 @@ const photoInput = ref(null)
 // 第二个隐藏文件框：带 capture，手机上直接开相机（桌面浏览器忽略它，等同选文件）
 const cameraInput = ref(null)
 const photoUploading = ref('') // 正在上传的那张照片的 type，用来显示按钮 loading
+const cameraDialog = reactive({ open: false, type: '', loading: false, error: '' })
+const cameraVideo = ref(null)
+let cameraStream = null
 // 照片上传进度百分比（算不出总大小时为 0，就不显示数字）
 const photoUploadProgress = ref(0)
 let photoPicking = '' // 这次点「选择图片」是想换哪一张
@@ -2114,21 +2153,100 @@ async function handleBatchDelete() {
 
 // ---------- 照片 ----------
 
-/** 点「选择图片」/「拍照」：记下要换的是哪一张，再转交给对应的隐藏 input。
- *  useCamera=true 走带 capture 的那个：手机上直接开相机，桌面上退化成选文件 */
-function pickPhoto(type, useCamera = false) {
-  photoPicking = type
-  const input = useCamera ? cameraInput : photoInput
-  input.value?.click()
+function isMobileCamera() {
+  return typeof navigator !== 'undefined' &&
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
 }
 
-async function handlePhotoPicked(e) {
-  const raw = e.target.files?.[0]
-  // 一定要清空：不清的话连着选同一个文件不会再触发 change
-  e.target.value = ''
-  if (!raw || !photoPicking) return
-  // 要换哪一张在 await 之前记下：压缩期间用户可能又点了别的照片
-  const type = photoPicking
+/** 点「选择图片」/「拍照」：记下要换的是哪一张。
+ *  拍照在手机上走原生 capture，电脑上打开 getUserMedia 预览弹窗。 */
+function pickPhoto(type, useCamera = false) {
+  photoPicking = type
+  if (!useCamera) {
+    photoInput.value?.click()
+    return
+  }
+  if (isMobileCamera()) {
+    cameraInput.value?.click()
+    return
+  }
+  openCamera(type)
+}
+
+async function openCamera(type) {
+  stopCamera()
+  cameraDialog.type = type
+  cameraDialog.open = true
+  cameraDialog.loading = true
+  cameraDialog.error = ''
+  await nextTick()
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('unsupported')
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    })
+    // 等权限期间用户可能已经把弹窗关了；这时把流停掉，别让摄像头一直亮着
+    if (!cameraDialog.open) {
+      stream.getTracks().forEach((track) => track.stop())
+      return
+    }
+    cameraStream = stream
+    if (cameraVideo.value) {
+      cameraVideo.value.srcObject = stream
+      await cameraVideo.value.play()
+    }
+  } catch (error) {
+    cameraDialog.error = error?.name === 'NotAllowedError'
+      ? '摄像头权限被拒绝，请在浏览器地址栏允许摄像头后重试。'
+      : '无法打开摄像头，请检查摄像头是否被占用，或改用选择图片。'
+  } finally {
+    cameraDialog.loading = false
+  }
+}
+
+function stopCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((track) => track.stop())
+    cameraStream = null
+  }
+  if (cameraVideo.value) cameraVideo.value.srcObject = null
+}
+
+function usePhotoInputInstead() {
+  const type = cameraDialog.type
+  cameraDialog.open = false
+  photoPicking = type
+  photoInput.value?.click()
+}
+
+async function captureCameraPhoto() {
+  const video = cameraVideo.value
+  if (!video || !video.videoWidth) {
+    ElMessage.warning('摄像头还没有准备好')
+    return
+  }
+  const canvas = document.createElement('canvas')
+  canvas.width = video.videoWidth
+  canvas.height = video.videoHeight
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92))
+  if (!blob) {
+    ElMessage.error('拍照失败，请重试')
+    return
+  }
+  const type = cameraDialog.type
+  cameraDialog.open = false
+  stopCamera()
+  await uploadPhotoFile(
+    new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' }),
+    type
+  )
+}
+
+async function uploadPhotoFile(raw, type) {
   // 手机拍的照片动辄几 MB，先压小再传（规则见 utils/imageCompress.js）
   const file = await compressImage(raw)
   if (file.size > 10 * 1024 * 1024) {
@@ -2152,6 +2270,18 @@ async function handlePhotoPicked(e) {
     photoUploading.value = ''
   }
 }
+
+async function handlePhotoPicked(e) {
+  const raw = e.target.files?.[0]
+  // 一定要清空：不清的话连着选同一个文件不会再触发 change
+  e.target.value = ''
+  if (!raw || !photoPicking) return
+  // 要换哪一张在 await 之前记下：压缩期间用户可能又点了别的照片
+  const type = photoPicking
+  await uploadPhotoFile(raw, type)
+}
+
+onBeforeUnmount(stopCamera)
 
 async function handleDeletePhoto(type) {
   const label = PHOTO_TYPES.find((p) => p.type === type)?.label || '照片'
@@ -2751,6 +2881,37 @@ watch(() => route.query.open, openFromQuery)
 }
 
 /* 编辑弹窗里的照片：两张并排放，各自带上传/删除 */
+.camera-panel {
+  position: relative;
+  min-height: 260px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #111;
+}
+.camera-video {
+  display: block;
+  width: 100%;
+  max-height: 62vh;
+  object-fit: contain;
+  background: #111;
+}
+.camera-tip {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #fff;
+  text-align: center;
+  background: rgba(17, 17, 17, 0.82);
+}
+.camera-error {
+  color: #ffd6d6;
+}
+.camera-fallback {
+  margin-top: 16px;
+}
+
 .edit-photos {
   display: flex;
   gap: 24px;

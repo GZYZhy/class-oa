@@ -646,7 +646,10 @@ console.log('\n▶ 编辑学生信息：实地采集那一格能调摄像头拍�
 
   // 原有链路一个字没动
   check(/function pickPhoto\(type,\s*useCamera = false\)/.test(list), 'pickPhoto 多一个开关，默认仍走文件框')
-  check(/useCamera\s*\?\s*cameraInput\s*:\s*photoInput/.test(list), '按开关决定点哪个 input')
+  check(list.includes('navigator.mediaDevices.getUserMedia') &&
+    list.includes('captureCameraPhoto') && list.includes('canvas.toBlob') &&
+    list.includes('改用选择图片'),
+  '电脑端拍照优先打开摄像头预览，失败时可退回选择图片')
   check(/pickPhoto\(p\.type\)/.test(list), '原来的「选择图片」还是不带第二个参数')
   check(/photoUploading === p\.type/.test(list), '上传进度/loading 还挂在「选择图片」上')
 }
@@ -4690,7 +4693,7 @@ console.log('\n▶ 上传前压缩：证明材料、证件照、签字图与附�
 
   // 学生照片、签字图、反馈、证明附件都各接了一处
   const student = readFileSync(`${ROOT}/src/views/StudentList.vue`, 'utf8')
-  check(/async function handlePhotoPicked[\s\S]{0,300}await compressImage\(/.test(student),
+  check(/async function uploadPhotoFile[\s\S]{0,300}await compressImage\(/.test(student),
     '学生照片（高考 / 实地 / 证件照）上传前压缩')
   check(/async function handleSignPicked[\s\S]{0,300}await compressImage\(/.test(student),
     '签字图上传前压缩')
